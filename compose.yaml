@@ -1,9 +1,0 @@
-services:
-  app:
-    build: .
-    container_name: my_app_dev
-    command: python -m myrepositorytemplate.main
-    volumes:
-      - ./src:/app/src
-    environment:
-      - MY_ENV_VAR=development

@@ -1,17 +1,24 @@
 [project]
-name = "myrepositorytemplate"
+name = "molgr"
 dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = []
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
+requires = ["scikit-build-core>=0.10", "setuptools-scm", "pybind11"]
+build-backend = "scikit_build_core.build"
 
-[tool.hatch.version]
-source = "vcs"
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["src/molgr"]
+
+# ✅ 这是官方原生支持的 Provider
+metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
+
+# 生成 _version.py (包含在 sdist 中)
+sdist.include = ["src/molgr/_version.py"]
 
 [dependency-groups]
 dev = [
@@ -28,7 +35,7 @@ dev = [
 exclude = [".git", ".venv", "__pycache__", "build", "dist"]
 line-length = 100
 indent-width = 4
-target-version = "py311"
+target-version = "py310"
 
 [tool.ruff.format]
 quote-style = "double"
@@ -65,17 +72,17 @@ pythonpath = ["src"]
 
 
 [tool.mypy]
-warn_return_any = false        # 允许函数返回 Any (这对调用未加类型的第三方库很有用)
-warn_unused_configs = true     # 警告无用的配置
-explicit_package_bases = true  # 配合 src 目录结构
+warn_return_any = false       # 允许函数返回 Any (这对调用未加类型的第三方库很有用)
+warn_unused_configs = true    # 警告无用的配置
+explicit_package_bases = true # 配合 src 目录结构
 
-disallow_untyped_defs = false  # 关键！允许编写没有类型注解的函数
-disallow_any_generics = false  # 允许使用 List, Dict 而不必须写 List[int]
+disallow_untyped_defs = false # 关键！允许编写没有类型注解的函数
+disallow_any_generics = false # 允许使用 List, Dict 而不必须写 List[int]
 
-check_untyped_defs = true      # 关键！即使函数没写注解，也要检查函数内部的逻辑错误
-no_implicit_optional = true    # 禁止隐式的 Optional (即禁止 x: str = None)
-warn_redundant_casts = true    # 警告多余的 cast
-warn_unused_ignores = false     # 警告多余的 # type: ignore
+check_untyped_defs = true   # 关键！即使函数没写注解，也要检查函数内部的逻辑错误
+no_implicit_optional = true # 禁止隐式的 Optional (即禁止 x: str = None)
+warn_redundant_casts = true # 警告多余的 cast
+warn_unused_ignores = false # 警告多余的 # type: ignore
 
 ignore_missing_imports = true
 exclude = ["tests", "scripts", "build", "dist"]

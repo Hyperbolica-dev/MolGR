@@ -3,7 +3,7 @@
 # =============================================================================
 
 # ⚠️ 模板使用者请修改这里：你的包名（对应 src/ 下的目录名）
-PACKAGE_NAME := myrepositorytemplate
+PACKAGE_NAME := molgr
 
 # --- 自动检测版本号 ---
 # 尝试通过 importlib 读取已安装包的版本，如果失败则显示 "dynamic"
@@ -17,7 +17,7 @@ else
 	OPEN_CMD := xdg-open
 endif
 
-.PHONY: help init install-uv install sync update tree format lint type-check check test test-cov clean distclean build release rename docker-build docker-up docker-down
+.PHONY: help init install-uv install sync update tree format lint type-check check test test-cov clean distclean build release rename docker-build docker-up docker-down cpp-dev-install cpp-build stubs clean-cpp
 
 # =============================================================================
 # 📝 帮助文档
@@ -234,3 +234,53 @@ docker-up:
 docker-down:
 	@echo "🛑 Stopping services..."
 	docker compose down
+
+# =============================================================================
+# 🦕 C++ 扩展开发 (🆕 新增板块)
+# =============================================================================
+
+cpp-dev-install:
+	@echo "Installing C++ dev dependencies"
+	uv pip install scikit-build-core hatch-vcs pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen hatchling
+# 🔨 快速编译 C++ 扩展
+# 使用 --no-build-isolation 避免每次重新安装构建依赖，加快重编速度
+# -v 显示 CMake/编译器 输出，方便调试
+cpp-build:
+	@echo "🔨 Re-compiling C++ extension (Editable Mode)..."
+	uv pip install -e . -v --no-build-isolation
+
+# 🤖 生成类型存根 (Stubs)
+# 1. 确保安装了 pybind11-stubgen
+# 2. 运行生成器，输出到 src/ 目录以便编辑器识别
+# --root-module-suffix="" 是为了避免生成 molgr-stubs 文件夹，而是直接在 src/molgr 下生成 .pyi
+stubs:
+	@echo "🤖 Checking for pybind11-stubgen..."
+	@uv run python -c "import pybind11_stubgen" 2>/dev/null || (echo "⚠️ pybind11-stubgen not found. Installing..." && uv pip install pybind11-stubgen)
+	@echo "🤖 Generating Type Stubs for: $(EXTENSION_MODULES)..."
+	@for module in $(EXTENSION_MODULES); do \
+		echo "   Processing $$module..."; \
+		uv run pybind11-stubgen $$module \
+			--output-dir src/ \
+			--root-module-suffix "" \
+			--ignore-invalid=all \
+			--numpy-array-use-type-var; \
+	done
+	@echo "✅ Stubs generated in src/!"
+
+# =============================================================================
+# 🧹 清理 (🔄 修改板块)
+# =============================================================================
+clean:
+	@echo "🧹 Cleaning artifacts..."
+	rm -rf dist build htmlcov coverage.xml .coverage
+	# 🆕 清理 scikit-build-core 的构建缓存
+	rm -rf _skbuild
+	# 🆕 清理编译出来的二进制扩展 (.so, .pyd)
+	find src -type f -name "*.so" -delete
+	find src -type f -name "*.pyd" -delete
+	# 清理 Python 缓存
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type d -name "*.egg-info" -exec rm -rf {} +
+	find . -type d -name ".pytest_cache" -exec rm -rf {} +
+	find . -type d -name ".ruff_cache" -exec rm -rf {} +
+	find . -type d -name ".mypy_cache" -exec rm -rf {} +
