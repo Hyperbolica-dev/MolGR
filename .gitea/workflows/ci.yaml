@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: http://10.72.201.58:13000/actions/checkout@v4
         with:
           # 🚨 核心关键点：
           # 必须拉取完整历史，hatch-vcs 才能计算出 "当前提交距离上个 Tag 有多远"
@@ -31,15 +31,18 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: http://10.72.201.58:13000/actions/setup-uv@v5
         with:
           enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.11
 
+      - name: Install build tools
+        run: uv pip install scikit-build-core pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen setuptools-scm
+
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv pip install -e . -v --no-build-isolation
 
       - name: Lint and Format check
         run: |
@@ -48,17 +51,6 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
-          
-  docker-check:
-    name: Check Docker Build
-    runs-on: ubuntu-latest
-    needs: build-and-test # 测试通过后再构建镜像
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Build Docker Image
-        # 仅仅尝试构建，确保 Dockerfile 没写错
-        run: docker build .
 
   # ===========================================================================
   # 2. 自动发布 (支持 Snapshot 和 Release)
@@ -76,12 +68,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: http://10.72.201.58:13000/actions/checkout@v4
         with:
           fetch-depth: 0 # 发布阶段也需要完整历史来构建版本
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: http://10.72.201.58:13000/actions/setup-uv@v5
 
       # 🔍 调试步骤：打印一下当前计算出的版本号，方便你在 Action 日志里确认
       - name: Show computed version

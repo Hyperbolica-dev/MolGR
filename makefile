@@ -8,7 +8,7 @@ PACKAGE_NAME := molgr
 # --- 自动检测版本号 ---
 # 尝试通过 importlib 读取已安装包的版本，如果失败则显示 "dynamic"
 VERSION := $(shell uv run python -c "from importlib.metadata import version; print(version('$(PACKAGE_NAME)'))" 2>/dev/null || echo "dynamic")
-
+EXTENSION_MODULES := molgr._core
 # 检测操作系统，用于打开浏览器命令
 DETECTED_OS := $(shell uname)
 ifeq ($(DETECTED_OS), Darwin)
@@ -167,15 +167,6 @@ release:
 # =============================================================================
 # 🧹 清理
 # =============================================================================
-clean:
-	@echo "🧹 Cleaning artifacts..."
-	rm -rf dist build htmlcov coverage.xml .coverage
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type d -name "*.egg-info" -exec rm -rf {} +
-	find . -type d -name ".pytest_cache" -exec rm -rf {} +
-	find . -type d -name ".ruff_cache" -exec rm -rf {} +
-	find . -type d -name ".mypy_cache" -exec rm -rf {} +
-
 distclean: clean
 	@echo "🗑️ Removing virtual environment (.venv)..."
 	rm -rf .venv .python-version
@@ -241,7 +232,7 @@ docker-down:
 
 cpp-dev-install:
 	@echo "Installing C++ dev dependencies"
-	uv pip install scikit-build-core hatch-vcs pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen hatchling
+	uv pip install scikit-build-core pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen setuptools-scm
 # 🔨 快速编译 C++ 扩展
 # 使用 --no-build-isolation 避免每次重新安装构建依赖，加快重编速度
 # -v 显示 CMake/编译器 输出，方便调试
@@ -261,8 +252,8 @@ stubs:
 		echo "   Processing $$module..."; \
 		uv run pybind11-stubgen $$module \
 			--output-dir src/ \
-			--root-module-suffix "" \
-			--ignore-invalid=all \
+			--root-suffix "" \
+			--ignore-all-errors \
 			--numpy-array-use-type-var; \
 	done
 	@echo "✅ Stubs generated in src/!"

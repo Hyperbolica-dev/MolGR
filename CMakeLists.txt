@@ -54,18 +54,21 @@ message(STATUS "OpenBabel library: ${OB_LIBRARY}")
 # 3. 构建目标
 # ==============================================================================
 
-add_library(mylib STATIC
-    src/cpp/src/algorithm.cpp
+add_library(molgr STATIC
+    src/cpp/src/consts.cpp
+    src/cpp/src/utils.cpp
+    src/cpp/src/scoring.cpp
+    src/cpp/src/logger.cpp
 )
-set_target_properties(mylib PROPERTIES POSITION_INDEPENDENT_CODE ON)
-# 为 mylib 添加头文件搜索路径
-target_include_directories(mylib PUBLIC
-    src/cpp/include  # 让使用者能找到 "mylib/algorithm.h"
-    ${OB_INCLUDE_DIR} # 让 mylib 能找到 OpenBabel 头文件
+set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# 为 molgr 添加头文件搜索路径
+target_include_directories(molgr PUBLIC
+    src/cpp/include  # 让使用者能找到 "molgr/algorithm.h"
+    ${OB_INCLUDE_DIR} # 让 molgr 能找到 OpenBabel 头文件
 )
 
-# 链接 OpenBabel 到 mylib
-target_link_libraries(mylib PUBLIC ${OB_LIBRARY})
+# 链接 OpenBabel 到 molgr
+target_link_libraries(molgr PUBLIC ${OB_LIBRARY})
 
 # ==============================================================================
 # 4. 定义 Pybind11 模块 (_core)
@@ -73,7 +76,7 @@ target_link_libraries(mylib PUBLIC ${OB_LIBRARY})
 pybind11_add_module(_core src/bindings/module.cpp)
 
 # 链接你的核心库
-target_link_libraries(_core PRIVATE mylib)
+target_link_libraries(_core PRIVATE molgr)
 
 # 配置 RPATH (保持之前成功的设置)
 if(UNIX AND NOT APPLE)
