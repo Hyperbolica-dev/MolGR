@@ -2,7 +2,7 @@
  * @Author: TMJ
  * @Date: 2025-12-25 20:13:30
  * @LastEditors: TMJ
- * @LastEditTime: 2025-12-26 16:20:45
+ * @LastEditTime: 2026-01-01 22:35:59
  * @Description: 请填写简介
  */
 /**
@@ -19,7 +19,11 @@
 #include <openbabel/mol.h>
 #include <openbabel/math/vector3.h>
 #include <string>
+// =============================================================================
+// 手动定义 OpenBabel 遍历宏
+// =============================================================================
 
+#define FOR_NB_OF_ATOM(a, p) for (OpenBabel::OBAtomAtomIter a(p); a; ++a)
 namespace molgr
 {
     namespace utils
@@ -66,6 +70,39 @@ namespace molgr
          * @return A vector of matches, where each match is a vector of atom indices (1-based).
          */
         std::vector<std::vector<int>> FindSmarts(OpenBabel::OBMol &mol, const std::string &smarts);
+
+        // 1. 定义原子数据结构
+        struct AtomData
+        {
+            int atomic_num;
+            int formal_charge;
+            int radical_num;
+            double x, y, z;
+        };
+
+        // 2. 定义键数据结构
+        struct BondData
+        {
+            int begin_atom_idx; // 1-based index
+            int end_atom_idx;   // 1-based index
+            int order;
+        };
+
+        // 3. 定义整体分子数据结构
+        struct MoleculeData
+        {
+            std::vector<AtomData> atoms;
+            std::vector<BondData> bonds;
+            int total_charge;
+            int total_radical_num;
+        };
+
+        /**
+         * @brief Extract OBMol data into a structured C++ object.
+         * @param mol_ptr The pointer to the OBMol object.
+         * @return A MoleculeData struct containing all info.
+         */
+        MoleculeData ExtractMoleculeData(intptr_t mol_ptr);
 
     } // namespace utils
 } // namespace molgr

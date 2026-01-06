@@ -36,7 +36,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv venv
 
       - name: Install build tools
         run: uv pip install scikit-build-core pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen setuptools-scm

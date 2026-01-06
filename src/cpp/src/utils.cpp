@@ -1,69 +1,105 @@
 /**
  * @file utils.cpp
- * @brief Implementation of geometric utility functions.
+ * @brief Implementation of geometric utility functions and Thread-Safe SMARTS caching.
+ * @details Uses thread_local storage to allow lock-free parallel execution of SMARTS matching.
  * @namespace molgr::utils
  * @author TMJ
- * @date 2025-12-25
+ * @date 2025-12-27
  */
 
 #include "molgr/utils.h"
+#include "molgr/logger.h"
+
+#include <openbabel/mol.h>
+#include <openbabel/atom.h>
+#include <openbabel/bond.h>
+#include <openbabel/obiter.h>
+#include <openbabel/parsmart.h>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
-#include <openbabel/parsmart.h>
+#include <unordered_map>
+#include <memory>
+#include <vector>
 
 namespace molgr
 {
     namespace utils
     {
 
-        // -----------------------------------------------------------------------------
-        // Internal Helper: Calculate Squared Length manually
-        // OpenBabel::vector3 doesn't have LengthSq(), so we use dot(v, v)
-        // -----------------------------------------------------------------------------
+        // =============================================================================
+        // Thread-Safe SMARTS Caching System
+        // =============================================================================
+
+        // 使用 thread_local 保证每个线程有独立的缓存，无需加锁，实现真正的并行加速
+        thread_local std::unordered_map<std::string, std::unique_ptr<OpenBabel::OBSmartsPattern>> t_smarts_cache;
+
+        OpenBabel::OBSmartsPattern *GetCompiledSmarts(const std::string &smarts)
+        {
+            // 1. 查找当前线程的缓存
+            auto it = t_smarts_cache.find(smarts);
+            if (it != t_smarts_cache.end())
+            {
+                return it->second.get();
+            }
+
+            // 2. 未找到，编译新模式
+            auto sp = std::make_unique<OpenBabel::OBSmartsPattern>();
+            if (!sp->Init(smarts))
+            {
+                LOG_ERROR("Invalid SMARTS pattern: " << smarts);
+                return nullptr;
+            }
+
+            // 3. 存入当前线程的缓存
+            OpenBabel::OBSmartsPattern *ptr = sp.get();
+            t_smarts_cache[smarts] = std::move(sp);
+            return ptr;
+        }
+
+        std::vector<std::vector<int>> FindSmarts(OpenBabel::OBMol &mol, const std::string &smarts)
+        {
+            OpenBabel::OBSmartsPattern *sp = GetCompiledSmarts(smarts);
+            if (!sp)
+                return {};
+
+            // Match() 修改内部状态，但在 thread_local 下是安全的
+            if (sp->Match(mol))
+            {
+                // 返回结果是 1-based index 的 vector<vector<int>>
+                return sp->GetMapList();
+            }
+
+            return {};
+        }
+
+        // =============================================================================
+        // Geometric Functions
+        // =============================================================================
+
         inline double LengthSq(const OpenBabel::vector3 &v)
         {
             return OpenBabel::dot(v, v);
         }
 
-        // -----------------------------------------------------------------------------
-        // Implementation of CalculateTetrahedronVolume
-        // -----------------------------------------------------------------------------
         double CalculateTetrahedronVolume(const OpenBabel::vector3 &p1, const OpenBabel::vector3 &p2,
                                           const OpenBabel::vector3 &p3, const OpenBabel::vector3 &p4)
         {
-            // 算法原理：
-            // V = (1/6) * | (p1-p4) · ((p2-p4) x (p3-p4)) |
-
             OpenBabel::vector3 v1 = p1 - p4;
             OpenBabel::vector3 v2 = p2 - p4;
             OpenBabel::vector3 v3 = p3 - p4;
-
-            // 注意：显式使用 OpenBabel::cross 和 OpenBabel::dot
             OpenBabel::vector3 cross_product = OpenBabel::cross(v2, v3);
             double scalar_triple_product = OpenBabel::dot(v1, cross_product);
-
             return std::abs(scalar_triple_product) / 6.0;
         }
 
-        // -----------------------------------------------------------------------------
-        // Implementation of CalculateShapeQuality
-        // -----------------------------------------------------------------------------
         double CalculateShapeQuality(const OpenBabel::vector3 &p1, const OpenBabel::vector3 &p2,
                                      const OpenBabel::vector3 &p3, const OpenBabel::vector3 &p4)
         {
-
-            // 1. 计算体积
             double volume = CalculateTetrahedronVolume(p1, p2, p3, p4);
-
-            // 如果体积接近 0（共面），直接返回 0
             if (volume < 1e-9)
-            {
                 return 0.0;
-            }
 
-            // 2. 计算 6 条边的长度平方和
-            // 使用我们定义的 helper 函数 LengthSq
             double edges_sq_sum = 0.0;
             edges_sq_sum += LengthSq(p1 - p2);
             edges_sq_sum += LengthSq(p1 - p3);
@@ -72,29 +108,16 @@ namespace molgr
             edges_sq_sum += LengthSq(p2 - p4);
             edges_sq_sum += LengthSq(p3 - p4);
 
-            // 3. 计算均方根边长的立方 (L_rms^3)
-            // L_rms = sqrt( sum(edges^2) / 6 )
-            // L_rms^3 = ( sum(edges^2) / 6 ) ^ 1.5
             double l_rms_squared = edges_sq_sum / 6.0;
             double l_rms_cubed = std::pow(l_rms_squared, 1.5);
 
-            // 4. 计算 Quality
-            // Normalization Constant = 6 * sqrt(2) ≈ 8.48528
             const double NORMALIZATION_CONST = 6.0 * std::sqrt(2.0);
-
-            // 避免除以零
             if (l_rms_cubed < 1e-9)
                 return 0.0;
-
             double quality = NORMALIZATION_CONST * (volume / l_rms_cubed);
-
-            // 5. Clamp result to [0.0, 1.0]
             return std::max(0.0, std::min(1.0, quality));
         }
 
-        // -----------------------------------------------------------------------------
-        // Implementation of Helper ToVector3
-        // -----------------------------------------------------------------------------
         OpenBabel::vector3 ToVector3(const std::vector<double> &coords)
         {
             if (coords.size() < 3)
@@ -102,21 +125,49 @@ namespace molgr
             return OpenBabel::vector3(coords[0], coords[1], coords[2]);
         }
 
-        std::vector<std::vector<int>> FindSmarts(OpenBabel::OBMol &mol, const std::string &smarts)
+        MoleculeData ExtractMoleculeData(intptr_t mol_ptr)
         {
-            OpenBabel::OBSmartsPattern sp;
-            if (!sp.Init(smarts))
+            OpenBabel::OBMol *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+            MoleculeData data;
+
+            // 初始化
+            data.total_charge = 0;
+            data.total_radical_num = 0;
+
+            if (!mol)
             {
-                std::cerr << "Error: Invalid SMARTS pattern: " << smarts << std::endl;
-                return {};
+                return data;
             }
 
-            std::vector<std::vector<int>> results;
-            if (sp.Match(mol))
+            // 1. 提取原子并累加属性
+            data.atoms.reserve(mol->NumAtoms());
+            FOR_ATOMS_OF_MOL(atom, *mol)
             {
-                results = sp.GetMapList();
+                AtomData ad;
+                ad.atomic_num = atom->GetAtomicNum();
+                ad.formal_charge = atom->GetFormalCharge();
+                ad.radical_num = atom->GetSpinMultiplicity();
+                ad.x = atom->GetX();
+                ad.y = atom->GetY();
+                ad.z = atom->GetZ();
+                data.atoms.push_back(ad);
+
+                // [FIX] 手动累加，确保数值与原子状态实时一致
+                data.total_charge += ad.formal_charge;
+                data.total_radical_num += ad.radical_num;
             }
-            return results;
+
+            // 2. 提取键
+            data.bonds.reserve(mol->NumBonds());
+            FOR_BONDS_OF_MOL(bond, *mol)
+            {
+                BondData bd;
+                bd.begin_atom_idx = bond->GetBeginAtom()->GetIdx();
+                bd.end_atom_idx = bond->GetEndAtom()->GetIdx();
+                bd.order = bond->GetBondOrder();
+                data.bonds.push_back(bd);
+            }
+            return data;
         }
 
     } // namespace utils

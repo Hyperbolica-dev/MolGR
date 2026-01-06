@@ -9,7 +9,7 @@
 #include "molgr/scoring.h"
 #include "molgr/consts.h"
 #include "molgr/utils.h"
-#include "molgr/logger.h" // ✅ 引入日志模块
+#include "molgr/logger.h"
 
 #include <openbabel/graphsym.h>
 #include <openbabel/elements.h>
@@ -21,21 +21,6 @@
 #include <set>
 #include <iostream>
 #include <algorithm>
-
-// =============================================================================
-// 手动定义 OpenBabel 遍历宏
-// =============================================================================
-#ifndef FOR_ATOMS_OF_MOL
-#define FOR_ATOMS_OF_MOL(a, m) for (OpenBabel::OBAtomIterator a = m.BeginAtoms(); a != m.EndAtoms(); ++a)
-#endif
-
-#ifndef FOR_BONDS_OF_MOL
-#define FOR_BONDS_OF_MOL(b, m) for (OpenBabel::OBBondIterator b = m.BeginBonds(); b != m.EndBonds(); ++b)
-#endif
-
-#ifndef FOR_NB_OF_ATOM
-#define FOR_NB_OF_ATOM(a, p) for (OpenBabel::OBAtomAtomIter a(p); a; ++a)
-#endif
 
 namespace molgr
 {
