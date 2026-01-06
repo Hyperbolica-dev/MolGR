@@ -4,10 +4,13 @@ dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "openbabel-wheel>=3.1.1.22",
+    "rdkit>=2023.9.6",
+]
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "setuptools-scm", "pybind11"]
+requires = ["scikit-build-core>=0.10", "setuptools-scm", "pybind11", "openbabel-wheel"]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
@@ -25,10 +28,13 @@ dev = [
     "ipykernel",
     "ipywidgets",
     "mypy",
+    "pybind11>=3.0.1",
     "pytest",
     "pytest-cov",
     "rich",
     "ruff",
+    "scikit-build-core>=0.11.6",
+    "setuptools-scm>=9.2.2",
 ]
 
 [tool.ruff]

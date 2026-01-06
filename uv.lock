@@ -598,7 +598,7 @@ version = "1.3.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 dependencies = [
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.13'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219" }
 wheels = [
@@ -642,6 +642,18 @@ dependencies = [
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/49/3b30cad09e7771a4982d9975a8cbf64f00d4a1ececb53297f1d9a7be1b10/importlib_metadata-8.7.1.tar.gz", hash = "sha256:49fef1ae6440c182052f407c8d34a68f72efc36db9ca90dc0113398f2fdde8bb" }
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/5e/f8e9a1d23b9c20a551a8a02ea3637b4642e22c2626e3a13a9a29cdea99eb/importlib_metadata-8.7.1-py3-none-any.whl", hash = "sha256:5a1f80bf1daa489495071efbb095d75a634cf28a8bc299581244063b53176151" },
+]
+
+[[package]]
+name = "importlib-resources"
+version = "6.4.5"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "zipp", version = "3.20.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/be/f3e8c6081b684f176b761e6a2fef02a0be939740ed6f54109a2951d806f3/importlib_resources-6.4.5.tar.gz", hash = "sha256:980862a1d16c9e147a59603677fa2aa5fd82b87f223b6cb870695bcfce830065" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e1/6a/4604f9ae2fa62ef47b9de2fa5ad599589d28c9fd1d335f32759813dfa91e/importlib_resources-6.4.5-py3-none-any.whl", hash = "sha256:ac29d5f956f01d5e4bb63102a5a19957f1b9175e45649977264a1416783bb717" },
 ]
 
 [[package]]
@@ -1145,6 +1157,10 @@ wheels = [
 [[package]]
 name = "molgr"
 source = { editable = "." }
+dependencies = [
+    { name = "openbabel-wheel" },
+    { name = "rdkit" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1154,6 +1170,7 @@ dev = [
     { name = "ipywidgets" },
     { name = "mypy", version = "1.14.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "mypy", version = "1.19.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "pybind11" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
@@ -1161,19 +1178,28 @@ dev = [
     { name = "pytest-cov", version = "7.0.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "rich" },
     { name = "ruff" },
+    { name = "scikit-build-core" },
+    { name = "setuptools-scm" },
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "openbabel-wheel", specifier = ">=3.1.1.22" },
+    { name = "rdkit", specifier = ">=2023.9.6" },
+]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "mypy" },
+    { name = "pybind11", specifier = ">=3.0.1" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "rich" },
     { name = "ruff" },
+    { name = "scikit-build-core", specifier = ">=0.11.6" },
+    { name = "setuptools-scm", specifier = ">=9.2.2" },
 ]
 
 [[package]]
@@ -1305,6 +1331,289 @@ wheels = [
 ]
 
 [[package]]
+name = "numpy"
+version = "1.24.4"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version < '3.9'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/9b/027bec52c633f6556dba6b722d9a0befb40498b9ceddd29cbe67a45a127c/numpy-1.24.4.tar.gz", hash = "sha256:80f5e3a4e498641401868df4208b74581206afbee7cf7b8329daae82676d9463" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6b/80/6cdfb3e275d95155a34659163b83c09e3a3ff9f1456880bec6cc63d71083/numpy-1.24.4-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:c0bfb52d2169d58c1cdb8cc1f16989101639b34c7d3ce60ed70b19c63eba0b64" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/64/5f/3f01d753e2175cfade1013eea08db99ba1ee4bdb147ebcf3623b75d12aa7/numpy-1.24.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:ed094d4f0c177b1b8e7aa9cba7d6ceed51c0e569a5318ac0ca9a090680a6a1b1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5a/b3/2f9c21d799fa07053ffa151faccdceeb69beec5a010576b8991f614021f7/numpy-1.24.4-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:79fc682a374c4a8ed08b331bef9c5f582585d1048fa6d80bc6c35bc384eee9b4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/be/ae5bf4737cb79ba437879915791f6f26d92583c738d7d960ad94e5c36adf/numpy-1.24.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7ffe43c74893dbf38c2b0a1f5428760a1a9c98285553c89e12d70a96a7f3a4d6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c0/64/908c1087be6285f40e4b3e79454552a701664a079321cff519d8c7051d06/numpy-1.24.4-cp310-cp310-win32.whl", hash = "sha256:4c21decb6ea94057331e111a5bed9a79d335658c27ce2adb580fb4d54f2ad9bc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/22/55/3d5a7c1142e0d9329ad27cece17933b0e2ab4e54ddc5c1861fbfeb3f7693/numpy-1.24.4-cp310-cp310-win_amd64.whl", hash = "sha256:b4bea75e47d9586d31e892a7401f76e909712a0fd510f58f5337bea9572c571e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a9/cc/5ed2280a27e5dab12994c884f1f4d8c3bd4d885d02ae9e52a9d213a6a5e2/numpy-1.24.4-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:f136bab9c2cfd8da131132c2cf6cc27331dd6fae65f95f69dcd4ae3c3639c810" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c0/bc/77635c657a3668cf652806210b8662e1aff84b818a55ba88257abf6637a8/numpy-1.24.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:e2926dac25b313635e4d6cf4dc4e51c8c0ebfed60b801c799ffc4c32bf3d1254" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a7/4c/96cdaa34f54c05e97c1c50f39f98d608f96f0677a6589e64e53104e22904/numpy-1.24.4-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:222e40d0e2548690405b0b3c7b21d1169117391c2e82c378467ef9ab4c8f0da7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/22/97/dfb1a31bb46686f09e68ea6ac5c63fdee0d22d7b23b8f3f7ea07712869ef/numpy-1.24.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7215847ce88a85ce39baf9e89070cb860c98fdddacbaa6c0da3ffb31b3350bd5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/35/e2/76a11e54139654a324d107da1d98f99e7aa2a7ef97cfd7c631fba7dbde71/numpy-1.24.4-cp311-cp311-win32.whl", hash = "sha256:4979217d7de511a8d57f4b4b5b2b965f707768440c17cb70fbf254c4b225238d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d8/ec/ebef2f7d7c28503f958f0f8b992e7ce606fb74f9e891199329d5f5f87404/numpy-1.24.4-cp311-cp311-win_amd64.whl", hash = "sha256:b7b1fc9864d7d39e28f41d089bfd6353cb5f27ecd9905348c24187a768c79694" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/11/10/943cfb579f1a02909ff96464c69893b1d25be3731b5d3652c2e0cf1281ea/numpy-1.24.4-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:1452241c290f3e2a312c137a9999cdbf63f78864d63c79039bda65ee86943f61" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a7/ae/f53b7b265fdc701e663fbb322a8e9d4b14d9cb7b2385f45ddfabfc4327e4/numpy-1.24.4-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:04640dab83f7c6c85abf9cd729c5b65f1ebd0ccf9de90b270cd61935eef0197f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/25/6f/2586a50ad72e8dbb1d8381f837008a0321a3516dfd7cb57fc8cf7e4bb06b/numpy-1.24.4-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a5425b114831d1e77e4b5d812b69d11d962e104095a5b9c3b641a218abcc050e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/5d/5738903efe0ecb73e51eb44feafba32bdba2081263d40c5043568ff60faf/numpy-1.24.4-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dd80e219fd4c71fc3699fc1dadac5dcf4fd882bfc6f7ec53d30fa197b8ee22dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/57/8d328f0b91c733aa9aa7ee540dbc49b58796c862b4fbcb1146c701e888da/numpy-1.24.4-cp38-cp38-win32.whl", hash = "sha256:4602244f345453db537be5314d3983dbf5834a9701b7723ec28923e2889e0bb2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/69/65/0d47953afa0ad569d12de5f65d964321c208492064c38fe3b0b9744f8d44/numpy-1.24.4-cp38-cp38-win_amd64.whl", hash = "sha256:692f2e0f55794943c5bfff12b3f56f99af76f902fc47487bdfe97856de51a706" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9a/cd/d5b0402b801c8a8b56b04c1e85c6165efab298d2f0ab741c2406516ede3a/numpy-1.24.4-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:2541312fbf09977f3b3ad449c4e5f4bb55d0dbf79226d7724211acc905049400" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/14/27/638aaa446f39113a3ed38b37a66243e21b38110d021bfcb940c383e120f2/numpy-1.24.4-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:9667575fb6d13c95f1b36aca12c5ee3356bf001b714fc354eb5465ce1609e62f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/27/91894916e50627476cff1a4e4363ab6179d01077d71b9afed41d9e1f18bf/numpy-1.24.4-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f3a86ed21e4f87050382c7bc96571755193c4c1392490744ac73d660e8f564a9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7a/7c/d7b2a0417af6428440c0ad7cb9799073e507b1a465f827d058b826236964/numpy-1.24.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d11efb4dbecbdf22508d55e48d9c8384db795e1b7b51ea735289ff96613ff74d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/18/9d/e02ace5d7dfccee796c37b995c63322674daf88ae2f4a4724c5dd0afcc91/numpy-1.24.4-cp39-cp39-win32.whl", hash = "sha256:6620c0acd41dbcb368610bb2f4d83145674040025e5536954782467100aa8835" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/38/6cc19d6b8bfa1d1a459daf2b3fe325453153ca7019976274b6f33d8b5663/numpy-1.24.4-cp39-cp39-win_amd64.whl", hash = "sha256:befe2bf740fd8373cf56149a5c23a0f601e82869598d41f8e188a0e9869926f8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/fd/8dff40e25e937c94257455c237b9b6bf5a30d42dd1cc11555533be099492/numpy-1.24.4-pp38-pypy38_pp73-macosx_10_9_x86_64.whl", hash = "sha256:31f13e25b4e304632a4619d0e0777662c2ffea99fcae2029556b17d8ff958aef" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/42/e7/4bf953c6e05df90c6d351af69966384fed8e988d0e8c54dad7103b59f3ba/numpy-1.24.4-pp38-pypy38_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:95f7ac6540e95bc440ad77f56e520da5bf877f87dca58bd095288dce8940532a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/dd/9106005eb477d022b60b3817ed5937a43dad8fd1f20b0610ea8a32fcb407/numpy-1.24.4-pp38-pypy38_pp73-win_amd64.whl", hash = "sha256:e98f220aa76ca2a977fe435f5b04d7b3470c0a2e6312907b37ba6068f26787f2" },
+]
+
+[[package]]
+name = "numpy"
+version = "2.0.2"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a9/75/10dd1f8116a8b796cb2c737b674e02d02e80454bda953fa7e65d8c12b016/numpy-2.0.2.tar.gz", hash = "sha256:883c987dee1880e2a864ab0dc9892292582510604156762362d9326444636e78" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/91/3495b3237510f79f5d81f2508f9f13fea78ebfdf07538fc7444badda173d/numpy-2.0.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:51129a29dbe56f9ca83438b706e2e69a39892b5eda6cedcb6b0c9fdc9b0d3ece" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/05/33/26178c7d437a87082d11019292dce6d3fe6f0e9026b7b2309cbf3e489b1d/numpy-2.0.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:f15975dfec0cf2239224d80e32c3170b1d168335eaedee69da84fbe9f1f9cd04" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ec/31/cc46e13bf07644efc7a4bf68df2df5fb2a1a88d0cd0da9ddc84dc0033e51/numpy-2.0.2-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:8c5713284ce4e282544c68d1c3b2c7161d38c256d2eefc93c1d683cf47683e66" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6e/16/7bfcebf27bb4f9d7ec67332ffebee4d1bf085c84246552d52dbb548600e7/numpy-2.0.2-cp310-cp310-macosx_14_0_x86_64.whl", hash = "sha256:becfae3ddd30736fe1889a37f1f580e245ba79a5855bff5f2a29cb3ccc22dd7b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/a3/561c531c0e8bf082c5bef509d00d56f82e0ea7e1e3e3a7fc8fa78742a6e5/numpy-2.0.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2da5960c3cf0df7eafefd806d4e612c5e19358de82cb3c343631188991566ccd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/66/f7177ab331876200ac7563a580140643d1179c8b4b6a6b0fc9838de2a9b8/numpy-2.0.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:496f71341824ed9f3d2fd36cf3ac57ae2e0165c143b55c3a035ee219413f3318" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/25/7f/0b209498009ad6453e4efc2c65bcdf0ae08a182b2b7877d7ab38a92dc542/numpy-2.0.2-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:a61ec659f68ae254e4d237816e33171497e978140353c0c2038d46e63282d0c8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3e/df/2619393b1e1b565cd2d4c4403bdd979621e2c4dea1f8532754b2598ed63b/numpy-2.0.2-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:d731a1c6116ba289c1e9ee714b08a8ff882944d4ad631fd411106a30f083c326" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/22/ad/77e921b9f256d5da36424ffb711ae79ca3f451ff8489eeca544d0701d74a/numpy-2.0.2-cp310-cp310-win32.whl", hash = "sha256:984d96121c9f9616cd33fbd0618b7f08e0cfc9600a7ee1d6fd9b239186d19d97" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/05/3442317535028bc29cf0c0dd4c191a4481e8376e9f0db6bcf29703cadae6/numpy-2.0.2-cp310-cp310-win_amd64.whl", hash = "sha256:c7b0be4ef08607dd04da4092faee0b86607f111d5ae68036f16cc787e250a131" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8b/cf/034500fb83041aa0286e0fb16e7c76e5c8b67c0711bb6e9e9737a717d5fe/numpy-2.0.2-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:49ca4decb342d66018b01932139c0961a8f9ddc7589611158cb3c27cbcf76448" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4a/d9/32de45561811a4b87fbdee23b5797394e3d1504b4a7cf40c10199848893e/numpy-2.0.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:11a76c372d1d37437857280aa142086476136a8c0f373b2e648ab2c8f18fb195" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c1/ca/2f384720020c7b244d22508cb7ab23d95f179fcfff33c31a6eeba8d6c512/numpy-2.0.2-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:807ec44583fd708a21d4a11d94aedf2f4f3c3719035c76a2bbe1fe8e217bdc57" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0e/78/a3e4f9fb6aa4e6fdca0c5428e8ba039408514388cf62d89651aade838269/numpy-2.0.2-cp311-cp311-macosx_14_0_x86_64.whl", hash = "sha256:8cafab480740e22f8d833acefed5cc87ce276f4ece12fdaa2e8903db2f82897a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a0/72/cfc3a1beb2caf4efc9d0b38a15fe34025230da27e1c08cc2eb9bfb1c7231/numpy-2.0.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a15f476a45e6e5a3a79d8a14e62161d27ad897381fecfa4a09ed5322f2085669" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ba/a8/c17acf65a931ce551fee11b72e8de63bf7e8a6f0e21add4c937c83563538/numpy-2.0.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:13e689d772146140a252c3a28501da66dfecd77490b498b168b501835041f951" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ba/86/8767f3d54f6ae0165749f84648da9dcc8cd78ab65d415494962c86fac80f/numpy-2.0.2-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:9ea91dfb7c3d1c56a0e55657c0afb38cf1eeae4544c208dc465c3c9f3a7c09f9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/df/87/f76450e6e1c14e5bb1eae6836478b1028e096fd02e85c1c37674606ab752/numpy-2.0.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:c1c9307701fec8f3f7a1e6711f9089c06e6284b3afbbcd259f7791282d660a15" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5c/ca/0f0f328e1e59f73754f06e1adfb909de43726d4f24c6a3f8805f34f2b0fa/numpy-2.0.2-cp311-cp311-win32.whl", hash = "sha256:a392a68bd329eafac5817e5aefeb39038c48b671afd242710b451e76090e81f4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/57/3a3f14d3a759dcf9bf6e9eda905794726b758819df4663f217d658a58695/numpy-2.0.2-cp311-cp311-win_amd64.whl", hash = "sha256:286cd40ce2b7d652a6f22efdfc6d1edf879440e53e76a75955bc0c826c7e64dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/40/2e117be60ec50d98fa08c2f8c48e09b3edea93cfcabd5a9ff6925d54b1c2/numpy-2.0.2-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:df55d490dea7934f330006d0f81e8551ba6010a5bf035a249ef61a94f21c500b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/46/92/1b8b8dee833f53cef3e0a3f69b2374467789e0bb7399689582314df02651/numpy-2.0.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:8df823f570d9adf0978347d1f926b2a867d5608f434a7cff7f7908c6570dcf5e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7f/19/e2793bde475f1edaea6945be141aef6c8b4c669b90c90a300a8954d08f0a/numpy-2.0.2-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:9a92ae5c14811e390f3767053ff54eaee3bf84576d99a2456391401323f4ec2c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e3/ff/ddf6dac2ff0dd50a7327bcdba45cb0264d0e96bb44d33324853f781a8f3c/numpy-2.0.2-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:a842d573724391493a97a62ebbb8e731f8a5dcc5d285dfc99141ca15a3302d0c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/21/67f36eac8e2d2cd652a2e69595a54128297cdcb1ff3931cfc87838874bd4/numpy-2.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c05e238064fc0610c840d1cf6a13bf63d7e391717d247f1bf0318172e759e692" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/39/68/e9f1126d757653496dbc096cb429014347a36b228f5a991dae2c6b6cfd40/numpy-2.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0123ffdaa88fa4ab64835dcbde75dcdf89c453c922f18dced6e27c90d1d0ec5a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/e9/1f5333281e4ebf483ba1c888b1d61ba7e78d7e910fdd8e6499667041cc35/numpy-2.0.2-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:96a55f64139912d61de9137f11bf39a55ec8faec288c75a54f93dfd39f7eb40c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/71/af/a469674070c8d8408384e3012e064299f7a2de540738a8e414dcfd639996/numpy-2.0.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:ec9852fb39354b5a45a80bdab5ac02dd02b15f44b3804e9f00c556bf24b4bded" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/3d/08ea9f239d0e0e939b6ca52ad403c84a2bce1bde301a8eb4888c1c1543f1/numpy-2.0.2-cp312-cp312-win32.whl", hash = "sha256:671bec6496f83202ed2d3c8fdc486a8fc86942f2e69ff0e986140339a63bcbe5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b2/b5/4ac39baebf1fdb2e72585c8352c56d063b6126be9fc95bd2bb5ef5770c20/numpy-2.0.2-cp312-cp312-win_amd64.whl", hash = "sha256:cfd41e13fdc257aa5778496b8caa5e856dc4896d4ccf01841daee1d96465467a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/c1/41c8f6df3162b0c6ffd4437d729115704bd43363de0090c7f913cfbc2d89/numpy-2.0.2-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:9059e10581ce4093f735ed23f3b9d283b9d517ff46009ddd485f1747eb22653c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/39/bc/fd298f308dcd232b56a4031fd6ddf11c43f9917fbc937e53762f7b5a3bb1/numpy-2.0.2-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:423e89b23490805d2a5a96fe40ec507407b8ee786d66f7328be214f9679df6dd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/96/ff/06d1aa3eeb1c614eda245c1ba4fb88c483bee6520d361641331872ac4b82/numpy-2.0.2-cp39-cp39-macosx_14_0_arm64.whl", hash = "sha256:2b2955fa6f11907cf7a70dab0d0755159bca87755e831e47932367fc8f2f2d0b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2d/98/121996dcfb10a6087a05e54453e28e58694a7db62c5a5a29cee14c6e047b/numpy-2.0.2-cp39-cp39-macosx_14_0_x86_64.whl", hash = "sha256:97032a27bd9d8988b9a97a8c4d2c9f2c15a81f61e2f21404d7e8ef00cb5be729" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/15/31/9dffc70da6b9bbf7968f6551967fc21156207366272c2a40b4ed6008dc9b/numpy-2.0.2-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1e795a8be3ddbac43274f18588329c72939870a16cae810c2b73461c40718ab1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b9/14/78635daab4b07c0930c919d451b8bf8c164774e6a3413aed04a6d95758ce/numpy-2.0.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f26b258c385842546006213344c50655ff1555a9338e2e5e02a0756dc3e803dd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/26/4c/0eeca4614003077f68bfe7aac8b7496f04221865b3a5e7cb230c9d055afd/numpy-2.0.2-cp39-cp39-musllinux_1_1_x86_64.whl", hash = "sha256:5fec9451a7789926bcf7c2b8d187292c9f93ea30284802a0ab3f5be8ab36865d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f1/46/ea25b98b13dccaebddf1a803f8c748680d972e00507cd9bc6dcdb5aa2ac1/numpy-2.0.2-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:9189427407d88ff25ecf8f12469d4d39d35bee1db5d39fc5c168c6f088a6956d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c8/a6/177dd88d95ecf07e722d21008b1b40e681a929eb9e329684d449c36586b2/numpy-2.0.2-cp39-cp39-win32.whl", hash = "sha256:905d16e0c60200656500c95b6b8dca5d109e23cb24abc701d41c02d74c6b3afa" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ea/2b/7fc9f4e7ae5b507c1a3a21f0f15ed03e794c1242ea8a242ac158beb56034/numpy-2.0.2-cp39-cp39-win_amd64.whl", hash = "sha256:a3f4ab0caa7f053f6797fcd4e1e25caee367db3112ef2b6ef82d749530768c73" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/3b/df5a870ac6a3be3a86856ce195ef42eec7ae50d2a202be1f5a4b3b340e14/numpy-2.0.2-pp39-pypy39_pp73-macosx_10_9_x86_64.whl", hash = "sha256:7f0a0c6f12e07fa94133c8a67404322845220c06a9e80e85999afe727f7438b8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2c/97/51af92f18d6f6f2d9ad8b482a99fb74e142d71372da5d834b3a2747a446e/numpy-2.0.2-pp39-pypy39_pp73-macosx_14_0_x86_64.whl", hash = "sha256:312950fdd060354350ed123c0e25a71327d3711584beaef30cdaa93320c392d4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/12/46/de1fbd0c1b5ccaa7f9a005b66761533e2f6a3e560096682683a223631fe9/numpy-2.0.2-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:26df23238872200f63518dd2aa984cfca675d82469535dc7162dc2ee52d9dd5c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cc/dc/d330a6faefd92b446ec0f0dfea4c3207bb1fef3c4771d19cf4543efd2c78/numpy-2.0.2-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:a46288ec55ebbd58947d31d72be2c63cbf839f0a63b49cb755022310792a3385" },
+]
+
+[[package]]
+name = "numpy"
+version = "2.2.6"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version == '3.10.*'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/76/21/7d2a95e4bba9dc13d043ee156a356c0a8f0c6309dff6b21b4d71a073b8a8/numpy-2.2.6.tar.gz", hash = "sha256:e29554e2bef54a90aa5cc07da6ce955accb83f21ab5de01a62c8478897b264fd" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9a/3e/ed6db5be21ce87955c0cbd3009f2803f59fa08df21b5df06862e2d8e2bdd/numpy-2.2.6-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:b412caa66f72040e6d268491a59f2c43bf03eb6c96dd8f0307829feb7fa2b6fb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/22/c2/4b9221495b2a132cc9d2eb862e21d42a009f5a60e45fc44b00118c174bff/numpy-2.2.6-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8e41fd67c52b86603a91c1a505ebaef50b3314de0213461c7a6e99c9a3beff90" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fd/77/dc2fcfc66943c6410e2bf598062f5959372735ffda175b39906d54f02349/numpy-2.2.6-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:37e990a01ae6ec7fe7fa1c26c55ecb672dd98b19c3d0e1d1f326fa13cb38d163" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7a/4f/1cb5fdc353a5f5cc7feb692db9b8ec2c3d6405453f982435efc52561df58/numpy-2.2.6-cp310-cp310-macosx_14_0_x86_64.whl", hash = "sha256:5a6429d4be8ca66d889b7cf70f536a397dc45ba6faeb5f8c5427935d9592e9cf" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/17/96a3acd228cec142fcb8723bd3cc39c2a474f7dcf0a5d16731980bcafa95/numpy-2.2.6-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:efd28d4e9cd7d7a8d39074a4d44c63eda73401580c5c76acda2ce969e0a38e83" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b4/63/3de6a34ad7ad6646ac7d2f55ebc6ad439dbbf9c4370017c50cf403fb19b5/numpy-2.2.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fc7b73d02efb0e18c000e9ad8b83480dfcd5dfd11065997ed4c6747470ae8915" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/07/b6/89d837eddef52b3d0cec5c6ba0456c1bf1b9ef6a6672fc2b7873c3ec4e2e/numpy-2.2.6-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:74d4531beb257d2c3f4b261bfb0fc09e0f9ebb8842d82a7b4209415896adc680" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/01/c8/dc6ae86e3c61cfec1f178e5c9f7858584049b6093f843bca541f94120920/numpy-2.2.6-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:8fc377d995680230e83241d8a96def29f204b5782f371c532579b4f20607a289" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5b/c5/0064b1b7e7c89137b471ccec1fd2282fceaae0ab3a9550f2568782d80357/numpy-2.2.6-cp310-cp310-win32.whl", hash = "sha256:b093dd74e50a8cba3e873868d9e93a85b78e0daf2e98c6797566ad8044e8363d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a3/dd/4b822569d6b96c39d1215dbae0582fd99954dcbcf0c1a13c61783feaca3f/numpy-2.2.6-cp310-cp310-win_amd64.whl", hash = "sha256:f0fd6321b839904e15c46e0d257fdd101dd7f530fe03fd6359c1ea63738703f3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/da/a8/4f83e2aa666a9fbf56d6118faaaf5f1974d456b1823fda0a176eff722839/numpy-2.2.6-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:f9f1adb22318e121c5c69a09142811a201ef17ab257a1e66ca3025065b7f53ae" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b3/2b/64e1affc7972decb74c9e29e5649fac940514910960ba25cd9af4488b66c/numpy-2.2.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c820a93b0255bc360f53eca31a0e676fd1101f673dda8da93454a12e23fc5f7a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4a/9f/0121e375000b5e50ffdd8b25bf78d8e1a5aa4cca3f185d41265198c7b834/numpy-2.2.6-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:3d70692235e759f260c3d837193090014aebdf026dfd167834bcba43e30c2a42" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/0d/b48c405c91693635fbe2dcd7bc84a33a602add5f63286e024d3b6741411c/numpy-2.2.6-cp311-cp311-macosx_14_0_x86_64.whl", hash = "sha256:481b49095335f8eed42e39e8041327c05b0f6f4780488f61286ed3c01368d491" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/52/b8/7f0554d49b565d0171eab6e99001846882000883998e7b7d9f0d98b1f934/numpy-2.2.6-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b64d8d4d17135e00c8e346e0a738deb17e754230d7e0810ac5012750bbd85a5a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b3/dd/2238b898e51bd6d389b7389ffb20d7f4c10066d80351187ec8e303a5a475/numpy-2.2.6-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ba10f8411898fc418a521833e014a77d3ca01c15b0c6cdcce6a0d2897e6dbbdf" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/83/6c/44d0325722cf644f191042bf47eedad61c1e6df2432ed65cbe28509d404e/numpy-2.2.6-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:bd48227a919f1bafbdda0583705e547892342c26fb127219d60a5c36882609d1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ae/9d/81e8216030ce66be25279098789b665d49ff19eef08bfa8cb96d4957f422/numpy-2.2.6-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:9551a499bf125c1d4f9e250377c1ee2eddd02e01eac6644c080162c0c51778ab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6a/fd/e19617b9530b031db51b0926eed5345ce8ddc669bb3bc0044b23e275ebe8/numpy-2.2.6-cp311-cp311-win32.whl", hash = "sha256:0678000bb9ac1475cd454c6b8c799206af8107e310843532b04d49649c717a47" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/0a/f354fb7176b81747d870f7991dc763e157a934c717b67b58456bc63da3df/numpy-2.2.6-cp311-cp311-win_amd64.whl", hash = "sha256:e8213002e427c69c45a52bbd94163084025f533a55a59d6f9c5b820774ef3303" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/82/5d/c00588b6cf18e1da539b45d3598d3557084990dcc4331960c15ee776ee41/numpy-2.2.6-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:41c5a21f4a04fa86436124d388f6ed60a9343a6f767fced1a8a71c3fbca038ff" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/66/ee/560deadcdde6c2f90200450d5938f63a34b37e27ebff162810f716f6a230/numpy-2.2.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:de749064336d37e340f640b05f24e9e3dd678c57318c7289d222a8a2f543e90c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3c/65/4baa99f1c53b30adf0acd9a5519078871ddde8d2339dc5a7fde80d9d87da/numpy-2.2.6-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:894b3a42502226a1cac872f840030665f33326fc3dac8e57c607905773cdcde3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cc/89/e5a34c071a0570cc40c9a54eb472d113eea6d002e9ae12bb3a8407fb912e/numpy-2.2.6-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:71594f7c51a18e728451bb50cc60a3ce4e6538822731b2933209a1f3614e9282" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f8/35/8c80729f1ff76b3921d5c9487c7ac3de9b2a103b1cd05e905b3090513510/numpy-2.2.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f2618db89be1b4e05f7a1a847a9c1c0abd63e63a1607d892dd54668dd92faf87" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8c/3d/1e1db36cfd41f895d266b103df00ca5b3cbe965184df824dec5c08c6b803/numpy-2.2.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fd83c01228a688733f1ded5201c678f0c53ecc1006ffbc404db9f7a899ac6249" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/61/c6/03ed30992602c85aa3cd95b9070a514f8b3c33e31124694438d88809ae36/numpy-2.2.6-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:37c0ca431f82cd5fa716eca9506aefcabc247fb27ba69c5062a6d3ade8cf8f49" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b7/25/5761d832a81df431e260719ec45de696414266613c9ee268394dd5ad8236/numpy-2.2.6-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:fe27749d33bb772c80dcd84ae7e8df2adc920ae8297400dabec45f0dedb3f6de" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/57/0a/72d5a3527c5ebffcd47bde9162c39fae1f90138c961e5296491ce778e682/numpy-2.2.6-cp312-cp312-win32.whl", hash = "sha256:4eeaae00d789f66c7a25ac5f34b71a7035bb474e679f410e5e1a94deb24cf2d4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/36/fa/8c9210162ca1b88529ab76b41ba02d433fd54fecaf6feb70ef9f124683f1/numpy-2.2.6-cp312-cp312-win_amd64.whl", hash = "sha256:c1f9540be57940698ed329904db803cf7a402f3fc200bfe599334c9bd84a40b2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/5c/6657823f4f594f72b5471f1db1ab12e26e890bb2e41897522d134d2a3e81/numpy-2.2.6-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0811bb762109d9708cca4d0b13c4f67146e3c3b7cf8d34018c722adb2d957c84" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/dc/9e/14520dc3dadf3c803473bd07e9b2bd1b69bc583cb2497b47000fed2fa92f/numpy-2.2.6-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:287cc3162b6f01463ccd86be154f284d0893d2b3ed7292439ea97eafa8170e0b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4f/06/7e96c57d90bebdce9918412087fc22ca9851cceaf5567a45c1f404480e9e/numpy-2.2.6-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:f1372f041402e37e5e633e586f62aa53de2eac8d98cbfb822806ce4bbefcb74d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/73/ed/63d920c23b4289fdac96ddbdd6132e9427790977d5457cd132f18e76eae0/numpy-2.2.6-cp313-cp313-macosx_14_0_x86_64.whl", hash = "sha256:55a4d33fa519660d69614a9fad433be87e5252f4b03850642f88993f7b2ca566" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/85/c5/e19c8f99d83fd377ec8c7e0cf627a8049746da54afc24ef0a0cb73d5dfb5/numpy-2.2.6-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f92729c95468a2f4f15e9bb94c432a9229d0d50de67304399627a943201baa2f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/19/49/4df9123aafa7b539317bf6d342cb6d227e49f7a35b99c287a6109b13dd93/numpy-2.2.6-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1bc23a79bfabc5d056d106f9befb8d50c31ced2fbc70eedb8155aec74a45798f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b2/6c/04b5f47f4f32f7c2b0e7260442a8cbcf8168b0e1a41ff1495da42f42a14f/numpy-2.2.6-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:e3143e4451880bed956e706a3220b4e5cf6172ef05fcc397f6f36a550b1dd868" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/17/0a/5cd92e352c1307640d5b6fec1b2ffb06cd0dabe7d7b8227f97933d378422/numpy-2.2.6-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:b4f13750ce79751586ae2eb824ba7e1e8dba64784086c98cdbbcc6a42112ce0d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f0/3b/5cba2b1d88760ef86596ad0f3d484b1cbff7c115ae2429678465057c5155/numpy-2.2.6-cp313-cp313-win32.whl", hash = "sha256:5beb72339d9d4fa36522fc63802f469b13cdbe4fdab4a288f0c441b74272ebfd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cb/3b/d58c12eafcb298d4e6d0d40216866ab15f59e55d148a5658bb3132311fcf/numpy-2.2.6-cp313-cp313-win_amd64.whl", hash = "sha256:b0544343a702fa80c95ad5d3d608ea3599dd54d4632df855e4c8d24eb6ecfa1c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6b/9e/4bf918b818e516322db999ac25d00c75788ddfd2d2ade4fa66f1f38097e1/numpy-2.2.6-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:0bca768cd85ae743b2affdc762d617eddf3bcf8724435498a1e80132d04879e6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/61/66/d2de6b291507517ff2e438e13ff7b1e2cdbdb7cb40b3ed475377aece69f9/numpy-2.2.6-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:fc0c5673685c508a142ca65209b4e79ed6740a4ed6b2267dbba90f34b0b3cfda" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e4/25/480387655407ead912e28ba3a820bc69af9adf13bcbe40b299d454ec011f/numpy-2.2.6-cp313-cp313t-macosx_14_0_arm64.whl", hash = "sha256:5bd4fc3ac8926b3819797a7c0e2631eb889b4118a9898c84f585a54d475b7e40" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/aa/4a/6e313b5108f53dcbf3aca0c0f3e9c92f4c10ce57a0a721851f9785872895/numpy-2.2.6-cp313-cp313t-macosx_14_0_x86_64.whl", hash = "sha256:fee4236c876c4e8369388054d02d0e9bb84821feb1a64dd59e137e6511a551f8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b7/30/172c2d5c4be71fdf476e9de553443cf8e25feddbe185e0bd88b096915bcc/numpy-2.2.6-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e1dda9c7e08dc141e0247a5b8f49cf05984955246a327d4c48bda16821947b2f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/12/fb/9e743f8d4e4d3c710902cf87af3512082ae3d43b945d5d16563f26ec251d/numpy-2.2.6-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f447e6acb680fd307f40d3da4852208af94afdfab89cf850986c3ca00562f4fa" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/12/75/ee20da0e58d3a66f204f38916757e01e33a9737d0b22373b3eb5a27358f9/numpy-2.2.6-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:389d771b1623ec92636b0786bc4ae56abafad4a4c513d36a55dce14bd9ce8571" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/76/95/bef5b37f29fc5e739947e9ce5179ad402875633308504a52d188302319c8/numpy-2.2.6-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:8e9ace4a37db23421249ed236fdcdd457d671e25146786dfc96835cd951aa7c1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/09/04/f2f83279d287407cf36a7a8053a5abe7be3622a4363337338f2585e4afda/numpy-2.2.6-cp313-cp313t-win32.whl", hash = "sha256:038613e9fb8c72b0a41f025a7e4c3f0b7a1b5d768ece4796b674c8f3fe13efff" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/67/0e/35082d13c09c02c011cf21570543d202ad929d961c02a147493cb0c2bdf5/numpy-2.2.6-cp313-cp313t-win_amd64.whl", hash = "sha256:6031dd6dfecc0cf9f668681a37648373bddd6421fff6c66ec1624eed0180ee06" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9e/3b/d94a75f4dbf1ef5d321523ecac21ef23a3cd2ac8b78ae2aac40873590229/numpy-2.2.6-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:0b605b275d7bd0c640cad4e5d30fa701a8d59302e127e5f79138ad62762c3e3d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/17/f4/09b2fa1b58f0fb4f7c7963a1649c64c4d315752240377ed74d9cd878f7b5/numpy-2.2.6-pp310-pypy310_pp73-macosx_14_0_x86_64.whl", hash = "sha256:7befc596a7dc9da8a337f79802ee8adb30a552a94f792b9c9d18c840055907db" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/af/30/feba75f143bdc868a1cc3f44ccfa6c4b9ec522b36458e738cd00f67b573f/numpy-2.2.6-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce47521a4754c8f4593837384bd3424880629f718d87c5d44f8ed763edd63543" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/48/ac2a9584402fb6c0cd5b5d1a91dcf176b15760130dd386bbafdbfe3640bf/numpy-2.2.6-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:d042d24c90c41b54fd506da306759e06e568864df8ec17ccc17e9e884634fd00" },
+]
+
+[[package]]
+name = "numpy"
+version = "2.4.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version >= '3.11'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/7a/6a3d14e205d292b738db449d0de649b373a59edb0d0b4493821d0a3e8718/numpy-2.4.0.tar.gz", hash = "sha256:6e504f7b16118198f138ef31ba24d985b124c2c469fe8467007cf30fd992f934" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/26/7e/7bae7cbcc2f8132271967aa03e03954fc1e48aa1f3bf32b29ca95fbef352/numpy-2.4.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:316b2f2584682318539f0bcaca5a496ce9ca78c88066579ebd11fd06f8e4741e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0f/27/6c13f5b46776d6246ec884ac5817452672156a506d08a1f2abb39961930a/numpy-2.4.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a2718c1de8504121714234b6f8241d0019450353276c88b9453c9c3d92e101db" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/14/1c/83b4998d4860d15283241d9e5215f28b40ac31f497c04b12fa7f428ff370/numpy-2.4.0-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:21555da4ec4a0c942520ead42c3b0dc9477441e085c42b0fbdd6a084869a6f6b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/54/08/cbce72c835d937795571b0464b52069f869c9e78b0c076d416c5269d2718/numpy-2.4.0-cp311-cp311-macosx_14_0_x86_64.whl", hash = "sha256:413aa561266a4be2d06cd2b9665e89d9f54c543f418773076a76adcf2af08bc7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ff/be/2e647961cd8c980591d75cdcd9e8f647d69fbe05e2a25613dc0a2ea5fb1a/numpy-2.4.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0feafc9e03128074689183031181fac0897ff169692d8492066e949041096548" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a2/fb/e1652fb8b6fd91ce6ed429143fe2e01ce714711e03e5b762615e7b36172c/numpy-2.4.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a8fdfed3deaf1928fb7667d96e0567cdf58c2b370ea2ee7e586aa383ec2cb346" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/62/23/d841207e63c4322842f7cd042ae981cffe715c73376dcad8235fb31debf1/numpy-2.4.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:e06a922a469cae9a57100864caf4f8a97a1026513793969f8ba5b63137a35d25" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/a0/6a842c8421ebfdec0a230e65f61e0dabda6edbef443d999d79b87c273965/numpy-2.4.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:927ccf5cd17c48f801f4ed43a7e5673a2724bd2171460be3e3894e6e332ef83a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0a/d1/c79e0046641186f2134dde05e6181825b911f8bdcef31b19ddd16e232847/numpy-2.4.0-cp311-cp311-win32.whl", hash = "sha256:882567b7ae57c1b1a0250208cc21a7976d8cbcc49d5a322e607e6f09c9e0bd53" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/f0/74965001d231f28184d6305b8cdc1b6fcd4bf23033f6cb039cfe76c9fca7/numpy-2.4.0-cp311-cp311-win_amd64.whl", hash = "sha256:8b986403023c8f3bf8f487c2e6186afda156174d31c175f747d8934dfddf3479" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/65/32/55408d0f46dfebce38017f5bd931affa7256ad6beac1a92a012e1fbc67a7/numpy-2.4.0-cp311-cp311-win_arm64.whl", hash = "sha256:3f3096405acc48887458bbf9f6814d43785ac7ba2a57ea6442b581dedbc60ce6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8b/ff/f6400ffec95de41c74b8e73df32e3fff1830633193a7b1e409be7fb1bb8c/numpy-2.4.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:2a8b6bb8369abefb8bd1801b054ad50e02b3275c8614dc6e5b0373c305291037" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fd/28/6c23e97450035072e8d830a3c411bf1abd1f42c611ff9d29e3d8f55c6252/numpy-2.4.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2e284ca13d5a8367e43734148622caf0b261b275673823593e3e3634a6490f83" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/af/acbef97b630ab1bb45e6a7d01d1452e4251aa88ce680ac36e56c272120ec/numpy-2.4.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:49ff32b09f5aa0cd30a20c2b39db3e669c845589f2b7fc910365210887e39344" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c1/c8/4e0d436b66b826f2e53330adaa6311f5cac9871a5b5c31ad773b27f25a74/numpy-2.4.0-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:36cbfb13c152b1c7c184ddac43765db8ad672567e7bafff2cc755a09917ed2e6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ef/27/e1f5d144ab54eac34875e79037011d511ac57b21b220063310cb96c80fbc/numpy-2.4.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:35ddc8f4914466e6fc954c76527aa91aa763682a4f6d73249ef20b418fe6effb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/67/64/4cb909dd5ab09a9a5d086eff9586e69e827b88a5585517386879474f4cf7/numpy-2.4.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:dc578891de1db95b2a35001b695451767b580bb45753717498213c5ff3c41d63" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9d/9c/8efe24577523ec6809261859737cf117b0eb6fdb655abdfdc81b2e468ce4/numpy-2.4.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:98e81648e0b36e325ab67e46b5400a7a6d4a22b8a7c8e8bbfe20e7db7906bf95" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/61/f0/1687441ece7b47a62e45a1f82015352c240765c707928edd8aef875d5951/numpy-2.4.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:d57b5046c120561ba8fa8e4030fbb8b822f3063910fa901ffadf16e2b7128ad6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d3/6f/f868765d44e6fc466467ed810ba9d8d6db1add7d4a748abfa2a4c99a3194/numpy-2.4.0-cp312-cp312-win32.whl", hash = "sha256:92190db305a6f48734d3982f2c60fa30d6b5ee9bff10f2887b930d7b40119f4c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d4/b5/94c1e79fcbab38d1ca15e13777477b2914dd2d559b410f96949d6637b085/numpy-2.4.0-cp312-cp312-win_amd64.whl", hash = "sha256:680060061adb2d74ce352628cb798cfdec399068aa7f07ba9fb818b2b3305f98" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/70/09/c39dadf0b13bb0768cd29d6a3aaff1fb7c6905ac40e9aaeca26b1c086e06/numpy-2.4.0-cp312-cp312-win_arm64.whl", hash = "sha256:39699233bc72dd482da1415dcb06076e32f60eddc796a796c5fb6c5efce94667" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a7/0d/853fd96372eda07c824d24adf02e8bc92bb3731b43a9b2a39161c3667cc4/numpy-2.4.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:a152d86a3ae00ba5f47b3acf3b827509fd0b6cb7d3259665e63dafbad22a75ea" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e3/37/cc636f1f2a9f585434e20a3e6e63422f70bfe4f7f6698e941db52ea1ac9a/numpy-2.4.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:39b19251dec4de8ff8496cd0806cbe27bf0684f765abb1f4809554de93785f2d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ed/69/0b78f37ca3690969beee54103ce5f6021709134e8020767e93ba691a72f1/numpy-2.4.0-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:009bd0ea12d3c784b6639a8457537016ce5172109e585338e11334f6a7bb88ee" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/2a/08569f8252abf590294dbb09a430543ec8f8cc710383abfb3e75cc73aeda/numpy-2.4.0-cp313-cp313-macosx_14_0_x86_64.whl", hash = "sha256:5fe44e277225fd3dff6882d86d3d447205d43532c3627313d17e754fb3905a0e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/93/e9/a949885a4e177493d61519377952186b6cbfdf1d6002764c664ba28349b5/numpy-2.4.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f935c4493eda9069851058fa0d9e39dbf6286be690066509305e52912714dbb2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/99/98/9d4ad53b0e9ef901c2ef1d550d2136f5ac42d3fd2988390a6def32e23e48/numpy-2.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8cfa5f29a695cb7438965e6c3e8d06e0416060cf0d709c1b1c1653a939bf5c2a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/28/de/5f3711a38341d6e8dd619f6353251a0cdd07f3d6d101a8fd46f4ef87f895/numpy-2.4.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:ba0cb30acd3ef11c94dc27fbfba68940652492bc107075e7ffe23057f9425681" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2a/5b/2a3753dc43916501b4183532e7ace862e13211042bceafa253afb5c71272/numpy-2.4.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:60e8c196cd82cbbd4f130b5290007e13e6de3eca79f0d4d38014769d96a7c475" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2c/c5/a18bcdd07a941db3076ef489d036ab16d2bfc2eae0cf27e5a26e29189434/numpy-2.4.0-cp313-cp313-win32.whl", hash = "sha256:5f48cb3e88fbc294dc90e215d86fbaf1c852c63dbdb6c3a3e63f45c4b57f7344" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4f/f1/719010ff8061da6e8a26e1980cf090412d4f5f8060b31f0c45d77dd67a01/numpy-2.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:a899699294f28f7be8992853c0c60741f16ff199205e2e6cdca155762cbaa59d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f5/5a/b3d259083ed8b4d335270c76966cb6cf14a5d1b69e1a608994ac57a659e6/numpy-2.4.0-cp313-cp313-win_arm64.whl", hash = "sha256:9198f447e1dc5647d07c9a6bbe2063cc0132728cc7175b39dbc796da5b54920d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/01/95edcffd1bb6c0633df4e808130545c4f07383ab629ac7e316fb44fff677/numpy-2.4.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:74623f2ab5cc3f7c886add4f735d1031a1d2be4a4ae63c0546cfd74e7a31ddf6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/59/ea/5644b8baa92cc1c7163b4b4458c8679852733fa74ca49c942cfa82ded4e0/numpy-2.4.0-cp313-cp313t-macosx_14_0_arm64.whl", hash = "sha256:0804a8e4ab070d1d35496e65ffd3cf8114c136a2b81f61dfab0de4b218aacfd5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/26/4e/e10938106d70bc21319bd6a86ae726da37edc802ce35a3a71ecdf1fdfe7f/numpy-2.4.0-cp313-cp313t-macosx_14_0_x86_64.whl", hash = "sha256:02a2038eb27f9443a8b266a66911e926566b5a6ffd1a689b588f7f35b81e7dc3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b3/8d/a8828e3eaf5c0b4ab116924df82f24ce3416fa38d0674d8f708ddc6c8aac/numpy-2.4.0-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1889b3a3f47a7b5bee16bc25a2145bd7cb91897f815ce3499db64c7458b6d91d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/68/a1/17d97609d87d4520aa5ae2dcfb32305654550ac6a35effb946d303e594ce/numpy-2.4.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:85eef4cb5625c47ee6425c58a3502555e10f45ee973da878ac8248ad58c136f3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/18/32/0f13c1b2d22bea1118356b8b963195446f3af124ed7a5adfa8fdecb1b6ca/numpy-2.4.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:6dc8b7e2f4eb184b37655195f421836cfae6f58197b67e3ffc501f1333d993fa" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ae/23/48f21e3d309fbc137c068a1475358cbd3a901b3987dcfc97a029ab3068e2/numpy-2.4.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:44aba2f0cafd287871a495fb3163408b0bd25bbce135c6f621534a07f4f7875c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/52/41f3d71296a3dcaa4f456aaa3c6fc8e745b43d0552b6bde56571bb4b4a0f/numpy-2.4.0-cp313-cp313t-win32.whl", hash = "sha256:20c115517513831860c573996e395707aa9fb691eb179200125c250e895fcd93" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/35/ff/46fbfe60ab0710d2a2b16995f708750307d30eccbb4c38371ea9e986866e/numpy-2.4.0-cp313-cp313t-win_amd64.whl", hash = "sha256:b48e35f4ab6f6a7597c46e301126ceba4c44cd3280e3750f85db48b082624fa4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a3/e3/9189ab319c01d2ed556c932ccf55064c5d75bb5850d1df7a482ce0badead/numpy-2.4.0-cp313-cp313t-win_arm64.whl", hash = "sha256:4d1cfce39e511069b11e67cd0bd78ceff31443b7c9e5c04db73c7a19f572967c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ab/ed/52eac27de39d5e5a6c9aadabe672bc06f55e24a3d9010cd1183948055d76/numpy-2.4.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:c95eb6db2884917d86cde0b4d4cf31adf485c8ec36bf8696dd66fa70de96f36b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/77/c0/990ce1b7fcd4e09aeaa574e2a0a839589e4b08b2ca68070f1acb1fea6736/numpy-2.4.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:65167da969cd1ec3a1df31cb221ca3a19a8aaa25370ecb17d428415e93c1935e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/7c/8c5e389c6ae8f5fd2277a988600d79e9625db3fff011a2d87ac80b881a4c/numpy-2.4.0-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:3de19cfecd1465d0dcf8a5b5ea8b3155b42ed0b639dba4b71e323d74f2a3be5e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e6/94/ca5b3bd6a8a70a5eec9a0b8dd7f980c1eff4b8a54970a9a7fef248ef564f/numpy-2.4.0-cp314-cp314-macosx_14_0_x86_64.whl", hash = "sha256:6c05483c3136ac4c91b4e81903cb53a8707d316f488124d0398499a4f8e8ef51" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/79/43/993eb7bb5be6761dde2b3a3a594d689cec83398e3f58f4758010f3b85727/numpy-2.4.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:36667db4d6c1cea79c8930ab72fadfb4060feb4bfe724141cd4bd064d2e5f8ce" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/03/75/d4c43b61de473912496317a854dac54f1efec3eeb158438da6884b70bb90/numpy-2.4.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9a818668b674047fd88c4cddada7ab8f1c298812783e8328e956b78dc4807f9f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b8/0a/b54615b47ee8736a6461a4bb6749128dd3435c5a759d5663f11f0e9af4ac/numpy-2.4.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:1ee32359fb7543b7b7bd0b2f46294db27e29e7bbdf70541e81b190836cd83ded" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/ce/ea207769aacad6246525ec6c6bbd66a2bf56c72443dc10e2f90feed29290/numpy-2.4.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:e493962256a38f58283de033d8af176c5c91c084ea30f15834f7545451c42059" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/17/ef/ec409437aa962ea372ed601c519a2b141701683ff028f894b7466f0ab42b/numpy-2.4.0-cp314-cp314-win32.whl", hash = "sha256:6bbaebf0d11567fa8926215ae731e1d58e6ec28a8a25235b8a47405d301332db" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5f/4a/5cb94c787a3ed1ac65e1271b968686521169a7b3ec0b6544bb3ca32960b0/numpy-2.4.0-cp314-cp314-win_amd64.whl", hash = "sha256:3d857f55e7fdf7c38ab96c4558c95b97d1c685be6b05c249f5fdafcbd6f9899e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/48/a0/04b89db963af9de1104975e2544f30de89adbf75b9e75f7dd2599be12c79/numpy-2.4.0-cp314-cp314-win_arm64.whl", hash = "sha256:bb50ce5fb202a26fd5404620e7ef820ad1ab3558b444cb0b55beb7ef66cd2d63" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/53/e5/d74b5ccf6712c06c7a545025a6a71bfa03bdc7e0568b405b0d655232fd92/numpy-2.4.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:355354388cba60f2132df297e2d53053d4063f79077b67b481d21276d61fc4df" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c2/08/3ca9cc2ddf54dfee7ae9a6479c071092a228c68aef08252aa08dac2af002/numpy-2.4.0-cp314-cp314t-macosx_14_0_arm64.whl", hash = "sha256:1d8f9fde5f6dc1b6fc34df8162f3b3079365468703fee7f31d4e0cc8c63baed9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/87/74/0bb63a68394c0c1e52670cfff2e309afa41edbe11b3327d9af29e4383f34/numpy-2.4.0-cp314-cp314t-macosx_14_0_x86_64.whl", hash = "sha256:e0434aa22c821f44eeb4c650b81c7fbdd8c0122c6c4b5a576a76d5a35625ecd9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/06/8f/9264d9bdbcf8236af2823623fe2f3981d740fc3461e2787e231d97c38c28/numpy-2.4.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:40483b2f2d3ba7aad426443767ff5632ec3156ef09742b96913787d13c336471" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8c/d9/f9a69ae564bbc7236a35aa883319364ef5fd41f72aa320cc1cbe66148fe2/numpy-2.4.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d9e6a7664ddd9746e20b7325351fe1a8408d0a2bf9c63b5e898290ddc8f09544" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/34/c7/39241501408dde7f885d241a98caba5421061a2c6d2b2197ac5e3aa842d8/numpy-2.4.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:ecb0019d44f4cdb50b676c5d0cb4b1eae8e15d1ed3d3e6639f986fc92b2ec52c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7c/95/cae7effd90e065a95e59fe710eeee05d7328ed169776dfdd9f789e032125/numpy-2.4.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:d0ffd9e2e4441c96a9c91ec1783285d80bf835b677853fc2770a89d50c1e48ac" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/96/df/3c6c279accd2bfb968a76298e5b276310bd55d243df4fa8ac5816d79347d/numpy-2.4.0-cp314-cp314t-win32.whl", hash = "sha256:77f0d13fa87036d7553bf81f0e1fe3ce68d14c9976c9851744e4d3e91127e95f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/92/8d/f23033cce252e7a75cae853d17f582e86534c46404dea1c8ee094a9d6d84/numpy-2.4.0-cp314-cp314t-win_amd64.whl", hash = "sha256:b1f5b45829ac1848893f0ddf5cb326110604d6df96cdc255b0bf9edd154104d4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/4f/1f8475907d1a7c4ef9020edf7f39ea2422ec896849245f00688e4b268a71/numpy-2.4.0-cp314-cp314t-win_arm64.whl", hash = "sha256:23a3e9d1a6f360267e8fbb38ba5db355a6a7e9be71d7fce7ab3125e88bb646c8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4b/ef/088e7c7342f300aaf3ee5f2c821c4b9996a1bef2aaf6a49cc8ab4883758e/numpy-2.4.0-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:b54c83f1c0c0f1d748dca0af516062b8829d53d1f0c402be24b4257a9c48ada6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ff/ce/a53017b5443b4b84517182d463fc7bcc2adb4faa8b20813f8e5f5aeb5faa/numpy-2.4.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:aabb081ca0ec5d39591fc33018cd4b3f96e1a2dd6756282029986d00a785fba4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/77/58/5ff91b161f2ec650c88a626c3905d938c89aaadabd0431e6d9c1330c83e2/numpy-2.4.0-pp311-pypy311_pp73-macosx_14_0_arm64.whl", hash = "sha256:8eafe7c36c8430b7794edeab3087dec7bf31d634d92f2af9949434b9d1964cba" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/4e/f1a084106df8c2df8132fc437e56987308e0524836aa7733721c8429d4fe/numpy-2.4.0-pp311-pypy311_pp73-macosx_14_0_x86_64.whl", hash = "sha256:2f585f52b2baf07ff3356158d9268ea095e221371f1074fadea2f42544d58b4d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/09/3d8aeb809c0332c3f642da812ac2e3d74fc9252b3021f8c30c82e99e3f3d/numpy-2.4.0-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:32ed06d0fe9cae27d8fb5f400c63ccee72370599c75e683a6358dd3a4fb50aaf" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fd/7f/68f0fc43a2cbdc6bb239160c754d87c922f60fbaa0fa3cd3d312b8a7f5ee/numpy-2.4.0-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:57c540ed8fb1f05cb997c6761cd56db72395b0d6985e90571ff660452ade4f98" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/11/73/edeacba3167b1ca66d51b1a5a14697c2c40098b5ffa01811c67b1785a5ab/numpy-2.4.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:a39fb973a726e63223287adc6dafe444ce75af952d711e400f3bf2b36ef55a7b" },
+]
+
+[[package]]
+name = "openbabel-wheel"
+version = "3.1.1.22"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/55/c916675c49beb64256bd108f4a797111cedca592c9be0c931014b8654806/openbabel-wheel-3.1.1.22.tar.gz", hash = "sha256:d12e07f8e2b2a8a9007b486087fdeb731cedb5b14129bf93ad3d2c5a72e54d08" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/77/b6/c57353f47f570c40c781dd837c102ad151fb8445bbba4042f264e211c728/openbabel_wheel-3.1.1.22-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:9525c059960d85f9caa34c90ded3973f48cbd8a81e4b565cb4650dd09b463a50" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/73/4c/029b7ff5c00f2f1af88483572750755ba591af1bcc1141269b1bc4fac8d7/openbabel_wheel-3.1.1.22-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:f24d5435acffa116403e9e814e4a9f7ec3d6802f004c0875ef17add153339cab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/31/12a51e4b7bec156c78e6afa2627776c58f44796e4aceede4daf0e5a8a91b/openbabel_wheel-3.1.1.22-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:57307fb65e9e3316f54b67d27d22b45a3d8b6907b1bee1fad13e213614fd552f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/94/f1/243a316d0e81d09f81ea91638b40d3b9f0d5561ae32778772806c74f8001/openbabel_wheel-3.1.1.22-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:57f4a0905068153794940f0574fe2c2040981a6b7f19b6637775bc94d2edc502" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/df/99/0c6bc7a70fc5f17631b31b71a25bbb3d9ab2b71997545e6349ba3c3534f2/openbabel_wheel-3.1.1.22-cp310-cp310-win_amd64.whl", hash = "sha256:d8d4c920a9c3481379e2cb64ed7fa3cb0c4f91ff1c6b9f7cd559138c87efb889" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e0/de/be239b210500c0332007e18dd0a8ca4939d13f05433d453e3a0983defa70/openbabel_wheel-3.1.1.22-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:2499af11947d3454439182a75516bc4008fe0ff22a24f16b3b964317004d5e86" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0d/cb/167d9bace82f82fa9231e562e723d489f5c07e789290e668b552874c69f8/openbabel_wheel-3.1.1.22-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:4beda0224caa906d1c2ed35652786da244757aaea361cdc0aef13e935c0149a7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/40/61/3f6f6e78c45d67453628596dff1640e8d56d58e6317ddace5c3be3d550f4/openbabel_wheel-3.1.1.22-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1b33c21c987b3a22f7a4c812b8283edbe5ad6c6deae29e9568f1b16a8f5ad20b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/28/59/f7e7424da6a6ea81f987fac2093e440b8689f4e27929f92167f2a81fc01d/openbabel_wheel-3.1.1.22-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d2ed691f3f5ac2cfebfaa0d9718acd58e41fcbc0e114735f518c92167f7c5e2f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/27/c219228b4eb582ab11ac0ae2a8acd895e880a4f427e9bdf17d0e41783d91/openbabel_wheel-3.1.1.22-cp311-cp311-win_amd64.whl", hash = "sha256:1303272ecdcfcdfbe7648f2761aa6639c5a4ec3073b472f766d3d2567a44b523" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0e/91/df492446daefef9ba3c97e1555b1a7abb4ab9a21f00744689fec8e10d53e/openbabel_wheel-3.1.1.22-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:48846ac5c8dff5589fd7834fbc1ee0d3a5d67ed544ef81b716db6932a27c34c2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/64/35/b5ccaa112d253fb9089db9c5390d066cab08b5401cd2ec59709937f0a746/openbabel_wheel-3.1.1.22-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:9189315a466da529e6422fa588163be230f0fcfb8d79e240fd9d8330fd2af8a6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/ce/e9a9553a10ec6f0a3f1a3112cd00619bb77651779b59507ce1be4dcef2a1/openbabel_wheel-3.1.1.22-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:17588f6823a1a2bc361fbdfec167e8d30d4764176b0b63a3e3127efae71aed8f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/79/a713470f17697b5ebee488929a88b2daaa3b20eb5be502d6c5cab9dbc4e2/openbabel_wheel-3.1.1.22-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bcc3d01459489334e9acf68526db48be91ce88692c59192a0d0fb9f422f2bc9a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/f3/12a0e194e735cb0f3fc6122cfd39d63f05ab2426ee4083b7de1bc4ea1242/openbabel_wheel-3.1.1.22-cp312-cp312-win_amd64.whl", hash = "sha256:e369179c9edfd35b79faa252be0b28b7b8932aee80acfced1922595b67594dbd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ef/c3/33947aadfba41478e04776d613c2f677bfe263e69653d406f13147b49373/openbabel_wheel-3.1.1.22-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:1d442a81e2b39c9b1d24a3bea010ef779542056160b8a6d9e7184d72a34152d4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ee/3c/287dd7f2233f83244314ed39968de0593140df052a350508318ce7caa13e/openbabel_wheel-3.1.1.22-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:537fa4e3a48e092eea3aeb3f5eb064330d38ac6e2d1db293b22d9832160c0f21" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/44/3f/c72e325490393b463e5ae7446253aab140b5e5e407d97c7de064f341975e/openbabel_wheel-3.1.1.22-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:21d1ea864f987f93033720c3847f653f60e502cb07cbb8bcb4965da11a4976f5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/ea/5f81cd018bf60301fcca9e133d3a47b8caca14576266dcdc9b38f96c7879/openbabel_wheel-3.1.1.22-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a9986f9f5c64f69b27c416fd38f551bb00da037fe66f69dc6b0d2ef10dfc9f40" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/80/1d/8e88918fe6047d8eee9a53aa9b153bf9e098fc871cfd5c86a2a5b16e38a1/openbabel_wheel-3.1.1.22-cp313-cp313-win_amd64.whl", hash = "sha256:e98ccbc75c3fcfa225554e6def913e949aff1c6ac9bad178e47bc313ce16d596" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2c/7b/bdb2b375120e762681f2607b402c16f0d61cb7e96904f6237b9c17cf5000/openbabel_wheel-3.1.1.22-cp313-cp313t-macosx_13_0_arm64.whl", hash = "sha256:d74da8ad712f1313dab74b5cddd40895581324f16d3a9116e8f193c926df3242" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/96/61/e8dbf08e562055ac4c7f9bf7afab4cd812eeae31a56fe17344388009873f/openbabel_wheel-3.1.1.22-cp313-cp313t-macosx_13_0_x86_64.whl", hash = "sha256:f2666af5edf3085b8b2daa64597842efa74e817c94d20f0bb9a065123b13de0d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/08/68/d8c305508547a25800c07913e13ed99f91d840206b562393210c9d488e96/openbabel_wheel-3.1.1.22-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:336a8aa2f7a7fa6056a63c1d40d5c0e1e0d9bacae2c3d377468e9fab34e247a5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4c/8b/8f4c902400ec1897afad8b27d7abf6b06ee0c00cfb73337016091a6d221b/openbabel_wheel-3.1.1.22-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:23fada177808451a7d22f39f9e2e198c889d118ad4861b34d8fdbc1e987ad8b4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/de/35/3c9a03a69211d71e8a1be693a498553a9bc70f0c8eebd7cbbe7d5ae5c0f3/openbabel_wheel-3.1.1.22-cp313-cp313t-win_amd64.whl", hash = "sha256:28863c6b7e169f26d6d2d58c46ec6e51492f7a82712e22a2262b6255c0935417" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a5/2e/e9222ce55a50a7d37bad651625f128798acd6325a5613c613d7d82e341eb/openbabel_wheel-3.1.1.22-cp38-cp38-macosx_13_0_arm64.whl", hash = "sha256:64d873bb09a34b208b6df339448a7dce68fb0aec638e6ee8927063cc1c236bb7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ba/bd/757fcaff78a5092eb41f6c6e202f1a9dbe4e5f2fc30221d1962da229b9eb/openbabel_wheel-3.1.1.22-cp38-cp38-macosx_13_0_x86_64.whl", hash = "sha256:9afb0dbcd4b0f0d4d9e447cfb07da6e3300e7a2e194deba3c3ac25f21f0885f9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8d/64/6b931ee2f0966d4ffb9a6850564027c1fa2c3b59388c893efc8db65888de/openbabel_wheel-3.1.1.22-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2dd2638ac82d72db0a6ae449445f548bdb0234606bfd2ec51d7f8d795bf24533" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5a/09/8cee57b5ad05088b5de6eda9f7d700859d6fa8157c91be343ac10a33832e/openbabel_wheel-3.1.1.22-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:97ec4f1a12f054eabe038932812c8cf3097660f4b37011e90c656db248228d92" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/b4/2ee8c41b61212c061b0609650e5201f30bb5b363c15b279ad86f43f8d826/openbabel_wheel-3.1.1.22-cp38-cp38-win_amd64.whl", hash = "sha256:3189e21ecd82eb9227b853cef03d282f16b9be2699986b7411365cbfb75a1215" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/ac/e1daa186b4fabecaadd7bf9d501fc97fc0db59054e44357d3e1af300a892/openbabel_wheel-3.1.1.22-cp39-cp39-macosx_13_0_arm64.whl", hash = "sha256:3915735f73248c1fd1d2d1c925d384f5da26a9378a3f98247f6c3da90a3af765" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/64/0f/2ddcf251468b97ad9925775858b4c6a9347bb40a779fbdf1a39126d6373c/openbabel_wheel-3.1.1.22-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:267a63ab36c4ee3b6488084adba8c372c9c8039583c56cbfccbea176f2a51362" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/89/ff065e46e7c49ad8c252e884537d460793662cdfc471e5a47b4b8eff9aab/openbabel_wheel-3.1.1.22-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a724f57400e6cb4ed469d06895192a27d95325ef96dc5d9b13251116e054d353" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/12/980daa2b8e8d8ec3de828530afa30e8c582ee782c560dd2f767ac729e763/openbabel_wheel-3.1.1.22-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5f2af17d42b449cebb928d177db7e8a26fc9664e51556d609feb4fa008afd69a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/b5/87134222b3ffdcf1e05a0f556100fe65f3e02a31d565ccd12f0f3de49d39/openbabel_wheel-3.1.1.22-cp39-cp39-win_amd64.whl", hash = "sha256:87176003d5b24972d3a6c7fe4f536320f0669bc74c1117a6b8d3db6f01c453b4" },
+]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
@@ -1350,6 +1659,314 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d8/b6/df3c1c9b616e9c0edbc4fbab6ddd09df9535849c64ba51fcb6531c32d4d8/pickleshare-0.7.5.tar.gz", hash = "sha256:87683d47965c1da65cdacaf31c8441d12b8044cdec9aca500cd78fc2c683afca" }
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9a/41/220f49aaea88bc6fa6cba8d05ecf24676326156c23b991e80b3f2fc24c77/pickleshare-0.7.5-py2.py3-none-any.whl", hash = "sha256:9649af414d74d4df115d5d718f82acb59c9d418196b7b4290ed47a12ce62df56" },
+]
+
+[[package]]
+name = "pillow"
+version = "10.4.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version < '3.9'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz", hash = "sha256:166c1cd4d24309b30d61f79f4a9114b7b2313d7450912277855ff5dfd7cd4a06" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0e/69/a31cccd538ca0b5272be2a38347f8839b97a14be104ea08b0db92f749c74/pillow-10.4.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:4d9667937cfa347525b319ae34375c37b9ee6b525440f3ef48542fcf66f2731e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9a/9e/4143b907be8ea0bce215f2ae4f7480027473f8b61fcedfda9d851082a5d2/pillow-10.4.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:543f3dc61c18dafb755773efc89aae60d06b6596a63914107f75459cf984164d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8a/25/1fc45761955f9359b1169aa75e241551e74ac01a09f487adaaf4c3472d11/pillow-10.4.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7928ecbf1ece13956b95d9cbcfc77137652b02763ba384d9ab508099a2eca856" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5e/dd/425b95d0151e1d6c951f45051112394f130df3da67363b6bc75dc4c27aba/pillow-10.4.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e4d49b85c4348ea0b31ea63bc75a9f3857869174e2bf17e7aba02945cd218e6f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b1/84/9a15cc5726cbbfe7f9f90bfb11f5d028586595907cd093815ca6644932e3/pillow-10.4.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:6c762a5b0997f5659a5ef2266abc1d8851ad7749ad9a6a5506eb23d314e4f46b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/5b/6651c288b08df3b8c1e2f8c1152201e0b25d240e22ddade0f1e242fc9fa0/pillow-10.4.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:a985e028fc183bf12a77a8bbf36318db4238a3ded7fa9df1b9a133f1cb79f8fc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/07/8b/34854bf11a83c248505c8cb0fcf8d3d0b459a2246c8809b967963b6b12ae/pillow-10.4.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:812f7342b0eee081eaec84d91423d1b4650bb9828eb53d8511bcef8ce5aecf1e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/78/63/0632aee4e82476d9cbe5200c0cdf9ba41ee04ed77887432845264d81116d/pillow-10.4.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:ac1452d2fbe4978c2eec89fb5a23b8387aba707ac72810d9490118817d9c0b46" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/df/56/b8663d7520671b4398b9d97e1ed9f583d4afcbefbda3c6188325e8c297bd/pillow-10.4.0-cp310-cp310-win32.whl", hash = "sha256:bcd5e41a859bf2e84fdc42f4edb7d9aba0a13d29a2abadccafad99de3feff984" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/72/0203e94a91ddb4a9d5238434ae6c1ca10e610e8487036132ea9bf806ca2a/pillow-10.4.0-cp310-cp310-win_amd64.whl", hash = "sha256:ecd85a8d3e79cd7158dec1c9e5808e821feea088e2f69a974db5edf84dc53141" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bd/52/7e7e93d7a6e4290543f17dc6f7d3af4bd0b3dd9926e2e8a35ac2282bc5f4/pillow-10.4.0-cp310-cp310-win_arm64.whl", hash = "sha256:ff337c552345e95702c5fde3158acb0625111017d0e5f24bf3acdb9cc16b90d1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a7/62/c9449f9c3043c37f73e7487ec4ef0c03eb9c9afc91a92b977a67b3c0bbc5/pillow-10.4.0-cp311-cp311-macosx_10_10_x86_64.whl", hash = "sha256:0a9ec697746f268507404647e531e92889890a087e03681a3606d9b920fbee3c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/5f/491dafc7bbf5a3cc1845dc0430872e8096eb9e2b6f8161509d124594ec2d/pillow-10.4.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:dfe91cb65544a1321e631e696759491ae04a2ea11d36715eca01ce07284738be" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/73/d5/c4011a76f4207a3c151134cd22a1415741e42fa5ddecec7c0182887deb3d/pillow-10.4.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5dc6761a6efc781e6a1544206f22c80c3af4c8cf461206d46a1e6006e4429ff3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/10/c67e20445a707f7a610699bba4fe050583b688d8cd2d202572b257f46600/pillow-10.4.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5e84b6cc6a4a3d76c153a6b19270b3526a5a8ed6b09501d3af891daa2a9de7d6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a9/83/6523837906d1da2b269dee787e31df3b0acb12e3d08f024965a3e7f64665/pillow-10.4.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:bbc527b519bd3aa9d7f429d152fea69f9ad37c95f0b02aebddff592688998abe" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ba/e5/8c68ff608a4203085158cff5cc2a3c534ec384536d9438c405ed6370d080/pillow-10.4.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:76a911dfe51a36041f2e756b00f96ed84677cdeb75d25c767f296c1c1eda1319" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/7c/01b8dbdca5bc6785573f4cee96e2358b0918b7b2c7b60d8b6f3abf87a070/pillow-10.4.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:59291fb29317122398786c2d44427bbd1a6d7ff54017075b22be9d21aa59bd8d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c8/57/2899b82394a35a0fbfd352e290945440e3b3785655a03365c0ca8279f351/pillow-10.4.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:416d3a5d0e8cfe4f27f574362435bc9bae57f679a7158e0096ad2beb427b8696" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4d/d7/a44f193d4c26e58ee5d2d9db3d4854b2cfb5b5e08d360a5e03fe987c0086/pillow-10.4.0-cp311-cp311-win32.whl", hash = "sha256:7086cc1d5eebb91ad24ded9f58bec6c688e9f0ed7eb3dbbf1e4800280a896496" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c1/d0/5866318eec2b801cdb8c82abf190c8343d8a1cd8bf5a0c17444a6f268291/pillow-10.4.0-cp311-cp311-win_amd64.whl", hash = "sha256:cbed61494057c0f83b83eb3a310f0bf774b09513307c434d4366ed64f4128a91" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d4/c8/310ac16ac2b97e902d9eb438688de0d961660a87703ad1561fd3dfbd2aa0/pillow-10.4.0-cp311-cp311-win_arm64.whl", hash = "sha256:f5f0c3e969c8f12dd2bb7e0b15d5c468b51e5017e01e2e867335c81903046a22" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/05/cb/0353013dc30c02a8be34eb91d25e4e4cf594b59e5a55ea1128fde1e5f8ea/pillow-10.4.0-cp312-cp312-macosx_10_10_x86_64.whl", hash = "sha256:673655af3eadf4df6b5457033f086e90299fdd7a47983a13827acf7459c15d94" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e7/cf/5c558a0f247e0bf9cec92bff9b46ae6474dd736f6d906315e60e4075f737/pillow-10.4.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:866b6942a92f56300012f5fbac71f2d610312ee65e22f1aa2609e491284e5597" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/84/48/6e394b86369a4eb68b8a1382c78dc092245af517385c086c5094e3b34428/pillow-10.4.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:29dbdc4207642ea6aad70fbde1a9338753d33fb23ed6956e706936706f52dd80" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/f3/a8c6c11fa84b59b9df0cd5694492da8c039a24cd159f0f6918690105c3be/pillow-10.4.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bf2342ac639c4cf38799a44950bbc2dfcb685f052b9e262f446482afaf4bffca" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7d/1b/c14b4197b80150fb64453585247e6fb2e1d93761fa0fa9cf63b102fde822/pillow-10.4.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:f5b92f4d70791b4a67157321c4e8225d60b119c5cc9aee8ecf153aace4aad4ef" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/55/77/40daddf677897a923d5d33329acd52a2144d54a9644f2a5422c028c6bf2d/pillow-10.4.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:86dcb5a1eb778d8b25659d5e4341269e8590ad6b4e8b44d9f4b07f8d136c414a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/40/54/90de3e4256b1207300fb2b1d7168dd912a2fb4b2401e439ba23c2b2cabde/pillow-10.4.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:780c072c2e11c9b2c7ca37f9a2ee8ba66f44367ac3e5c7832afcfe5104fd6d1b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/24/1bfba52f44193860918ff7c93d03d95e3f8748ca1de3ceaf11157a14cf16/pillow-10.4.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:37fb69d905be665f68f28a8bba3c6d3223c8efe1edf14cc4cfa06c241f8c81d9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/55/04/5e6de6e6120451ec0c24516c41dbaf80cce1b6451f96561235ef2429da2e/pillow-10.4.0-cp312-cp312-win32.whl", hash = "sha256:7dfecdbad5c301d7b5bde160150b4db4c659cee2b69589705b6f8a0c509d9f42" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/74/0a/d4ce3c44bca8635bd29a2eab5aa181b654a734a29b263ca8efe013beea98/pillow-10.4.0-cp312-cp312-win_amd64.whl", hash = "sha256:1d846aea995ad352d4bdcc847535bd56e0fd88d36829d2c90be880ef1ee4668a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/ca/184349ee40f2e92439be9b3502ae6cfc43ac4b50bc4fc6b3de7957563894/pillow-10.4.0-cp312-cp312-win_arm64.whl", hash = "sha256:e553cad5179a66ba15bb18b353a19020e73a7921296a7979c4a2b7f6a5cd57f9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c3/00/706cebe7c2c12a6318aabe5d354836f54adff7156fd9e1bd6c89f4ba0e98/pillow-10.4.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:8bc1a764ed8c957a2e9cacf97c8b2b053b70307cf2996aafd70e91a082e70df3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cf/76/f658cbfa49405e5ecbfb9ba42d07074ad9792031267e782d409fd8fe7c69/pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:6209bb41dc692ddfee4942517c19ee81b86c864b626dbfca272ec0f7cff5d9fb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/46/2b/99c28c4379a85e65378211971c0b430d9c7234b1ec4d59b2668f6299e011/pillow-10.4.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bee197b30783295d2eb680b311af15a20a8b24024a19c3a26431ff83eb8d1f70" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f1/74/b1ec314f624c0c43711fdf0d8076f82d9d802afd58f1d62c2a86878e8615/pillow-10.4.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1ef61f5dd14c300786318482456481463b9d6b91ebe5ef12f405afbba77ed0be" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4a/2a/4b04157cb7b9c74372fa867096a1607e6fedad93a44deeff553ccd307868/pillow-10.4.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:297e388da6e248c98bc4a02e018966af0c5f92dfacf5a5ca22fa01cb3179bca0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/7b/8f1d815c1a6a268fe90481232c98dd0e5fa8c75e341a75f060037bd5ceae/pillow-10.4.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:e4db64794ccdf6cb83a59d73405f63adbe2a1887012e308828596100a0b2f6cc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e5/77/05fa64d1f45d12c22c314e7b97398ffb28ef2813a485465017b7978b3ce7/pillow-10.4.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:bd2880a07482090a3bcb01f4265f1936a903d70bc740bfcb1fd4e8a2ffe5cf5a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/12/63/b0397cfc2caae05c3fb2f4ed1b4fc4fc878f0243510a7a6034ca59726494/pillow-10.4.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:4b35b21b819ac1dbd1233317adeecd63495f6babf21b7b2512d244ff6c6ce309" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7b/f9/cfaa5082ca9bc4a6de66ffe1c12c2d90bf09c309a5f52b27759a596900e7/pillow-10.4.0-cp313-cp313-win32.whl", hash = "sha256:551d3fd6e9dc15e4c1eb6fc4ba2b39c0c7933fa113b220057a34f4bb3268a060" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/01/6a/30ff0eef6e0c0e71e55ded56a38d4859bf9d3634a94a88743897b5f96936/pillow-10.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:030abdbe43ee02e0de642aee345efa443740aa4d828bfe8e2eb11922ea6a21ea" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/48/2c/2e0a52890f269435eee38b21c8218e102c621fe8d8df8b9dd06fabf879ba/pillow-10.4.0-cp313-cp313-win_arm64.whl", hash = "sha256:5b001114dd152cfd6b23befeb28d7aee43553e2402c9f159807bf55f33af8a8d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/56/70/f40009702a477ce87d8d9faaa4de51d6562b3445d7a314accd06e4ffb01d/pillow-10.4.0-cp38-cp38-macosx_10_10_x86_64.whl", hash = "sha256:8d4d5063501b6dd4024b8ac2f04962d661222d120381272deea52e3fc52d3736" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/43/105823d233c5e5d31cea13428f4474ded9d961652307800979a59d6a4276/pillow-10.4.0-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:7c1ee6f42250df403c5f103cbd2768a28fe1a0ea1f0f03fe151c8741e1469c8b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3c/ad/7850c10bac468a20c918f6a5dbba9ecd106ea1cdc5db3c35e33a60570408/pillow-10.4.0-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b15e02e9bb4c21e39876698abf233c8c579127986f8207200bc8a8f6bb27acf2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/84/4c/69bbed9e436ac22f9ed193a2b64f64d68fcfbc9f4106249dc7ed4889907b/pillow-10.4.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7a8d4bade9952ea9a77d0c3e49cbd8b2890a399422258a77f357b9cc9be8d680" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/4f/c183c63828a3f37bf09644ce94cbf72d4929b033b109160a5379c2885932/pillow-10.4.0-cp38-cp38-manylinux_2_28_aarch64.whl", hash = "sha256:43efea75eb06b95d1631cb784aa40156177bf9dd5b4b03ff38979e048258bc6b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fb/ad/435fe29865f98a8fbdc64add8875a6e4f8c97749a93577a8919ec6f32c64/pillow-10.4.0-cp38-cp38-manylinux_2_28_x86_64.whl", hash = "sha256:950be4d8ba92aca4b2bb0741285a46bfae3ca699ef913ec8416c1b78eadd64cd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/80/74/be8bf8acdfd70e91f905a12ae13cfb2e17c0f1da745c40141e26d0971ff5/pillow-10.4.0-cp38-cp38-musllinux_1_2_aarch64.whl", hash = "sha256:d7480af14364494365e89d6fddc510a13e5a2c3584cb19ef65415ca57252fb84" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e4/90/763616e66dc9ad59c9b7fb58f863755e7934ef122e52349f62c7742b82d3/pillow-10.4.0-cp38-cp38-musllinux_1_2_x86_64.whl", hash = "sha256:73664fe514b34c8f02452ffb73b7a92c6774e39a647087f83d67f010eb9a0cf0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/69/66/03002cb5b2c27bb519cba63b9f9aa3709c6f7a5d3b285406c01f03fb77e5/pillow-10.4.0-cp38-cp38-win32.whl", hash = "sha256:e88d5e6ad0d026fba7bdab8c3f225a69f063f116462c49892b0149e21b6c0a0e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f2/75/3cb820b2812405fc7feb3d0deb701ef0c3de93dc02597115e00704591bc9/pillow-10.4.0-cp38-cp38-win_amd64.whl", hash = "sha256:5161eef006d335e46895297f642341111945e2c1c899eb406882a6c61a4357ab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/85/955fa5400fa8039921f630372cfe5056eed6e1b8e0430ee4507d7de48832/pillow-10.4.0-cp39-cp39-macosx_10_10_x86_64.whl", hash = "sha256:0ae24a547e8b711ccaaf99c9ae3cd975470e1a30caa80a6aaee9a2f19c05701d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/23/9c/343827267eb28d41cd82b4180d33b10d868af9077abcec0af9793aa77d2d/pillow-10.4.0-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:298478fe4f77a4408895605f3482b6cc6222c018b2ce565c2b6b9c354ac3229b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/60/a3/7ebbeabcd341eab722896d1a5b59a3df98c4b4d26cf4b0385f8aa94296f7/pillow-10.4.0-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:134ace6dc392116566980ee7436477d844520a26a4b1bd4053f6f47d096997fd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/32/3f/c02268d0c6fb6b3958bdda673c17b315c821d97df29ae6969f20fb49388a/pillow-10.4.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:930044bb7679ab003b14023138b50181899da3f25de50e9dbee23b61b4de2126" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/67/5d/1c93c8cc35f2fdd3d6cc7e4ad72d203902859a2867de6ad957d9b708eb8d/pillow-10.4.0-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:c76e5786951e72ed3686e122d14c5d7012f16c8303a674d18cdcd6d89557fc5b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/a8/8655557c9c7202b8abbd001f61ff36711cefaf750debcaa1c24d154ef602/pillow-10.4.0-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:b2724fdb354a868ddf9a880cb84d102da914e99119211ef7ecbdc613b8c96b3c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/58/78/6f95797af64d137124f68af1bdaa13b5332da282b86031f6fa70cf368261/pillow-10.4.0-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:dbc6ae66518ab3c5847659e9988c3b60dc94ffb48ef9168656e0019a93dbf8a1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8a/6d/2b3ce34f1c4266d79a78c9a51d1289a33c3c02833fe294ef0dcbb9cba4ed/pillow-10.4.0-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:06b2f7898047ae93fad74467ec3d28fe84f7831370e3c258afa533f81ef7f3df" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e3/e0/456258c74da1ff5bf8ef1eab06a95ca994d8b9ed44c01d45c3f8cbd1db7e/pillow-10.4.0-cp39-cp39-win32.whl", hash = "sha256:7970285ab628a3779aecc35823296a7869f889b8329c16ad5a71e4901a3dc4ef" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/f8/bef952bdb32aa53741f58bf21798642209e994edc3f6598f337f23d5400a/pillow-10.4.0-cp39-cp39-win_amd64.whl", hash = "sha256:961a7293b2457b405967af9c77dcaa43cc1a8cd50d23c532e62d48ab6cdd56f5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bb/8e/805201619cad6651eef5fc1fdef913804baf00053461522fabbc5588ea12/pillow-10.4.0-cp39-cp39-win_arm64.whl", hash = "sha256:32cda9e3d601a52baccb2856b8ea1fc213c90b340c542dcef77140dfa3278a9e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/38/30/095d4f55f3a053392f75e2eae45eba3228452783bab3d9a920b951ac495c/pillow-10.4.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:5b4815f2e65b30f5fbae9dfffa8636d992d49705723fe86a3661806e069352d4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/e8/4ff79788803a5fcd5dc35efdc9386af153569853767bff74540725b45863/pillow-10.4.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:8f0aef4ef59694b12cadee839e2ba6afeab89c0f39a3adc02ed51d109117b8da" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d7/ac/4184edd511b14f760c73f5bb8a5d6fd85c591c8aff7c2229677a355c4179/pillow-10.4.0-pp310-pypy310_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9f4727572e2918acaa9077c919cbbeb73bd2b3ebcfe033b72f858fc9fbef0026" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/da/21/1749cd09160149c0a246a81d646e05f35041619ce76f6493d6a96e8d1103/pillow-10.4.0-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ff25afb18123cea58a591ea0244b92eb1e61a1fd497bf6d6384f09bc3262ec3e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b6/f5/f71fe1888b96083b3f6dfa0709101f61fc9e972c0c8d04e9d93ccef2a045/pillow-10.4.0-pp310-pypy310_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:dc3e2db6ba09ffd7d02ae9141cfa0ae23393ee7687248d46a7507b75d610f4f5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/96/b9/c0362c54290a31866c3526848583a2f45a535aa9d725fd31e25d318c805f/pillow-10.4.0-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:02a2be69f9c9b8c1e97cf2713e789d4e398c751ecfd9967c18d0ce304efbf885" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/52/3b/ce7a01026a7cf46e5452afa86f97a5e88ca97f562cafa76570178ab56d8d/pillow-10.4.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:0755ffd4a0c6f267cccbae2e9903d95477ca2f77c4fcf3a3a09570001856c8a5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e1/1f/5a9fcd6ced51633c22481417e11b1b47d723f64fb536dfd67c015eb7f0ab/pillow-10.4.0-pp39-pypy39_pp73-macosx_10_15_x86_64.whl", hash = "sha256:a02364621fe369e06200d4a16558e056fe2805d3468350df3aef21e00d26214b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cb/e6/3ea4755ed5320cb62aa6be2f6de47b058c6550f752dd050e86f694c59798/pillow-10.4.0-pp39-pypy39_pp73-macosx_11_0_arm64.whl", hash = "sha256:1b5dea9831a90e9d0721ec417a80d4cbd7022093ac38a568db2dd78363b00908" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0a/22/492f9f61e4648422b6ca39268ec8139277a5b34648d28f400faac14e0f48/pillow-10.4.0-pp39-pypy39_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9b885f89040bb8c4a1573566bbb2f44f5c505ef6e74cec7ab9068c900047f04b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/19/559a48ad4045704bb0547965b9a9345f5cd461347d977a56d178db28819e/pillow-10.4.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:87dd88ded2e6d74d31e1e0a99a726a6765cda32d00ba72dc37f0651f306daaa8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d9/de/cebaca6fb79905b3a1aa0281d238769df3fb2ede34fd7c0caa286575915a/pillow-10.4.0-pp39-pypy39_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:2db98790afc70118bd0255c2eeb465e9767ecf1f3c25f9a1abb8ffc8cfd1fe0a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/71/f0/86d5b2f04693b0116a01d75302b0a307800a90d6c351a8aa4f8ae76cd499/pillow-10.4.0-pp39-pypy39_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:f7baece4ce06bade126fb84b8af1c33439a76d8a6fd818970215e0560ca28c27" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/ae/2dbfc38cc4fd14aceea14bc440d5151b21f64c4c3ba3f6f4191610b7ee5d/pillow-10.4.0-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:cfdd747216947628af7b259d274771d84db2268ca062dd5faf373639d00113a3" },
+]
+
+[[package]]
+name = "pillow"
+version = "11.3.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/0d/d0d6dea55cd152ce3d6767bb38a8fc10e33796ba4ba210cbab9354b6d238/pillow-11.3.0.tar.gz", hash = "sha256:3828ee7586cd0b2091b6209e5ad53e20d0649bbe87164a459d0676e035e8f523" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4c/5d/45a3553a253ac8763f3561371432a90bdbe6000fbdcf1397ffe502aa206c/pillow-11.3.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:1b9c17fd4ace828b3003dfd1e30bff24863e0eb59b535e8f80194d9cc7ecf860" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7c/c8/67c12ab069ef586a25a4a79ced553586748fad100c77c0ce59bb4983ac98/pillow-11.3.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:65dc69160114cdd0ca0f35cb434633c75e8e7fad4cf855177a05bf38678f73ad" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2f/bd/6741ebd56263390b382ae4c5de02979af7f8bd9807346d068700dd6d5cf9/pillow-11.3.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:7107195ddc914f656c7fc8e4a5e1c25f32e9236ea3ea860f257b0436011fddd0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ca/0b/c412a9e27e1e6a829e6ab6c2dca52dd563efbedf4c9c6aa453d9a9b77359/pillow-11.3.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:cc3e831b563b3114baac7ec2ee86819eb03caa1a2cef0b481a5675b59c4fe23b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/59/9d/9b7076aaf30f5dd17e5e5589b2d2f5a5d7e30ff67a171eb686e4eecc2adf/pillow-11.3.0-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f1f182ebd2303acf8c380a54f615ec883322593320a9b00438eb842c1f37ae50" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f0/16/1a6bf01fb622fb9cf5c91683823f073f053005c849b1f52ed613afcf8dae/pillow-11.3.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4445fa62e15936a028672fd48c4c11a66d641d2c05726c7ec1f8ba6a572036ae" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7b/e6/6ff7077077eb47fde78739e7d570bdcd7c10495666b6afcd23ab56b19a43/pillow-11.3.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:71f511f6b3b91dd543282477be45a033e4845a40278fa8dcdbfdb07109bf18f9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c3/3a/b13f36832ea6d279a697231658199e0a03cd87ef12048016bdcc84131601/pillow-11.3.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:040a5b691b0713e1f6cbe222e0f4f74cd233421e105850ae3b3c0ceda520f42e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6c/e4/61b2e1a7528740efbc70b3d581f33937e38e98ef3d50b05007267a55bcb2/pillow-11.3.0-cp310-cp310-win32.whl", hash = "sha256:89bd777bc6624fe4115e9fac3352c79ed60f3bb18651420635f26e643e3dd1f6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a9/d3/60c781c83a785d6afbd6a326ed4d759d141de43aa7365725cbcd65ce5e54/pillow-11.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:19d2ff547c75b8e3ff46f4d9ef969a06c30ab2d4263a9e287733aa8b2429ce8f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9f/28/4f4a0203165eefb3763939c6789ba31013a2e90adffb456610f30f613850/pillow-11.3.0-cp310-cp310-win_arm64.whl", hash = "sha256:819931d25e57b513242859ce1876c58c59dc31587847bf74cfe06b2e0cb22d2f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/db/26/77f8ed17ca4ffd60e1dcd220a6ec6d71210ba398cfa33a13a1cd614c5613/pillow-11.3.0-cp311-cp311-macosx_10_10_x86_64.whl", hash = "sha256:1cd110edf822773368b396281a2293aeb91c90a2db00d78ea43e7e861631b722" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cb/39/ee475903197ce709322a17a866892efb560f57900d9af2e55f86db51b0a5/pillow-11.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9c412fddd1b77a75aa904615ebaa6001f169b26fd467b4be93aded278266b288" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/90/442068a160fd179938ba55ec8c97050a612426fae5ec0a764e345839f76d/pillow-11.3.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:7d1aa4de119a0ecac0a34a9c8bde33f34022e2e8f99104e47a3ca392fd60e37d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/92/dcdd147ab02daf405387f0218dcf792dc6dd5b14d2573d40b4caeef01059/pillow-11.3.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:91da1d88226663594e3f6b4b8c3c8d85bd504117d043740a8e0ec449087cc494" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6e/db/839d6ba7fd38b51af641aa904e2960e7a5644d60ec754c046b7d2aee00e5/pillow-11.3.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:643f189248837533073c405ec2f0bb250ba54598cf80e8c1e043381a60632f58" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f2/2f/d7675ecae6c43e9f12aa8d58b6012683b20b6edfbdac7abcb4e6af7a3784/pillow-11.3.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:106064daa23a745510dabce1d84f29137a37224831d88eb4ce94bb187b1d7e5f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/ad/931694675ede172e15b2ff03c8144a0ddaea1d87adb72bb07655eaffb654/pillow-11.3.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:cd8ff254faf15591e724dc7c4ddb6bf4793efcbe13802a4ae3e863cd300b493e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3a/04/ba8f2b11fc80d2dd462d7abec16351b45ec99cbbaea4387648a44190351a/pillow-11.3.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:932c754c2d51ad2b2271fd01c3d121daaa35e27efae2a616f77bf164bc0b3e94" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/48/59/8cd06d7f3944cc7d892e8533c56b0acb68399f640786313275faec1e3b6f/pillow-11.3.0-cp311-cp311-win32.whl", hash = "sha256:b4b8f3efc8d530a1544e5962bd6b403d5f7fe8b9e08227c6b255f98ad82b4ba0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f1/cc/29c0f5d64ab8eae20f3232da8f8571660aa0ab4b8f1331da5c2f5f9a938e/pillow-11.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:1a992e86b0dd7aeb1f053cd506508c0999d710a8f07b4c791c63843fc6a807ac" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c6/df/90bd886fabd544c25addd63e5ca6932c86f2b701d5da6c7839387a076b4a/pillow-11.3.0-cp311-cp311-win_arm64.whl", hash = "sha256:30807c931ff7c095620fe04448e2c2fc673fcbb1ffe2a7da3fb39613489b1ddd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/40/fe/1bc9b3ee13f68487a99ac9529968035cca2f0a51ec36892060edcc51d06a/pillow-11.3.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:fdae223722da47b024b867c1ea0be64e0df702c5e0a60e27daad39bf960dd1e4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2c/32/7e2ac19b5713657384cec55f89065fb306b06af008cfd87e572035b27119/pillow-11.3.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:921bd305b10e82b4d1f5e802b6850677f965d8394203d182f078873851dada69" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/1e/b9e12bbe6e4c2220effebc09ea0923a07a6da1e1f1bfbc8d7d29a01ce32b/pillow-11.3.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:eb76541cba2f958032d79d143b98a3a6b3ea87f0959bbe256c0b5e416599fd5d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8d/33/e9200d2bd7ba00dc3ddb78df1198a6e80d7669cce6c2bdbeb2530a74ec58/pillow-11.3.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:67172f2944ebba3d4a7b54f2e95c786a3a50c21b88456329314caaa28cda70f6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/41/f1/6f2427a26fc683e00d985bc391bdd76d8dd4e92fac33d841127eb8fb2313/pillow-11.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:97f07ed9f56a3b9b5f49d3661dc9607484e85c67e27f3e8be2c7d28ca032fec7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e4/c9/06dd4a38974e24f932ff5f98ea3c546ce3f8c995d3f0985f8e5ba48bba19/pillow-11.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:676b2815362456b5b3216b4fd5bd89d362100dc6f4945154ff172e206a22c024" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/40/e7/848f69fb79843b3d91241bad658e9c14f39a32f71a301bcd1d139416d1be/pillow-11.3.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:3e184b2f26ff146363dd07bde8b711833d7b0202e27d13540bfe2e35a323a809" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0b/1a/7cff92e695a2a29ac1958c2a0fe4c0b2393b60aac13b04a4fe2735cad52d/pillow-11.3.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:6be31e3fc9a621e071bc17bb7de63b85cbe0bfae91bb0363c893cbe67247780d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/26/7d/73699ad77895f69edff76b0f332acc3d497f22f5d75e5360f78cbcaff248/pillow-11.3.0-cp312-cp312-win32.whl", hash = "sha256:7b161756381f0918e05e7cb8a371fff367e807770f8fe92ecb20d905d0e1c149" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8c/ce/e7dfc873bdd9828f3b6e5c2bbb74e47a98ec23cc5c74fc4e54462f0d9204/pillow-11.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:a6444696fce635783440b7f7a9fc24b3ad10a9ea3f0ab66c5905be1c19ccf17d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/16/8f/b13447d1bf0b1f7467ce7d86f6e6edf66c0ad7cf44cf5c87a37f9bed9936/pillow-11.3.0-cp312-cp312-win_arm64.whl", hash = "sha256:2aceea54f957dd4448264f9bf40875da0415c83eb85f55069d89c0ed436e3542" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1e/93/0952f2ed8db3a5a4c7a11f91965d6184ebc8cd7cbb7941a260d5f018cd2d/pillow-11.3.0-cp313-cp313-ios_13_0_arm64_iphoneos.whl", hash = "sha256:1c627742b539bba4309df89171356fcb3cc5a9178355b2727d1b74a6cf155fbd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4b/e8/100c3d114b1a0bf4042f27e0f87d2f25e857e838034e98ca98fe7b8c0a9c/pillow-11.3.0-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl", hash = "sha256:30b7c02f3899d10f13d7a48163c8969e4e653f8b43416d23d13d1bbfdc93b9f8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/aa/86/3f758a28a6e381758545f7cdb4942e1cb79abd271bea932998fc0db93cb6/pillow-11.3.0-cp313-cp313-ios_13_0_x86_64_iphonesimulator.whl", hash = "sha256:7859a4cc7c9295f5838015d8cc0a9c215b77e43d07a25e460f35cf516df8626f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/01/f4/91d5b3ffa718df2f53b0dc109877993e511f4fd055d7e9508682e8aba092/pillow-11.3.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:ec1ee50470b0d050984394423d96325b744d55c701a439d2bd66089bff963d3c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/0e/37d7d3eca6c879fbd9dba21268427dffda1ab00d4eb05b32923d4fbe3b12/pillow-11.3.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:7db51d222548ccfd274e4572fdbf3e810a5e66b00608862f947b163e613b67dd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ff/b0/3426e5c7f6565e752d81221af9d3676fdbb4f352317ceafd42899aaf5d8a/pillow-11.3.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2d6fcc902a24ac74495df63faad1884282239265c6839a0a6416d33faedfae7e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/c1/c6c423134229f2a221ee53f838d4be9d82bab86f7e2f8e75e47b6bf6cd77/pillow-11.3.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f0f5d8f4a08090c6d6d578351a2b91acf519a54986c055af27e7a93feae6d3f1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ba/c9/09e6746630fe6372c67c648ff9deae52a2bc20897d51fa293571977ceb5d/pillow-11.3.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c37d8ba9411d6003bba9e518db0db0c58a680ab9fe5179f040b0463644bc9805" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/1c/a2a29649c0b1983d3ef57ee87a66487fdeb45132df66ab30dd37f7dbe162/pillow-11.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:13f87d581e71d9189ab21fe0efb5a23e9f28552d5be6979e84001d3b8505abe8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/36/de/d5cc31cc4b055b6c6fd990e3e7f0f8aaf36229a2698501bcb0cdf67c7146/pillow-11.3.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:023f6d2d11784a465f09fd09a34b150ea4672e85fb3d05931d89f373ab14abb2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/ea/502d938cbaeec836ac28a9b730193716f0114c41325db428e6b280513f09/pillow-11.3.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:45dfc51ac5975b938e9809451c51734124e73b04d0f0ac621649821a63852e7b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/9c/9c5e2a73f125f6cbc59cc7087c8f2d649a7ae453f83bd0362ff7c9e2aee2/pillow-11.3.0-cp313-cp313-win32.whl", hash = "sha256:a4d336baed65d50d37b88ca5b60c0fa9d81e3a87d4a7930d3880d1624d5b31f3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/23/85/397c73524e0cd212067e0c969aa245b01d50183439550d24d9f55781b776/pillow-11.3.0-cp313-cp313-win_amd64.whl", hash = "sha256:0bce5c4fd0921f99d2e858dc4d4d64193407e1b99478bc5cacecba2311abde51" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/17/d2/622f4547f69cd173955194b78e4d19ca4935a1b0f03a302d655c9f6aae65/pillow-11.3.0-cp313-cp313-win_arm64.whl", hash = "sha256:1904e1264881f682f02b7f8167935cce37bc97db457f8e7849dc3a6a52b99580" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/dd/80/a8a2ac21dda2e82480852978416cfacd439a4b490a501a288ecf4fe2532d/pillow-11.3.0-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:4c834a3921375c48ee6b9624061076bc0a32a60b5532b322cc0ea64e639dd50e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/44/d6/b79754ca790f315918732e18f82a8146d33bcd7f4494380457ea89eb883d/pillow-11.3.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:5e05688ccef30ea69b9317a9ead994b93975104a677a36a8ed8106be9260aa6d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/49/20/716b8717d331150cb00f7fdd78169c01e8e0c219732a78b0e59b6bdb2fd6/pillow-11.3.0-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1019b04af07fc0163e2810167918cb5add8d74674b6267616021ab558dc98ced" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/74/cf/a9f3a2514a65bb071075063a96f0a5cf949c2f2fce683c15ccc83b1c1cab/pillow-11.3.0-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f944255db153ebb2b19c51fe85dd99ef0ce494123f21b9db4877ffdfc5590c7c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/3c/da78805cbdbee9cb43efe8261dd7cc0b4b93f2ac79b676c03159e9db2187/pillow-11.3.0-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1f85acb69adf2aaee8b7da124efebbdb959a104db34d3a2cb0f3793dbae422a8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6c/fa/ce044b91faecf30e635321351bba32bab5a7e034c60187fe9698191aef4f/pillow-11.3.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:05f6ecbeff5005399bb48d198f098a9b4b6bdf27b8487c7f38ca16eeb070cd59" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7b/51/90f9291406d09bf93686434f9183aba27b831c10c87746ff49f127ee80cb/pillow-11.3.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:a7bc6e6fd0395bc052f16b1a8670859964dbd7003bd0af2ff08342eb6e442cfe" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cd/5a/6fec59b1dfb619234f7636d4157d11fb4e196caeee220232a8d2ec48488d/pillow-11.3.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:83e1b0161c9d148125083a35c1c5a89db5b7054834fd4387499e06552035236c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/49/6b/00187a044f98255225f172de653941e61da37104a9ea60e4f6887717e2b5/pillow-11.3.0-cp313-cp313t-win32.whl", hash = "sha256:2a3117c06b8fb646639dce83694f2f9eac405472713fcb1ae887469c0d4f6788" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e8/5c/6caaba7e261c0d75bab23be79f1d06b5ad2a2ae49f028ccec801b0e853d6/pillow-11.3.0-cp313-cp313t-win_amd64.whl", hash = "sha256:857844335c95bea93fb39e0fa2726b4d9d758850b34075a7e3ff4f4fa3aa3b31" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/7e/b623008460c09a0cb38263c93b828c666493caee2eb34ff67f778b87e58c/pillow-11.3.0-cp313-cp313t-win_arm64.whl", hash = "sha256:8797edc41f3e8536ae4b10897ee2f637235c94f27404cac7297f7b607dd0716e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/73/f4/04905af42837292ed86cb1b1dabe03dce1edc008ef14c473c5c7e1443c5d/pillow-11.3.0-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:d9da3df5f9ea2a89b81bb6087177fb1f4d1c7146d583a3fe5c672c0d94e55e12" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/41/b0/33d79e377a336247df6348a54e6d2a2b85d644ca202555e3faa0cf811ecc/pillow-11.3.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:0b275ff9b04df7b640c59ec5a3cb113eefd3795a8df80bac69646ef699c6981a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/49/2d/ed8bc0ab219ae8768f529597d9509d184fe8a6c4741a6864fea334d25f3f/pillow-11.3.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:0743841cabd3dba6a83f38a92672cccbd69af56e3e91777b0ee7f4dba4385632" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/3d/b932bb4225c80b58dfadaca9d42d08d0b7064d2d1791b6a237f87f661834/pillow-11.3.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2465a69cf967b8b49ee1b96d76718cd98c4e925414ead59fdf75cf0fd07df673" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/09/b5/0487044b7c096f1b48f0d7ad416472c02e0e4bf6919541b111efd3cae690/pillow-11.3.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:41742638139424703b4d01665b807c6468e23e699e8e90cffefe291c5832b027" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a8/2d/524f9318f6cbfcc79fbc004801ea6b607ec3f843977652fdee4857a7568b/pillow-11.3.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:93efb0b4de7e340d99057415c749175e24c8864302369e05914682ba642e5d77" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6f/d2/a9a4f280c6aefedce1e8f615baaa5474e0701d86dd6f1dede66726462bbd/pillow-11.3.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:7966e38dcd0fa11ca390aed7c6f20454443581d758242023cf36fcb319b1a874" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fe/54/86b0cd9dbb683a9d5e960b66c7379e821a19be4ac5810e2e5a715c09a0c0/pillow-11.3.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:98a9afa7b9007c67ed84c57c9e0ad86a6000da96eaa638e4f8abe5b65ff83f0a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e7/95/88efcaf384c3588e24259c4203b909cbe3e3c2d887af9e938c2022c9dd48/pillow-11.3.0-cp314-cp314-win32.whl", hash = "sha256:02a723e6bf909e7cea0dac1b0e0310be9d7650cd66222a5f1c571455c0a45214" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2e/cc/934e5820850ec5eb107e7b1a72dd278140731c669f396110ebc326f2a503/pillow-11.3.0-cp314-cp314-win_amd64.whl", hash = "sha256:a418486160228f64dd9e9efcd132679b7a02a5f22c982c78b6fc7dab3fefb635" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d6/e9/9c0a616a71da2a5d163aa37405e8aced9a906d574b4a214bede134e731bc/pillow-11.3.0-cp314-cp314-win_arm64.whl", hash = "sha256:155658efb5e044669c08896c0c44231c5e9abcaadbc5cd3648df2f7c0b96b9a6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/33/c88376898aff369658b225262cd4f2659b13e8178e7534df9e6e1fa289f6/pillow-11.3.0-cp314-cp314t-macosx_10_13_x86_64.whl", hash = "sha256:59a03cdf019efbfeeed910bf79c7c93255c3d54bc45898ac2a4140071b02b4ae" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1f/70/d376247fb36f1844b42910911c83a02d5544ebd2a8bad9efcc0f707ea774/pillow-11.3.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:f8a5827f84d973d8636e9dc5764af4f0cf2318d26744b3d902931701b0d46653" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/1c/537e930496149fbac69efd2fc4329035bbe2e5475b4165439e3be9cb183b/pillow-11.3.0-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:ee92f2fd10f4adc4b43d07ec5e779932b4eb3dbfbc34790ada5a6669bc095aa6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bd/57/80f53264954dcefeebcf9dae6e3eb1daea1b488f0be8b8fef12f79a3eb10/pillow-11.3.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c96d333dcf42d01f47b37e0979b6bd73ec91eae18614864622d9b87bbd5bbf36" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/70/ff/4727d3b71a8578b4587d9c276e90efad2d6fe0335fd76742a6da08132e8c/pillow-11.3.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4c96f993ab8c98460cd0c001447bff6194403e8b1d7e149ade5f00594918128b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/05/ae/716592277934f85d3be51d7256f3636672d7b1abfafdc42cf3f8cbd4b4c8/pillow-11.3.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:41342b64afeba938edb034d122b2dda5db2139b9a4af999729ba8818e0056477" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e7/bb/7fe6cddcc8827b01b1a9766f5fdeb7418680744f9082035bdbabecf1d57f/pillow-11.3.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:068d9c39a2d1b358eb9f245ce7ab1b5c3246c7c8c7d9ba58cfa5b43146c06e50" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8b/f5/06bfaa444c8e80f1a8e4bff98da9c83b37b5be3b1deaa43d27a0db37ef84/pillow-11.3.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:a1bc6ba083b145187f648b667e05a2534ecc4b9f2784c2cbe3089e44868f2b9b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f0/77/bc6f92a3e8e6e46c0ca78abfffec0037845800ea38c73483760362804c41/pillow-11.3.0-cp314-cp314t-win32.whl", hash = "sha256:118ca10c0d60b06d006be10a501fd6bbdfef559251ed31b794668ed569c87e12" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4a/82/3a721f7d69dca802befb8af08b7c79ebcab461007ce1c18bd91a5d5896f9/pillow-11.3.0-cp314-cp314t-win_amd64.whl", hash = "sha256:8924748b688aa210d79883357d102cd64690e56b923a186f35a82cbc10f997db" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/89/c7/5572fa4a3f45740eaab6ae86fcdf7195b55beac1371ac8c619d880cfe948/pillow-11.3.0-cp314-cp314t-win_arm64.whl", hash = "sha256:79ea0d14d3ebad43ec77ad5272e6ff9bba5b679ef73375ea760261207fa8e0aa" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9e/8e/9c089f01677d1264ab8648352dcb7773f37da6ad002542760c80107da816/pillow-11.3.0-cp39-cp39-macosx_10_10_x86_64.whl", hash = "sha256:48d254f8a4c776de343051023eb61ffe818299eeac478da55227d96e241de53f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/a9/5749930caf674695867eb56a581e78eb5f524b7583ff10b01b6e5048acb3/pillow-11.3.0-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:7aee118e30a4cf54fdd873bd3a29de51e29105ab11f9aad8c32123f58c8f8081" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/46/0b85b763eb292b691030795f9f6bb6fcaf8948c39413c81696a01c3577f7/pillow-11.3.0-cp39-cp39-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:23cff760a9049c502721bdb743a7cb3e03365fafcdfc2ef9784610714166e5a4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5e/c6/1a230ec0067243cbd60bc2dad5dc3ab46a8a41e21c15f5c9b52b26873069/pillow-11.3.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6359a3bc43f57d5b375d1ad54a0074318a0844d11b76abccf478c37c986d3cfc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/dd/f296c27ffba447bfad76c6a0c44c1ea97a90cb9472b9304c94a732e8dbfb/pillow-11.3.0-cp39-cp39-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:092c80c76635f5ecb10f3f83d76716165c96f5229addbd1ec2bdbbda7d496e06" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a5/a0/98a3630f0b57f77bae67716562513d3032ae70414fcaf02750279c389a9e/pillow-11.3.0-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:cadc9e0ea0a2431124cde7e1697106471fc4c1da01530e679b2391c37d3fbb3a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/de/e6/83dfba5646a290edd9a21964da07674409e410579c341fc5b8f7abd81620/pillow-11.3.0-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:6a418691000f2a418c9135a7cf0d797c1bb7d9a485e61fe8e7722845b95ef978" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/41/15ab268fe6ee9a2bc7391e2bbb20a98d3974304ab1a406a992dcb297a370/pillow-11.3.0-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:97afb3a00b65cc0804d1c7abddbf090a81eaac02768af58cbdcaaa0a931e0b6d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/64/79/6d4f638b288300bed727ff29f2a3cb63db054b33518a95f27724915e3fbc/pillow-11.3.0-cp39-cp39-win32.whl", hash = "sha256:ea944117a7974ae78059fcc1800e5d3295172bb97035c0c1d9345fca1419da71" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/46/05/4106422f45a05716fd34ed21763f8ec182e8ea00af6e9cb05b93a247361a/pillow-11.3.0-cp39-cp39-win_amd64.whl", hash = "sha256:e5c5858ad8ec655450a7c7df532e9842cf8df7cc349df7225c60d5d348c8aada" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/c6/287fd55c2c12761d0591549d48885187579b7c257bef0c6660755b0b59ae/pillow-11.3.0-cp39-cp39-win_arm64.whl", hash = "sha256:6abdbfd3aea42be05702a8dd98832329c167ee84400a1d1f61ab11437f1717eb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6f/8b/209bd6b62ce8367f47e68a218bffac88888fdf2c9fcf1ecadc6c3ec1ebc7/pillow-11.3.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:3cee80663f29e3843b68199b9d6f4f54bd1d4a6b59bdd91bceefc51238bcb967" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2e/e6/231a0b76070c2cfd9e260a7a5b504fb72da0a95279410fa7afd99d9751d6/pillow-11.3.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:b5f56c3f344f2ccaf0dd875d3e180f631dc60a51b314295a3e681fe8cf851fbe" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/f4/10cf94fda33cb12765f2397fc285fa6d8eb9c29de7f3185165b702fc7386/pillow-11.3.0-pp310-pypy310_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e67d793d180c9df62f1f40aee3accca4829d3794c95098887edc18af4b8b780c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/c9/583821097dc691880c92892e8e2d41fe0a5a3d6021f4963371d2f6d57250/pillow-11.3.0-pp310-pypy310_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:d000f46e2917c705e9fb93a3606ee4a819d1e3aa7a9b442f6444f07e77cf5e25" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/8e/5c9d410f9217b12320efc7c413e72693f48468979a013ad17fd690397b9a/pillow-11.3.0-pp310-pypy310_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:527b37216b6ac3a12d7838dc3bd75208ec57c1c6d11ef01902266a5a0c14fc27" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/62/bb/78347dbe13219991877ffb3a91bf09da8317fbfcd4b5f9140aeae020ad71/pillow-11.3.0-pp310-pypy310_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:be5463ac478b623b9dd3937afd7fb7ab3d79dd290a28e2b6df292dc75063eb8a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d9/28/1000353d5e61498aaeaaf7f1e4b49ddb05f2c6575f9d4f9f914a3538b6e1/pillow-11.3.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:8dc70ca24c110503e16918a658b869019126ecfe03109b754c402daff12b3d9f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9e/e3/6fa84033758276fb31da12e5fb66ad747ae83b93c67af17f8c6ff4cc8f34/pillow-11.3.0-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:7c8ec7a017ad1bd562f93dbd8505763e688d388cde6e4a010ae1486916e713e6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5b/ee/e8d2e1ab4892970b561e1ba96cbd59c0d28cf66737fc44abb2aec3795a4e/pillow-11.3.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:9ab6ae226de48019caa8074894544af5b53a117ccb9d3b3dcb2871464c829438" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f2/6d/17f80f4e1f0761f02160fc433abd4109fa1548dcfdca46cfdadaf9efa565/pillow-11.3.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:fe27fb049cdcca11f11a7bfda64043c37b30e6b91f10cb5bab275806c32f6ab3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/de/5f/c22340acd61cef960130585bbe2120e2fd8434c214802f07e8c03596b17e/pillow-11.3.0-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:465b9e8844e3c3519a983d58b80be3f668e2a7a5db97f2784e7079fbc9f9822c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/5e/03966aedfbfcbb4d5f8aa042452d3361f325b963ebbadddac05b122e47dd/pillow-11.3.0-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5418b53c0d59b3824d05e029669efa023bbef0f3e92e75ec8428f3799487f361" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cc/2d/e082982aacc927fc2cab48e1e731bdb1643a1406acace8bed0900a61464e/pillow-11.3.0-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:504b6f59505f08ae014f724b6207ff6222662aab5cc9542577fb084ed0676ac7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/34/e7/ae39f538fd6844e982063c3a5e4598b8ced43b9633baa3a85ef33af8c05c/pillow-11.3.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:c84d689db21a1c397d001aa08241044aa2069e7587b398c8cc63020390b1c1b8" },
+]
+
+[[package]]
+name = "pillow"
+version = "12.1.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version >= '3.11'",
+    "python_full_version == '3.10.*'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/02/d52c733a2452ef1ffcc123b68e6606d07276b0e358db70eabad7e40042b7/pillow-12.1.0.tar.gz", hash = "sha256:5c5ae0a06e9ea030ab786b0251b32c7e4ce10e58d983c0d5c56029455180b5b9" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fe/41/f73d92b6b883a579e79600d391f2e21cb0df767b2714ecbd2952315dfeef/pillow-12.1.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:fb125d860738a09d363a88daa0f59c4533529a90e564785e20fe875b200b6dbd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/94/55/7aca2891560188656e4a91ed9adba305e914a4496800da6b5c0a15f09edf/pillow-12.1.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:cad302dc10fac357d3467a74a9561c90609768a6f73a1923b0fd851b6486f8b0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e9/d2/b28221abaa7b4c40b7dba948f0f6a708bd7342c4d47ce342f0ea39643974/pillow-12.1.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:a40905599d8079e09f25027423aed94f2823adaf2868940de991e53a449e14a8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/71/b8/7a61fb234df6a9b0b479f69e66901209d89ff72a435b49933f9122f94cac/pillow-12.1.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:92a7fe4225365c5e3a8e598982269c6d6698d3e783b3b1ae979e7819f9cd55c1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ea/51/55c751a57cc524a15a0e3db20e5cde517582359508d62305a627e77fd295/pillow-12.1.0-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f10c98f49227ed8383d28174ee95155a675c4ed7f85e2e573b04414f7e371bda" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/dc/7c/60e3e6f5e5891a1a06b4c910f742ac862377a6fe842f7184df4a274ce7bf/pillow-12.1.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8637e29d13f478bc4f153d8daa9ffb16455f0a6cb287da1b432fdad2bfbd66c7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/06/37/49d47266ba50b00c27ba63a7c898f1bb41a29627ced8c09e25f19ebec0ff/pillow-12.1.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:21e686a21078b0f9cb8c8a961d99e6a4ddb88e0fc5ea6e130172ddddc2e5221a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/e5/67fd87d2913902462cd9b79c6211c25bfe95fcf5783d06e1367d6d9a741f/pillow-12.1.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:2415373395a831f53933c23ce051021e79c8cd7979822d8cc478547a3f4da8ef" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bd/15/f8c7abf82af68b29f50d77c227e7a1f87ce02fdc66ded9bf603bc3b41180/pillow-12.1.0-cp310-cp310-win32.whl", hash = "sha256:e75d3dba8fc1ddfec0cd752108f93b83b4f8d6ab40e524a95d35f016b9683b09" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d4/24/7d1c0e160b6b5ac2605ef7d8be537e28753c0db5363d035948073f5513d7/pillow-12.1.0-cp310-cp310-win_amd64.whl", hash = "sha256:64efdf00c09e31efd754448a383ea241f55a994fd079866b92d2bbff598aad91" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/03/41c038f0d7a06099254c60f618d0ec7be11e79620fc23b8e85e5b31d9a44/pillow-12.1.0-cp310-cp310-win_arm64.whl", hash = "sha256:f188028b5af6b8fb2e9a76ac0f841a575bd1bd396e46ef0840d9b88a48fdbcea" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/c4/bf8328039de6cc22182c3ef007a2abfbbdab153661c0a9aa78af8d706391/pillow-12.1.0-cp311-cp311-macosx_10_10_x86_64.whl", hash = "sha256:a83e0850cb8f5ac975291ebfc4170ba481f41a28065277f7f735c202cd8e0af3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/06/7264c0597e676104cc22ca73ee48f752767cd4b1fe084662620b17e10120/pillow-12.1.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:b6e53e82ec2db0717eabb276aa56cf4e500c9a7cec2c2e189b55c24f65a3e8c0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/64/f9189e44474610daf83da31145fa56710b627b5c4c0b9c235e34058f6b31/pillow-12.1.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:40a8e3b9e8773876d6e30daed22f016509e3987bab61b3b7fe309d7019a87451" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ef/30/0df458009be6a4caca4ca2c52975e6275c387d4e5c95544e34138b41dc86/pillow-12.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:800429ac32c9b72909c671aaf17ecd13110f823ddb7db4dfef412a5587c2c24e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e4/86/95845d4eda4f4f9557e25381d70876aa213560243ac1a6d619c46caaedd9/pillow-12.1.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0b022eaaf709541b391ee069f0022ee5b36c709df71986e3f7be312e46f42c84" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5c/1f/8e66ab9be3aaf1435bc03edd1ebdf58ffcd17f7349c1d970cafe87af27d9/pillow-12.1.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1f345e7bc9d7f368887c712aa5054558bad44d2a301ddf9248599f4161abc7c0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/f6/683b83cb9b1db1fb52b87951b1c0b99bdcfceaa75febf11406c19f82cb5e/pillow-12.1.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:d70347c8a5b7ccd803ec0c85c8709f036e6348f1e6a5bf048ecd9c64d3550b8b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/9a/7d/de833d63622538c1d58ce5395e7c6cb7e7dce80decdd8bde4a484e095d9f/pillow-12.1.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:1fcc52d86ce7a34fd17cb04e87cfdb164648a3662a6f20565910a99653d66c18" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8c/40/50d86571c9e5868c42b81fe7da0c76ca26373f3b95a8dd675425f4a92ec1/pillow-12.1.0-cp311-cp311-win32.whl", hash = "sha256:3ffaa2f0659e2f740473bcf03c702c39a8d4b2b7ffc629052028764324842c64" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6c/af/b1d7e301c4cd26cd45d4af884d9ee9b6fab893b0ad2450d4746d74a6968c/pillow-12.1.0-cp311-cp311-win_amd64.whl", hash = "sha256:806f3987ffe10e867bab0ddad45df1148a2b98221798457fa097ad85d6e8bc75" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/48/36/d5716586d887fb2a810a4a61518a327a1e21c8b7134c89283af272efe84b/pillow-12.1.0-cp311-cp311-win_arm64.whl", hash = "sha256:9f5fefaca968e700ad1a4a9de98bf0869a94e397fe3524c4c9450c1445252304" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/20/31/dc53fe21a2f2996e1b7d92bf671cdb157079385183ef7c1ae08b485db510/pillow-12.1.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:a332ac4ccb84b6dde65dbace8431f3af08874bf9770719d32a635c4ef411b18b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ab/c1/10e45ac9cc79419cedf5121b42dcca5a50ad2b601fa080f58c22fb27626e/pillow-12.1.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:907bfa8a9cb790748a9aa4513e37c88c59660da3bcfffbd24a7d9e6abf224551" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ad/26/7b82c0ab7ef40ebede7a97c72d473bda5950f609f8e0c77b04af574a0ddb/pillow-12.1.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:efdc140e7b63b8f739d09a99033aa430accce485ff78e6d311973a67b6bf3208" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/76/25/27abc9792615b5e886ca9411ba6637b675f1b77af3104710ac7353fe5605/pillow-12.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:bef9768cab184e7ae6e559c032e95ba8d07b3023c289f79a2bd36e8bf85605a5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0a/ea/f200a4c36d836100e7bc738fc48cd963d3ba6372ebc8298a889e0cfc3359/pillow-12.1.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:742aea052cf5ab5034a53c3846165bc3ce88d7c38e954120db0ab867ca242661" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/11/8f/48d0b77ab2200374c66d344459b8958c86693be99526450e7aee714e03e4/pillow-12.1.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a6dfc2af5b082b635af6e08e0d1f9f1c4e04d17d4e2ca0ef96131e85eda6eb17" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/23/c281182eb986b5d31f0a76d2a2c8cd41722d6fb8ed07521e802f9bba52de/pillow-12.1.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:609e89d9f90b581c8d16358c9087df76024cf058fa693dd3e1e1620823f39670" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/25/ef/7018273e0faac099d7b00982abdcc39142ae6f3bd9ceb06de09779c4a9d6/pillow-12.1.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:43b4899cfd091a9693a1278c4982f3e50f7fb7cff5153b05174b4afc9593b616" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/c8/993d4b7ab2e341fe02ceef9576afcf5830cdec640be2ac5bee1820d693d4/pillow-12.1.0-cp312-cp312-win32.whl", hash = "sha256:aa0c9cc0b82b14766a99fbe6084409972266e82f459821cd26997a488a7261a7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a7/87/90b358775a3f02765d87655237229ba64a997b87efa8ccaca7dd3e36e7a7/pillow-12.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:d70534cea9e7966169ad29a903b99fc507e932069a881d0965a1a84bb57f6c6d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5d/cf/881b457eccacac9e5b2ddd97d5071fb6d668307c57cbf4e3b5278e06e536/pillow-12.1.0-cp312-cp312-win_arm64.whl", hash = "sha256:65b80c1ee7e14a87d6a068dd3b0aea268ffcabfe0498d38661b00c5b4b22e74c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/dd/c7/2530a4aa28248623e9d7f27316b42e27c32ec410f695929696f2e0e4a778/pillow-12.1.0-cp313-cp313-ios_13_0_arm64_iphoneos.whl", hash = "sha256:7b5dd7cbae20285cdb597b10eb5a2c13aa9de6cde9bb64a3c1317427b1db1ae1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/1f/40b8eae823dc1519b87d53c30ed9ef085506b05281d313031755c1705f73/pillow-12.1.0-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl", hash = "sha256:29a4cef9cb672363926f0470afc516dbf7305a14d8c54f7abbb5c199cd8f8179" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d4/77/6fa60634cf06e52139fd0e89e5bbf055e8166c691c42fb162818b7fda31d/pillow-12.1.0-cp313-cp313-ios_13_0_x86_64_iphonesimulator.whl", hash = "sha256:681088909d7e8fa9e31b9799aaa59ba5234c58e5e4f1951b4c4d1082a2e980e0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4f/bf/28ab865de622e14b747f0cd7877510848252d950e43002e224fb1c9ababf/pillow-12.1.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:983976c2ab753166dc66d36af6e8ec15bb511e4a25856e2227e5f7e00a160587" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1c/34/583420a1b55e715937a85bd48c5c0991598247a1fd2eb5423188e765ea02/pillow-12.1.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:db44d5c160a90df2d24a24760bbd37607d53da0b34fb546c4c232af7192298ac" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/fd/f5a0896839762885b3376ff04878f86ab2b097c2f9a9cdccf4eda8ba8dc0/pillow-12.1.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:6b7a9d1db5dad90e2991645874f708e87d9a3c370c243c2d7684d28f7e133e6b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/aa/938a09d127ac1e70e6ed467bd03834350b33ef646b31edb7452d5de43792/pillow-12.1.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6258f3260986990ba2fa8a874f8b6e808cf5abb51a94015ca3dc3c68aa4f30ea" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/17/e8/538b24cb426ac0186e03f80f78bc8dc7246c667f58b540bdd57c71c9f79d/pillow-12.1.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e115c15e3bc727b1ca3e641a909f77f8ca72a64fff150f666fcc85e57701c26c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/01/9a/632e58ec89a32738cabfd9ec418f0e9898a2b4719afc581f07c04a05e3c9/pillow-12.1.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6741e6f3074a35e47c77b23a4e4f2d90db3ed905cb1c5e6e0d49bff2045632bc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c7/a2/d40308cf86eada842ca1f3ffa45d0ca0df7e4ab33c83f81e73f5eaed136d/pillow-12.1.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:935b9d1aed48fcfb3f838caac506f38e29621b44ccc4f8a64d575cb1b2a88644" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f1/88/f5b058ad6453a085c5266660a1417bdad590199da1b32fb4efcff9d33b05/pillow-12.1.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:5fee4c04aad8932da9f8f710af2c1a15a83582cfb884152a9caa79d4efcdbf9c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/19/ce/c17334caea1db789163b5d855a5735e47995b0b5dc8745e9a3605d5f24c0/pillow-12.1.0-cp313-cp313-win32.whl", hash = "sha256:a786bf667724d84aa29b5db1c61b7bfdde380202aaca12c3461afd6b71743171" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e5/07/74a9d941fa45c90a0d9465098fe1ec85de3e2afbdc15cc4766622d516056/pillow-12.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:461f9dfdafa394c59cd6d818bdfdbab4028b83b02caadaff0ffd433faf4c9a7a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/88/09/c99950c075a0e9053d8e880595926302575bc742b1b47fe1bbcc8d388d50/pillow-12.1.0-cp313-cp313-win_arm64.whl", hash = "sha256:9212d6b86917a2300669511ed094a9406888362e085f2431a7da985a6b124f45" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/ba/970b7d85ba01f348dee4d65412476321d40ee04dcb51cd3735b9dc94eb58/pillow-12.1.0-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:00162e9ca6d22b7c3ee8e61faa3c3253cd19b6a37f126cad04f2f88b306f557d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/60/650f2fb55fdba7a510d836202aa52f0baac633e50ab1cf18415d332188fb/pillow-12.1.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:7d6daa89a00b58c37cb1747ec9fb7ac3bc5ffd5949f5888657dfddde6d1312e0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2b/c0/5273a99478956a099d533c4f46cbaa19fd69d606624f4334b85e50987a08/pillow-12.1.0-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e2479c7f02f9d505682dc47df8c0ea1fc5e264c4d1629a5d63fe3e2334b89554" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b4/26/0bf714bc2e73d5267887d47931d53c4ceeceea6978148ed2ab2a4e6463c4/pillow-12.1.0-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f188d580bd870cda1e15183790d1cc2fa78f666e76077d103edf048eed9c356e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/cf/1ea826200de111a9d65724c54f927f3111dc5ae297f294b370a670c17786/pillow-12.1.0-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0fde7ec5538ab5095cc02df38ee99b0443ff0e1c847a045554cf5f9af1f4aa82" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/03/e0/7938dd2b2013373fd85d96e0f38d62b7a5a262af21ac274250c7ca7847c9/pillow-12.1.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0ed07dca4a8464bada6139ab38f5382f83e5f111698caf3191cb8dbf27d908b4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/86/ad/a2aa97d37272a929a98437a8c0ac37b3cf012f4f8721e1bd5154699b2518/pillow-12.1.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:f45bd71d1fa5e5749587613037b172e0b3b23159d1c00ef2fc920da6f470e6f0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/44/80e46611b288d51b115826f136fb3465653c28f491068a72d3da49b54cd4/pillow-12.1.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:277518bf4fe74aa91489e1b20577473b19ee70fb97c374aa50830b279f25841b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/86/77/eacc62356b4cf81abe99ff9dbc7402750044aed02cfd6a503f7c6fc11f3e/pillow-12.1.0-cp313-cp313t-win32.whl", hash = "sha256:7315f9137087c4e0ee73a761b163fc9aa3b19f5f606a7fc08d83fd3e4379af65" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e7/3c/57d81d0b74d218706dafccb87a87ea44262c43eef98eb3b164fd000e0491/pillow-12.1.0-cp313-cp313t-win_amd64.whl", hash = "sha256:0ddedfaa8b5f0b4ffbc2fa87b556dc59f6bb4ecb14a53b33f9189713ae8053c0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/82/8b9b97bba2e3576a340f93b044a3a3a09841170ab4c1eb0d5c93469fd32f/pillow-12.1.0-cp313-cp313t-win_arm64.whl", hash = "sha256:80941e6d573197a0c28f394753de529bb436b1ca990ed6e765cf42426abc39f8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8c/87/bdf971d8bbcf80a348cc3bacfcb239f5882100fe80534b0ce67a784181d8/pillow-12.1.0-cp314-cp314-ios_13_0_arm64_iphoneos.whl", hash = "sha256:5cb7bc1966d031aec37ddb9dcf15c2da5b2e9f7cc3ca7c54473a20a927e1eb91" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ff/4f/5eb37a681c68d605eb7034c004875c81f86ec9ef51f5be4a63eadd58859a/pillow-12.1.0-cp314-cp314-ios_13_0_arm64_iphonesimulator.whl", hash = "sha256:97e9993d5ed946aba26baf9c1e8cf18adbab584b99f452ee72f7ee8acb882796" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/11/6d/19a95acb2edbace40dcd582d077b991646b7083c41b98da4ed7555b59733/pillow-12.1.0-cp314-cp314-ios_13_0_x86_64_iphonesimulator.whl", hash = "sha256:414b9a78e14ffeb98128863314e62c3f24b8a86081066625700b7985b3f529bd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/36/2b8138e51cb42e4cc39c3297713455548be855a50558c3ac2beebdc251dd/pillow-12.1.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:e6bdb408f7c9dd2a5ff2b14a3b0bb6d4deb29fb9961e6eb3ae2031ae9a5cec13" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/53/4b/649056e4d22e1caa90816bf99cef0884aed607ed38075bd75f091a607a38/pillow-12.1.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:3413c2ae377550f5487991d444428f1a8ae92784aac79caa8b1e3b89b175f77e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6c/6b/c5742cea0f1ade0cd61485dc3d81f05261fc2276f537fbdc00802de56779/pillow-12.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e5dcbe95016e88437ecf33544ba5db21ef1b8dd6e1b434a2cb2a3d605299e643" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bf/8f/9f521268ce22d63991601aafd3d48d5ff7280a246a1ef62d626d67b44064/pillow-12.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:d0a7735df32ccbcc98b98a1ac785cc4b19b580be1bdf0aeb5c03223220ea09d5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/eb/257f38542893f021502a1bbe0c2e883c90b5cff26cc33b1584a841a06d30/pillow-12.1.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0c27407a2d1b96774cbc4a7594129cc027339fd800cd081e44497722ea1179de" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c4/5a/8ba375025701c09b309e8d5163c5a4ce0102fa86bbf8800eb0d7ac87bc51/pillow-12.1.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:15c794d74303828eaa957ff8070846d0efe8c630901a1c753fdc63850e19ecd9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cf/dc/cf5e4cdb3db533f539e88a7bbf9f190c64ab8a08a9bc7a4ccf55067872e4/pillow-12.1.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:c990547452ee2800d8506c4150280757f88532f3de2a58e3022e9b179107862a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/47/0291a25ac9550677e22eda48510cfc4fa4b2ef0396448b7fbdc0a6946309/pillow-12.1.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:b63e13dd27da389ed9475b3d28510f0f954bca0041e8e551b2a4eb1eab56a39a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4f/4c/e005a59393ec4d9416be06e6b45820403bb946a778e39ecec62f5b2b991e/pillow-12.1.0-cp314-cp314-win32.whl", hash = "sha256:1a949604f73eb07a8adab38c4fe50791f9919344398bdc8ac6b307f755fc7030" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1c/af/f23697f587ac5f9095d67e31b81c95c0249cd461a9798a061ed6709b09b5/pillow-12.1.0-cp314-cp314-win_amd64.whl", hash = "sha256:4f9f6a650743f0ddee5593ac9e954ba1bdbc5e150bc066586d4f26127853ab94" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b3/36/6a51abf8599232f3e9afbd16d52829376a68909fe14efe29084445db4b73/pillow-12.1.0-cp314-cp314-win_arm64.whl", hash = "sha256:808b99604f7873c800c4840f55ff389936ef1948e4e87645eaf3fccbc8477ac4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/82/54/2e1dd20c8749ff225080d6ba465a0cab4387f5db0d1c5fb1439e2d99923f/pillow-12.1.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:bc11908616c8a283cf7d664f77411a5ed2a02009b0097ff8abbba5e79128ccf2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/57/61/571163a5ef86ec0cf30d265ac2a70ae6fc9e28413d1dc94fa37fae6bda89/pillow-12.1.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:896866d2d436563fa2a43a9d72f417874f16b5545955c54a64941e87c1376c61" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5e/e1/53ee5163f794aef1bf84243f755ee6897a92c708505350dd1923f4afec48/pillow-12.1.0-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:8e178e3e99d3c0ea8fc64b88447f7cac8ccf058af422a6cedc690d0eadd98c51" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bc/0b/b4b4106ff0ee1afa1dc599fde6ab230417f800279745124f6c50bcffed8e/pillow-12.1.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:079af2fb0c599c2ec144ba2c02766d1b55498e373b3ac64687e43849fbbef5bc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/19/9f/80b411cbac4a732439e629a26ad3ef11907a8c7fc5377b7602f04f6fe4e7/pillow-12.1.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bdec5e43377761c5dbca620efb69a77f6855c5a379e32ac5b158f54c84212b14" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8f/b7/d65c45db463b66ecb6abc17c6ba6917a911202a07662247e1355ce1789e7/pillow-12.1.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:565c986f4b45c020f5421a4cea13ef294dde9509a8577f29b2fc5edc7587fff8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/50/96/dfd4cd726b4a45ae6e3c669fc9e49deb2241312605d33aba50499e9d9bd1/pillow-12.1.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:43aca0a55ce1eefc0aefa6253661cb54571857b1a7b2964bd8a1e3ef4b729924" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4d/1c/b5dc52cf713ae46033359c5ca920444f18a6359ce1020dd3e9c553ea5bc6/pillow-12.1.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:0deedf2ea233722476b3a81e8cdfbad786f7adbed5d848469fa59fe52396e4ef" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/53/26/c4188248bd5edaf543864fe4834aebe9c9cb4968b6f573ce014cc42d0720/pillow-12.1.0-cp314-cp314t-win32.whl", hash = "sha256:b17fbdbe01c196e7e159aacb889e091f28e61020a8abeac07b68079b6e626988" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b8/0e/69ed296de8ea05cb03ee139cee600f424ca166e632567b2d66727f08c7ed/pillow-12.1.0-cp314-cp314t-win_amd64.whl", hash = "sha256:27b9baecb428899db6c0de572d6d305cfaf38ca1596b5c0542a5182e3e74e8c6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/f5/68334c015eed9b5cff77814258717dec591ded209ab5b6fb70e2ae873d1d/pillow-12.1.0-cp314-cp314t-win_arm64.whl", hash = "sha256:f61333d817698bdcdd0f9d7793e365ac3d2a21c1f1eb02b32ad6aefb8d8ea831" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8b/bc/224b1d98cffd7164b14707c91aac83c07b047fbd8f58eba4066a3e53746a/pillow-12.1.0-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:ca94b6aac0d7af2a10ba08c0f888b3d5114439b6b3ef39968378723622fed377" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0c/ca/49ca7769c4550107de049ed85208240ba0f330b3f2e316f24534795702ce/pillow-12.1.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:351889afef0f485b84078ea40fe33727a0492b9af3904661b0abbafee0355b72" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/73/48/fac807ce82e5955bcc2718642b94b1bd22a82a6d452aea31cbb678cddf12/pillow-12.1.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:bb0984b30e973f7e2884362b7d23d0a348c7143ee559f38ef3eaab640144204c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d2/95/3e0742fe358c4664aed4fd05d5f5373dcdad0b27af52aa0972568541e3f4/pillow-12.1.0-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:84cabc7095dd535ca934d57e9ce2a72ffd216e435a84acb06b2277b1de2689bd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5a/74/fe2ac378e4e202e56d50540d92e1ef4ff34ed687f3c60f6a121bcf99437e/pillow-12.1.0-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:53d8b764726d3af1a138dd353116f774e3862ec7e3794e0c8781e30db0f35dfc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/77/2a60dee1adee4e2655ac328dd05c02a955c1cd683b9f1b82ec3feb44727c/pillow-12.1.0-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5da841d81b1a05ef940a8567da92decaa15bc4d7dedb540a8c219ad83d91808a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2d/71/64e9b1c7f04ae0027f788a248e6297d7fcc29571371fe7d45495a78172c0/pillow-12.1.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:75af0b4c229ac519b155028fa1be632d812a519abba9b46b20e50c6caa184f19" },
 ]
 
 [[package]]
@@ -1469,6 +2086,15 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42" }
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0" },
+]
+
+[[package]]
+name = "pybind11"
+version = "3.0.1"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/2f/7b/a6d8dcb83c457e24a9df1e4d8fd5fb8034d4bbc62f3c324681e8a9ba57c2/pybind11-3.0.1.tar.gz", hash = "sha256:9c0f40056a016da59bab516efb523089139fcc6f2ba7e4930854c61efb932051" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cd/8a/37362fc2b949d5f733a8b0f2ff51ba423914cabefe69f1d1b6aab710f5fe/pybind11-3.0.1-py3-none-any.whl", hash = "sha256:aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89" },
 ]
 
 [[package]]
@@ -1732,6 +2358,47 @@ wheels = [
 ]
 
 [[package]]
+name = "rdkit"
+version = "2023.9.6"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "numpy", version = "2.0.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pillow", version = "10.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "pillow", version = "12.1.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
+]
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/15/15c991ceccdeed152e617a6261b2f31de83458bf3442c13c21114f25206e/rdkit-2023.9.6-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:a2b47368c0eb12d8ecbccbb8afb752f149fdc182a9841a192cdb1dc4ea141741" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f5/00/7425a367c2624526ebf52a9cbfcdab8510b0024f4e3f29b2d76dc8c1744b/rdkit-2023.9.6-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:780035c7bc024fa093fa05794b507316068e383f063c16b1a1239243a70ba010" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/56/955fb94c25f4d975e7f730db48f4d7a89f9f8f4e78bb48d44175152e9aec/rdkit-2023.9.6-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:209c2b0049c019bd3b9f17e5d947cf94a221ce61222016528dad6deed4da2de9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/5a/f18e7af8f7f332af02176add4ff78cd6bc1cc96ea6a11c4f6d364f4796f2/rdkit-2023.9.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9b6dbed06f61efd5d293b8397d5719944dc8fa3f2b6704c43d9f50d851a0f2db" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/ef/f75f9e0d5f866733ee1fa6dfb18d337301096fe5f0a1a21b9d1999ec3162/rdkit-2023.9.6-cp310-cp310-win_amd64.whl", hash = "sha256:2a0aed7070c725e660f9bfbbd77678b3dda7b4a975342371559b98fb0179967e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7a/8a/73957722ece84d4a294a58261abf8f888980890ea27d39b9d2b5abd6395e/rdkit-2023.9.6-cp311-cp311-macosx_10_13_x86_64.whl", hash = "sha256:07b49918d5ab68ea12c91fccc0bc5733f191cc4937775c72e7dd46c136610d51" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bb/d0/2fba772df6120156ee687a9cbc7a276a2c7ab2c777395324e1f16bb2a4fe/rdkit-2023.9.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9c0eb1bbfe19a2441b24bfa8bde1dff405e8394691fd27f8e6310db8db42e96d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/f0/8931bb78ca1dc606c517bbb40d48b36624a9cbd70f3d7623e504409dd5b2/rdkit-2023.9.6-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:07a9e45b88a08cfb857afa523c23ddcaf79a1b783e5ab40ecd28050addaaa3e4" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ca/f4/175c81046af3e958e57cabd87d594878501dc7dde0ab0f5e4014c5f4a302/rdkit-2023.9.6-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3d674a280fe84b9048c07cfa0aee546c5b21394ea38a689d37481790fc0d996b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/28/e7/ae3e52603abe2a979b7b60bde78dc909e71c027cd896861e756cdf8357af/rdkit-2023.9.6-cp311-cp311-win_amd64.whl", hash = "sha256:33db7a021ce3406386a6bc9fd5bd25f387e6bef63239cd00a534cad250dba9ab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c0/f0/a70e65fd68dedf505ef3b2dbf5084e899d6efdcddccd61bcc08d387f10da/rdkit-2023.9.6-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:8dc279618e32a33164b9ceef13f2094d4cf6bf4d55c63b70ae669181538c9f79" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f0/57/d30e0e8668b4193cce751bf578ec06f76ebd2c3ab2add84485fb535cfdd5/rdkit-2023.9.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:155f83476846a88b5c31efe6369ce16477b093a0c8f525d20107c1442cfd0d88" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/c2/5f5f1bb4f9080c6ffb110bfa6454d898ac8a96b3a09cdf7a24f6194da16f/rdkit-2023.9.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bb5ec50177537382d9273bbce04f259b504931d7a6f33ebee0cfe3921b094951" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/05/f6/3a0063ef9e868cf5fbc6308edc80e2a04d3627088a0eb801d744acdcfaa7/rdkit-2023.9.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dc43b8af98866d851467cb9eea8e636c9c192c589476ed0e4930db204e9e8b98" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/46/46/85acf7041c6295b0c8a15c23e36604ea48dc78f3691bbc984a60c8ebf1c5/rdkit-2023.9.6-cp312-cp312-win_amd64.whl", hash = "sha256:e6e09f47df092511d756b3b1a38a98e66e9a6944e0ed09b8d989381148fa4b7f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/94/f6/6266ccbcab06735c0b19ab51738ca1e7c8358c40897ce77bbf2a096f9e3b/rdkit-2023.9.6-cp38-cp38-macosx_10_13_x86_64.whl", hash = "sha256:797a1cba4ccfe518ead7271080fc40aeb1798949898825ae3a10869c22acc1a1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a8/b4/93d2089e53d109872197a540f341e02bd50477a09364041cce452f287b2a/rdkit-2023.9.6-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:022b46d1f6f2b7fb4a30fd97bf1fd5d9f1bceabfd7ae297e0988db7b9fe5dbdb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/aa/19/8e50803c5586d20dfa2cebb7b72194dfa8632e776eb7e6d300064d322b34/rdkit-2023.9.6-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:59ee17711909f62ed888febf68fba9a67920bca1f2040a4ccc0676f2f59467dd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/53/1b2e98b77a9449efff5fca5b6d8192583252f4c28d2d256789ea1eea54c8/rdkit-2023.9.6-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:413e88dcab175b65fa122df38b2a9c8de162d87e68bc82d8c9f09c3f8cb6eb9e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/56/db/59c4ba90e1db6a6356341fc389d73c423f884282424fcca6f1771f0f4b99/rdkit-2023.9.6-cp38-cp38-win_amd64.whl", hash = "sha256:09407635736b8b84bbf4791a8024b8fe36bd64dcefe230dd868371a27c2b65ee" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/44/38/14b311e2ff52e77466eecff0ba422e80812b239d69f60c015db3a8c940b1/rdkit-2023.9.6-cp39-cp39-macosx_10_13_x86_64.whl", hash = "sha256:9cc210e3cdad79ce13e571a532d0cdf07b11ccfd231f160eb54065f5a01dfb46" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1e/7f/00b5d8332d9c93379a5b9d58618dd1ebb54c566c5e46f7e31219def8c9ec/rdkit-2023.9.6-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:8876e33e393f500f9593f560b1df8cd67c7108615767eb5565678a17b8bdfe33" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6a/2b/226808ed74f10f79793341e70ff8a225c60a775c6d30e8555dbb4e91746f/rdkit-2023.9.6-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5091976a6c631fa8d563bbf48480b01917b0ff94a1ffce7d586131cf848d41d8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a3/3f/b8e2c9ed148172f7201c64980c1a4eb1b70a10ac6e86d740a9ced27318d1/rdkit-2023.9.6-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0d95242699ac52ddc2806fced1273dd0f87b35ca0c2afe11cdbd7a771e1f708f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bf/be/4bb11f4149c939c8d46b013bb889cde5cd285fa4b2fdcccf7c1c41e76f3f/rdkit-2023.9.6-cp39-cp39-win_amd64.whl", hash = "sha256:9ceff79c372c017857d154c7f433b8588f004f910e6d9dead0f00da62092dfa7" },
+]
+
+[[package]]
 name = "rich"
 version = "14.2.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
@@ -1769,6 +2436,66 @@ wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f2/1c/d7b67ab43f30013b47c12b42d1acd354c195351a3f7a1d67f59e54227ede/ruff-0.14.10-py3-none-win32.whl", hash = "sha256:104c49fc7ab73f3f3a758039adea978869a918f31b73280db175b43a2d9b51d6" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fb/9c/896c862e13886fae2af961bef3e6312db9ebc6adc2b156fe95e615dee8c1/ruff-0.14.10-py3-none-win_amd64.whl", hash = "sha256:466297bd73638c6bdf06485683e812db1c00c7ac96d4ddd0294a338c62fdc154" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/74/31/b0e29d572670dca3674eeee78e418f20bdf97fa8aa9ea71380885e175ca0/ruff-0.14.10-py3-none-win_arm64.whl", hash = "sha256:e51d046cf6dda98a4633b8a8a771451107413b0f07183b2bef03f075599e44e6" },
+]
+
+[[package]]
+name = "scikit-build-core"
+version = "0.11.6"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "importlib-resources", marker = "python_full_version < '3.9'" },
+    { name = "packaging" },
+    { name = "pathspec" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/48/b2/c11aaa746f3dfcdb46499affbc5f9784c991d354a80ca92f96a0f0f5aadf/scikit_build_core-0.11.6.tar.gz", hash = "sha256:5982ccd839735be99cfd3b92a8847c6c196692f476c215da84b79d2ad12f9f1b" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/43/49/ec16b3db6893db788ae35f98506ff5a9c25dca7eb18cc38ada8a4c1dc944/scikit_build_core-0.11.6-py3-none-any.whl", hash = "sha256:ce6d8fe64e6b4c759ea0fb95d2f8a68f60d2df31c2989838633b8ec930736360" },
+]
+
+[[package]]
+name = "setuptools"
+version = "75.3.2"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version < '3.9'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5c/01/771ea46cce201dd42cff043a5eea929d1c030fb3d1c2ee2729d02ca7814c/setuptools-75.3.2.tar.gz", hash = "sha256:3c1383e1038b68556a382c1e8ded8887cd20141b0eb5708a6c8d277de49364f5" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/15/65/3f0dba35760d902849d39d38c0a72767794b1963227b69a587f8a336d08c/setuptools-75.3.2-py3-none-any.whl", hash = "sha256:90ab613b6583fc02d5369cbca13ea26ea0e182d1df2d943ee9cbe81d4c61add9" },
+]
+
+[[package]]
+name = "setuptools"
+version = "80.9.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version >= '3.11'",
+    "python_full_version == '3.10.*'",
+    "python_full_version == '3.9.*'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/18/5d/3bf57dcd21979b887f014ea83c24ae194cfcd12b9e0fda66b957c69d1fca/setuptools-80.9.0.tar.gz", hash = "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl", hash = "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922" },
+]
+
+[[package]]
+name = "setuptools-scm"
+version = "9.2.2"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "setuptools", version = "75.3.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "setuptools", version = "80.9.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7b/b1/19587742aad604f1988a8a362e660e8c3ac03adccdb71c96d86526e5eb62/setuptools_scm-9.2.2.tar.gz", hash = "sha256:1c674ab4665686a0887d7e24c03ab25f24201c213e82ea689d2f3e169ef7ef57" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3d/ea/ac2bf868899d0d2e82ef72d350d97a846110c709bacf2d968431576ca915/setuptools_scm-9.2.2-py3-none-any.whl", hash = "sha256:30e8f84d2ab1ba7cb0e653429b179395d0c33775d54807fc5f1dd6671801aef7" },
 ]
 
 [[package]]

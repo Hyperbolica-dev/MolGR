@@ -27,7 +27,7 @@ def test_metal_identification_and_strip():
     ptr = get_ptr(mol)
 
     # 1. 初始化 Handler (应该识别到 Li)
-    handler = _core.MetalHandler(ptr)
+    handler = _core.metal.MetalHandler(ptr)
 
     # 2. 剥离金属
     # 注意：StripMetals 会修改传入的 mol 对象
@@ -50,7 +50,7 @@ def test_generate_combinations():
     Pd 0.0 0.0 0.0
     """
     mol = pybel.readstring("xyz", xyz)
-    handler = _core.MetalHandler(get_ptr(mol))
+    handler = _core.metal.MetalHandler(get_ptr(mol))
 
     # 生成组合，限制总自由基
     # Pd 可能的价态 (从 consts.cpp): Prior: 0, 2, 4.
@@ -92,7 +92,7 @@ def test_combine_and_renumber():
     original_li_x = mol.atoms[1].coords[0]  # 2.0
     original_o_x = mol.atoms[2].coords[0]  # 3.0
 
-    handler = _core.MetalHandler(ptr)
+    handler = _core.metal.MetalHandler(ptr)
 
     # 1. 剥离金属 (Li 被移除)
     handler.strip_metals(ptr)
@@ -112,7 +112,7 @@ def test_combine_and_renumber():
     assert target_combo is not None
 
     # 3. 回填金属
-    _core.MetalHandler.combine_metal_with_mol(ptr, target_combo)
+    _core.metal.MetalHandler.combine_metal_with_mol(ptr, target_combo)
 
     # 4. 验证结果
     assert mol.OBMol.NumAtoms() == 3

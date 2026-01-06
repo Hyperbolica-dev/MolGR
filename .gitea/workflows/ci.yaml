@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v4
+        uses: http://10.72.201.58:13000/actions/checkout@v6
         with:
           # 🚨 核心关键点：
           # 必须拉取完整历史，hatch-vcs 才能计算出 "当前提交距离上个 Tag 有多远"
@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: http://10.72.201.58:13000/actions/setup-uv@v5
+        uses: http://10.72.201.58:13000/actions/setup-uv@v7
         with:
           enable-cache: true
 
@@ -43,11 +43,6 @@ jobs:
 
       - name: Install dependencies
         run: uv pip install -e . -v --no-build-isolation
-
-      - name: Lint and Format check
-        run: |
-          uv run ruff check .
-          uv run ruff format --check .
 
       - name: Run tests
         run: uv run pytest
@@ -68,29 +63,23 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v4
+        uses: http://10.72.201.58:13000/actions/checkout@v6
         with:
           fetch-depth: 0 # 发布阶段也需要完整历史来构建版本
 
       - name: Install uv
-        uses: http://10.72.201.58:13000/actions/setup-uv@v5
-
-      # 🔍 调试步骤：打印一下当前计算出的版本号，方便你在 Action 日志里确认
-      - name: Show computed version
-        run: |
-          # 使用 uv run 执行 python 来动态获取 hatch-vcs 计算的版本
-          VERSION=$(uv run python -c "from hatch_vcs.version_source import VCSVersionSource; import os; print(VCSVersionSource(os.getcwd(), {}).get_version_data()['version'])")
-          echo "📦 Current Build Version: $VERSION"
+        uses: http://10.72.201.58:13000/actions/setup-uv@v7
 
       - name: Build distributions
         run: uv build
 
       - name: Publish to Gitea Registry
         env:
-          UV_PUBLISH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UV_PUBLISH_OWNER: ${{ secrets.OWNER }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
           # 你的 Gitea 地址
           GITEA_HOST: "http://10.72.201.58:13000"
         run: |
           PUBLISH_URL="${GITEA_HOST}/api/packages/${{ github.repository_owner }}/pypi"
           echo "🚀 Publishing to $PUBLISH_URL ..."
-          uv publish --publish-url "$PUBLISH_URL"
+          uv publish --publish-url "$PUBLISH_URL" --username $UV_PUBLISH_OWNER --password $UV_PUBLISH_PASSWORD

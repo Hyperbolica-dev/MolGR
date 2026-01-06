@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2025-12-25 18:23:16
 LastEditors: TMJ
-LastEditTime: 2025-12-25 20:52:20
+LastEditTime: 2026-01-06 20:19:24
 Description: 请填写简介
 """
 
@@ -30,7 +30,7 @@ def test_calculate_tetrahedron_volume_unit():
     p3 = [0.0, 0.0, 1.0]
     p4 = [0.0, 0.0, 0.0]  # 原点
 
-    vol = _core.calculate_tetrahedron_volume(p1, p2, p3, p4)
+    vol = _core.utils.calculate_tetrahedron_volume(p1, p2, p3, p4)
 
     # 预期体积应该是 1/6
     assert vol == pytest.approx(1.0 / 6.0, abs=1e-9)
@@ -44,7 +44,7 @@ def test_calculate_tetrahedron_volume_coplanar():
     p3 = [0.0, 1.0, 0.0]
     p4 = [1.0, 1.0, 0.0]
 
-    vol = _core.calculate_tetrahedron_volume(p1, p2, p3, p4)
+    vol = _core.utils.calculate_tetrahedron_volume(p1, p2, p3, p4)
     assert vol == pytest.approx(0.0, abs=1e-9)
 
 
@@ -57,7 +57,7 @@ def test_calculate_tetrahedron_volume_translation_invariance():
     p3 = [0.0 + offset, 0.0 + offset, 1.0 + offset]
     p4 = [0.0 + offset, 0.0 + offset, 0.0 + offset]
 
-    vol = _core.calculate_tetrahedron_volume(p1, p2, p3, p4)
+    vol = _core.utils.calculate_tetrahedron_volume(p1, p2, p3, p4)
     assert vol == pytest.approx(1.0 / 6.0, abs=1e-9)
 
 
@@ -75,7 +75,7 @@ def test_calculate_shape_quality_ideal():
     p3 = [-1.0, 1.0, -1.0]
     p4 = [-1.0, -1.0, 1.0]
 
-    score = _core.calculate_shape_quality(p1, p2, p3, p4)
+    score = _core.utils.calculate_shape_quality(p1, p2, p3, p4)
     assert score == pytest.approx(1.0, abs=1e-6)
 
 
@@ -87,7 +87,7 @@ def test_calculate_shape_quality_flat():
     p3 = [0.0, 1.0, 0.0]
     p4 = [1.0, 1.0, 0.0]  # 共面
 
-    score = _core.calculate_shape_quality(p1, p2, p3, p4)
+    score = _core.utils.calculate_shape_quality(p1, p2, p3, p4)
     assert score == pytest.approx(0.0, abs=1e-9)
 
 
@@ -99,7 +99,7 @@ def test_calculate_shape_quality_distorted():
     p3 = [-1.0, 1.0, -1.0]
     p4 = [-1.0, -1.0, 1.0]
 
-    score = _core.calculate_shape_quality(p1, p2, p3, p4)
+    score = _core.utils.calculate_shape_quality(p1, p2, p3, p4)
     assert 0.0 < score < 1.0
 
 
@@ -131,13 +131,14 @@ def test_calculate_shape_quality_distorted():
 )
 def test_get_possible_metal_radicals(metal, valence, expected):
     """参数化测试不同金属和价态的自由基情况"""
-    result = _core.get_possible_metal_radicals(metal, valence)
+    result = _core.consts.get_possible_metal_radicals(metal, valence)
+    print(f"Testing {metal} with valence {valence}: {result}")
     assert result == expected
 
 
 def test_get_possible_metal_radicals_invalid():
     """测试不存在的金属"""
-    result = _core.get_possible_metal_radicals("UUnobtainium", 1)
+    result = _core.consts.get_possible_metal_radicals("UUnobtainium", 1)
     assert result == set()
 
 
@@ -146,5 +147,5 @@ def test_get_possible_metal_radicals_high_valence():
     # 例如 Li (s=1), valence=10
     # 根据 C++ 逻辑应该返回 {0} (f%2)，或者抛异常，具体看实现
     # 这里我们之前的实现是 return {f % 2}
-    result = _core.get_possible_metal_radicals("Li", 10)
+    result = _core.consts.get_possible_metal_radicals("Li", 10)
     assert result == set()
