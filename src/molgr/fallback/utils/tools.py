@@ -1,0 +1,34 @@
+"""
+Author: TMJ
+Date: 2026-02-22 13:40:17
+LastEditors: TMJ
+LastEditTime: 2026-02-22 16:54:19
+Description: 请填写简介
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Callable, cast
+
+from typing_extensions import ParamSpec, Protocol, TypeVar
+
+
+P = ParamSpec("P")
+R_co = TypeVar("R_co", covariant=True)
+
+
+class CachedFunc(Protocol[P, R_co]):
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
+    def cache_info(self): ...
+    def cache_clear(self) -> None: ...
+
+
+def typed_lru_cache(
+    maxsize: int = 128, typed: bool = False
+) -> Callable[[Callable[P, R_co]], CachedFunc[P, R_co]]:
+    def decorator(func: Callable[P, R_co]) -> CachedFunc[P, R_co]:
+        cached = lru_cache(maxsize=maxsize, typed=typed)(func)
+        return cast(CachedFunc[P, R_co], cached)
+
+    return decorator
