@@ -65,6 +65,9 @@ ignore = [
     "E501", # line too long 
     "B008", # do not perform function calls in argument defaults
     "C901", # too complex
+    "UP045", # don't suggest X | None on py38
+    "UP006",
+    "UP007", 
 ]
 
 [tool.ruff.lint.isort]
