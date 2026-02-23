@@ -61,8 +61,8 @@ def make_connections(omol: pybel.Molecule, factor: float = 1.4) -> pybel.Molecul
                     continue
                 if cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).GetBondOrder() == 0:
                     cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).SetBondOrder(1)
-            donate_atoms = list(itertools.chain(*donate_smarts.findall(omol)))
-            accept_atoms = list(itertools.chain(*accept_smarts.findall(omol)))
+                donate_atoms = list(itertools.chain(*donate_smarts.findall(omol)))
+                accept_atoms = list(itertools.chain(*accept_smarts.findall(omol)))
     return omol
 
 
