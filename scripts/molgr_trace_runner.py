@@ -227,8 +227,8 @@ def run_trace_cases(
     cases: list[dict[str, Any]],
     out_root: Path,
     *,
-    use_chirality: bool = True,
-    max_resonance: int = 100,
+    use_chirality: bool = False,
+    max_resonance: int = 50,
 ) -> int:
     out_root.mkdir(parents=True, exist_ok=True)
 

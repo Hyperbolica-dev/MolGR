@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "openbabel-wheel>=3.1.1.22",
-    "rdkit>=2023.9.6",
+    "rdkit<=2023.9.6; python_version == '3.8'",
+    "rdkit>=2024.3.6; python_version == '3.9'",
+    "rdkit>=2025.3.6; python_version >= '3.10'",
 ]
 
 [build-system]
@@ -24,10 +26,21 @@ metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
 sdist.include = ["src/molgr/_version.py"]
 
 [dependency-groups]
+benchmark = [
+    "ase",
+    "cell2mol",
+    "cosymlib>=0.11.1",
+    "huckelpy>=0.2.3",
+    "networkx>=3.1",
+    "pyyaml>=6.0.3",
+    "scipy>=1.10.1",
+]
 dev = [
     "ipykernel",
     "ipywidgets",
     "mypy",
+    "numpy>=1.24.4",
+    "pandas>=2.0.3",
     "pybind11>=3.0.1",
     "pytest",
     "pytest-cov",
@@ -106,3 +119,6 @@ name = "hong"
 url = "http://10.72.201.58:13000/api/packages/tmj/pypi/simple/"
 publish-url = "http://10.72.201.58:13000/api/packages/tmj/pypi/"
 explicit = true
+
+[tool.uv.sources]
+cell2mol = { git = "https://github.com/lcmd-epfl/cell2mol.git", rev = "v2" }

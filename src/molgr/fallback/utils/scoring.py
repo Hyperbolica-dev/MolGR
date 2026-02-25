@@ -169,11 +169,14 @@ def calculate_metal_penalty(omol: pybel.Molecule) -> float:
 
 def omol_score(omol: pybel.Molecule) -> float:
     obmol = cast(ob.OBMol, omol.OBMol)
+    obmol.SetAromaticPerceived(False)
     score = calc_symmetry_penalty(omol)
     for atom_idx in range(1, obmol.NumAtoms() + 1):
         atom = cast(ob.OBAtom, obmol.GetAtom(atom_idx))
         if atom.IsMetal():
             continue
+        if not atom.IsAromatic():
+            score += 5
         if atom.GetSpinMultiplicity() > 0:
             score += get_deviation_score(omol, atom_idx) * 10.0
         if atom.GetFormalCharge() > 0:

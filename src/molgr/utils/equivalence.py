@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-22 20:18:39
 LastEditors: TMJ
-LastEditTime: 2026-02-22 21:59:13
+LastEditTime: 2026-02-25 19:18:00
 Description: 用于判定对于同一个分子坐标输入下不同的分子图重建算法结果的一致性，只要和标准答案在共振异构级别上有一个一致，就认为是一致的。
 """
 
@@ -16,6 +16,8 @@ from typing import Optional, Tuple
 from rdkit import Chem
 from rdkit.Chem import ResonanceMolSupplier
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
+
+from .radical_resonance import enumerate_resonance_radical
 
 
 # ================================
@@ -84,6 +86,8 @@ class EquivalenceInfo:
 
 
 def _canon_smiles(m: Chem.Mol, use_chirality: bool) -> str:
+    if Chem.SanitizeMol(m) != Chem.SanitizeFlags.SANITIZE_NONE:
+        raise ValueError("Molecule is not sanitized.")
     return Chem.MolToSmiles(m, canonical=True, isomericSmiles=use_chirality)
 
 
@@ -91,9 +95,9 @@ def check_equivalence(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
     use_chirality: bool = True,
-    max_resonance: int = 100,
+    max_resonance: int = 50,
     resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
-    | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS | Chem.ResonanceFlags.ALLOW_INCOMPLETE_OCTETS,
+    | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
 ) -> Tuple[bool, EquivalenceInfo]:
     """
     Judge whether two molecules are equivalent.
@@ -191,21 +195,32 @@ def check_equivalence(
 
     mh1 = Chem.AddHs(m1)
     mh2 = Chem.AddHs(m2)
+    try:
+        Chem.Kekulize(mh1, clearAromaticFlags=True)
+        Chem.Kekulize(mh2, clearAromaticFlags=True)
+    except Chem.rdchem.KekulizeException:
+        pass
 
     res2_set = {
-        canon(rm)
-        for rm in ResonanceMolSupplier(mh2, maxStructs=max_resonance, flags=resonance_flags)
-        if rm is not None
+        canon(rm_radical)
+        for rm_charge in ResonanceMolSupplier(
+            mh2, maxStructs=max_resonance, flags=resonance_flags
+        )
+        for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
+        if rm_radical is not None
     }
 
     hit_smiles = None
-    for rm in ResonanceMolSupplier(mh1, maxStructs=max_resonance, flags=resonance_flags):
-        if rm is None:
-            continue
-        s = canon(rm)
-        if s in res2_set:
-            hit_smiles = s
-            break
+    for rm_charge in ResonanceMolSupplier(
+        mh1, maxStructs=max_resonance, flags=resonance_flags
+    ):
+        for rm_radical in enumerate_resonance_radical(rm_charge, depth=3):
+            if rm_radical is None:
+                continue
+            s = canon(rm_radical)
+            if s in res2_set:
+                hit_smiles = s
+                break
 
     info.resonance = ResonanceDetail(
         max_resonance=max_resonance,

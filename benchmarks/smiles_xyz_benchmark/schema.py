@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
+
+ResultStatus = Literal["ok", "error", "skipped"]
+
+
+@dataclass
+class BenchmarkResult:
+    case_idx: int
+    method_id: str
+    input_smiles: str
+    ground_truth_smiles: str | None
+    status: ResultStatus
+    error: str | None
+    predicted_smiles: str | None
+    equivalent: bool | None
+    equivalence_method: str | None
+    timing_ms_total: float
+    timing_ms_breakdown: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)

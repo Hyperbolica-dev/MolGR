@@ -1,3 +1,11 @@
+<!--
+ * @Author: TMJ
+ * @Date: 2025-12-19 20:59:38
+ * @LastEditors: TMJ
+ * @LastEditTime: 2026-02-25 19:47:19
+ * @Description: 请填写简介
+-->
+
 # MolGR
 
 MolGR provides molecule graph reasoning utilities plus debug/backtest tooling.
@@ -78,3 +86,18 @@ uv run python3 scripts/molgr_debug_html.py \
 
 - Candidate pool lists `omol_score` and `#node_id` for each scoring candidate.
 - Clicking a candidate highlights its reasoning chain and jumps to the corresponding event details.
+
+### Benchmark
+
+The extra dependencies for benchmarking are listed in `pyproject.toml` under the `benchmark` group.
+
+follow the command to install the environment for benchmark:
+
+```bash
+uv pip install "setuptools<60" "setuptools_scm" "wheel" "scikit-build-core<=0.10"
+SETUPTOOLS_USE_DISTUTILS=1 uv sync --group benchmark --no-build-isolation
+```
+
+```bash
+uv run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+```

@@ -424,3 +424,5 @@ dist
 .vscode
 .sisyphus/
 .molgr*
+benchmarks/_runs/
+test.ipynb
