@@ -1,5 +1,4 @@
-General
-CanonicalSMILES
+smiles
 [H]C#Cc1c([C-]=O)nc([H])n1[H]
 [H]c1nc([C-]=O)c(C#N)n1[H]
 [H]c1c([H])c([C-]=O)c(C#N)o1
@@ -12,7 +11,6 @@ N#C[C]([O-])N=C1C[NH2+]C1
 [O-]C1=CN=C2C[NH2+]C[C]12
 [O-]C1=C2C[NH2+]C[C]2N=C1
 O=C1C[NH2+]CC=C1[CH][O-]
-O=C=O.[CH2-][C]([NH3+])C(N)=O
 NC(=O)[C@H]1O[C@H]1[C@@H]1[CH-]C1
 [H]/N=[C-]/N1C(=O)CC=C1C
 [H]/N=[C-]/N1C(=O)CN=C1C
@@ -33,7 +31,6 @@ CC1=[N+]=C(CC[O-])[N]N1
 [H]/N=C/N=C1\[N]NC(C)=N1
 CC1=[N+]=C(NC=[N-])[N]N1
 CC1=[N+]=C(OC=[N-])[N]N1
-CC1=[N+]=C[N]N1CC[O-]
 CC1=C([O-])[N]C(=O)N=N1.[H+]
 CC1=NN=C(N[C-]=[NH2+])[N]1
 CC1=NN=C(/[NH+]=[C-]/N)[N]1

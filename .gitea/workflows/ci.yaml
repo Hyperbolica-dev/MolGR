@@ -31,9 +31,12 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: http://10.72.201.58:13000/actions/setup-uv@v7
-        with:
-          enable-cache: true
+        run: |
+          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
+          if [ -n "${GITHUB_PATH:-}" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
 
       - name: Set up Python
         run: uv venv

@@ -66,7 +66,20 @@ def _build_case(smiles: str, case_idx: int) -> dict[str, Any]:
 
 def load_smiles_csv_cases(input_path: Path, limit: int | None = None) -> list[dict[str, Any]]:
     raw_lines = input_path.read_text(encoding="utf-8").splitlines()
-    smiles_lines = [line.strip() for line in raw_lines[2:] if line.strip()]
+    lines = [line.strip() for line in raw_lines if line.strip()]
+
+    if not lines:
+        return []
+
+    header0 = lines[0].strip().lower()
+    header1 = lines[1].strip().lower() if len(lines) > 1 else ""
+
+    if header0 == "general" and header1 in {"canonicalsmiles", "canonicalsmi", "smiles"}:
+        smiles_lines = lines[2:]
+    elif header0 in {"canonicalsmiles", "canonicalsmi", "smiles"}:
+        smiles_lines = lines[1:]
+    else:
+        smiles_lines = lines
 
     if limit is not None:
         smiles_lines = smiles_lines[: max(limit, 0)]
