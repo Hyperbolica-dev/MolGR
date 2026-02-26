@@ -13,7 +13,7 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 from . import _core as core
-from ._core import consts, metal, reconstruct, scoring, utils  # type: ignore
+from ._core import pipeline, stages, utils  # type: ignore
 
 
 try:
@@ -46,7 +46,7 @@ def omol_score(mol: Union[ob.OBMol, pybel.Molecule]) -> float:
         raise ValueError("Could not retrieve C++ memory address from OBMol object") from e
 
     # 4. 传递给 C++
-    return scoring.omol_score_from_ptr(obmol_ptr)
+    return core.utils.omol_score_from_ptr(obmol_ptr)
 
 
 def set_log_level(level: core.LogLevel):
@@ -63,10 +63,8 @@ def set_log_level(level: core.LogLevel):
 __all__ = [
     "omol_score",
     "set_log_level",
-    "consts",
-    "metal",
-    "reconstruct",
-    "scoring",
+    "pipeline",
+    "stages",
     "utils",
 ]
 

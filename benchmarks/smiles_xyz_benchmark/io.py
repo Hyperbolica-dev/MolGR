@@ -6,6 +6,7 @@ from pathlib import Path
 
 from benchmarks.smiles_xyz_benchmark.schema import BenchmarkResult
 
+
 SUMMARY_COLUMNS: tuple[str, ...] = (
     "method_id",
     "count",

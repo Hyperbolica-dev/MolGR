@@ -14,6 +14,7 @@ from functools import partial
 from typing import Optional, Tuple
 
 from rdkit import Chem
+from rdkit.Chem import inchi
 from rdkit.Chem import ResonanceMolSupplier
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
@@ -29,6 +30,7 @@ class EquivalenceMethod(str, Enum):
     IDEAL = "ideal"
     ISOMORPHIC = "isomorphic"
     RESONANCE = "resonance"
+    INCHI_CONNECTIVITY = "inchi_connectivity"
 
 
 # ================================
@@ -91,6 +93,42 @@ def _canon_smiles(m: Chem.Mol, use_chirality: bool) -> str:
     return Chem.MolToSmiles(m, canonical=True, isomericSmiles=use_chirality)
 
 
+def _inchi_connectivity_key(m: Chem.Mol) -> str | None:
+    try:
+        key = inchi.MolToInchiKey(m)
+    except Exception:  # noqa: BLE001
+        return None
+    if not key:
+        return None
+    return key.split("-")[0]
+
+
+def _apply_exception_fallback(
+    info: EquivalenceInfo,
+    m1: Chem.Mol,
+    m2: Chem.Mol,
+    phase_errors: list[str],
+) -> Tuple[bool, EquivalenceInfo]:
+    inchi_key1 = _inchi_connectivity_key(m1)
+    inchi_key2 = _inchi_connectivity_key(m2)
+    joined_errors = "; ".join(phase_errors)
+
+    if inchi_key1 is not None and inchi_key1 == inchi_key2:
+        info.equivalent = True
+        info.method = EquivalenceMethod.INCHI_CONNECTIVITY
+        info.reason = (
+            "Equivalent: InChI connectivity key fallback matched after equivalence-phase exception(s): "
+            f"{joined_errors}"
+        )
+        return True, info
+
+    info.reason = (
+        "Not equivalent: equivalence-phase exception(s) prevented full comparison and "
+        f"InChI connectivity fallback did not match: {joined_errors}"
+    )
+    return False, info
+
+
 def check_equivalence(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
@@ -148,6 +186,7 @@ def check_equivalence(
     )
 
     info = EquivalenceInfo(checks=checks)
+    phase_errors: list[str] = []
 
     # Early exits
     if not checks.formal_charge.passed:
@@ -159,6 +198,13 @@ def check_equivalence(
         return False, info
 
     if not checks.num_atoms.passed:
+        inchi_key1 = _inchi_connectivity_key(m1)
+        inchi_key2 = _inchi_connectivity_key(m2)
+        if inchi_key1 is not None and inchi_key1 == inchi_key2:
+            info.equivalent = True
+            info.method = EquivalenceMethod.INCHI_CONNECTIVITY
+            info.reason = "Equivalent: InChI connectivity key matches despite explicit-hydrogen atom-count mismatch."
+            return True, info
         info.reason = "Not equivalent: number of atoms differs."
         return False, info
 
@@ -167,16 +213,19 @@ def check_equivalence(
         return False, info
 
     # 1) Ideal equivalence
-    s1 = _canon_smiles(m1, use_chirality)
-    s2 = _canon_smiles(m2, use_chirality)
+    try:
+        s1 = _canon_smiles(m1, use_chirality)
+        s2 = _canon_smiles(m2, use_chirality)
 
-    info.canonical_smiles = CanonicalSmilesDetail(s1, s2, use_chirality)
+        info.canonical_smiles = CanonicalSmilesDetail(s1, s2, use_chirality)
 
-    if s1 == s2:
-        info.equivalent = True
-        info.method = EquivalenceMethod.IDEAL
-        info.reason = "Equivalent: canonical SMILES are identical."
-        return True, info
+        if s1 == s2:
+            info.equivalent = True
+            info.method = EquivalenceMethod.IDEAL
+            info.reason = "Equivalent: canonical SMILES are identical."
+            return True, info
+    except Exception as exc:  # noqa: BLE001
+        phase_errors.append(f"ideal check failed: {type(exc).__name__}: {exc}")
 
     # 2) Isomorphic equivalence
     m1_in_m2 = m2.HasSubstructMatch(m1, useChirality=use_chirality)
@@ -191,41 +240,44 @@ def check_equivalence(
         return True, info
 
     # 3) Resonance equivalence
-    canon = partial(_canon_smiles, use_chirality=use_chirality)
-
-    mh1 = Chem.AddHs(m1)
-    mh2 = Chem.AddHs(m2)
-    try:
-        Chem.Kekulize(mh1, clearAromaticFlags=True)
-        Chem.Kekulize(mh2, clearAromaticFlags=True)
-    except Chem.rdchem.KekulizeException:
-        pass
-
-    res2_set = {
-        canon(rm_radical)
-        for rm_charge in ResonanceMolSupplier(
-            mh2, maxStructs=max_resonance, flags=resonance_flags
-        )
-        for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
-        if rm_radical is not None
-    }
-
     hit_smiles = None
-    for rm_charge in ResonanceMolSupplier(
-        mh1, maxStructs=max_resonance, flags=resonance_flags
-    ):
-        for rm_radical in enumerate_resonance_radical(rm_charge, depth=3):
-            if rm_radical is None:
-                continue
-            s = canon(rm_radical)
-            if s in res2_set:
-                hit_smiles = s
-                break
+    resonance_count = 0
+    try:
+        canon = partial(_canon_smiles, use_chirality=use_chirality)
+
+        mh1 = Chem.AddHs(m1)
+        mh2 = Chem.AddHs(m2)
+        try:
+            Chem.Kekulize(mh1, clearAromaticFlags=True)
+            Chem.Kekulize(mh2, clearAromaticFlags=True)
+        except Chem.rdchem.KekulizeException:
+            pass
+
+        res2_set = {
+            canon(rm_radical)
+            for rm_charge in ResonanceMolSupplier(
+                mh2, maxStructs=max_resonance, flags=resonance_flags
+            )
+            for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
+            if rm_radical is not None
+        }
+        resonance_count = len(res2_set)
+
+        for rm_charge in ResonanceMolSupplier(mh1, maxStructs=max_resonance, flags=resonance_flags):
+            for rm_radical in enumerate_resonance_radical(rm_charge, depth=3):
+                if rm_radical is None:
+                    continue
+                s = canon(rm_radical)
+                if s in res2_set:
+                    hit_smiles = s
+                    break
+    except Exception as exc:  # noqa: BLE001
+        phase_errors.append(f"resonance check failed: {type(exc).__name__}: {exc}")
 
     info.resonance = ResonanceDetail(
         max_resonance=max_resonance,
         resonance_flags=int(resonance_flags),
-        mol2_resonance_count=len(res2_set),
+        mol2_resonance_count=resonance_count,
         hit_smiles=hit_smiles,
     )
 
@@ -234,6 +286,9 @@ def check_equivalence(
         info.method = EquivalenceMethod.RESONANCE
         info.reason = "Equivalent: at least one resonance structure matches in canonical SMILES."
         return True, info
+
+    if phase_errors:
+        return _apply_exception_fallback(info, m1, m2, phase_errors)
 
     info.reason = "Not equivalent: none of ideal, isomorphic, or resonance checks matched."
     return False, info

@@ -43,7 +43,7 @@ class Cell2MolV2Method(BenchmarkMethod):
             )
 
         try:
-            get_molecule = getattr(import_module("cell2mol.xyz_molecule"), "get_molecule")
+            get_molecule = import_module("cell2mol.xyz_molecule").get_molecule
         except Exception:  # noqa: BLE001
             return MethodRunOutput(
                 status="skipped",
@@ -67,7 +67,7 @@ class Cell2MolV2Method(BenchmarkMethod):
                             kwargs["input_charge"] = kwargs.pop("charges_sum")
                         return balance_charge_impl(*args, **kwargs)
 
-                    setattr(classes_module, "balance_charge", _compat_balance_charge)
+                    classes_module.balance_charge = _compat_balance_charge
             except Exception:  # noqa: BLE001
                 pass
 
@@ -129,6 +129,6 @@ class Cell2MolV2Method(BenchmarkMethod):
         finally:
             if classes_module is not None and callable(original_balance_charge):
                 try:
-                    setattr(classes_module, "balance_charge", original_balance_charge)
+                    classes_module.balance_charge = original_balance_charge
                 except Exception:  # noqa: BLE001
                     pass

@@ -54,12 +54,19 @@ message(STATUS "OpenBabel library: ${OB_LIBRARY}")
 # ==============================================================================
 
 add_library(molgr STATIC
-    src/cpp/src/consts.cpp
-    src/cpp/src/utils.cpp
-    src/cpp/src/scoring.cpp
-    src/cpp/src/logger.cpp
-    src/cpp/src/metal_handler.cpp
-    src/cpp/src/initial_reconstructor.cpp
+    src/cpp/src/utils/consts.cpp
+    src/cpp/src/utils/utils.cpp
+    src/cpp/src/utils/conversions.cpp
+    src/cpp/src/utils/scoring.cpp
+    src/cpp/src/utils/logger.cpp
+    src/cpp/src/pipeline/reconstruct_with_metals.cpp
+    src/cpp/src/pipeline/reconstruct_without_metals.cpp
+    src/cpp/src/pipeline/resonance.cpp
+    src/cpp/src/stages/preprocess.cpp
+    src/cpp/src/stages/fresh.cpp
+    src/cpp/src/stages/eliminate.cpp
+    src/cpp/src/stages/clean.cpp
+    src/cpp/src/stages/break_bond.cpp
 )
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -76,11 +83,9 @@ target_link_libraries(molgr PUBLIC ${OB_LIBRARY})
 # ==============================================================================
 pybind11_add_module(_core 
     src/bindings/module.cpp 
-    src/bindings/bind_scoring.cpp
     src/bindings/bind_utils.cpp
-    src/bindings/bind_metal_handler.cpp
-    src/bindings/bind_initial_reconstructor.cpp
-    src/bindings/bind_consts.cpp
+    src/bindings/bind_pipeline.cpp
+    src/bindings/bind_stages.cpp
 )
 
 target_link_libraries(_core PRIVATE molgr)

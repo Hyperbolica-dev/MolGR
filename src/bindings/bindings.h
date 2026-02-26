@@ -14,15 +14,9 @@ namespace py = pybind11;
 namespace molgr {
 namespace bind {
 
-    // 声明各个子模块的绑定入口函数
-    void bind_consts(py::module_ &m);
     void bind_utils(py::module_ &m);
-    void bind_metal(py::module_ &m);
-    void bind_scoring(py::module_ &m);
-    void bind_reconstruct(py::module_ &m);
-
-    // 如果你有专门的测试函数，也可以单独放一个
-    // void bind_testing(py::module_ &m); 
+    void bind_pipeline(py::module_ &m);
+    void bind_stages(py::module_ &m);
 
 } // namespace bind
 } // namespace molgr

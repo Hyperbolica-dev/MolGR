@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """
 Author: TMJ
 Date: 2025-12-25 18:23:16
@@ -8,13 +10,19 @@ Description: 请填写简介
 
 import importlib.util
 import warnings
+from typing import Any
 
 import pytest
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module=".*importlib.*")
+_core: Any
 if importlib.util.find_spec("molgr"):
     from molgr import _core  # type: ignore
+else:
+    _core = None
+
+pytestmark = pytest.mark.skipif(_core is None, reason="molgr is not installed")
 
 # ==============================================================================
 # 1. 测试四面体体积 (calculate_tetrahedron_volume)
@@ -131,14 +139,14 @@ def test_calculate_shape_quality_distorted():
 )
 def test_get_possible_metal_radicals(metal, valence, expected):
     """参数化测试不同金属和价态的自由基情况"""
-    result = _core.consts.get_possible_metal_radicals(metal, valence)
+    result = _core.utils.get_possible_metal_radicals(metal, valence)
     print(f"Testing {metal} with valence {valence}: {result}")
     assert result == expected
 
 
 def test_get_possible_metal_radicals_invalid():
     """测试不存在的金属"""
-    result = _core.consts.get_possible_metal_radicals("UUnobtainium", 1)
+    result = _core.utils.get_possible_metal_radicals("UUnobtainium", 1)
     assert result == set()
 
 
@@ -147,5 +155,5 @@ def test_get_possible_metal_radicals_high_valence():
     # 例如 Li (s=1), valence=10
     # 根据 C++ 逻辑应该返回 {0} (f%2)，或者抛异常，具体看实现
     # 这里我们之前的实现是 return {f % 2}
-    result = _core.consts.get_possible_metal_radicals("Li", 10)
+    result = _core.utils.get_possible_metal_radicals("Li", 10)
     assert result == set()

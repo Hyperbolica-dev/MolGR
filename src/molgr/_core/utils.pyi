@@ -14,6 +14,13 @@ __all__: list[str] = [
     "calculate_shape_quality",
     "calculate_tetrahedron_volume",
     "extract_molecule_data",
+    "get_possible_metal_radicals",
+    "molecule_data_to_obmol_ptr",
+    "omol_score_from_ptr",
+    "test_deviation_score",
+    "test_physchem_penalty",
+    "test_symmetry_penalty",
+    "test_total_score",
 ]
 
 class AtomData:
@@ -21,42 +28,42 @@ class AtomData:
     @property
     def atomic_num(self) -> int: ...
     @atomic_num.setter
-    def atomic_num(self, arg0: typing.SupportsInt) -> None: ...
+    def atomic_num(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def formal_charge(self) -> int: ...
     @formal_charge.setter
-    def formal_charge(self, arg0: typing.SupportsInt) -> None: ...
+    def formal_charge(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def radical_num(self) -> int: ...
     @radical_num.setter
-    def radical_num(self, arg0: typing.SupportsInt) -> None: ...
+    def radical_num(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def x(self) -> float: ...
     @x.setter
-    def x(self, arg0: typing.SupportsFloat) -> None: ...
+    def x(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None: ...
     @property
     def y(self) -> float: ...
     @y.setter
-    def y(self, arg0: typing.SupportsFloat) -> None: ...
+    def y(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None: ...
     @property
     def z(self) -> float: ...
     @z.setter
-    def z(self, arg0: typing.SupportsFloat) -> None: ...
+    def z(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None: ...
 
 class BondData:
     def __repr__(self) -> str: ...
     @property
     def begin_atom_idx(self) -> int: ...
     @begin_atom_idx.setter
-    def begin_atom_idx(self, arg0: typing.SupportsInt) -> None: ...
+    def begin_atom_idx(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def end_atom_idx(self) -> int: ...
     @end_atom_idx.setter
-    def end_atom_idx(self, arg0: typing.SupportsInt) -> None: ...
+    def end_atom_idx(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def order(self) -> int: ...
     @order.setter
-    def order(self, arg0: typing.SupportsInt) -> None: ...
+    def order(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
 
 class MoleculeData:
     @property
@@ -70,17 +77,17 @@ class MoleculeData:
     @property
     def total_charge(self) -> int: ...
     @total_charge.setter
-    def total_charge(self, arg0: typing.SupportsInt) -> None: ...
+    def total_charge(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     @property
     def total_radical_num(self) -> int: ...
     @total_radical_num.setter
-    def total_radical_num(self, arg0: typing.SupportsInt) -> None: ...
+    def total_radical_num(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
 
 def calculate_shape_quality(
-    p1: collections.abc.Sequence[typing.SupportsFloat],
-    p2: collections.abc.Sequence[typing.SupportsFloat],
-    p3: collections.abc.Sequence[typing.SupportsFloat],
-    p4: collections.abc.Sequence[typing.SupportsFloat],
+    p1: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p2: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p3: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p4: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
 ) -> float:
     """
     Calculate the shape quality score of a tetrahedron.
@@ -96,10 +103,10 @@ def calculate_shape_quality(
     """
 
 def calculate_tetrahedron_volume(
-    p1: collections.abc.Sequence[typing.SupportsFloat],
-    p2: collections.abc.Sequence[typing.SupportsFloat],
-    p3: collections.abc.Sequence[typing.SupportsFloat],
-    p4: collections.abc.Sequence[typing.SupportsFloat],
+    p1: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p2: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p3: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
+    p4: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
 ) -> float:
     """
     Calculate the volume of a tetrahedron defined by 4 points.
@@ -114,7 +121,60 @@ def calculate_tetrahedron_volume(
         float: The volume.
     """
 
-def extract_molecule_data(mol_ptr: typing.SupportsInt) -> MoleculeData:
+def extract_molecule_data(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> MoleculeData:
     """
     Extracts OBMol content into a structured object.
+    """
+
+def get_possible_metal_radicals(
+    metal: str, valence: typing.SupportsInt | typing.SupportsIndex
+) -> set[int]:
+    """
+    Get possible radical electron counts for a metal given its valence.
+
+    Args:
+        metal (str): The chemical symbol (e.g., "Fe").
+        valence (int): The oxidation state.
+
+    Returns:
+        set[int]: A set of possible unpaired electron counts.
+    """
+
+def molecule_data_to_obmol_ptr(molecule_data: MoleculeData) -> int:
+    """
+    Converts MoleculeData to a newly allocated OBMol pointer. Free it with _core.free_obmol_ptr.
+    """
+
+def omol_score_from_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> float:
+    """
+    Calculate total OMolScore using a memory pointer to an OpenBabel::OBMol.
+    This allows compatibility with SWIG-wrapped OpenBabel objects.
+
+    Parameters:
+        mol_ptr (int): The memory address of the OBMol object (use `int(mol.this)` in Python).
+
+    Returns:
+        float: Total score.
+    """
+
+def test_deviation_score(
+    xyz_block: str, atom_idx: typing.SupportsInt | typing.SupportsIndex
+) -> float:
+    """
+    Calculate geometry deviation for atom (1-based index) from XYZ (For Testing)
+    """
+
+def test_physchem_penalty(smiles: str) -> float:
+    """
+    Calculate PhysChem penalty from SMILES (For Testing)
+    """
+
+def test_symmetry_penalty(smiles: str) -> float:
+    """
+    Calculate symmetry penalty from SMILES (For Testing)
+    """
+
+def test_total_score(xyz_block: str) -> float:
+    """
+    Calculate total OMolScore from XYZ block (For Testing)
     """

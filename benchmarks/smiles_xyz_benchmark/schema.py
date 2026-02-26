@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
+
 ResultStatus = Literal["ok", "error", "skipped"]
 
 

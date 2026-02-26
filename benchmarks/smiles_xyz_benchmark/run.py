@@ -6,6 +6,7 @@ import time
 from importlib import import_module
 from pathlib import Path
 
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -28,7 +29,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResult:
-    check_equivalence = getattr(import_module("molgr.utils.equivalence"), "check_equivalence")
+    check_equivalence = import_module("molgr.utils.equivalence").check_equivalence
 
     started = time.perf_counter()
     output = method_runner(case)
@@ -50,7 +51,7 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
             method_id=method_id,
             input_smiles=str(case["input_smiles"]),
             ground_truth_smiles=case.get("ground_truth_smiles"),
-            status="error",
+            status="skipped",
             error=str(case["provider_error"]),
             predicted_smiles=None,
             equivalent=None,

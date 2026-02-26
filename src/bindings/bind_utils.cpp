@@ -6,11 +6,49 @@
  * @Description: 请填写简介
  */
 #include "bindings.h"
-#include "molgr/utils.h"
+#include "molgr/utils/consts.h"
+#include "molgr/utils/scoring.h"
+#include "molgr/utils/conversions.h"
+#include "molgr/utils/utils.h"
+
+#include <openbabel/obconversion.h>
 #include <pybind11/stl.h> // 必须包含
+
+#include <memory>
+
+static std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
+{
+    auto mol = std::make_unique<OpenBabel::OBMol>();
+    OpenBabel::OBConversion conv;
+    conv.SetInFormat("smi");
+    conv.ReadString(mol.get(), smiles);
+    return mol;
+}
+
+static std::unique_ptr<OpenBabel::OBMol> mol_from_xyz(const std::string &xyz)
+{
+    auto mol = std::make_unique<OpenBabel::OBMol>();
+    OpenBabel::OBConversion conv;
+    conv.SetInFormat("xyz");
+    conv.ReadString(mol.get(), xyz);
+    return mol;
+}
 
 void molgr::bind::bind_utils(py::module_ &m)
 {
+    m.def("get_possible_metal_radicals", &molgr::GetPossibleMetalRadicals,
+          R"pbdoc(
+            Get possible radical electron counts for a metal given its valence.
+
+            Args:
+                metal (str): The chemical symbol (e.g., "Fe").
+                valence (int): The oxidation state.
+
+            Returns:
+                set[int]: A set of possible unpaired electron counts.
+        )pbdoc",
+          py::arg("metal"), py::arg("valence"));
+
     m.def("calculate_tetrahedron_volume", [](const std::vector<double> &p1, const std::vector<double> &p2, const std::vector<double> &p3, const std::vector<double> &p4)
           { return molgr::utils::CalculateTetrahedronVolume(
                 molgr::utils::ToVector3(p1),
@@ -83,4 +121,72 @@ void molgr::bind::bind_utils(py::module_ &m)
     m.def("extract_molecule_data", &molgr::utils::ExtractMoleculeData,
           "Extracts OBMol content into a structured object.",
           py::arg("mol_ptr"));
+
+    m.def("molecule_data_to_obmol_ptr",
+          [](const molgr::utils::MoleculeData &molecule_data)
+          {
+              OpenBabel::OBMol *mol = new OpenBabel::OBMol(molgr::utils::MolFromMoleculeData(molecule_data));
+              return reinterpret_cast<intptr_t>(mol);
+          },
+          "Converts MoleculeData to a newly allocated OBMol pointer. Free it with _core.free_obmol_ptr.",
+          py::arg("molecule_data"));
+
+    m.def("omol_score_from_ptr", [](intptr_t mol_ptr)
+          {
+              auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+              if (!mol)
+              {
+                  throw std::runtime_error("Received null pointer for OBMol");
+              }
+              return molgr::scoring::OmolScore(*mol);
+          },
+          R"pbdoc(
+        Calculate total OMolScore using a memory pointer to an OpenBabel::OBMol.
+        This allows compatibility with SWIG-wrapped OpenBabel objects.
+
+        Parameters:
+            mol_ptr (int): The memory address of the OBMol object (use `int(mol.this)` in Python).
+
+        Returns:
+            float: Total score.
+    )pbdoc",
+          py::arg("mol_ptr"));
+
+    m.def("test_symmetry_penalty", [](const std::string &smiles)
+          {
+              auto mol = mol_from_smiles(smiles);
+              return molgr::scoring::CalcSymmetryPenalty(*mol);
+          },
+          "Calculate symmetry penalty from SMILES (For Testing)",
+          py::arg("smiles"));
+
+    m.def("test_physchem_penalty", [](const std::string &smiles)
+          {
+              auto mol = mol_from_smiles(smiles);
+              return molgr::scoring::CalculatePhysChemPenalty(*mol);
+          },
+          "Calculate PhysChem penalty from SMILES (For Testing)",
+          py::arg("smiles"));
+
+    m.def("test_deviation_score", [](const std::string &xyz_block, int atom_idx)
+          {
+              auto mol = mol_from_xyz(xyz_block);
+              OpenBabel::OBAtom *atom = mol->GetAtom(atom_idx);
+              if (!atom)
+              {
+                  return -1.0;
+              }
+              return molgr::scoring::GetDeviationScore(*mol, atom);
+          },
+          "Calculate geometry deviation for atom (1-based index) from XYZ (For Testing)",
+          py::arg("xyz_block"),
+          py::arg("atom_idx"));
+
+    m.def("test_total_score", [](const std::string &xyz_block)
+          {
+              auto mol = mol_from_xyz(xyz_block);
+              return molgr::scoring::OmolScore(*mol);
+          },
+          "Calculate total OMolScore from XYZ block (For Testing)",
+          py::arg("xyz_block"));
 }

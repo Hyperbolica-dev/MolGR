@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import typing
 
-from . import consts, metal, reconstruct, scoring, utils
+from . import pipeline, stages, utils
 
 __all__: list[str] = [
     "DEBUG",
@@ -19,12 +19,10 @@ __all__: list[str] = [
     "LogLevel",
     "OFF",
     "WARN",
-    "consts",
     "free_obmol_ptr",
-    "metal",
-    "reconstruct",
-    "scoring",
+    "pipeline",
     "set_log_level",
+    "stages",
     "utils",
 ]
 
@@ -55,18 +53,18 @@ class LogLevel:
     def __getstate__(self) -> int: ...
     def __hash__(self) -> int: ...
     def __index__(self) -> int: ...
-    def __init__(self, value: typing.SupportsInt) -> None: ...
+    def __init__(self, value: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     def __int__(self) -> int: ...
     def __ne__(self, other: typing.Any) -> bool: ...
     def __repr__(self) -> str: ...
-    def __setstate__(self, state: typing.SupportsInt) -> None: ...
+    def __setstate__(self, state: typing.SupportsInt | typing.SupportsIndex) -> None: ...
     def __str__(self) -> str: ...
     @property
     def name(self) -> str: ...
     @property
     def value(self) -> int: ...
 
-def free_obmol_ptr(arg0: typing.SupportsInt) -> None:
+def free_obmol_ptr(arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
     """
     Manually delete the OBMol pointer
     """

@@ -46,28 +46,44 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
     """
     Convert MoleculeData to RDKit Mol.
     """
-    rdmol = Chem.RWMol()
+    rwmol = Chem.RWMol()
     for atom in mol_data.atoms:
-        atom_idx = rdmol.AddAtom(Chem.Atom(atom.atomic_num))
-        rdatom = rdmol.GetAtomWithIdx(atom_idx)
+        atom_idx = rwmol.AddAtom(Chem.Atom(atom.atomic_num))
+        rdatom = rwmol.GetAtomWithIdx(atom_idx)
+        rdatom.SetNoImplicit(True)
         rdatom.SetFormalCharge(atom.formal_charge)
         rdatom.SetNumRadicalElectrons(atom.radical_num)
-    conf = Chem.Conformer(rdmol.GetNumAtoms())
-    for atom in mol_data.atoms:
-        conf.SetAtomPosition(atom.atomic_num - 1, (atom.x, atom.y, atom.z))
-    rdmol.AddConformer(conf)
     for bond in mol_data.bonds:
-        rdmol.AddBond(
+        rwmol.AddBond(
             bond.begin_atom_idx - 1, bond.end_atom_idx - 1, OB_RDKIT_BOND_ORDER_MAPPING[bond.order]
         )
+
+    rdmol = Chem.MolFromMolBlock(
+        Chem.MolToMolBlock(rwmol),
+        sanitize=False,
+        removeHs=False,
+    )
+    if rdmol is None:
+        raise ValueError("MolFromMolBlock failed")
+
+    conf = Chem.Conformer(rdmol.GetNumAtoms())
+    for atom_idx, atom in enumerate(mol_data.atoms):
+        conf.SetAtomPosition(atom_idx, (atom.x, atom.y, atom.z))
+    rdmol.RemoveAllConformers()
+    rdmol.AddConformer(conf)
 
     if sanitize:
         Chem.SanitizeMol(rdmol)
     Chem.AssignAtomChiralTagsFromStructure(rdmol)
     Chem.AssignStereochemistryFrom3D(rdmol)
     Chem.AssignCIPLabels(rdmol)
-    Chem.Kekulize(rdmol)
-    return rdmol.GetMol()
+    mol = Chem.Mol(rdmol)
+    for bond_idx in range(mol.GetNumBonds()):
+        bond = mol.GetBondWithIdx(bond_idx)
+        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            bond.SetBondDir(Chem.BondDir.NONE)
+    Chem.Kekulize(mol)
+    return mol
 
 
 def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:

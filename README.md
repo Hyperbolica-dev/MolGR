@@ -17,6 +17,12 @@ MolGR provides molecule graph reasoning utilities plus debug/backtest tooling.
 - `tests/`: test data and test cases.
 - `pyproject.toml`: project metadata and Python tooling config.
 
+## Backend Semantics
+
+- Python backend: defines the reference MolGR behavior and semantics.
+- C++ backend: accelerates the same pipeline and interfaces while preserving Python backend behavior.
+- Alignment policy: C++ backend changes must follow Python backend semantics; keeping behavior alignment between both backends is required for all future updates.
+
 ## Debug Trace / Backtest
 
 Run from repo root with `uv run python3 ...`.

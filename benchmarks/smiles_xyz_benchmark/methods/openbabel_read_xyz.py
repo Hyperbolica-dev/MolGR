@@ -55,7 +55,7 @@ class OpenBabelReadXYZMethod(BenchmarkMethod):
 
         pybel_to_rdmol_started = time.perf_counter()
         try:
-            pybel_to_rdmol = getattr(import_module("molgr.interface"), "pybel_to_rdmol")
+            pybel_to_rdmol = import_module("molgr.interface").pybel_to_rdmol
             rdmol = pybel_to_rdmol(omol)
             rdmol = Chem.RemoveHs(rdmol)
         except Exception as exc:  # noqa: BLE001
