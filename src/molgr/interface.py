@@ -2,15 +2,17 @@
 Author: TMJ
 Date: 2026-02-21 23:08:39
 LastEditors: TMJ
-LastEditTime: 2026-02-22 18:48:37
+LastEditTime: 2026-02-27 19:19:04
 Description: 请填写简介
 """
 
-from typing import List, cast
+from typing import List, Literal, cast
 
 from openbabel import openbabel as ob
 from openbabel import pybel
 from rdkit import Chem
+
+from molgr.fallback import xyz2omol
 
 from . import _core as core
 
@@ -53,9 +55,11 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
         rdatom.SetNoImplicit(True)
         rdatom.SetFormalCharge(atom.formal_charge)
         rdatom.SetNumRadicalElectrons(atom.radical_num)
-    for bond in mol_data.bonds:
+    for bond_data in mol_data.bonds:
         rwmol.AddBond(
-            bond.begin_atom_idx - 1, bond.end_atom_idx - 1, OB_RDKIT_BOND_ORDER_MAPPING[bond.order]
+            bond_data.begin_atom_idx - 1,
+            bond_data.end_atom_idx - 1,
+            OB_RDKIT_BOND_ORDER_MAPPING[bond_data.order],
         )
 
     rdmol = Chem.MolFromMolBlock(
@@ -79,9 +83,9 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
     Chem.AssignCIPLabels(rdmol)
     mol = Chem.Mol(rdmol)
     for bond_idx in range(mol.GetNumBonds()):
-        bond = mol.GetBondWithIdx(bond_idx)
-        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
-            bond.SetBondDir(Chem.BondDir.NONE)
+        rd_bond = mol.GetBondWithIdx(bond_idx)
+        if rd_bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            rd_bond.SetBondDir(Chem.BondDir.NONE)
     Chem.Kekulize(mol)
     return mol
 
@@ -119,4 +123,35 @@ def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
     Chem.AssignStereochemistryFrom3D(rdmol)
     Chem.AssignCIPLabels(rdmol)
     Chem.Kekulize(rdmol)
+    return rdmol
+
+
+def xyz_to_rdmol(
+    xyz_block: str,
+    total_charge: int = 0,
+    spin_multiplicity: int = 1,
+    *,
+    backend: Literal["cpp", "python"] = "cpp",
+    make_dative_bonds: bool = True,
+) -> Chem.Mol:
+    """
+    Convert XYZ block to RDKit Mol.
+    """
+    total_radical_electrons = spin_multiplicity - 1
+    if backend == "cpp":
+        moldata = core.pipeline.reconstruct_with_metals.xyz2omol(
+            xyz_block, total_charge, total_radical_electrons
+        )
+        if moldata is None:
+            raise ValueError("xyz2omol failed")
+        rdmol = mol_data_to_rdkit(moldata)
+    elif backend == "python":
+        omol = xyz2omol(xyz_block, total_charge, total_radical_electrons)
+        if omol is None:
+            raise ValueError("xyz2omol failed")
+        rdmol = pybel_to_rdmol(omol)
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
+    if make_dative_bonds:
+        pass
     return rdmol

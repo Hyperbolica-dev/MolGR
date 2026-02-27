@@ -207,8 +207,7 @@ def clean_resonances_7(omol: pybel.Molecule) -> pybel.Molecule:
     酚基邻位类型芳构化，净结果产生一个酚基（或等电子体）负离子
     """
     obmol = cast(ob.OBMol, omol.OBMol)
-
-    smarts = pybel.Smarts("[*-]1-[*](=[*])-[*]=[*]-[*]=[*]1")
+    smarts = pybel.Smarts("[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1")
     res: List[Tuple[int, int, int, int, int, int, int]] = list(smarts.findall(omol))
     while len(res):
         idxs = res.pop(0)
@@ -216,10 +215,16 @@ def clean_resonances_7(omol: pybel.Molecule) -> pybel.Molecule:
         obatom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
-        obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
-        obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
-        obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
-        obatom3.SetFormalCharge(obatom3.GetFormalCharge() - 1)
+        if (
+            obbond1.GetBondOrder() == 1
+            and obbond2.GetBondOrder() == 2
+            and obatom3.GetFormalCharge() == -1
+            and obatom1.GetFormalCharge() == 0
+        ):
+            obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
+            obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
+            obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
+            obatom3.SetFormalCharge(obatom3.GetFormalCharge() - 1)
     return omol
 
 
@@ -228,7 +233,8 @@ def clean_resonances_8(omol: pybel.Molecule) -> pybel.Molecule:
     酚基对位类型芳构化，净结果产生一个酚基（或等电子体）负离子
     """
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*-]1-[*]=[*]-[*](=[*])-[*]=[*]1")
+    obmol.SetAromaticPerceived(False)
+    smarts = pybel.Smarts("[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1")
     res = smarts.findall(omol)
     while len(res):
         idxs = res.pop(0)
@@ -238,12 +244,18 @@ def clean_resonances_8(omol: pybel.Molecule) -> pybel.Molecule:
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         obbond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
         obbond4 = cast(ob.OBBond, obmol.GetBond(idxs[3], idxs[4]))
-        obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
-        obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
-        obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
-        obbond4.SetBondOrder(obbond4.GetBondOrder() - 1)
-        obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
-        obatom5.SetFormalCharge(obatom5.GetFormalCharge() - 1)
+        if (
+            obbond1.GetBondOrder() == 1
+            and obbond2.GetBondOrder() == 2
+            and obbond3.GetBondOrder() == 1
+            and obbond4.GetBondOrder() == 2
+        ):
+            obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
+            obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
+            obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
+            obbond4.SetBondOrder(obbond4.GetBondOrder() - 1)
+            obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
+            obatom5.SetFormalCharge(obatom5.GetFormalCharge() - 1)
     return omol
 
 

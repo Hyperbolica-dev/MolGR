@@ -7,7 +7,9 @@
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <openbabel/kekulize.h>
 
+#include <openbabel/obconversion.h>
 #include <algorithm>
 
 namespace molgr
@@ -229,7 +231,8 @@ namespace molgr
 
             void CleanResonances7(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-[*](=[*])-[*]=[*]-[*]=[*]1");
+                auto kekulize = OpenBabel::OBKekulize(&mol);
+                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1");
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -243,17 +246,23 @@ namespace molgr
                     {
                         continue;
                     }
-
-                    bond1->SetBondOrder(bond1->GetBondOrder() + 1);
-                    bond2->SetBondOrder(bond2->GetBondOrder() - 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
-                    atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                    if (bond1->GetBondOrder() == 1 &&
+                        bond2->GetBondOrder() == 2 &&
+                        atom3->GetFormalCharge() == -1 &&
+                        atom1->GetFormalCharge() == 0)
+                    {
+                        bond1->SetBondOrder(bond1->GetBondOrder() + 1);
+                        bond2->SetBondOrder(bond2->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
+                        atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                    }
                 }
             }
 
             void CleanResonances8(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-[*]=[*]-[*](=[*])-[*]=[*]1");
+                auto kekulize = OpenBabel::OBKekulize(&mol);
+                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1");
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -269,13 +278,20 @@ namespace molgr
                     {
                         continue;
                     }
-
-                    bond1->SetBondOrder(bond1->GetBondOrder() + 1);
-                    bond2->SetBondOrder(bond2->GetBondOrder() - 1);
-                    bond3->SetBondOrder(bond3->GetBondOrder() + 1);
-                    bond4->SetBondOrder(bond4->GetBondOrder() - 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
-                    atom5->SetFormalCharge(atom5->GetFormalCharge() - 1);
+                    if (bond1->GetBondOrder() == 1 &&
+                        bond2->GetBondOrder() == 2 &&
+                        bond3->GetBondOrder() == 1 &&
+                        bond4->GetBondOrder() == 2 &&
+                        atom5->GetFormalCharge() == -1 &&
+                        atom1->GetFormalCharge() == 0)
+                    {
+                        bond1->SetBondOrder(bond1->GetBondOrder() + 1);
+                        bond2->SetBondOrder(bond2->GetBondOrder() - 1);
+                        bond3->SetBondOrder(bond3->GetBondOrder() + 1);
+                        bond4->SetBondOrder(bond4->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
+                        atom5->SetFormalCharge(atom5->GetFormalCharge() - 1);
+                    }
                 }
             }
 

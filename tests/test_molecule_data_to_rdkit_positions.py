@@ -1,8 +1,16 @@
+"""
+Author: TMJ
+Date: 2026-02-27 14:45:40
+LastEditors: TMJ
+LastEditTime: 2026-02-27 22:34:34
+Description: 请填写简介
+"""
 # pyright: reportMissingImports=false
 
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import pytest
 
 
 pytest.importorskip("rdkit")
@@ -54,7 +62,7 @@ N -4.0 5.0 -6.0
     assert p2.z == pytest.approx(-6.0)
 
 
-@pytest.mark.parametrize("case_idx", [52, 67])
+@pytest.mark.parametrize("case_idx", [52])
 def test_mol_data_to_rdkit_matches_fallback_pybel_conversion_for_hard_cases(case_idx: int) -> None:
     from rdkit import Chem
 

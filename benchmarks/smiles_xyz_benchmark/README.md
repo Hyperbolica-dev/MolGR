@@ -17,11 +17,44 @@ This benchmark compares molecule reconstruction approaches from XYZ-like inputs 
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
+- `xyzgraph_cheminf_full`
 
 ## Run
 
 ```bash
 uv run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --limit 10 --out benchmarks/_runs/demo
+```
+
+## Benchmark Environment (Python >=3.10)
+
+`xyzgraph` is used as a competitor baseline via `xyzgraph_cheminf_full`, so run this benchmark in the dedicated Python `>=3.10` env.
+
+We keep a dedicated benchmark env (separate from `.venv`) using uv's `UV_PROJECT_ENVIRONMENT` + `UV_PYTHON`.
+
+The benchmark dependency set keeps `numpy<2` for compatibility with optional `cell2mol`/`cosymlib` stacks.
+
+Create/update the benchmark env (and build the C++ extension). The script pins all `uv` steps to `BENCH_PYTHON` (default `python3.10`) and uses `uv pip` (not `python -m pip`):
+
+```bash
+bash scripts/benchmark_env.sh create
+```
+
+Switch the current shell to use it (optional; affects subsequent `uv run` / `uv sync`):
+
+```bash
+eval "$(bash scripts/benchmark_env.sh env)"
+```
+
+Run the benchmark inside the benchmark env (recommended; does not require shell switching):
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --limit 10 --out benchmarks/_runs/xyzgraph
+```
+
+Switch back to the default project environment:
+
+```bash
+unset UV_PROJECT_ENVIRONMENT UV_PYTHON
 ```
 
 ## Outputs

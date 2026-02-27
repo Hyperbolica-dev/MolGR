@@ -6,6 +6,8 @@ import time
 from importlib import import_module
 from pathlib import Path
 
+from tqdm import tqdm
+
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -31,21 +33,8 @@ def _parse_args() -> argparse.Namespace:
 def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResult:
     check_equivalence = import_module("molgr.utils.equivalence").check_equivalence
 
-    started = time.perf_counter()
-    output = method_runner(case)
-    method_elapsed_ms = (time.perf_counter() - started) * 1000.0
-
-    breakdown = dict(output.timing_ms_breakdown or {})
-    breakdown.setdefault("method_ms", method_elapsed_ms)
-    breakdown.setdefault("equivalence_ms", 0.0)
-
-    status = output.status
-    error = output.error
-    equivalent = output.equivalent
-    equivalence_method = output.equivalence_method
-
     if case.get("provider_error"):
-        total_elapsed_ms = (time.perf_counter() - started) * 1000.0
+        breakdown = {"method_ms": 0.0, "equivalence_ms": 0.0}
         return BenchmarkResult(
             case_idx=int(case["case_idx"]),
             method_id=method_id,
@@ -56,9 +45,22 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
             predicted_smiles=None,
             equivalent=None,
             equivalence_method=None,
-            timing_ms_total=total_elapsed_ms,
+            timing_ms_total=0.0,
             timing_ms_breakdown=breakdown,
         )
+
+    started = time.perf_counter()
+    output = method_runner(case)
+    method_elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+    breakdown = dict(output.timing_ms_breakdown or {})
+    breakdown["method_ms"] = method_elapsed_ms
+    breakdown.setdefault("equivalence_ms", 0.0)
+
+    status = output.status
+    error = output.error
+    equivalent = output.equivalent
+    equivalence_method = output.equivalence_method
 
     ground_truth_rdmol = case.get("ground_truth_rdmol")
     if ground_truth_rdmol is not None and output.rdkit_mol is not None:
@@ -81,8 +83,6 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
         finally:
             breakdown["equivalence_ms"] = (time.perf_counter() - equivalence_started) * 1000.0
 
-    total_elapsed_ms = (time.perf_counter() - started) * 1000.0
-
     return BenchmarkResult(
         case_idx=int(case["case_idx"]),
         method_id=method_id,
@@ -93,7 +93,7 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
         predicted_smiles=output.predicted_smiles,
         equivalent=equivalent,
         equivalence_method=equivalence_method,
-        timing_ms_total=total_elapsed_ms,
+        timing_ms_total=method_elapsed_ms,
         timing_ms_breakdown=breakdown,
     )
 
@@ -103,8 +103,8 @@ def run(input_path: Path, out_dir: Path, limit: int | None = None) -> list[Bench
     methods = get_method_registry()
 
     results: list[BenchmarkResult] = []
-    for case in cases:
-        for method in methods:
+    for method in methods:
+        for case in tqdm(cases, desc=f"Running {method.method_id}", total=len(cases)):
             results.append(_run_case_method(case, method.method_id, method.run))
 
     out_dir.mkdir(parents=True, exist_ok=True)

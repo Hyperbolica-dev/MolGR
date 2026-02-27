@@ -95,15 +95,18 @@ uv run python3 scripts/molgr_debug_html.py \
 
 ### Benchmark
 
-The extra dependencies for benchmarking are listed in `pyproject.toml` under the `benchmark` group.
-
-follow the command to install the environment for benchmark:
+Use the dedicated benchmark environment workflow (Python `>=3.10`) so `xyzgraph_cheminf_full` runs consistently and optional `cell2mol`/`cosymlib` compatibility keeps the `numpy<2` pin.
 
 ```bash
-uv pip install "setuptools<60" "setuptools_scm" "wheel" "scikit-build-core<=0.10"
-SETUPTOOLS_USE_DISTUTILS=1 uv sync --group benchmark --no-build-isolation
+bash scripts/benchmark_env.sh create
 ```
 
 ```bash
-uv run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+```
+
+Optional shell switch for repeated benchmark commands:
+
+```bash
+eval "$(bash scripts/benchmark_env.sh env)"
 ```

@@ -1,11 +1,17 @@
+/*
+ * @Author: TMJ
+ * @Date: 2026-02-23 00:02:13
+ * @LastEditors: TMJ
+ * @LastEditTime: 2026-02-27 18:02:24
+ * @Description: 请填写简介
+ */
 /**
  * @file module.cpp
  * @brief Pybind11 bindings for the molgr C++ library.
  * @author TMJ
- * @date 2025-12-25
+ * @date 2026-02-27
  */
 
-#pragma once
 #include <pybind11/pybind11.h>
 #include <cstdint> // 用于 intptr_t
 

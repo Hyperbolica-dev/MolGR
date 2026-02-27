@@ -97,7 +97,7 @@ def calculate_radical_penalty(atom: ob.OBAtom) -> float:
     if radical_num == 0:
         return 0.0
     if cast(int, atom.GetAtomicNum()) in consts.HETEROATOM:
-        return radical_num * 2.0
+        return radical_num * 10.0
     return (3 - cast(int, atom.GetHvyDegree())) * 1.5
 
 
@@ -166,6 +166,11 @@ def calculate_metal_penalty(omol: pybel.Molecule) -> float:
                     penalty -= 2.0 * (abs(ligand_charge) * valence) / dist
     return penalty
 
+def calculate_conjugation_reward(omol: pybel.Molecule) -> float:
+    smarts = pybel.Smarts("[*]=,#,:[*]-,:[*]=,#,:[*]")
+    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
+    return len(res) * 2.0
+
 
 def omol_score(omol: pybel.Molecule) -> float:
     obmol = cast(ob.OBMol, omol.OBMol)
@@ -175,16 +180,21 @@ def omol_score(omol: pybel.Molecule) -> float:
         atom = cast(ob.OBAtom, obmol.GetAtom(atom_idx))
         if atom.IsMetal():
             continue
-        if not atom.IsAromatic():
-            score += 5
+        if atom.IsAromatic():
+            score -= 5 - abs(cast(int, atom.GetFormalCharge())) * 3 # aromatic reward
         if atom.GetSpinMultiplicity() > 0:
             score += get_deviation_score(omol, atom_idx) * 10.0
         if atom.GetFormalCharge() > 0:
             score += get_deviation_score(omol, atom_idx) * 10.0
         if atom.GetFormalCharge() < 0:
             score += (1 - get_deviation_score(omol, atom_idx)) * 10.0
+        if atom.GetAtomicNum() == 6 and all(
+            cast(int, bond.GetBondOrder()) == 2 for bond in ob.OBAtomBondIter(atom)
+        ):
+            score += 5
     score += calculate_physchem_penalty(omol)
     score += calculate_metal_penalty(omol)
+    score -= calculate_conjugation_reward(omol)
     return score
 
 

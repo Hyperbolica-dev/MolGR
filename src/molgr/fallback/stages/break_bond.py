@@ -25,9 +25,9 @@ def break_deformed_ene(
     possible_ene_pairs: List[Tuple[int, int, float]] = []
     obmol = cast(ob.OBMol, omol.OBMol)
     smarts = pybel.Smarts("[*]~[*+0]=,:[*+0]~[*]")
-    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
-    while len(res):
-        idxs = res.pop(0)
+    matches: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
+    while len(matches):
+        idxs = matches.pop(0)
         bond2_1 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         if bond2_1.IsRotor() or bond2_1.GetBondOrder() == 1:
             continue
@@ -37,13 +37,13 @@ def break_deformed_ene(
             possible_ene_pairs.append((idxs[1], idxs[2], torsion_angle))
 
     smarts = pybel.Smarts("[*]~[*+0](=,:[*+0])~[*]")
-    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
-    while len(res):
-        idxs = res.pop(0)
+    matches = list(smarts.findall(omol))
+    while len(matches):
+        idxs = matches.pop(0)
         bond2_2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         if bond2_2.IsRotor() or bond2_2.GetBondOrder() == 1:
             continue
-        torsion_angle: float = abs(obmol.GetTorsion(*idxs))
+        torsion_angle = abs(obmol.GetTorsion(*idxs))
         torsion_angle = min(torsion_angle, 180 - torsion_angle)
         if torsion_angle > tolerance:
             possible_ene_pairs.append((idxs[1], idxs[2], torsion_angle))

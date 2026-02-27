@@ -12,6 +12,8 @@
 #include "molgr/utils/utils.h"
 
 #include <openbabel/obconversion.h>
+#include <openbabel/mol.h>
+#include <openbabel/atom.h>
 #include <pybind11/stl.h> // 必须包含
 
 #include <memory>
@@ -30,7 +32,12 @@ static std::unique_ptr<OpenBabel::OBMol> mol_from_xyz(const std::string &xyz)
     auto mol = std::make_unique<OpenBabel::OBMol>();
     OpenBabel::OBConversion conv;
     conv.SetInFormat("xyz");
-    conv.ReadString(mol.get(), xyz);
+    if (!conv.ReadString(mol.get(), xyz))
+    {
+        return nullptr;
+    }
+    mol->ConnectTheDots();
+    mol->PerceiveBondOrders();
     return mol;
 }
 
@@ -171,6 +178,10 @@ void molgr::bind::bind_utils(py::module_ &m)
     m.def("test_deviation_score", [](const std::string &xyz_block, int atom_idx)
           {
               auto mol = mol_from_xyz(xyz_block);
+              if (!mol)
+              {
+                  return -1.0;
+              }
               OpenBabel::OBAtom *atom = mol->GetAtom(atom_idx);
               if (!atom)
               {
@@ -185,7 +196,34 @@ void molgr::bind::bind_utils(py::module_ &m)
     m.def("test_total_score", [](const std::string &xyz_block)
           {
               auto mol = mol_from_xyz(xyz_block);
-              return molgr::scoring::OmolScore(*mol);
+              if (!mol)
+              {
+                  throw std::runtime_error("failed to parse XYZ");
+              }
+              double score = molgr::scoring::OmolScore(*mol);
+              const int n = mol->NumAtoms();
+              for (int i = 1; i <= n; ++i)
+              {
+                  OpenBabel::OBAtom *a = mol->GetAtom(i);
+                  if (!a)
+                  {
+                      continue;
+                  }
+                  for (int j = i + 1; j <= n; ++j)
+                  {
+                      OpenBabel::OBAtom *b = mol->GetAtom(j);
+                      if (!b)
+                      {
+                          continue;
+                      }
+                      const double dist = a->GetDistance(b);
+                      if (dist < 0.5)
+                      {
+                          score += (0.5 - dist) * 1000.0;
+                      }
+                  }
+              }
+              return score;
           },
           "Calculate total OMolScore from XYZ block (For Testing)",
           py::arg("xyz_block"));

@@ -11,6 +11,7 @@ METHOD_IDS: tuple[str, ...] = (
     "cell2mol_v2",
     "molgr_fallback",
     "molgr_cpp",
+    "xyzgraph_cheminf_full",
 )
 
 
@@ -30,12 +31,16 @@ def get_method_registry() -> list[BenchmarkMethod]:
     molgr_cpp_method_cls = import_module(
         "benchmarks.smiles_xyz_benchmark.methods.molgr_cpp"
     ).MolGRCppMethod
+    xyzgraph_method_cls = import_module(
+        "benchmarks.smiles_xyz_benchmark.methods.xyzgraph_cheminf_full"
+    ).XYZGraphCheminfFullMethod
     return [
         rdkit_method_cls(),
         openbabel_method_cls(),
         cell2mol_method_cls(),
         molgr_fallback_method_cls(),
         molgr_cpp_method_cls(),
+        xyzgraph_method_cls(),
     ]
 
 

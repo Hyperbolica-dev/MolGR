@@ -34,12 +34,16 @@ benchmark = [
     "networkx>=3.1",
     "pyyaml>=6.0.3",
     "scipy>=1.10.1",
+    "xyzgraph>=1.6.1",
+    "numpy<2",
+    "pandas",
+    "tqdm",
+    "rdkit-dof; python_version >= '3.9'",
 ]
 dev = [
     "ipykernel",
     "ipywidgets",
     "mypy",
-    "numpy>=1.24.4",
     "pandas>=2.0.3",
     "pybind11>=3.0.1",
     "pytest",
@@ -48,6 +52,7 @@ dev = [
     "ruff",
     "scikit-build-core>=0.11.6",
     "setuptools-scm>=9.2.2",
+    "jinja2"
 ]
 
 [tool.ruff]
@@ -107,7 +112,8 @@ warn_redundant_casts = true # 警告多余的 cast
 warn_unused_ignores = false # 警告多余的 # type: ignore
 
 ignore_missing_imports = true
-exclude = ["tests", "scripts", "build", "dist"]
+no_site_packages = true
+exclude = "^(tests/|scripts/|build/|dist/|src/molgr/_core/)"
 
 
 [[tool.uv.index]]

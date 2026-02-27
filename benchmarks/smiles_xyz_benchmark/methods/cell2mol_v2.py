@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import tempfile
 import time
 from dataclasses import dataclass
@@ -128,7 +129,5 @@ class Cell2MolV2Method(BenchmarkMethod):
             )
         finally:
             if classes_module is not None and callable(original_balance_charge):
-                try:
+                with contextlib.suppress(Exception):
                     classes_module.balance_charge = original_balance_charge
-                except Exception:  # noqa: BLE001
-                    pass

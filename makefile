@@ -247,6 +247,8 @@ cpp-build:
 stubs:
 	@echo "🤖 Checking for pybind11-stubgen..."
 	@uv run python -c "import pybind11_stubgen" 2>/dev/null || (echo "⚠️ pybind11-stubgen not found. Installing..." && uv pip install pybind11-stubgen)
+	@echo "🧹 Removing stale pipeline stub package outputs..."
+	@rm -rf src/molgr/_core/pipeline
 	@echo "🤖 Generating Type Stubs for: $(EXTENSION_MODULES)..."
 	@for module in $(EXTENSION_MODULES); do \
 		echo "   Processing $$module..."; \
@@ -256,6 +258,7 @@ stubs:
 			--ignore-all-errors \
 			--numpy-array-use-type-var; \
 	done
+	@if [ -f src/molgr/_core/pipeline.pyi ]; then if grep -q "molgr._core.utils\." src/molgr/_core/pipeline.pyi && ! grep -q "^import molgr$$" src/molgr/_core/pipeline.pyi; then sed -i '/^from __future__ import annotations$$/a import molgr' src/molgr/_core/pipeline.pyi; fi; fi
 	@echo "✅ Stubs generated in src/!"
 
 # =============================================================================

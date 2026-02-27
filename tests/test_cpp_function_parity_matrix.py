@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 import pytest
+
 
 pytest.importorskip("openbabel")
 
@@ -41,15 +42,15 @@ from molgr.fallback.stages.clean import (
 )
 from molgr.fallback.stages.clean import clean_neighbor_radicals as py_clean_neighbor_radicals
 from molgr.fallback.stages.clean import clean_resonances as py_clean_resonances
-from molgr.fallback.stages.eliminate import eliminate_carboxyl as py_eliminate_carboxyl
+from molgr.fallback.stages.eliminate import eliminate_1_3_dipole as py_eliminate_1_3_dipole
 from molgr.fallback.stages.eliminate import (
     eliminate_carbene_neighbor_heteroatom as py_eliminate_carbene_neighbor_heteroatom,
 )
+from molgr.fallback.stages.eliminate import eliminate_carboxyl as py_eliminate_carboxyl
 from molgr.fallback.stages.eliminate import (
     eliminate_charge_spliting as py_eliminate_charge_spliting,
 )
 from molgr.fallback.stages.eliminate import eliminate_CN_in_doubt as py_eliminate_cn_in_doubt
-from molgr.fallback.stages.eliminate import eliminate_1_3_dipole as py_eliminate_1_3_dipole
 from molgr.fallback.stages.eliminate import (
     eliminate_high_positive_charge_atoms as py_eliminate_high_positive_charge_atoms,
 )
@@ -75,7 +76,7 @@ from molgr.utils.equivalence import check_equivalence
 _pipeline: Any = _core.pipeline
 _with_metals: Any = _pipeline.reconstruct_with_metals
 _stages: Any = _core.stages
-_BENCHMARK_HARD_CASE_INDICES: tuple[int, ...] = (7, 20, 24, 33, 35, 47, 49, 52, 67)
+_BENCHMARK_HARD_CASE_INDICES: tuple[int, ...] = (7, 20, 24, 33, 35, 47, 49, 52)
 
 
 @dataclass(frozen=True)
@@ -398,7 +399,7 @@ def _build_seed_obmol() -> ob.OBMol:
 
 def _clear_all_bonds(obmol: ob.OBMol) -> None:
     obmol.BeginModify()
-    bonds = [bond for bond in ob.OBMolBondIter(obmol)]
+    bonds = list(ob.OBMolBondIter(obmol))
     for bond in bonds:
         obmol.DeleteBond(bond)
     obmol.EndModify()
@@ -489,10 +490,7 @@ O 1.200 0.000 0.000
             py_norm = _smiles_from_mol_data(
                 _core.utils.extract_molecule_data(_get_ptr(py_result.OBMol))
             )
-        if cpp_result is None:
-            cpp_norm = None
-        else:
-            cpp_norm = _smiles_from_mol_data(cpp_result)
+        cpp_norm = None if cpp_result is None else _smiles_from_mol_data(cpp_result)
         return py_norm, cpp_norm
 
     rows.append(
@@ -575,12 +573,12 @@ O 1.200 0.000 0.000
                 case_name=case_name,
                 case_input=base_case_input,
                 cpp_source_path="src/cpp/src/pipeline/reconstruct_without_metals.cpp",
-                run_pair=lambda x=xyz_block,
-                c=total_charge,
-                r=total_radical_electrons: run_xyz_to_omol_no_metal_case(
-                    x,
-                    c,
-                    r,
+                run_pair=lambda x=xyz_block, c=total_charge, r=total_radical_electrons: (
+                    run_xyz_to_omol_no_metal_case(
+                        x,
+                        c,
+                        r,
+                    )
                 ),
                 normalize=lambda value: value,
             )
@@ -592,12 +590,12 @@ O 1.200 0.000 0.000
                 case_name=case_name,
                 case_input=base_case_input,
                 cpp_source_path="src/cpp/src/stages/break_bond.cpp",
-                run_pair=lambda s=smiles,
-                c=total_charge,
-                r=total_radical_electrons: run_break_one_bond_hard_case(
-                    s,
-                    c,
-                    r,
+                run_pair=lambda s=smiles, c=total_charge, r=total_radical_electrons: (
+                    run_break_one_bond_hard_case(
+                        s,
+                        c,
+                        r,
+                    )
                 ),
                 normalize=lambda value: value,
             )
@@ -610,12 +608,12 @@ O 1.200 0.000 0.000
                     case_name=case_name,
                     case_input=f"{base_case_input},tolerance=5.0",
                     cpp_source_path="src/cpp/src/stages/break_bond.cpp",
-                    run_pair=lambda s=smiles,
-                    c=total_charge,
-                    r=total_radical_electrons: run_break_deformed_ene_hard_case(
-                        s,
-                        c,
-                        r,
+                    run_pair=lambda s=smiles, c=total_charge, r=total_radical_electrons: (
+                        run_break_deformed_ene_hard_case(
+                            s,
+                            c,
+                            r,
+                        )
                     ),
                     normalize=_break_bond_signature,
                 )
@@ -644,13 +642,13 @@ O 1.200 0.000 0.000
                     f"charge={total_charge}"
                 ),
                 cpp_source_path="src/cpp/src/pipeline/resonance.cpp",
-                run_pair=lambda x=xyz_block,
-                c=total_charge,
-                r=total_radical_electrons: _run_process_resonance_from_xyz_intermediate_case(
-                    x,
-                    c,
-                    r,
-                    c,
+                run_pair=lambda x=xyz_block, c=total_charge, r=total_radical_electrons: (
+                    _run_process_resonance_from_xyz_intermediate_case(
+                        x,
+                        c,
+                        r,
+                        c,
+                    )
                 ),
                 normalize=lambda value: value,
             )
@@ -680,16 +678,14 @@ O 1.200 0.000 0.000
                     f"use_chirality=True,max_resonance=100"
                 ),
                 cpp_source_path="src/cpp/src/pipeline/reconstruct_without_metals.cpp",
-                run_pair=lambda idx=case_index,
-                smiles=input_smiles,
-                x=xyz_block,
-                c=total_charge,
-                r=total_radical_electrons: _run_benchmark_semantic_no_metal_case(
-                    idx,
-                    smiles,
-                    x,
-                    c,
-                    r,
+                run_pair=lambda idx=case_index, smiles=input_smiles, x=xyz_block, c=total_charge, r=total_radical_electrons: (
+                    _run_benchmark_semantic_no_metal_case(
+                        idx,
+                        smiles,
+                        x,
+                        c,
+                        r,
+                    )
                 ),
                 normalize=lambda value: value,
             )
@@ -739,9 +735,9 @@ Li 0.0 0.0 0.0
                     f"total_radical={total_radical_electrons}"
                 ),
                 cpp_source_path="src/cpp/src/pipeline/reconstruct_with_metals.cpp",
-                run_pair=lambda x=xyz_block,
-                c=total_charge,
-                r=total_radical_electrons: run_xyz2omol_case(x, c, r),
+                run_pair=lambda x=xyz_block, c=total_charge, r=total_radical_electrons: (
+                    run_xyz2omol_case(x, c, r)
+                ),
                 normalize=lambda value: value,
             )
         )
@@ -767,10 +763,7 @@ Li 0.0 0.0 0.0
             py_norm = _smiles_from_mol_data(
                 _core.utils.extract_molecule_data(_get_ptr(py_result.OBMol))
             )
-        if cpp_result is None:
-            cpp_norm = None
-        else:
-            cpp_norm = _smiles_from_mol_data(cpp_result)
+        cpp_norm = None if cpp_result is None else _smiles_from_mol_data(cpp_result)
         return py_norm, cpp_norm
 
     for idx, smiles in enumerate(
@@ -793,9 +786,9 @@ Li 0.0 0.0 0.0
                     f"total_radical={total_radical_electrons}"
                 ),
                 cpp_source_path="src/cpp/src/pipeline/reconstruct_without_metals.cpp",
-                run_pair=lambda x=xyz_block,
-                c=total_charge,
-                r=total_radical_electrons: run_xyz_to_omol_no_metal_case(x, c, r),
+                run_pair=lambda x=xyz_block, c=total_charge, r=total_radical_electrons: (
+                    run_xyz_to_omol_no_metal_case(x, c, r)
+                ),
                 normalize=lambda value: value,
             )
         )

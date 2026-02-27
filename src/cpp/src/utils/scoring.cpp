@@ -148,7 +148,7 @@ namespace molgr
 
             if (kHeteroatoms.find(atomic_num) != kHeteroatoms.end())
             {
-                penalty = radical_num * 2.0;
+                penalty = radical_num * 10.0;
             }
             else
             {
@@ -179,6 +179,12 @@ namespace molgr
             }
             // 异性相吸
             return -0.5;
+        }
+
+        double CalculateConjugationReward(OBMol &mol)
+        {
+            auto matches = molgr::utils::FindSmarts(mol, "[*]=,#,:[*]-,:[*]=,#,:[*]");
+            return matches.size() * 2.0;
         }
 
         double CalculatePhysChemPenalty(OBMol &mol)
@@ -301,7 +307,6 @@ namespace molgr
             }
             return penalty;
         }
-
         // =============================================================================
         // Main Score Function
         // =============================================================================
@@ -323,8 +328,8 @@ namespace molgr
                 if (atom->IsMetal())
                     continue;
 
-                if (!atom->IsAromatic())
-                    score += 5.0;
+                if (atom->IsAromatic())
+                    score -= 5.0 - atom->GetFormalCharge() * 3.0; // 芳香原子奖励
 
                 double dev = GetDeviationScore(mol, &*atom);
                 int charge = atom->GetFormalCharge();
@@ -343,6 +348,21 @@ namespace molgr
                     LOG_DEBUG("[Geometry] " << AtomId(&*atom) << " Dev=" << dev << " (Q=" << charge << ",R=" << radical << ") -> +" << term);
                 }
                 geo_penalty += term;
+
+                if (atom->GetAtomicNum() == 6)
+                {
+                    bool all_double_bond = true;
+                    FOR_BONDS_OF_ATOM(bond, &*atom)
+                    {
+                        if (bond->GetBondOrder() != 2.0)
+                        {
+                            all_double_bond = false;
+                            break;
+                        }
+                    }
+                    if (all_double_bond)
+                        score += 5.0; // 联烯惩罚
+                }
             }
             score += geo_penalty;
             LOG_DEBUG(">> Geometry Total: " << geo_penalty);
@@ -358,6 +378,11 @@ namespace molgr
             LOG_DEBUG(">> Metal Total:    " << metal);
 
             LOG_DEBUG("=== Final Score: " << score << " ===");
+            
+            // 5. Conjugation reward
+            double conjugation = CalculateConjugationReward(mol);
+            score -= conjugation;
+            LOG_DEBUG(">> Conjugation Total: " << conjugation);
             return score;
         }
 

@@ -12,52 +12,42 @@ Methods currently wired in `smiles_xyz_benchmark`:
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
+- `xyzgraph_cheminf_full`
 
 ## Requirements
 
-- Python `>=3.8`
+- Project runtime: Python `>=3.8`
+- Benchmark runtime: Python `>=3.10` (for `xyzgraph_cheminf_full`)
 - Recommended: `uv`
-- Fallback: `pip` (`python -m venv` + `python -m pip`)
 
-## Quickstart (uv)
+## Quickstart (benchmark env)
 
 From repo root:
 
 ```bash
-uv venv
-source .venv/bin/activate
-uv pip install -e .
-uv run python benchmarks/smiles_xyz_benchmark/run.py \
+bash scripts/benchmark_env.sh create
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py \
   --input tests/test_cases.csv \
   --limit 10 \
   --out benchmarks/_runs/demo
+```
+
+Optional shell switch for repeated benchmark commands:
+
+```bash
+eval "$(bash scripts/benchmark_env.sh env)"
 ```
 
 Expected output directory:
 
 - `benchmarks/_runs/demo`
 
-## Environment install (pip fallback)
-
-From repo root:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-python benchmarks/smiles_xyz_benchmark/run.py \
-  --input tests/test_cases.csv \
-  --limit 10 \
-  --out benchmarks/_runs/demo
-```
-
 ## Run commands
 
-Run the benchmark with `uv`:
+Run the benchmark with the dedicated env script:
 
 ```bash
-uv run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
 ```
 
 Useful flags:
@@ -83,6 +73,8 @@ How to interpret quickly:
 ## Optional `cell2mol_v2` setup and GPL note
 
 `cell2mol_v2` is optional. Benchmarks still run without vendoring `cell2mol`.
+
+We pin `numpy<2` in the benchmark dependency set for compatibility with optional `cell2mol`/`cosymlib` stacks.
 
 If you enable `cell2mol_v2`, install/configure it separately in your environment and ensure your usage/redistribution complies with its license terms, including GPL obligations where applicable.
 

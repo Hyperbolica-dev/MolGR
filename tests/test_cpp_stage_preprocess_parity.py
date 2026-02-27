@@ -52,7 +52,7 @@ def _assert_stage_parity(py_mol: pybel.Molecule, cpp_mol: pybel.Molecule) -> Non
 
 def _clear_all_bonds(obmol: ob.OBMol) -> None:
     obmol.BeginModify()
-    bonds = [bond for bond in ob.OBMolBondIter(obmol)]
+    bonds = list(ob.OBMolBondIter(obmol))
     for bond in bonds:
         obmol.DeleteBond(bond)
     obmol.EndModify()

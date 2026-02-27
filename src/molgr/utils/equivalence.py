@@ -14,8 +14,7 @@ from functools import partial
 from typing import Optional, Tuple
 
 from rdkit import Chem
-from rdkit.Chem import inchi
-from rdkit.Chem import ResonanceMolSupplier
+from rdkit.Chem import ResonanceMolSupplier, inchi
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
 from .radical_resonance import enumerate_resonance_radical

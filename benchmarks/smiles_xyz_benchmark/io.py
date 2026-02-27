@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
+
+import pandas as pd
 
 from benchmarks.smiles_xyz_benchmark.schema import BenchmarkResult
 
@@ -90,37 +91,33 @@ def write_results_csv(path: Path, results: list[BenchmarkResult]) -> None:
 
     timing_columns = list(TIMING_PRIORITY_COLUMNS) + sorted(extra_timing_columns)
     fieldnames = [*RESULT_COLUMNS, *timing_columns, "timing_ms_breakdown_json"]
+    rows: list[dict[str, str | int | float | bool | None]] = []
 
     try:
-        with path.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for result in results:
-                breakdown = result.timing_ms_breakdown or {}
-                row: dict[str, str | int | float | bool | None] = {
-                    "case_idx": result.case_idx,
-                    "method_id": result.method_id,
-                    "input_smiles": result.input_smiles,
-                    "ground_truth_smiles": result.ground_truth_smiles,
-                    "status": result.status,
-                    "error": result.error,
-                    "predicted_smiles": result.predicted_smiles,
-                    "equivalent": result.equivalent,
-                    "equivalence_method": result.equivalence_method,
-                    "timing_ms_total": result.timing_ms_total,
-                    "timing_ms_breakdown_json": json.dumps(breakdown, ensure_ascii=True),
-                }
-                for column in timing_columns:
-                    row[column] = breakdown.get(column)
-                writer.writerow(row)
+        for result in results:
+            breakdown = result.timing_ms_breakdown or {}
+            row: dict[str, str | int | float | bool | None] = {
+                "case_idx": result.case_idx,
+                "method_id": result.method_id,
+                "input_smiles": result.input_smiles,
+                "ground_truth_smiles": result.ground_truth_smiles,
+                "status": result.status,
+                "error": result.error,
+                "predicted_smiles": result.predicted_smiles,
+                "equivalent": result.equivalent,
+                "equivalence_method": result.equivalence_method,
+                "timing_ms_total": result.timing_ms_total,
+                "timing_ms_breakdown_json": json.dumps(breakdown, ensure_ascii=True),
+            }
+            for column in timing_columns:
+                row[column] = breakdown.get(column)
+            rows.append(row)
+
+        pd.DataFrame(rows, columns=pd.Index(fieldnames)).fillna("").to_csv(path, index=False)
     except OSError as exc:
         raise RuntimeError(f"unable to write benchmark results CSV: {path}") from exc
 
 
 def write_summary_csv(path: Path, summary_rows: list[dict[str, str | int | float]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(SUMMARY_COLUMNS))
-        writer.writeheader()
-        for row in summary_rows:
-            writer.writerow(row)
+    pd.DataFrame(summary_rows, columns=pd.Index(SUMMARY_COLUMNS)).to_csv(path, index=False)
