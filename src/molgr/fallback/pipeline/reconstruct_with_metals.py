@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-21 22:30:55
 LastEditors: TMJ
-LastEditTime: 2026-02-22 13:29:26
+LastEditTime: 2026-02-28 02:51:15
 Description: 请填写简介
 """
 
@@ -160,12 +160,11 @@ def xyz2omol(
     for obatom in removable_metal_atoms:
         omol.OBMol.DeleteAtom(obatom)
     no_metal_xyz = cast(str, omol.write("xyz"))
+    possible_omols: List[pybel.Molecule] = []
     possible_metal_valence_radical_product = (
         product
         for product in itertools.product(*available_valence_radical_states)
-        if sum(metal_pos.radical_num for metal_pos in product) <= total_radical_electrons
     )
-    possible_omols: List[pybel.Molecule] = []
     for metal_atom_product in possible_metal_valence_radical_product:
         total_metal_charge = sum(metal_pos.valence for metal_pos in metal_atom_product)
         total_metal_radical_electrons = sum(
@@ -176,6 +175,14 @@ def xyz2omol(
                 no_metal_xyz,
                 total_charge - total_metal_charge,
                 total_radical_electrons - total_metal_radical_electrons,
+            )
+        except (OSError, ValueError):
+            continue
+        try:
+            possible_omol = xyz_to_omol_no_metal(
+                no_metal_xyz,
+                total_charge - total_metal_charge,
+                total_radical_electrons - total_metal_radical_electrons % 2,
             )
         except (OSError, ValueError):
             continue

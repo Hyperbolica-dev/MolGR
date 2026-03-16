@@ -84,26 +84,38 @@ def eliminate_carbene_neighbor_heteroatom(
     return omol, given_charge
 
 
-def eliminate_NNN(omol: pybel.Molecule, given_charge: int) -> Tuple[pybel.Molecule, int]:
+def eliminate_NNN(omol: pybel.Molecule, given_charge: int, positive: bool) -> Tuple[pybel.Molecule, int]:
     obmol = cast(ob.OBMol, omol.OBMol)
-
-    smarts = pybel.Smarts("[#7v1+0]-[#7v2+0]-[#7v1+0]")
-    while res := smarts.findall(omol):
-        idxs = cast(List[Tuple[int, int, int]], res.pop(0))
-        atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
-        atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
-        atom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
-        bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
-        bond1.SetBondOrder(bond1.GetBondOrder() + 1)
-        bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
-        bond2.SetBondOrder(bond2.GetBondOrder() + 1)
-        atom1.SetSpinMultiplicity(atom1.GetSpinMultiplicity() - 1)
-        atom1.SetFormalCharge(atom1.GetFormalCharge() - 1)
-        atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
-        atom2.SetFormalCharge(atom2.GetFormalCharge() + 1)
-        atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 1)
-        atom3.SetFormalCharge(atom3.GetFormalCharge() - 1)
-        given_charge += 1
+    if not positive:
+        smarts = pybel.Smarts("[#7v1+0]-[#7v2+0]-[#7v1+0]")
+        while res := smarts.findall(omol):
+            idxs = cast(List[Tuple[int, int, int]], res.pop(0))
+            atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+            atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+            atom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
+            bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+            bond1.SetBondOrder(bond1.GetBondOrder() + 1)
+            bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
+            bond2.SetBondOrder(bond2.GetBondOrder() + 1)
+            atom1.SetSpinMultiplicity(atom1.GetSpinMultiplicity() - 1)
+            atom1.SetFormalCharge(atom1.GetFormalCharge() - 1)
+            atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
+            atom2.SetFormalCharge(atom2.GetFormalCharge() + 1)
+            atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 1)
+            atom3.SetFormalCharge(atom3.GetFormalCharge() - 1)
+            given_charge += 1
+    else:
+        smarts = pybel.Smarts("[#7v3+0]-[#7v2+0]-[#7v3+0]")
+        while res := smarts.findall(omol):
+            idxs = cast(List[Tuple[int, int, int]], res.pop(0))
+            atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+            atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+            atom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
+            bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+            bond1.SetBondOrder(bond1.GetBondOrder() + 1)
+            atom1.SetFormalCharge(atom1.GetFormalCharge() + 1)
+            atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
+            given_charge -= 1
     return omol, given_charge
 
 
@@ -122,7 +134,7 @@ def eliminate_charge_spliting(
         ]
         while len(radical_atoms) > abs(given_charge) + 1:
             for atom in radical_atoms:
-                if atom.GetAtomicNum() == 8:
+                if atom.GetAtomicNum() in (8, 9, 17, 35, 53):
                     atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - 1)
                     atom.SetFormalCharge(atom.GetFormalCharge() - 1)
                     given_charge += 1

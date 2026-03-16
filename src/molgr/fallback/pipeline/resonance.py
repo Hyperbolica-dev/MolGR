@@ -1,3 +1,10 @@
+"""
+Author: TMJ
+Date: 2026-02-23 22:15:39
+LastEditors: TMJ
+LastEditTime: 2026-02-28 02:43:11
+Description: 请填写简介
+"""
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
 
 from __future__ import annotations

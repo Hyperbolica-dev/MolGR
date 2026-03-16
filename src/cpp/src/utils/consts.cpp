@@ -46,7 +46,7 @@ namespace molgr
     /**
      * @brief Set of atomic numbers considered as heteroatoms.
      */
-    const std::set<int> kHeteroatoms = {9, 8, 17, 7, 35, 54, 16, 34, 15};
+    const std::set<int> kHeteroatoms = {9, 8, 17, 7, 35, 53, 16, 34, 15};
 
     /**
      * @brief Lennard-Jones Parameters for Universal Force Field (UFF).

@@ -65,6 +65,18 @@ def get_deviation_score(omol: pybel.Molecule, atom_idx: int) -> float:
     return 0.0
 
 
+def calc_remain_bond_order_reward(omol: pybel.Molecule) -> float:
+    obmol = cast(ob.OBMol, omol.OBMol)
+    return (
+        sum(
+            consts.NON_METAL_DICT[atom.GetAtomicNum()].default_valence
+            for atom in ob.OBMolAtomIter(obmol)
+            if not atom.IsMetal()
+        )
+        - sum(cast(int, bond.GetBondOrder()) for bond in ob.OBMolBondIter(obmol)) * 2
+    ) * 5
+
+
 def calc_symmetry_penalty(omol: pybel.Molecule) -> float:
     obmol = cast(ob.OBMol, omol.OBMol)
     gs = ob.OBGraphSym(obmol)
@@ -125,7 +137,7 @@ def calculate_physchem_penalty(omol: pybel.Molecule) -> float:
 
 
 def get_metal_coordination_sphere(
-    omol: pybel.Molecule, metal_atom: ob.OBAtom, cutoff: float = 2.8
+    omol: pybel.Molecule, metal_atom: ob.OBAtom, cutoff: float = 3
 ) -> List[Tuple[ob.OBAtom, float]]:
     neighbors: List[Tuple[ob.OBAtom, float]] = []
     metal_idx = metal_atom.GetIdx()
@@ -148,23 +160,33 @@ def calculate_metal_penalty(omol: pybel.Molecule) -> float:
         symbol = cast(str, ob.GetSymbol(metal_atom.GetAtomicNum()))
         valence = cast(int, metal_atom.GetFormalCharge())
         if valence <= 0:
-            penalty += 10
+            penalty += 10 * max(abs(valence), 1)
         prior_list = consts.METAL_VALENCE_AVAILABLE_PRIOR.get(symbol, [])
         minor_list = consts.METAL_VALENCE_AVAILABLE_MINOR.get(symbol, [])
         if valence not in prior_list:
             if valence in minor_list:
-                penalty += 2.0
-            else:
                 penalty += 10.0
+            else:
+                penalty += 20.0
         neighbors = get_metal_coordination_sphere(omol, metal_atom, cutoff=2.6)
         for ligand_atom, dist in neighbors:
             ligand_charge = cast(int, ligand_atom.GetFormalCharge())
             if valence > 0:
                 if ligand_charge > 0:
-                    penalty += 10.0 * (ligand_charge * valence) / (dist**2)
+                    penalty += 100.0 * (ligand_charge * valence) / (dist**2)
                 elif ligand_charge < 0:
-                    penalty -= 2.0 * (abs(ligand_charge) * valence) / dist
+                    penalty -= 5 * (abs(ligand_charge) * valence) / (dist**2)
     return penalty
+
+def calculate_heteroatom_penalty(omol: pybel.Molecule) -> float:
+    penalty = 0.0
+    for atom in omol.atoms:
+        obatom = cast(ob.OBAtom, atom.OBAtom)
+        if obatom.GetAtomicNum() not in consts.HETEROATOM:
+            continue
+        penalty += 10 * (obatom.GetFormalCharge() - obatom.GetTotalValence())
+    return penalty
+
 
 def calculate_conjugation_reward(omol: pybel.Molecule) -> float:
     smarts = pybel.Smarts("[*]=,#,:[*]-,:[*]=,#,:[*]")
@@ -175,13 +197,14 @@ def calculate_conjugation_reward(omol: pybel.Molecule) -> float:
 def omol_score(omol: pybel.Molecule) -> float:
     obmol = cast(ob.OBMol, omol.OBMol)
     obmol.SetAromaticPerceived(False)
-    score = calc_symmetry_penalty(omol)
+    score = calc_remain_bond_order_reward(omol)
+    score += calc_symmetry_penalty(omol)
     for atom_idx in range(1, obmol.NumAtoms() + 1):
         atom = cast(ob.OBAtom, obmol.GetAtom(atom_idx))
         if atom.IsMetal():
             continue
         if atom.IsAromatic():
-            score -= 5 - abs(cast(int, atom.GetFormalCharge())) * 3 # aromatic reward
+            score -= 5 - abs(cast(int, atom.GetFormalCharge())) * 3  # aromatic reward
         if atom.GetSpinMultiplicity() > 0:
             score += get_deviation_score(omol, atom_idx) * 10.0
         if atom.GetFormalCharge() > 0:
@@ -194,6 +217,7 @@ def omol_score(omol: pybel.Molecule) -> float:
             score += 5
     score += calculate_physchem_penalty(omol)
     score += calculate_metal_penalty(omol)
+    score += calculate_heteroatom_penalty(omol)
     score -= calculate_conjugation_reward(omol)
     return score
 

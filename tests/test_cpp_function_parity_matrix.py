@@ -9,6 +9,8 @@ from typing import Any, Callable, Sequence
 
 import pytest
 
+from molgr.utils.converter import mol_data_to_rdkit
+
 
 pytest.importorskip("openbabel")
 
@@ -69,7 +71,7 @@ from molgr.fallback.stages.fresh import fresh_omol_charge_radical as py_fresh_om
 from molgr.fallback.stages.preprocess import make_connections as py_make_connections
 from molgr.fallback.stages.preprocess import pre_clean as py_pre_clean
 from molgr.fallback.stages.preprocess import validate_omol as py_validate_omol
-from molgr.interface import mol_data_to_rdkit, pybel_to_rdmol
+from molgr.utils.converter import pybel_to_rdmol
 from molgr.utils.equivalence import check_equivalence
 
 

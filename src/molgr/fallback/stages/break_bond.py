@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-21 22:53:05
 LastEditors: TMJ
-LastEditTime: 2026-02-22 18:28:35
+LastEditTime: 2026-02-28 02:59:06
 Description: 请填写简介
 """
 
@@ -101,7 +101,8 @@ def break_one_bond(omol: pybel.Molecule, given_charge: int = 0, given_radical: i
         given_charge += 1
 
     smarts = pybel.Smarts("[*+0]:[*+0]")
-    while res := smarts.findall(omol):
+    res = list(smarts.findall(omol))
+    while res:
         if (
             sum(cast(ob.OBAtom, atom).GetSpinMultiplicity() for atom in ob.OBMolAtomIter(obmol))
             >= abs(given_charge) + given_radical
@@ -109,6 +110,8 @@ def break_one_bond(omol: pybel.Molecule, given_charge: int = 0, given_radical: i
             return omol, given_charge
         idxs = res.pop(0)
         bond3 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        if bond3.GetBondOrder() == 1:
+            continue
         bond3.SetBondOrder(bond3.GetBondOrder() - 1)
         begin_atom3 = cast(ob.OBAtom, bond3.GetBeginAtom())
         end_atom3 = cast(ob.OBAtom, bond3.GetEndAtom())

@@ -39,6 +39,7 @@ benchmark = [
     "pandas",
     "tqdm",
     "rdkit-dof; python_version >= '3.9'",
+    "pandarallel"
 ]
 dev = [
     "ipykernel",

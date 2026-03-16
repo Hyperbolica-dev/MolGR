@@ -95,7 +95,7 @@ NON_METAL_DICT: Dict[int, ElementInfo] = {
     85: ElementInfo("At", 7, 1),
     86: ElementInfo("Rn", 8, 0),
 }
-HETEROATOM: Tuple[int, ...] = (9, 8, 17, 7, 35, 54, 16, 34, 15)
+HETEROATOM: Tuple[int, ...] = (9, 8, 17, 7, 35, 53, 16, 34, 15)
 D_ELECTRONS_SPIN: List[List[int]] = [
     [0],
     [1],

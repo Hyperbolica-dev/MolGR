@@ -18,7 +18,7 @@ from molgr.fallback.pipeline.reconstruct_without_metals import (
     xyz_to_omol_no_metal as py_xyz_to_omol_no_metal,
 )
 from molgr.fallback.utils.tools import typed_lru_cache
-from molgr.interface import mol_data_to_rdkit
+from molgr.utils.converter import mol_data_to_rdkit
 from molgr.utils.equivalence import check_equivalence
 
 

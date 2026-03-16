@@ -248,8 +248,8 @@ namespace molgr
                     }
                     if (bond1->GetBondOrder() == 1 &&
                         bond2->GetBondOrder() == 2 &&
-                        atom3->GetFormalCharge() == -1 &&
-                        atom1->GetFormalCharge() == 0)
+                        atom1->GetFormalCharge() == -1 &&
+                        atom3->GetFormalCharge() == 0)
                     {
                         bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
@@ -282,8 +282,8 @@ namespace molgr
                         bond2->GetBondOrder() == 2 &&
                         bond3->GetBondOrder() == 1 &&
                         bond4->GetBondOrder() == 2 &&
-                        atom5->GetFormalCharge() == -1 &&
-                        atom1->GetFormalCharge() == 0)
+                        atom1->GetFormalCharge() == -1 &&
+                        atom5->GetFormalCharge() == 0)
                     {
                         bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);

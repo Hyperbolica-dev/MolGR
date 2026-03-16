@@ -218,8 +218,8 @@ def clean_resonances_7(omol: pybel.Molecule) -> pybel.Molecule:
         if (
             obbond1.GetBondOrder() == 1
             and obbond2.GetBondOrder() == 2
-            and obatom3.GetFormalCharge() == -1
-            and obatom1.GetFormalCharge() == 0
+            and obatom1.GetFormalCharge() == -1
+            and obatom3.GetFormalCharge() == 0
         ):
             obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
             obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
@@ -391,6 +391,7 @@ def clean_resonances_13(omol: pybel.Molecule) -> pybel.Molecule:
 
 
 def clean_resonances(omol: pybel.Molecule) -> pybel.Molecule:
+    omol = clean_resonances_11(omol)
     omol = clean_resonances_0(omol)
     omol = clean_resonances_1(omol)
     omol = clean_resonances_2(omol)
@@ -403,7 +404,6 @@ def clean_resonances(omol: pybel.Molecule) -> pybel.Molecule:
     omol = clean_resonances_8(omol)
     omol = clean_resonances_9(omol)
     omol = clean_resonances_10(omol)
-    omol = clean_resonances_11(omol)
     omol = clean_resonances_12(omol)
     omol = clean_resonances_13(omol)
     return omol

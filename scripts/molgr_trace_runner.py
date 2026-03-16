@@ -7,7 +7,7 @@ from rdkit import Chem
 
 from molgr import fallback
 from molgr.fallback.pipeline import reconstruct_without_metals, resonance
-from molgr.interface import pybel_to_rdmol
+from molgr.utils.converter import pybel_to_rdmol
 from molgr.utils.equivalence import check_equivalence
 
 

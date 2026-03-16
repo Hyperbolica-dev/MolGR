@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-21 22:30:55
 LastEditors: TMJ
-LastEditTime: 2026-02-22 16:54:57
+LastEditTime: 2026-02-28 02:50:57
 Description: 请填写简介
 """
 
@@ -53,10 +53,10 @@ def xyz_to_omol_no_metal(
     given_charge = total_charge - sum(
         cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in omol.atoms
     )
-
-    omol, given_charge = eliminate_NNN(omol, given_charge)
+    omol, given_charge = eliminate_NNN(omol, given_charge, positive=False)
     omol, given_charge = eliminate_high_positive_charge_atoms(omol, given_charge)
     omol, given_charge = eliminate_CN_in_doubt(omol, given_charge)
+    omol, given_charge = eliminate_NNN(omol, given_charge, positive=True)
     omol, given_charge = eliminate_carboxyl(omol, given_charge)
     omol = clean_carbene_neighbor_unsaturated(omol)
     omol, given_charge = eliminate_carbene_neighbor_heteroatom(omol, given_charge)
@@ -74,6 +74,7 @@ def xyz_to_omol_no_metal(
     for resonance in possible_resonances:
         charge = given_charge
         resonance, charge = process_resonance(resonance, charge)
+
         if validate_omol(resonance, total_charge, total_radical_electrons):
             recovered_resonances.append(resonance)
     if len(recovered_resonances) == 0:

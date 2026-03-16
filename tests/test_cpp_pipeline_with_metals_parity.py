@@ -28,7 +28,7 @@ from molgr.fallback.pipeline.reconstruct_with_metals import (
     xyz2omol as py_xyz2omol,
 )
 from molgr.fallback.utils.tools import typed_lru_cache
-from molgr.interface import mol_data_to_rdkit
+from molgr.utils.converter import mol_data_to_rdkit
 from molgr.utils.equivalence import check_equivalence
 
 

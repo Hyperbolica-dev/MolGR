@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from molgr.utils.converter import mol_data_to_rdkit
+
 
 pytest.importorskip("rdkit")
 pytest.importorskip("openbabel")
@@ -21,7 +23,7 @@ def test_mol_data_to_rdkit_sets_positions_by_atom_index() -> None:
     from openbabel import pybel
 
     from molgr import _core  # type: ignore
-    from molgr.interface import mol_data_to_rdkit
+    from molgr.utils.converter import mol_data_to_rdkit
 
     xyz_block = """3
 pos
@@ -68,7 +70,7 @@ def test_mol_data_to_rdkit_matches_fallback_pybel_conversion_for_hard_cases(case
 
     from molgr import _core  # type: ignore
     from molgr.fallback import xyz2omol
-    from molgr.interface import mol_data_to_rdkit, pybel_to_rdmol
+    from molgr.utils.converter import pybel_to_rdmol
 
     root = Path(__file__).resolve().parents[1]
     if str(root) not in sys.path:
