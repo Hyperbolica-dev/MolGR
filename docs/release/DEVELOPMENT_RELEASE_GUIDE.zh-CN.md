@@ -67,13 +67,14 @@ flowchart TD
   - `HTTP_PROXY`
   - `HTTPS_PROXY`
   - `NO_PROXY`
-  - 工作流同时导出小写同名变量以兼容不同工具。
+  - 建议在 runner/服务进程环境中设置，而不是仓库变量。
 - 仓库密钥：
   - `OWNER`
   - `PASSWORD`
 - Runner 的 action 解析配置：
-  - 工作流使用 `actions/checkout@v6`（不再硬编码主机地址）
-  - 请确保 runner 已配置为从预期的 action 来源解析（本机 Gitea 或已镜像源），避免端口/域名耦合问题。
+- 工作流使用 `actions/checkout@v6` 以及标准 `uses:` action 引用。
+- 需在 Gitea 服务端配置 action 来源（`DEFAULT_ACTIONS_URL=self` + 镜像 actions，或 `github` + 可出网）。
+- action 下载发生在 job step 执行前，因此下载代理必须配置在 runner/服务进程环境层。
 
 - 若为单向镜像 `Gitea -> GitHub`：
   - 本地/Gitea 创建的标签会同步到 GitHub；

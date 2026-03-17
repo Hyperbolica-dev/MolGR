@@ -67,13 +67,14 @@ Mirror is managed by Gitea project settings.
   - `HTTP_PROXY`
   - `HTTPS_PROXY`
   - `NO_PROXY`
-  - workflow also exports lowercase equivalents for tool compatibility.
+  - set these on runner/service environment (recommended) instead of repository vars.
 - Repository secrets:
   - `OWNER`
   - `PASSWORD`
 - Runner setting for action resolution:
-  - workflow uses `actions/checkout@v6` (no hardcoded host)
-  - ensure your runner is configured to resolve actions from your expected forge source (self-hosted Gitea or mirrored source) to avoid host/port coupling.
+- workflow uses `actions/checkout@v6` and standard `uses:` action references.
+- configure action source at Gitea server level (`DEFAULT_ACTIONS_URL=self` with mirrored actions, or `github` with outbound network).
+- action download happens before job steps, so proxy for action fetch must be configured on runner/service environment.
 
 - With one-way mirror `Gitea -> GitHub`:
   - tags created in local/Gitea sync to GitHub,
