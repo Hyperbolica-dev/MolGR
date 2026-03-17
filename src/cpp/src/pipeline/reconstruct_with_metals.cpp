@@ -49,10 +49,6 @@ namespace molgr
             for (const auto &item : input_pools[depth])
             {
                 const int next_radical_sum = current_radical_sum + item.radical_num;
-                if (next_radical_sum > total_radical_limit)
-                {
-                    continue;
-                }
                 current_combo.push_back(item);
                 CartesianProduct(input_pools, current_combo, results, depth + 1, next_radical_sum, total_radical_limit);
                 current_combo.pop_back();
@@ -418,21 +414,35 @@ namespace molgr
                         metal_radical += state.radical_num;
                     }
 
-                    if (metal_radical > total_radical_electrons)
-                    {
-                        continue;
-                    }
-
                     const auto organic_data = molgr::pipeline::reconstruct_without_metals::XyzToMolDataNoMetal(
                         no_metal_xyz,
                         total_charge - metal_charge,
                         total_radical_electrons - metal_radical);
+
+                    std::unique_ptr<molgr::utils::MoleculeData> organic_data_fallback;
                     if (!organic_data)
+                    {
+                        organic_data_fallback = molgr::pipeline::reconstruct_without_metals::XyzToMolDataNoMetal(
+                            no_metal_xyz,
+                            total_charge - metal_charge,
+                            total_radical_electrons - (metal_radical % 2));
+                    }
+
+                    const molgr::utils::MoleculeData *selected_data = nullptr;
+                    if (organic_data)
+                    {
+                        selected_data = organic_data.get();
+                    }
+                    else if (organic_data_fallback)
+                    {
+                        selected_data = organic_data_fallback.get();
+                    }
+                    else
                     {
                         continue;
                     }
 
-                    OpenBabel::OBMol candidate = molgr::utils::MolFromMoleculeData(*organic_data);
+                    OpenBabel::OBMol candidate = molgr::utils::MolFromMoleculeData(*selected_data);
                     molgr::metal::MetalHandler::CombineMetalWithMol(candidate, metal_states);
 
                     const double score = molgr::scoring::OmolScore(candidate);

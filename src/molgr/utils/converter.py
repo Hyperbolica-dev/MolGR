@@ -100,7 +100,9 @@ def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
     ]
     rwmol = Chem.RWMol(Chem.MolFromXYZBlock(omol.write("xyz")))
     for bond in bonds:
-        rwmol.AddBond(bond[0], bond[1], OB_RDKIT_BOND_ORDER_MAPPING.get(bond[2], Chem.BondType.ZERO))
+        rwmol.AddBond(
+            bond[0], bond[1], OB_RDKIT_BOND_ORDER_MAPPING.get(bond[2], Chem.BondType.ZERO)
+        )
     for atom_id, (charge, radical) in enumerate(zip(formal_charges, formal_radicals)):
         atom = rwmol.GetAtomWithIdx(atom_id)
         atom.SetNoImplicit(True)

@@ -99,11 +99,11 @@ void bind_stages(py::module_ &m)
         return given_charge;
     };
 
-    const auto eliminate_nnn_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_nnn_ptr = [](intptr_t mol_ptr, int given_charge, bool positive) -> int
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateNNN(*mol, given_charge);
+        molgr::reconstruct::EliminateNNN(*mol, given_charge, positive);
         return given_charge;
     };
 
@@ -236,12 +236,26 @@ Apply fresh.fresh_omol_charge_radical to an existing OBMol.
     m_fresh.def(
         "assign_radical_dots_ptr",
         assign_radical_dots_ptr,
+        R"pbdoc(
+Assign radical dots for a specific atom on an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    atom_idx: 1-based atom index
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("atom_idx"));
 
     m_fresh.def(
         "assign_charge_radical_for_atom_ptr",
         assign_charge_radical_for_atom_ptr,
+        R"pbdoc(
+Assign charge/radical state for a specific atom on an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    atom_idx: 1-based atom index
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("atom_idx"));
 
@@ -287,36 +301,80 @@ Args:
     m_eliminate.def(
         "eliminate_nnn_ptr",
         eliminate_nnn_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_nnn to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+    positive: whether to run positive-direction elimination
+)pbdoc",
         py::arg("mol_ptr"),
-        py::arg("given_charge"));
+        py::arg("given_charge"),
+        py::arg("positive") = false);
 
     m_eliminate.def(
         "eliminate_high_positive_charge_atoms_ptr",
         eliminate_high_positive_charge_atoms_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_high_positive_charge_atoms to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
     m_eliminate.def(
         "eliminate_cn_in_doubt_ptr",
         eliminate_cn_in_doubt_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_cn_in_doubt to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
     m_eliminate.def(
         "eliminate_carboxyl_ptr",
         eliminate_carboxyl_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_carboxyl to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
     m_eliminate.def(
         "eliminate_carbene_neighbor_heteroatom_ptr",
         eliminate_carbene_neighbor_heteroatom_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_carbene_neighbor_heteroatom to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
     m_eliminate.def(
         "eliminate_charge_spliting_ptr",
         eliminate_charge_spliting_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_charge_spliting to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
@@ -331,11 +389,17 @@ Apply clean.clean_resonances to an existing OBMol.
     m_clean.def(
         "clean_neighbor_radicals_ptr",
         clean_neighbor_radicals_ptr,
+        R"pbdoc(
+Apply clean.clean_neighbor_radicals to an existing OBMol.
+)pbdoc",
         py::arg("mol_ptr"));
 
     m_clean.def(
         "clean_carbene_neighbor_unsaturated_ptr",
         clean_carbene_neighbor_unsaturated_ptr,
+        R"pbdoc(
+Apply clean.clean_carbene_neighbor_unsaturated to an existing OBMol.
+)pbdoc",
         py::arg("mol_ptr"));
 
     m_break_bond.def(

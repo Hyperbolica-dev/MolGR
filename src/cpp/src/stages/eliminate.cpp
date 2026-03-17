@@ -54,32 +54,69 @@ namespace molgr
             }
         }
 
-        void EliminateNNN(OBMol &mol, int &charge)
+        void EliminateNNN(OBMol &mol, int &charge, bool positive)
         {
+            if (!positive)
+            {
+                while (true)
+                {
+                    auto matches = molgr::utils::FindSmarts(mol, "[#7v1+0]-[#7v2+0]-[#7v1+0]");
+                    if (matches.empty())
+                    {
+                        break;
+                    }
+
+                    const auto idxs = matches[0];
+                    OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
+                    OBBond *bond2 = mol.GetBond(idxs[1], idxs[2]);
+                    OBAtom *a1 = mol.GetAtom(idxs[0]);
+                    OBAtom *a2 = mol.GetAtom(idxs[1]);
+                    OBAtom *a3 = mol.GetAtom(idxs[2]);
+                    if (!bond1 || !bond2 || !a1 || !a2 || !a3)
+                    {
+                        break;
+                    }
+
+                    bond1->SetBondOrder(bond1->GetBondOrder() + 1);
+                    bond2->SetBondOrder(bond2->GetBondOrder() + 1);
+
+                    a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
+                    a1->SetFormalCharge(a1->GetFormalCharge() - 1);
+
+                    a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
+                    a2->SetFormalCharge(a2->GetFormalCharge() + 1);
+
+                    a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() - 1);
+                    a3->SetFormalCharge(a3->GetFormalCharge() - 1);
+
+                    charge += 1;
+                    LOG_DEBUG("[EliminateNNN] Applied negative branch");
+                }
+                return;
+            }
+
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7v1+0]-[#7v2+0]-[#7v1+0]");
+                auto matches = molgr::utils::FindSmarts(mol, "[#7v3+0]-[#7v2+0]-[#7v3+0]");
                 if (matches.empty())
+                {
                     break;
+                }
 
-                auto idxs = matches[0];
-                mol.GetBond(idxs[0], idxs[1])->SetBondOrder(2);
-                mol.GetBond(idxs[1], idxs[2])->SetBondOrder(2);
-
+                const auto idxs = matches[0];
+                OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
                 OBAtom *a1 = mol.GetAtom(idxs[0]);
-                a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
-                a1->SetFormalCharge(a1->GetFormalCharge() - 1);
-
                 OBAtom *a2 = mol.GetAtom(idxs[1]);
+                if (!bond1 || !a1 || !a2)
+                {
+                    break;
+                }
+
+                bond1->SetBondOrder(bond1->GetBondOrder() + 1);
+                a1->SetFormalCharge(a1->GetFormalCharge() + 1);
                 a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
-                a2->SetFormalCharge(a2->GetFormalCharge() + 1);
-
-                OBAtom *a3 = mol.GetAtom(idxs[2]);
-                a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() - 1);
-                a3->SetFormalCharge(a3->GetFormalCharge() - 1);
-
-                charge += 1;
-                LOG_DEBUG("[EliminateNNN] Applied");
+                charge -= 1;
+                LOG_DEBUG("[EliminateNNN] Applied positive branch");
             }
         }
 

@@ -19,8 +19,7 @@ def validate_omol(
     if radical_sum_singlet == total_radical_electrons:
         radical_sum = radical_sum_singlet
     if any(
-        cast(ob.OBBond, bond).GetBondOrder() > 5
-        or cast(ob.OBBond, bond).GetBondOrder() < 0
+        cast(ob.OBBond, bond).GetBondOrder() > 5 or cast(ob.OBBond, bond).GetBondOrder() < 0
         for bond in ob.OBMolBondIter(cast(ob.OBMol, omol.OBMol))
     ):
         return False

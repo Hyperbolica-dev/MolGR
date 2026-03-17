@@ -2,32 +2,41 @@ name: Gitea CI/CD Workflow
 
 on:
   push:
-    # 场景 1：Snapshot 模式
-    # 每次推送到 main 分支，都会触发构建和发布 Dev 包
-    branches: 
+    branches:
       - "main"
-    # 场景 2：Release 模式
-    # 每次在 Gitea 网页上新建 Release (创建 Tag)，都会触发发布正式包
-    tags: 
+      - "develop"
+    tags:
       - "v*"
   pull_request:
-    branches: 
+    branches:
       - "main"
+  workflow_dispatch:
+
+env:
+  UV_INDEX: https://mirrors.zju.edu.cn/pypi/web/simple
+  UV_DEFAULT_INDEX: https://mirrors.zju.edu.cn/pypi/web/simple
+  SERVER_URL: ${{ vars.SERVER_URL }}
+  HTTP_PROXY: ${{ vars.HTTP_PROXY }}
+  HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+  NO_PROXY: ${{ vars.NO_PROXY }}
+  http_proxy: ${{ vars.HTTP_PROXY }}
+  https_proxy: ${{ vars.HTTPS_PROXY }}
+  no_proxy: ${{ vars.NO_PROXY }}
 
 jobs:
-  # ===========================================================================
-  # 1. 构建与测试 (通用)
-  # ===========================================================================
-  build-and-test:
-    name: Build & Test
-    runs-on: ubuntu-latest
+  build-test-linux-matrix:
+    name: Build/Test ${{ matrix.os }} Py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: actions/checkout@v6
         with:
-          # 🚨 核心关键点：
-          # 必须拉取完整历史，hatch-vcs 才能计算出 "当前提交距离上个 Tag 有多远"
-          # 从而生成正确的 dev 版本号 (如 0.1.0.dev5)
           fetch-depth: 0
 
       - name: Install uv
@@ -36,53 +45,127 @@ jobs:
           if [ -n "${GITHUB_PATH:-}" ]; then
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           fi
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: |
           export PATH="$HOME/.local/bin:$PATH"
+          uv python install ${{ matrix.python-version }}
 
-      - name: Set up Python
-        run: uv venv
+      - name: Install dependencies (minimal)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
 
-      - name: Install build tools
-        run: uv pip install scikit-build-core pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen setuptools-scm
+      - name: Build extension (editable install)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install -e . -v --no-build-isolation --python ${{ matrix.python-version }} --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
 
-      - name: Install dependencies
-        run: uv pip install -e . -v --no-build-isolation
+      - name: Compile smoke check
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
 
       - name: Run tests
-        run: uv run pytest
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run --no-sync --python ${{ matrix.python-version }} pytest
 
-  # ===========================================================================
-  # 2. 自动发布 (支持 Snapshot 和 Release)
-  # ===========================================================================
-  publish:
-    name: Publish to Gitea Registry
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    # 仅在 main 分支推送 或 打 Tag 时运行 (忽略 PR)
-    if: github.event_name == 'push'
-    
-    permissions:
-      contents: read
-      packages: write
+  publish-wheels:
+    name: Publish wheels Py${{ matrix.python-version }}
+    needs: build-test-linux-matrix
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # 发布阶段也需要完整历史来构建版本
+          fetch-depth: 0
 
       - name: Install uv
-        uses: http://10.72.201.58:13000/actions/setup-uv@v7
-
-      - name: Build distributions
-        run: uv build
-
-      - name: Publish to Gitea Registry
-        env:
-          UV_PUBLISH_OWNER: ${{ secrets.OWNER }}
-          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
-          # 你的 Gitea 地址
-          GITEA_HOST: "http://10.72.201.58:13000"
         run: |
-          PUBLISH_URL="${GITEA_HOST}/api/packages/${{ github.repository_owner }}/pypi"
-          echo "🚀 Publishing to $PUBLISH_URL ..."
-          uv publish --publish-url "$PUBLISH_URL" --username $UV_PUBLISH_OWNER --password $UV_PUBLISH_PASSWORD
+          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
+          if [ -n "${GITHUB_PATH:-}" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv python install ${{ matrix.python-version }}
+
+      - name: Install build dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          uv pip install --python ${{ matrix.python-version }} pybind11 scikit-build-core setuptools-scm typing-extensions --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+
+      - name: Build wheel
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv build -p ${{ matrix.python-version }} --wheel --out-dir dist
+
+      - name: Publish wheel to Gitea Registry
+        env:
+          UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          if [ -z "${SERVER_URL}" ]; then
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL (for example: https://gitea.example.com:13000)."
+            exit 1
+          fi
+          PUBLISH_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          uv publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.whl
+
+  publish-sdist:
+    name: Publish sdist to Gitea Registry
+    needs: publish-wheels
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
+          if [ -n "${GITHUB_PATH:-}" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Set up Python 3.11
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv python install 3.11
+
+      - name: Build sdist
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv build -p 3.11 --sdist --out-dir dist
+
+      - name: Publish sdist to Gitea Registry
+        env:
+          UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          if [ -z "${SERVER_URL}" ]; then
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL (for example: https://gitea.example.com:13000)."
+            exit 1
+          fi
+          PUBLISH_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          uv publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.tar.gz

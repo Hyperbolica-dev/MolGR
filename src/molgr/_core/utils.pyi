@@ -24,7 +24,10 @@ __all__: list[str] = [
 ]
 
 class AtomData:
-    def __repr__(self) -> str: ...
+    def __repr__(self) -> str:
+        """
+        Return a concise debug representation of AtomData.
+        """
     @property
     def atomic_num(self) -> int: ...
     @atomic_num.setter
@@ -51,7 +54,10 @@ class AtomData:
     def z(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None: ...
 
 class BondData:
-    def __repr__(self) -> str: ...
+    def __repr__(self) -> str:
+        """
+        Return a concise debug representation of BondData.
+        """
     @property
     def begin_atom_idx(self) -> int: ...
     @begin_atom_idx.setter

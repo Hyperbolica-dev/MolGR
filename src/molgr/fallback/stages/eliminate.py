@@ -84,7 +84,9 @@ def eliminate_carbene_neighbor_heteroatom(
     return omol, given_charge
 
 
-def eliminate_NNN(omol: pybel.Molecule, given_charge: int, positive: bool) -> Tuple[pybel.Molecule, int]:
+def eliminate_NNN(
+    omol: pybel.Molecule, given_charge: int, positive: bool = False
+) -> Tuple[pybel.Molecule, int]:
     obmol = cast(ob.OBMol, omol.OBMol)
     if not positive:
         smarts = pybel.Smarts("[#7v1+0]-[#7v2+0]-[#7v1+0]")

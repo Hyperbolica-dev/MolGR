@@ -15,11 +15,27 @@ __all__: list[str] = [
 def assign_charge_radical_for_atom_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     atom_idx: typing.SupportsInt | typing.SupportsIndex,
-) -> None: ...
+) -> None:
+    """
+    Assign charge/radical state for a specific atom on an existing OBMol.
+
+    Args:
+        mol_ptr: int address of OpenBabel::OBMol
+        atom_idx: 1-based atom index
+    """
+
 def assign_radical_dots_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     atom_idx: typing.SupportsInt | typing.SupportsIndex,
-) -> int: ...
+) -> int:
+    """
+    Assign radical dots for a specific atom on an existing OBMol.
+
+    Args:
+        mol_ptr: int address of OpenBabel::OBMol
+        atom_idx: 1-based atom index
+    """
+
 def fresh_omol_charge_radical_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> None:
     """
     Apply fresh.fresh_omol_charge_radical to an existing OBMol.

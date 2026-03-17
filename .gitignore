@@ -428,3 +428,7 @@ dist
 .molgr*
 benchmarks/_runs/
 test.ipynb
+
+# Agent context files
+AGENTS.md
+**/AGENTS.md

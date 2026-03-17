@@ -137,9 +137,10 @@ namespace molgr
             current_charge_sum += a->GetFormalCharge();
             int given_charge = total_charge - current_charge_sum;
 
-            EliminateNNN(*mol, given_charge);
+            EliminateNNN(*mol, given_charge, false);
             EliminateHighPositiveChargeAtoms(*mol, given_charge);
             EliminateCNInDoubt(*mol, given_charge);
+            EliminateNNN(*mol, given_charge, true);
             EliminateCarboxyl(*mol, given_charge);
             CleanCarbeneNeighborUnsaturated(*mol);
             EliminateCarbeneNeighborHeteroatom(*mol, given_charge);
@@ -200,9 +201,10 @@ namespace molgr
                 }
                 int given_charge = total_charge - formal_charge_sum;
 
-                reconstruct::EliminateNNN(mol, given_charge);
+                reconstruct::EliminateNNN(mol, given_charge, false);
                 reconstruct::EliminateHighPositiveChargeAtoms(mol, given_charge);
                 reconstruct::EliminateCNInDoubt(mol, given_charge);
+                reconstruct::EliminateNNN(mol, given_charge, true);
                 reconstruct::EliminateCarboxyl(mol, given_charge);
                 reconstruct::CleanCarbeneNeighborUnsaturated(mol);
                 reconstruct::EliminateCarbeneNeighborHeteroatom(mol, given_charge);

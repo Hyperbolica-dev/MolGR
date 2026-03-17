@@ -247,8 +247,10 @@ cpp-build:
 stubs:
 	@echo "🤖 Checking for pybind11-stubgen..."
 	@uv run python -c "import pybind11_stubgen" 2>/dev/null || (echo "⚠️ pybind11-stubgen not found. Installing..." && uv pip install pybind11-stubgen)
-	@echo "🧹 Removing stale pipeline stub package outputs..."
-	@rm -rf src/molgr/_core/pipeline
+	@echo "🧹 Removing stale pipeline module stub (package form is canonical)..."
+	@rm -f src/molgr/_core/pipeline.pyi
+	@echo "🧹 Removing stale stages module stub (package form is canonical)..."
+	@rm -f src/molgr/_core/stages.pyi
 	@echo "🤖 Generating Type Stubs for: $(EXTENSION_MODULES)..."
 	@for module in $(EXTENSION_MODULES); do \
 		echo "   Processing $$module..."; \
@@ -258,7 +260,16 @@ stubs:
 			--ignore-all-errors \
 			--numpy-array-use-type-var; \
 	done
-	@if [ -f src/molgr/_core/pipeline.pyi ]; then if grep -q "molgr._core.utils\." src/molgr/_core/pipeline.pyi && ! grep -q "^import molgr$$" src/molgr/_core/pipeline.pyi; then sed -i '/^from __future__ import annotations$$/a import molgr' src/molgr/_core/pipeline.pyi; fi; fi
+	@rm -f src/molgr/_core/stages.pyi
+	@if [ -f src/molgr/_core/pipeline.pyi ]; then \
+		mkdir -p src/molgr/_core/pipeline; \
+		mv src/molgr/_core/pipeline.pyi src/molgr/_core/pipeline/__init__.pyi; \
+	fi
+	@uv run python scripts/split_pipeline_stub.py
+	@echo "🎨 Formatting generated stubs..."
+	@uv run ruff format src/molgr/_core
+	@echo "🔍 Linting generated stubs..."
+	@uv run ruff check src/molgr/_core --fix
 	@echo "✅ Stubs generated in src/!"
 
 # =============================================================================

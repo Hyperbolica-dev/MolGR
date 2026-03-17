@@ -178,6 +178,7 @@ def calculate_metal_penalty(omol: pybel.Molecule) -> float:
                     penalty -= 5 * (abs(ligand_charge) * valence) / (dist**2)
     return penalty
 
+
 def calculate_heteroatom_penalty(omol: pybel.Molecule) -> float:
     penalty = 0.0
     for atom in omol.atoms:

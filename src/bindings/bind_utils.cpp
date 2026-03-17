@@ -108,7 +108,8 @@ void molgr::bind::bind_utils(py::module_ &m)
                       " charge=" + std::to_string(a.formal_charge) +
                       " radical_num=" + std::to_string(a.radical_num) +
                       " pos=(" + std::to_string(a.x) + "," +
-                      std::to_string(a.y) + "," + std::to_string(a.z) + ")>"; });
+                      std::to_string(a.y) + "," + std::to_string(a.z) + ")>"; },
+             "Return a concise debug representation of AtomData.");
 
     py::class_<molgr::utils::BondData>(m, "BondData")
         .def_readwrite("begin_atom_idx", &molgr::utils::BondData::begin_atom_idx)
@@ -116,7 +117,8 @@ void molgr::bind::bind_utils(py::module_ &m)
         .def_readwrite("order", &molgr::utils::BondData::order)
         .def("__repr__", [](const molgr::utils::BondData &b)
              { return "<BondData " + std::to_string(b.begin_atom_idx) + "-" +
-                      std::to_string(b.end_atom_idx) + " order=" + std::to_string(b.order) + ">"; });
+                      std::to_string(b.end_atom_idx) + " order=" + std::to_string(b.order) + ">"; },
+             "Return a concise debug representation of BondData.");
 
     py::class_<molgr::utils::MoleculeData>(m, "MoleculeData")
         .def_readwrite("atoms", &molgr::utils::MoleculeData::atoms)

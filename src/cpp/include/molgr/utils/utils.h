@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <openbabel/math/vector3.h>
 #include <openbabel/mol.h>
 
