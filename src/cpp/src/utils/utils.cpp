@@ -1,7 +1,6 @@
 /**
  * @file utils.cpp
- * @brief Implementation of geometric utility functions and Thread-Safe SMARTS caching.
- * @details Uses thread_local storage to allow lock-free parallel execution of SMARTS matching.
+ * @brief Implementation of geometric utility functions and molecule-data helpers.
  * @namespace molgr::utils
  * @author TMJ
  * @date 2025-12-27
@@ -9,74 +8,19 @@
 
 #include "molgr/utils/utils.h"
 #include "molgr/utils/conversions.h"
-#include "molgr/utils/logger.h"
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/obiter.h>
-#include <openbabel/parsmart.h>
 #include <cmath>
 #include <algorithm>
-#include <iostream>
-#include <unordered_map>
-#include <memory>
 #include <vector>
 
 namespace molgr
 {
     namespace utils
     {
-
-        // =============================================================================
-        // Thread-Safe SMARTS Caching System
-        // =============================================================================
-
-        // 使用 thread_local 保证每个线程有独立的缓存，无需加锁，实现真正的并行加速
-        thread_local std::unordered_map<std::string, std::unique_ptr<OpenBabel::OBSmartsPattern>> t_smarts_cache;
-
-        OpenBabel::OBSmartsPattern *GetCompiledSmarts(const std::string &smarts)
-        {
-            // 1. 查找当前线程的缓存
-            auto it = t_smarts_cache.find(smarts);
-            if (it != t_smarts_cache.end())
-            {
-                return it->second.get();
-            }
-
-            // 2. 未找到，编译新模式
-            auto sp = std::make_unique<OpenBabel::OBSmartsPattern>();
-            if (!sp->Init(smarts))
-            {
-                LOG_ERROR("Invalid SMARTS pattern: " << smarts);
-                return nullptr;
-            }
-
-            // 3. 存入当前线程的缓存
-            OpenBabel::OBSmartsPattern *ptr = sp.get();
-            t_smarts_cache[smarts] = std::move(sp);
-            return ptr;
-        }
-
-        std::vector<std::vector<int>> FindSmarts(OpenBabel::OBMol &mol, const std::string &smarts)
-        {
-            OpenBabel::OBSmartsPattern *sp = GetCompiledSmarts(smarts);
-            if (!sp)
-                return {};
-
-            // Match() 修改内部状态，但在 thread_local 下是安全的
-            if (sp->Match(mol))
-            {
-                // 返回结果是 1-based index 的 vector<vector<int>>
-                return sp->GetMapList();
-            }
-
-            return {};
-        }
-
-        // =============================================================================
-        // Geometric Functions
-        // =============================================================================
 
         inline double LengthSq(const OpenBabel::vector3 &v)
         {

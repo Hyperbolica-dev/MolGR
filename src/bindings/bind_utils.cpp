@@ -139,28 +139,10 @@ void molgr::bind::bind_utils(py::module_ &m)
           },
           "Converts MoleculeData to a newly allocated OBMol pointer. Free it with _core.free_obmol_ptr.",
           py::arg("molecule_data"));
+}
 
-    m.def("omol_score_from_ptr", [](intptr_t mol_ptr)
-          {
-              auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
-              if (!mol)
-              {
-                  throw std::runtime_error("Received null pointer for OBMol");
-              }
-              return molgr::scoring::OmolScore(*mol);
-          },
-          R"pbdoc(
-        Calculate total OMolScore using a memory pointer to an OpenBabel::OBMol.
-        This allows compatibility with SWIG-wrapped OpenBabel objects.
-
-        Parameters:
-            mol_ptr (int): The memory address of the OBMol object (use `int(mol.this)` in Python).
-
-        Returns:
-            float: Total score.
-    )pbdoc",
-          py::arg("mol_ptr"));
-
+void molgr::bind::bind_dev_utils(py::module_ &m)
+{
     m.def("test_symmetry_penalty", [](const std::string &smiles)
           {
               auto mol = mol_from_smiles(smiles);

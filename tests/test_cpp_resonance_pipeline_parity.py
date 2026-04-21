@@ -17,7 +17,7 @@ from molgr.fallback.pipeline.resonance import (  # type: ignore
 from molgr.fallback.pipeline.resonance import process_resonance as py_process_resonance
 
 
-_pipeline: Any = _core.pipeline
+_pipeline: Any = _core.dev.pipeline.resonance
 
 
 def _get_ptr(obmol) -> int:
@@ -99,7 +99,9 @@ def test_process_resonance_cpp_matches_fallback(
     try:
         assert len(py_resonances) == len(cpp_ptrs)
         for py_resonance, cpp_ptr in zip(py_resonances, cpp_ptrs):
-            py_processed, py_charge = py_process_resonance(_clone_mol(py_resonance), charge)
+            py_processed, py_charge, _py_hit = py_process_resonance(
+                _clone_mol(py_resonance), charge
+            )
             cpp_processed_ptr, cpp_charge = _cpp_process_ptr(cpp_ptr, charge)
             try:
                 assert _smiles_token(py_processed) == _pipeline.smiles_token_ptr(cpp_processed_ptr)

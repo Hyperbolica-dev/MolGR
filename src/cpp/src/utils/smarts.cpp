@@ -1,0 +1,90 @@
+#include "molgr/utils/smarts.h"
+
+#include <openbabel/parsmart.h>
+
+#include <array>
+#include <memory>
+#include <stdexcept>
+#include <string>
+
+namespace
+{
+    using PatternId = molgr::smarts::PatternId;
+
+    constexpr std::size_t kPatternCount = static_cast<std::size_t>(PatternId::COUNT);
+
+    constexpr std::array<const char *, kPatternCount> kSmartsPatterns = {
+        "[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3]",
+        "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]",
+        "[Cv5,Nv5,Pv5,Siv5]=,#[*]",
+        "[#6]1([#6]2)([#6]3)[#7]23[#6]1",
+        "[#6]1([#6]2)[#7]2[#6]1",
+        "[Siv5]-[O,F]",
+        "[*+1,*+2,*+3]-[Ov1+0,Nv2+0,Sv1+0]",
+        "[#6v4+0]=,#[#7v4+1,#15v4+1]",
+        "[Ov1+0]-C=O",
+        "[#7v1+0]-[#7v2+0]-[#7v1+0]",
+        "[#7v3+0]-[#7v2+0]-[#7v3+0]",
+        "[*-1]-,=[N+0,O+0]-,=[*]",
+        "[Nv3+0]=[Nv2+0]",
+        "[#6v3+0,#6v2+0,#1v0+0]",
+        "[#6v3+0]",
+        "[#1v0+0]",
+        "[#6v2+0,#6v1+0,#6v0+0]",
+        "[*]-[*]=[*]",
+        "[*-]-[*]=[*]~[*+]",
+        "[*-]=[*+]=[*+0]",
+        "[#8]=[#6](-[!-])-[*]=[*]-[#7-,#6-]",
+        "[#7v2+]=[*]-[*]=[*]-[#8-]",
+        "[#7+,#8+]=[*]-[#6-,#7-,#8-]",
+        "[#7+0,#8+0,#16+0]=[*+0]-[#6-,#7-]",
+        "[#6]=[#6]=[#6-,#7-]",
+        "[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1",
+        "[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1",
+        "[*+,*+2,*+3]-,=[*-,*-2,*-3]",
+        "[*]-[*]=,#[*]-[*]",
+        "[#7v3+0,#8v2+0,#16v2+0]-,=,:[*+1]",
+        "[#7v3+0,#8v2+0,#16v2+0]-,:[*]=,:[*]-,:[*+1]",
+        "[*-]:[*]=[#7+0,#8+0]",
+        "[*]~[*+0]=,:[*+0]~[*]",
+        "[*]~[*+0](=,:[*+0])~[*]",
+        "[*+0]#,=[*+0]",
+        "[#7+1,#15+1]=[*+0]",
+        "[*+0]:[*+0]",
+        "[*]-,=,:[*]=,#,:[*]",
+        "[*]=,#,:[*]-,:[*]=,#,:[*]",
+    };
+
+    thread_local std::array<std::unique_ptr<OpenBabel::OBSmartsPattern>, kPatternCount> t_patterns = []()
+    {
+        std::array<std::unique_ptr<OpenBabel::OBSmartsPattern>, kPatternCount> compiled_patterns{};
+        for (std::size_t idx = 0; idx < kPatternCount; ++idx)
+        {
+            auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
+            if (!pattern->Init(kSmartsPatterns[idx]))
+            {
+                throw std::runtime_error(
+                    std::string("Invalid built-in SMARTS pattern: ") + kSmartsPatterns[idx]);
+            }
+            compiled_patterns[idx] = std::move(pattern);
+        }
+        return compiled_patterns;
+    }();
+}
+
+namespace molgr
+{
+    namespace smarts
+    {
+        std::vector<std::vector<int>> Match(OpenBabel::OBMol &mol, PatternId pattern_id)
+        {
+            OpenBabel::OBSmartsPattern &pattern =
+                *t_patterns.at(static_cast<std::size_t>(pattern_id));
+            if (pattern.Match(mol))
+            {
+                return pattern.GetMapList();
+            }
+            return {};
+        }
+    }
+}

@@ -40,11 +40,12 @@ def _signature(mol: pybel.Molecule) -> dict[str, Any]:
 
 def _run_cpp(smiles: str, given_charge: int, given_radical: int) -> tuple[pybel.Molecule, int]:
     mol = pybel.readstring("smi", smiles)
-    charge = _core.stages.break_bond.break_one_bond_ptr(
+    charge, hit = _core.dev.stages.break_bond.break_one_bond_ptr(
         _get_ptr(mol.OBMol),
         given_charge,
         given_radical,
     )
+    assert hit is True
     return mol, int(charge)
 
 

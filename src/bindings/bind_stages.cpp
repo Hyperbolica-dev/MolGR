@@ -27,21 +27,21 @@ void bind_stages(py::module_ &m)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::MakeConnections(*mol, factor);
+        return molgr::reconstruct::MakeConnections(*mol, factor);
     };
 
     const auto pre_clean_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::PreClean(*mol);
+        return molgr::reconstruct::PreClean(*mol);
     };
 
     const auto fresh_omol_charge_radical_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::FreshOmolChargeRadical(*mol);
+        return molgr::reconstruct::FreshOmolChargeRadical(*mol);
     };
 
     const auto assign_radical_dots_ptr = [](intptr_t mol_ptr, int atom_idx) -> int
@@ -65,7 +65,7 @@ void bind_stages(py::module_ &m)
             throw std::runtime_error("invalid atom index");
         }
         py::gil_scoped_release release;
-        molgr::reconstruct::AssignChargeRadicalForAtom(*atom);
+        return molgr::reconstruct::AssignChargeRadicalForAtom(*atom);
     };
 
     const auto validate_omol_ptr = [](intptr_t mol_ptr, int total_charge, int total_radical) -> bool
@@ -75,112 +75,112 @@ void bind_stages(py::module_ &m)
         return molgr::reconstruct::ValidateOmol(*mol, total_charge, total_radical);
     };
 
-    const auto eliminate_1_3_dipole_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_1_3_dipole_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::Eliminate13Dipole(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::Eliminate13Dipole(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_positive_charges_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_positive_charges_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminatePositiveCharges(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminatePositiveCharges(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_negative_charges_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_negative_charges_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateNegativeCharges(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateNegativeCharges(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_nnn_ptr = [](intptr_t mol_ptr, int given_charge, bool positive) -> int
+    const auto eliminate_nnn_ptr = [](intptr_t mol_ptr, int given_charge, bool positive) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateNNN(*mol, given_charge, positive);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateNNN(*mol, given_charge, positive);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_high_positive_charge_atoms_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_high_positive_charge_atoms_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateHighPositiveChargeAtoms(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateHighPositiveChargeAtoms(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_cn_in_doubt_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_cn_in_doubt_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateCNInDoubt(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateCNInDoubt(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_carboxyl_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_carboxyl_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateCarboxyl(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateCarboxyl(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_carbene_neighbor_heteroatom_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_carbene_neighbor_heteroatom_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateCarbeneNeighborHeteroatom(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateCarbeneNeighborHeteroatom(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_charge_spliting_ptr = [](intptr_t mol_ptr, int given_charge) -> int
+    const auto eliminate_charge_spliting_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::EliminateChargeSpliting(*mol, given_charge);
-        return given_charge;
+        const bool hit = molgr::reconstruct::EliminateChargeSpliting(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
     };
 
     const auto clean_resonances_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::CleanResonances(*mol);
+        return molgr::reconstruct::CleanResonances(*mol);
     };
 
     const auto clean_neighbor_radicals_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::CleanNeighborRadicals(*mol);
+        return molgr::reconstruct::CleanNeighborRadicals(*mol);
     };
 
     const auto clean_carbene_neighbor_unsaturated_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::CleanCarbeneNeighborUnsaturated(*mol);
+        return molgr::reconstruct::CleanCarbeneNeighborUnsaturated(*mol);
     };
 
     const auto break_deformed_ene_ptr = [](intptr_t mol_ptr, int given_charge, int given_radical, double tolerance)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::BreakDeformedEne(*mol, given_charge, given_radical, tolerance);
+        return molgr::reconstruct::BreakDeformedEne(*mol, given_charge, given_radical, tolerance);
     };
 
-    const auto break_one_bond_ptr = [](intptr_t mol_ptr, int given_charge, int given_radical) -> int
+    const auto break_one_bond_ptr = [](intptr_t mol_ptr, int given_charge, int given_radical) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         py::gil_scoped_release release;
-        molgr::reconstruct::BreakOneBond(*mol, given_charge, given_radical);
-        return given_charge;
+        const bool hit = molgr::reconstruct::BreakOneBond(*mol, given_charge, given_radical);
+        return py::make_tuple(given_charge, hit);
     };
 
     auto m_preprocess = m.def_submodule("preprocess", "Fallback-aligned preprocess stage helpers");

@@ -53,6 +53,11 @@ PYBIND11_MODULE(_core, m)
     auto m_pipeline = m.def_submodule("pipeline", "Pipeline-level helpers");
     molgr::bind::bind_pipeline(m_pipeline);
 
-    auto m_stages = m.def_submodule("stages", "Stage-level helpers for parity testing");
-    molgr::bind::bind_stages(m_stages);
+    auto m_dev = m.def_submodule("dev", "Development and parity-testing helpers");
+    auto m_dev_utils = m_dev.def_submodule("utils", "Development-only utility helpers");
+    molgr::bind::bind_dev_utils(m_dev_utils);
+    auto m_dev_pipeline = m_dev.def_submodule("pipeline", "Development-only pipeline helpers");
+    molgr::bind::bind_dev_pipeline(m_dev_pipeline);
+    auto m_dev_stages = m_dev.def_submodule("stages", "Development-only stage helpers");
+    molgr::bind::bind_stages(m_dev_stages);
 }

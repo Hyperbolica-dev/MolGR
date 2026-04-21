@@ -11,7 +11,7 @@ __all__: list[str] = ["make_connections_ptr", "pre_clean_ptr", "validate_omol_pt
 def make_connections_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     factor: typing.SupportsFloat | typing.SupportsIndex = 1.4,
-) -> None:
+) -> bool:
     """
     Apply preprocess.make_connections to an existing OBMol.
 
@@ -20,7 +20,7 @@ def make_connections_ptr(
         factor: distance factor (default matches python fallback)
     """
 
-def pre_clean_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> None:
+def pre_clean_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
     """
     Apply preprocess.pre_clean to an existing OBMol.
     """

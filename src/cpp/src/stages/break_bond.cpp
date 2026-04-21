@@ -1,7 +1,7 @@
 #include "molgr/stages/break_bond.h"
 
 #include "molgr/utils/logger.h"
-#include "molgr/utils/utils.h"
+#include "molgr/utils/smarts.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -17,8 +17,9 @@ namespace molgr
     {
         using namespace OpenBabel;
 
-        void BreakDeformedEne(OBMol &mol, int allowed_charge, int allowed_radical, double tolerance)
+        bool BreakDeformedEne(OBMol &mol, int allowed_charge, int allowed_radical, double tolerance)
         {
+            bool hit = false;
             auto current_total_radical = [&]()
             {
                 int sum = 0;
@@ -36,7 +37,7 @@ namespace molgr
             std::vector<EneCandidate> candidates;
 
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*]~[*+0]=,:[*+0]~[*]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_A);
                 for (const auto &idxs : matches)
                 {
                     OBBond *bond = mol.GetBond(idxs[1], idxs[2]);
@@ -53,7 +54,7 @@ namespace molgr
             }
 
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*]~[*+0](=,:[*+0])~[*]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_B);
                 for (const auto &idxs : matches)
                 {
                     OBBond *bond = mol.GetBond(idxs[1], idxs[2]);
@@ -75,7 +76,7 @@ namespace molgr
             for (const auto &candidate : candidates)
             {
                 if (current_total_radical() >= std::abs(allowed_charge) + allowed_radical)
-                    return;
+                    return hit;
                 OBBond *bond = mol.GetBond(candidate.idx1, candidate.idx2);
                 if (!bond || bond->IsRotor() || bond->GetBondOrder() == 1)
                     continue;
@@ -84,12 +85,15 @@ namespace molgr
                 OBAtom *end_atom = bond->GetEndAtom();
                 begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
                 end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                hit = true;
                 LOG_DEBUG("[BreakDeformedEne] Broken sorted candidate");
             }
+            return hit;
         }
 
-        void BreakOneBond(OBMol &mol, int &charge, int allowed_radical)
+        bool BreakOneBond(OBMol &mol, int &charge, int allowed_radical)
         {
+            bool hit = false;
             auto check_cond = [&]()
             {
                 int sum = 0;
@@ -100,11 +104,11 @@ namespace molgr
 
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*+0]#,=[*+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_MULTIPLE);
                 if (matches.empty())
                     break;
                 if (check_cond())
-                    return;
+                    return hit;
                 const auto &idxs = matches.front();
                 OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
                 if (!bond)
@@ -114,16 +118,17 @@ namespace molgr
                 OBAtom *end_atom = bond->GetEndAtom();
                 begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
                 end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                hit = true;
                 LOG_DEBUG("[BreakOneBond] Broken triple/double candidate");
             }
 
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7+1,#15+1]=[*+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_CATION);
                 if (matches.empty())
                     break;
                 if (check_cond())
-                    return;
+                    return hit;
                 const auto &idxs = matches.front();
                 OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
                 if (!bond)
@@ -136,15 +141,16 @@ namespace molgr
                 idx1_atom->SetSpinMultiplicity(idx1_atom->GetSpinMultiplicity() + 1);
                 idx0_atom->SetFormalCharge(idx0_atom->GetFormalCharge() - 1);
                 charge += 1;
+                hit = true;
                 LOG_DEBUG("[BreakOneBond] Broken charge-transfer candidate");
             }
 
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*+0]:[*+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_AROMATIC);
                 if (!matches.empty())
                 {
                     if (check_cond())
-                        return;
+                        return hit;
                     for (const auto &idxs : matches)
                     {
                         OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
@@ -157,6 +163,7 @@ namespace molgr
                         OBAtom *end_atom = bond->GetEndAtom();
                         begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
                         end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                        hit = true;
                         LOG_DEBUG("[BreakOneBond] Broken aromatic candidate");
                         break;
                     }
@@ -164,7 +171,7 @@ namespace molgr
             }
 
             if (check_cond())
-                return;
+                return hit;
 
             bool all_single = true;
             FOR_BONDS_OF_MOL(b, mol)
@@ -180,16 +187,18 @@ namespace molgr
                 if (!single_bonds.empty())
                 {
                     if (check_cond())
-                        return;
+                        return hit;
                     OBBond *single_bond = single_bonds.front();
                     OBAtom *b_at = single_bond->GetBeginAtom();
                     OBAtom *e_at = single_bond->GetEndAtom();
                     b_at->SetSpinMultiplicity(b_at->GetSpinMultiplicity() + 1);
                     e_at->SetSpinMultiplicity(e_at->GetSpinMultiplicity() + 1);
                     mol.DeleteBond(single_bond);
+                    hit = true;
                     LOG_DEBUG("[BreakOneBond] Deleted single bond");
                 }
             }
+            return hit;
         }
     }
 }

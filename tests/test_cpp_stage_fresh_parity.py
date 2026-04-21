@@ -18,7 +18,7 @@ from molgr.fallback.stages.fresh import (
 )
 
 
-_stages: Any = _core.stages
+_stages: Any = _core.dev.stages
 
 
 def _get_ptr(obmol) -> int:

@@ -9,7 +9,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -18,159 +17,214 @@ namespace molgr
 {
     namespace bind
     {
-
-        static OpenBabel::OBMol *require_obmol_ptr(intptr_t mol_ptr)
+        namespace
         {
-            if (mol_ptr == 0)
+            OpenBabel::OBMol *require_obmol_ptr(intptr_t mol_ptr)
             {
-                throw std::runtime_error("null OBMol pointer");
-            }
-            return reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
-        }
-
-        static std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
-        {
-            auto mol = std::make_unique<OpenBabel::OBMol>();
-            OpenBabel::OBConversion conv;
-            conv.SetInFormat("smi");
-            if (!conv.ReadString(mol.get(), smiles))
-            {
-                return nullptr;
-            }
-            return mol;
-        }
-
-        struct ReconstructWithMetalsNS
-        {
-        };
-
-        struct ReconstructWithoutMetalsNS
-        {
-        };
-
-        struct ResonanceNS
-        {
-        };
-
-        static void bind_reconstruct_with_metals_ns(py::class_<ReconstructWithMetalsNS> &ns)
-        {
-            py::class_<molgr::metal::MetalAtomPosition>(ns, "MetalAtomPosition")
-                .def_readwrite("idx", &molgr::metal::MetalAtomPosition::idx)
-                .def_readwrite("symbol", &molgr::metal::MetalAtomPosition::symbol)
-                .def_readwrite("element_idx", &molgr::metal::MetalAtomPosition::element_idx)
-                .def_readwrite("valence", &molgr::metal::MetalAtomPosition::valence)
-                .def_readwrite("radical_num", &molgr::metal::MetalAtomPosition::radical_num)
-                .def_readwrite("position_x", &molgr::metal::MetalAtomPosition::x)
-                .def_readwrite("position_y", &molgr::metal::MetalAtomPosition::y)
-                .def_readwrite("position_z", &molgr::metal::MetalAtomPosition::z)
-                .def("__repr__", [](const molgr::metal::MetalAtomPosition &metal)
-                     { return "<MetalAtomPosition " + metal.symbol +
-                               " val=" + std::to_string(metal.valence) +
-                               " rad=" + std::to_string(metal.radical_num) + ">"; },
-                     "Return a concise debug representation of MetalAtomPosition.");
-
-            py::class_<molgr::metal::MetalHandler>(ns, "MetalHandler")
-                .def(py::init([](intptr_t mol_ptr)
-                              {
-                          auto *mol = require_obmol_ptr(mol_ptr);
-                          return new molgr::metal::MetalHandler(*mol); }),
-                     "Create a MetalHandler for an existing OBMol pointer.",
-                     py::arg("mol_ptr"))
-                .def("strip_metals", [](molgr::metal::MetalHandler &self, intptr_t mol_ptr)
-                     {
-                 auto *mol = require_obmol_ptr(mol_ptr);
-                 return self.StripMetals(*mol); },
-                     "Remove metal atoms from the target molecule and return encoded metadata.",
-                     py::arg("mol_ptr"))
-                .def("generate_combinations", &molgr::metal::MetalHandler::GenerateCombinations,
-                     "Enumerate candidate metal attachment combinations for a radical budget.",
-                     py::arg("total_radical_electrons"))
-                .def_static("combine_metal_with_mol", [](intptr_t mol_ptr, const std::vector<molgr::metal::MetalAtomPosition> &metals)
-                            {
-                        auto *mol = require_obmol_ptr(mol_ptr);
-                        molgr::metal::MetalHandler::CombineMetalWithMol(*mol, metals); },
-                            "Apply metal positions to an OBMol pointer in place.",
-                            py::arg("mol_ptr"), py::arg("metals"));
-
-            ns.def_static(
-                "get_possible_metal_radicals",
-                &molgr::pipeline::reconstruct_with_metals::get_possible_metal_radicals,
-                "Get possible radical electron counts for a metal and valence.",
-                py::arg("metal"),
-                py::arg("valence"),
-                py::call_guard<py::gil_scoped_release>());
-
-            ns.def_static(
-                "build_metal_states_ptr",
-                [](intptr_t mol_ptr, int atom_idx) -> std::vector<molgr::metal::MetalAtomPosition>
+                if (mol_ptr == 0)
                 {
-                    auto *mol = require_obmol_ptr(mol_ptr);
-                    auto *atom = mol->GetAtom(atom_idx);
-                    if (!atom)
+                    throw std::runtime_error("null OBMol pointer");
+                }
+                return reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+            }
+
+            std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
+            {
+                auto mol = std::make_unique<OpenBabel::OBMol>();
+                OpenBabel::OBConversion conv;
+                conv.SetInFormat("smi");
+                if (!conv.ReadString(mol.get(), smiles))
+                {
+                    return nullptr;
+                }
+                return mol;
+            }
+
+            void bind_reconstruct_with_metals_public_ns(py::module_ &ns)
+            {
+                ns.def(
+                    "get_possible_metal_radicals",
+                    &molgr::pipeline::reconstruct_with_metals::get_possible_metal_radicals,
+                    "Get possible radical electron counts for a metal and valence.",
+                    py::arg("metal"),
+                    py::arg("valence"),
+                    py::call_guard<py::gil_scoped_release>());
+
+                ns.def(
+                    "xyz2omol",
+                    [](const std::string &xyz_block, int total_charge, int total_radical_electrons)
+                        -> std::unique_ptr<molgr::utils::MoleculeData>
                     {
-                        throw std::runtime_error("invalid atom index");
-                    }
-                    return molgr::pipeline::reconstruct_with_metals::build_metal_states(*atom);
-                },
-                "Build candidate metal states for a specific atom index on an OBMol pointer.",
-                py::arg("mol_ptr"),
-                py::arg("atom_idx"),
-                py::call_guard<py::gil_scoped_release>());
+                        auto mol_data = molgr::pipeline::reconstruct_with_metals::Xyz2OmolMolData(
+                            xyz_block,
+                            total_charge,
+                            total_radical_electrons);
+                        if (!mol_data)
+                        {
+                            return nullptr;
+                        }
+                        return std::move(mol_data);
+                    },
+                    "Reconstruct molecule data from XYZ with metal-aware pipeline.",
+                    py::arg("xyz_block"),
+                    py::arg("total_charge") = 0,
+                    py::arg("total_radical_electrons") = 0,
+                    py::call_guard<py::gil_scoped_release>());
+            }
 
-            ns.def_static(
-                "combine_metal_with_omol_ptr",
-                [](intptr_t mol_ptr, const std::vector<molgr::metal::MetalAtomPosition> &metals)
-                {
-                    auto *mol = require_obmol_ptr(mol_ptr);
-                    molgr::pipeline::reconstruct_with_metals::combine_metal_with_omol(*mol, metals);
-                },
-                "Combine metal states with an existing OBMol pointer in place.",
-                py::arg("mol_ptr"),
-                py::arg("metals"),
-                py::call_guard<py::gil_scoped_release>());
+            void bind_reconstruct_with_metals_dev_ns(py::module_ &ns)
+            {
+                py::class_<molgr::metal::MetalAtomPosition>(ns, "MetalAtomPosition")
+                    .def(py::init<>())
+                    .def_readwrite("idx", &molgr::metal::MetalAtomPosition::idx)
+                    .def_readwrite("symbol", &molgr::metal::MetalAtomPosition::symbol)
+                    .def_readwrite("element_idx", &molgr::metal::MetalAtomPosition::element_idx)
+                    .def_readwrite("valence", &molgr::metal::MetalAtomPosition::valence)
+                    .def_readwrite("radical_num", &molgr::metal::MetalAtomPosition::radical_num)
+                    .def_readwrite("position_x", &molgr::metal::MetalAtomPosition::position_x)
+                    .def_readwrite("position_y", &molgr::metal::MetalAtomPosition::position_y)
+                    .def_readwrite("position_z", &molgr::metal::MetalAtomPosition::position_z)
+                    .def("__repr__", [](const molgr::metal::MetalAtomPosition &metal)
+                         { return "<MetalAtomPosition " + metal.symbol +
+                                   " val=" + std::to_string(metal.valence) +
+                                   " rad=" + std::to_string(metal.radical_num) + ">"; },
+                         "Return a concise debug representation of MetalAtomPosition.");
+
+                ns.def(
+                    "build_metal_states_ptr",
+                    [](intptr_t mol_ptr, int atom_idx) -> std::vector<molgr::metal::MetalAtomPosition>
+                    {
+                        auto *mol = require_obmol_ptr(mol_ptr);
+                        auto *atom = mol->GetAtom(atom_idx);
+                        if (!atom)
+                        {
+                            throw std::runtime_error("invalid atom index");
+                        }
+                        return molgr::pipeline::reconstruct_with_metals::build_metal_states(*atom);
+                    },
+                    "Build candidate metal states for a specific atom index on an OBMol pointer.",
+                    py::arg("mol_ptr"),
+                    py::arg("atom_idx"),
+                    py::call_guard<py::gil_scoped_release>());
+
+                ns.def(
+                    "combine_metal_with_omol_ptr",
+                    [](intptr_t mol_ptr, const std::vector<molgr::metal::MetalAtomPosition> &metals)
+                    {
+                        auto *mol = require_obmol_ptr(mol_ptr);
+                        molgr::pipeline::reconstruct_with_metals::combine_metal_with_omol(*mol, metals);
+                    },
+                    "Combine metal states with an existing OBMol pointer in place.",
+                    py::arg("mol_ptr"),
+                    py::arg("metals"),
+                    py::call_guard<py::gil_scoped_release>());
+            }
+
+            void bind_resonance_dev_ns(py::module_ &ns)
+            {
+                ns.def(
+                    "get_radical_resonances_smi",
+                    [](const std::string &smiles) -> std::vector<std::string>
+                    {
+                        auto mol = mol_from_smiles(smiles);
+                        if (!mol)
+                        {
+                            throw std::runtime_error("failed to parse SMILES");
+                        }
+                        const auto resonances = molgr::reconstruct::GetRadicalResonances(*mol);
+                        std::vector<std::string> out;
+                        out.reserve(resonances.size());
+                        for (const auto &resonance : resonances)
+                        {
+                            out.push_back(molgr::reconstruct::SmilesFirstToken(resonance));
+                        }
+                        return out;
+                    },
+                    "Enumerate radical resonance structures from a SMILES string.",
+                    py::arg("smiles"),
+                    py::call_guard<py::gil_scoped_release>());
+
+                ns.def(
+                    "process_resonance_smi",
+                    [](const std::string &smiles, int charge) -> std::tuple<std::string, int>
+                    {
+                        auto mol = mol_from_smiles(smiles);
+                        if (!mol)
+                        {
+                            throw std::runtime_error("failed to parse SMILES");
+                        }
+                        auto processed = molgr::reconstruct::ProcessResonance(*mol, charge);
+                        return std::make_tuple(
+                            molgr::reconstruct::SmilesFirstToken(processed.first),
+                            processed.second);
+                    },
+                    "Process one resonance step on SMILES and return updated token plus charge.",
+                    py::arg("smiles"),
+                    py::arg("charge"),
+                    py::call_guard<py::gil_scoped_release>());
+
+                ns.def(
+                    "get_radical_resonances_ptr",
+                    [](intptr_t mol_ptr) -> std::vector<intptr_t>
+                    {
+                        auto *mol = require_obmol_ptr(mol_ptr);
+                        py::gil_scoped_release release;
+                        const auto resonances = molgr::reconstruct::GetRadicalResonances(*mol);
+                        std::vector<intptr_t> out;
+                        out.reserve(resonances.size());
+                        for (const auto &resonance : resonances)
+                        {
+                            auto *res_ptr = new OpenBabel::OBMol(resonance);
+                            out.push_back(reinterpret_cast<intptr_t>(res_ptr));
+                        }
+                        return out;
+                    },
+                    "Get radical resonance OBMol pointers for an input OBMol pointer.",
+                    py::arg("mol_ptr"));
+
+                ns.def(
+                    "process_resonance_ptr",
+                    [](intptr_t mol_ptr, int charge) -> py::tuple
+                    {
+                        auto *mol = require_obmol_ptr(mol_ptr);
+                        std::pair<OpenBabel::OBMol, int> processed;
+                        {
+                            py::gil_scoped_release release;
+                            processed = molgr::reconstruct::ProcessResonance(*mol, charge);
+                        }
+                        auto *res_ptr = new OpenBabel::OBMol(processed.first);
+                        return py::make_tuple(reinterpret_cast<intptr_t>(res_ptr), processed.second);
+                    },
+                    "Process resonance on an OBMol pointer and return (new_ptr, updated_charge).",
+                    py::arg("mol_ptr"),
+                    py::arg("charge"));
+
+                ns.def(
+                    "smiles_token_ptr",
+                    [](intptr_t mol_ptr) -> std::string
+                    {
+                        auto *mol = require_obmol_ptr(mol_ptr);
+                        py::gil_scoped_release release;
+                        return molgr::reconstruct::SmilesFirstToken(*mol);
+                    },
+                    "Return canonical first-token SMILES string for an OBMol pointer.",
+                    py::arg("mol_ptr"));
+            }
         }
 
         void bind_pipeline(py::module_ &m)
         {
-            auto reconstruct_with_metals = py::class_<ReconstructWithMetalsNS>(
-                m,
+            auto reconstruct_with_metals = m.def_submodule(
                 "reconstruct_with_metals",
                 "Fallback-aligned reconstruction helpers with metals");
 
-            auto reconstruct_without_metals = py::class_<ReconstructWithoutMetalsNS>(
-                m,
+            auto reconstruct_without_metals = m.def_submodule(
                 "reconstruct_without_metals",
                 "Fallback-aligned no-metal reconstruction helpers");
 
-            auto resonance = py::class_<ResonanceNS>(
-                m,
-                "resonance",
-                "Fallback-aligned resonance helpers");
+            bind_reconstruct_with_metals_public_ns(reconstruct_with_metals);
 
-            bind_reconstruct_with_metals_ns(reconstruct_with_metals);
-
-            reconstruct_with_metals.def_static(
-                "xyz2omol",
-                [](const std::string &xyz_block, int total_charge, int total_radical_electrons)
-                    -> std::unique_ptr<molgr::utils::MoleculeData>
-                {
-                    auto mol_data = molgr::pipeline::reconstruct_with_metals::Xyz2OmolMolData(
-                        xyz_block,
-                        total_charge,
-                        total_radical_electrons);
-                    if (!mol_data)
-                    {
-                        return nullptr;
-                    }
-                    return std::move(mol_data);
-                },
-                "Reconstruct molecule data from XYZ with metal-aware pipeline.",
-                py::arg("xyz_block"),
-                py::arg("total_charge") = 0,
-                py::arg("total_radical_electrons") = 0,
-                py::call_guard<py::gil_scoped_release>());
-
-            reconstruct_without_metals.def_static(
+            reconstruct_without_metals.def(
                 "xyz_to_omol_no_metal",
                 [](const std::string &xyz_block, int total_charge, int total_radical_electrons)
                     -> std::unique_ptr<molgr::utils::MoleculeData>
@@ -191,47 +245,6 @@ namespace molgr
                 py::arg("total_radical_electrons") = 0,
                 py::call_guard<py::gil_scoped_release>());
 
-            resonance.def_static(
-                "get_radical_resonances_smi",
-                [](const std::string &smiles) -> std::vector<std::string>
-                {
-                    auto mol = mol_from_smiles(smiles);
-                    if (!mol)
-                    {
-                        throw std::runtime_error("failed to parse SMILES");
-                    }
-                    const auto resonances = molgr::reconstruct::GetRadicalResonances(*mol);
-                    std::vector<std::string> out;
-                    out.reserve(resonances.size());
-                    for (const auto &resonance : resonances)
-                    {
-                        out.push_back(molgr::reconstruct::SmilesFirstToken(resonance));
-                    }
-                    return out;
-                },
-                "Enumerate radical resonance structures from a SMILES string.",
-                py::arg("smiles"),
-                py::call_guard<py::gil_scoped_release>());
-
-            resonance.def_static(
-                "process_resonance_smi",
-                [](const std::string &smiles, int charge) -> std::tuple<std::string, int>
-                {
-                    auto mol = mol_from_smiles(smiles);
-                    if (!mol)
-                    {
-                        throw std::runtime_error("failed to parse SMILES");
-                    }
-                    auto processed = molgr::reconstruct::ProcessResonance(*mol, charge);
-                    return std::make_tuple(
-                        molgr::reconstruct::SmilesFirstToken(processed.first),
-                        processed.second);
-                },
-                "Process one resonance step on SMILES and return updated token plus charge.",
-                py::arg("smiles"),
-                py::arg("charge"),
-                py::call_guard<py::gil_scoped_release>());
-
             m.def(
                 "get_last_run_timing_breakdown_ms",
                 []() -> py::dict
@@ -244,54 +257,19 @@ namespace molgr
                     return out;
                 },
                 "Return timing breakdown (milliseconds) for the most recent reconstruction run.");
-
-            m.def(
-                "get_radical_resonances_ptr",
-                [](intptr_t mol_ptr) -> std::vector<intptr_t>
-                {
-                    auto *mol = require_obmol_ptr(mol_ptr);
-                    py::gil_scoped_release release;
-                    const auto resonances = molgr::reconstruct::GetRadicalResonances(*mol);
-                    std::vector<intptr_t> out;
-                    out.reserve(resonances.size());
-                    for (const auto &resonance : resonances)
-                    {
-                        auto *res_ptr = new OpenBabel::OBMol(resonance);
-                        out.push_back(reinterpret_cast<intptr_t>(res_ptr));
-                    }
-                    return out;
-                },
-                "Get radical resonance OBMol pointers for an input OBMol pointer.",
-                py::arg("mol_ptr"));
-
-            m.def(
-                "process_resonance_ptr",
-                [](intptr_t mol_ptr, int charge) -> py::tuple
-                {
-                    auto *mol = require_obmol_ptr(mol_ptr);
-                    std::pair<OpenBabel::OBMol, int> processed;
-                    {
-                        py::gil_scoped_release release;
-                        processed = molgr::reconstruct::ProcessResonance(*mol, charge);
-                    }
-                    auto *res_ptr = new OpenBabel::OBMol(processed.first);
-                    return py::make_tuple(reinterpret_cast<intptr_t>(res_ptr), processed.second);
-                },
-                "Process resonance on an OBMol pointer and return (new_ptr, updated_charge).",
-                py::arg("mol_ptr"),
-                py::arg("charge"));
-
-            m.def(
-                "smiles_token_ptr",
-                [](intptr_t mol_ptr) -> std::string
-                {
-                    auto *mol = require_obmol_ptr(mol_ptr);
-                    py::gil_scoped_release release;
-                    return molgr::reconstruct::SmilesFirstToken(*mol);
-                },
-                "Return canonical first-token SMILES string for an OBMol pointer.",
-                py::arg("mol_ptr"));
         }
 
+        void bind_dev_pipeline(py::module_ &m)
+        {
+            auto reconstruct_with_metals = m.def_submodule(
+                "reconstruct_with_metals",
+                "Development-only helpers for metal reconstruction internals");
+            auto resonance = m.def_submodule(
+                "resonance",
+                "Development-only helpers for resonance internals");
+
+            bind_reconstruct_with_metals_dev_ns(reconstruct_with_metals);
+            bind_resonance_dev_ns(resonance);
+        }
     }
 }

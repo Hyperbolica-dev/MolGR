@@ -13,7 +13,7 @@ def break_deformed_ene_ptr(
     given_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     given_radical: typing.SupportsInt | typing.SupportsIndex = 0,
     tolerance: typing.SupportsFloat | typing.SupportsIndex = 5.0,
-) -> None:
+) -> bool:
     """
     Apply break_bond.break_deformed_ene to an existing OBMol.
 
@@ -28,7 +28,7 @@ def break_one_bond_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     given_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     given_radical: typing.SupportsInt | typing.SupportsIndex = 0,
-) -> int:
+) -> tuple:
     """
     Apply break_bond.break_one_bond to an existing OBMol.
 

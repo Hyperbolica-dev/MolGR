@@ -3,7 +3,7 @@
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/internal_helpers.h"
 
-#include "molgr/utils/utils.h"
+#include "molgr/utils/smarts.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -29,9 +29,10 @@ namespace molgr
                 return atom->GetExplicitValence() + atom->GetImplicitHCount();
             }
 
-            void CleanResonances0(OBMol &mol)
+            bool CleanResonances0(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]-[*]=[*]~[*+]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_0);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -58,13 +59,16 @@ namespace molgr
                         bond3->SetBondOrder(bond3->GetBondOrder() + 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom4->SetFormalCharge(atom4->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances1(OBMol &mol)
+            bool CleanResonances1(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]=[*+]=[*+0]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_1);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -83,12 +87,15 @@ namespace molgr
                     bond2->SetBondOrder(bond2->GetBondOrder() - 1);
                     atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                     atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                    hit = true;
                 }
+                return hit;
             }
 
-            void CleanResonances2(OBMol &mol)
+            bool CleanResonances2(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#8]=[#6](-[!-])-[*]=[*]-[#7-,#6-]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_2);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -118,13 +125,16 @@ namespace molgr
                         bond1->SetBondOrder(bond1->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
                         atom6->SetFormalCharge(atom6->GetFormalCharge() + 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances3(OBMol &mol)
+            bool CleanResonances3(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7v2+]=[*]-[*]=[*]-[#8-]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_3);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -147,13 +157,16 @@ namespace molgr
                     bond4->SetBondOrder(bond4->GetBondOrder() + 1);
                     atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
                     atom5->SetFormalCharge(atom5->GetFormalCharge() + 1);
-                    FreshOmolChargeRadical(mol);
+                    hit = true;
+                    hit = FreshOmolChargeRadical(mol) || hit;
                 }
+                return hit;
             }
 
-            void CleanResonances4(OBMol &mol)
+            bool CleanResonances4(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7+,#8+]=[*]-[#6-,#7-,#8-]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_4);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -172,12 +185,15 @@ namespace molgr
                     bond1->SetBondOrder(bond1->GetBondOrder() - 1);
                     atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
                     atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
+                    hit = true;
                 }
+                return hit;
             }
 
-            void CleanResonances5(OBMol &mol)
+            bool CleanResonances5(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7+0,#8+0,#16+0]=[*+0]-[#6-,#7-]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_5);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -201,13 +217,16 @@ namespace molgr
                         bond1->SetBondOrder(bond1->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
                         atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances6(OBMol &mol)
+            bool CleanResonances6(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#6]=[#6]=[#6-,#7-]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_6);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -226,13 +245,16 @@ namespace molgr
                     bond1->SetBondOrder(bond1->GetBondOrder() - 1);
                     atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
                     atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
+                    hit = true;
                 }
+                return hit;
             }
 
-            void CleanResonances7(OBMol &mol)
+            bool CleanResonances7(OBMol &mol)
             {
+                bool hit = false;
                 auto kekulize = OpenBabel::OBKekulize(&mol);
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_7);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -255,14 +277,17 @@ namespace molgr
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances8(OBMol &mol)
+            bool CleanResonances8(OBMol &mol)
             {
+                bool hit = false;
                 auto kekulize = OpenBabel::OBKekulize(&mol);
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_8);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -291,13 +316,16 @@ namespace molgr
                         bond4->SetBondOrder(bond4->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom5->SetFormalCharge(atom5->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances9(OBMol &mol)
+            bool CleanResonances9(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*+,*+2,*+3]-,=[*-,*-2,*-3]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_9);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -326,13 +354,16 @@ namespace molgr
                         bond->SetBondOrder(bond->GetBondOrder() + bond_to_add);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() - bond_to_add);
                         atom2->SetFormalCharge(atom2->GetFormalCharge() + bond_to_add);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances10(OBMol &mol)
+            bool CleanResonances10(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*]-[*]=,#[*]-[*]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_10);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -355,13 +386,16 @@ namespace molgr
                         bond3->SetBondOrder(bond3->GetBondOrder() + 1);
                         atom1->SetSpinMultiplicity(atom1->GetSpinMultiplicity() - 1);
                         atom4->SetSpinMultiplicity(atom4->GetSpinMultiplicity() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances11(OBMol &mol)
+            bool CleanResonances11(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7v3+0,#8v2+0,#16v2+0]-,=,:[*+1]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_11);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -386,13 +420,16 @@ namespace molgr
                         bond->SetBondOrder(bond->GetBondOrder() + 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom2->SetFormalCharge(atom2->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances12(OBMol &mol)
+            bool CleanResonances12(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7v3+0,#8v2+0,#16v2+0]-,:[*]=,:[*]-,:[*+1]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_12);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -423,13 +460,16 @@ namespace molgr
                         bond3->SetBondOrder(bond3->GetBondOrder() + 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom4->SetFormalCharge(atom4->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
 
-            void CleanResonances13(OBMol &mol)
+            bool CleanResonances13(OBMol &mol)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*-]:[*]=[#7+0,#8+0]");
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_13);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -453,28 +493,32 @@ namespace molgr
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                        hit = true;
                     }
                 }
+                return hit;
             }
         }
 
-        void CleanResonances(OBMol &mol)
+        bool CleanResonances(OBMol &mol)
         {
-            CleanResonances0(mol);
-            CleanResonances1(mol);
-            CleanResonances2(mol);
-            CleanResonances3(mol);
-            CleanResonances4(mol);
-            CleanResonances9(mol);
-            CleanResonances5(mol);
-            CleanResonances6(mol);
-            CleanResonances7(mol);
-            CleanResonances8(mol);
-            CleanResonances9(mol);
-            CleanResonances10(mol);
-            CleanResonances11(mol);
-            CleanResonances12(mol);
-            CleanResonances13(mol);
+            bool hit = false;
+            hit = CleanResonances0(mol) || hit;
+            hit = CleanResonances1(mol) || hit;
+            hit = CleanResonances2(mol) || hit;
+            hit = CleanResonances3(mol) || hit;
+            hit = CleanResonances4(mol) || hit;
+            hit = CleanResonances9(mol) || hit;
+            hit = CleanResonances5(mol) || hit;
+            hit = CleanResonances6(mol) || hit;
+            hit = CleanResonances7(mol) || hit;
+            hit = CleanResonances8(mol) || hit;
+            hit = CleanResonances9(mol) || hit;
+            hit = CleanResonances10(mol) || hit;
+            hit = CleanResonances11(mol) || hit;
+            hit = CleanResonances12(mol) || hit;
+            hit = CleanResonances13(mol) || hit;
+            return hit;
         }
     }
 }

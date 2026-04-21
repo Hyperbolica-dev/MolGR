@@ -5,7 +5,6 @@
 #include <openbabel/math/vector3.h>
 #include <openbabel/mol.h>
 
-#include <string>
 #include <vector>
 
 #define FOR_NB_OF_ATOM(a, p) for (OpenBabel::OBAtomAtomIter a(p); a; ++a)
@@ -21,8 +20,6 @@ namespace molgr
                                      const OpenBabel::vector3 &p3, const OpenBabel::vector3 &p4);
 
         OpenBabel::vector3 ToVector3(const std::vector<double> &coords);
-
-        std::vector<std::vector<int>> FindSmarts(OpenBabel::OBMol &mol, const std::string &smarts);
 
         struct AtomData
         {

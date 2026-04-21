@@ -9,6 +9,7 @@ PACKAGE_NAME := molgr
 # 尝试通过 importlib 读取已安装包的版本，如果失败则显示 "dynamic"
 VERSION := $(shell uv run python -c "from importlib.metadata import version; print(version('$(PACKAGE_NAME)'))" 2>/dev/null || echo "dynamic")
 EXTENSION_MODULES := molgr._core
+CPP_BUILD_DIR ?= build
 # 检测操作系统，用于打开浏览器命令
 DETECTED_OS := $(shell uname)
 ifeq ($(DETECTED_OS), Darwin)
@@ -17,7 +18,7 @@ else
 	OPEN_CMD := xdg-open
 endif
 
-.PHONY: help init install-uv install sync update tree format lint type-check check test test-cov clean distclean build release rename docker-build docker-up docker-down cpp-dev-install cpp-build stubs clean-cpp
+.PHONY: help init install-uv install sync update tree format lint type-check check test test-cov clean distclean build release rename docker-build docker-up docker-down cpp-dev-install cpp-build cpp-ide-init stubs clean-cpp
 
 # =============================================================================
 # 📝 帮助文档
@@ -54,6 +55,12 @@ help:
 	@echo "  make docker-build  🏗️ Build Docker image"
 	@echo "  make docker-up     🚀 Run with Docker Compose"
 	@echo "  make docker-down   🛑 Stop Docker services"
+	@echo ""
+	@echo "🦕 \033[1;33mC++ Dev:\033[0m"
+	@echo "  make cpp-dev-install  📦 Install C++ dev dependencies"
+	@echo "  make cpp-build        🔨 Rebuild editable C++ extension and refresh IDE config"
+	@echo "  make cpp-ide-init     🧠 Generate compile_commands / clangd / VSCode C++ IDE config"
+	@echo "     Optional: make cpp-ide-init CPP_BUILD_DIR=cmake-build-debug"
 	@echo ""
 	@echo "📌 Current Package: $(PACKAGE_NAME)"
 	@echo "📌 Detected Version: $(VERSION)"
@@ -239,6 +246,11 @@ cpp-dev-install:
 cpp-build:
 	@echo "🔨 Re-compiling C++ extension (Editable Mode)..."
 	uv pip install -e . -v --no-build-isolation
+	@$(MAKE) cpp-ide-init CPP_BUILD_DIR=$(CPP_BUILD_DIR)
+
+cpp-ide-init:
+	@echo "🧠 Generating C++ IDE configuration..."
+	uv run python scripts/gen_vscode_config_with_ob.py --build-dir $(CPP_BUILD_DIR)
 
 # 🤖 生成类型存根 (Stubs)
 # 1. 确保安装了 pybind11-stubgen
@@ -278,6 +290,7 @@ stubs:
 clean:
 	@echo "🧹 Cleaning artifacts..."
 	rm -rf dist build htmlcov coverage.xml .coverage
+	rm -f compile_commands.json
 	# 🆕 清理 scikit-build-core 的构建缓存
 	rm -rf _skbuild
 	# 🆕 清理编译出来的二进制扩展 (.so, .pyd)

@@ -14,7 +14,7 @@ from molgr import _core  # type: ignore
 from molgr.fallback.stages.preprocess import make_connections, pre_clean, validate_omol
 
 
-_stages: Any = _core.stages
+_stages: Any = _core.dev.stages
 
 
 def _get_ptr(obmol) -> int:

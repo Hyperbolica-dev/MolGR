@@ -15,7 +15,7 @@ __all__: list[str] = [
 def assign_charge_radical_for_atom_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     atom_idx: typing.SupportsInt | typing.SupportsIndex,
-) -> None:
+) -> bool:
     """
     Assign charge/radical state for a specific atom on an existing OBMol.
 
@@ -36,7 +36,7 @@ def assign_radical_dots_ptr(
         atom_idx: 1-based atom index
     """
 
-def fresh_omol_charge_radical_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> None:
+def fresh_omol_charge_radical_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
     """
     Apply fresh.fresh_omol_charge_radical to an existing OBMol.
     """

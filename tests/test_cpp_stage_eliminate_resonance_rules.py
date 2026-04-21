@@ -18,7 +18,7 @@ from molgr.fallback.stages.eliminate import (
 )
 
 
-_stages: Any = _core.stages
+_stages: Any = _core.dev.stages
 
 
 def _get_ptr(obmol) -> int:
@@ -135,10 +135,11 @@ def test_eliminate_1_3_dipole_cpp_matches_python() -> None:
     py_mol = pybel.Molecule(_build_1_3_dipole_seed())
     cpp_mol = pybel.Molecule(_build_1_3_dipole_seed())
 
-    py_mol, py_charge = eliminate_1_3_dipole(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_1_3_dipole_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    py_mol, py_charge, py_hit = eliminate_1_3_dipole(py_mol, 0)
+    cpp_charge, cpp_hit = _stages.eliminate.eliminate_1_3_dipole_ptr(_get_ptr(cpp_mol.OBMol), 0)
 
     assert py_charge == cpp_charge
+    assert cpp_hit == py_hit
     _assert_atom_state_parity(py_mol, cpp_mol)
     _assert_key_bond_orders(py_mol, cpp_mol, [(1, 2), (2, 3)])
     assert _smiles_token(py_mol) == _smiles_token(cpp_mol)
@@ -148,10 +149,11 @@ def test_eliminate_positive_charges_cpp_matches_python() -> None:
     py_mol = pybel.Molecule(_build_positive_charges_seed())
     cpp_mol = pybel.Molecule(_build_positive_charges_seed())
 
-    py_mol, py_charge = eliminate_positive_charges(py_mol, 1)
-    cpp_charge = _stages.eliminate.eliminate_positive_charges_ptr(_get_ptr(cpp_mol.OBMol), 1)
+    py_mol, py_charge, py_hit = eliminate_positive_charges(py_mol, 1)
+    cpp_charge, cpp_hit = _stages.eliminate.eliminate_positive_charges_ptr(_get_ptr(cpp_mol.OBMol), 1)
 
     assert py_charge == cpp_charge
+    assert cpp_hit == py_hit
     _assert_atom_state_parity(py_mol, cpp_mol)
     _assert_key_bond_orders(py_mol, cpp_mol, [(1, 2), (1, 3)])
     assert _smiles_token(py_mol) == _smiles_token(cpp_mol)
@@ -161,10 +163,11 @@ def test_eliminate_negative_charges_cpp_matches_python() -> None:
     py_mol = pybel.Molecule(_build_negative_charges_seed())
     cpp_mol = pybel.Molecule(_build_negative_charges_seed())
 
-    py_mol, py_charge = eliminate_negative_charges(py_mol, -2)
-    cpp_charge = _stages.eliminate.eliminate_negative_charges_ptr(_get_ptr(cpp_mol.OBMol), -2)
+    py_mol, py_charge, py_hit = eliminate_negative_charges(py_mol, -2)
+    cpp_charge, cpp_hit = _stages.eliminate.eliminate_negative_charges_ptr(_get_ptr(cpp_mol.OBMol), -2)
 
     assert py_charge == cpp_charge
+    assert cpp_hit == py_hit
     _assert_atom_state_parity(py_mol, cpp_mol)
     _assert_key_bond_orders(py_mol, cpp_mol, [(2, 3), (2, 4), (2, 5)])
     assert _smiles_token(py_mol) == _smiles_token(cpp_mol)

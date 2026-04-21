@@ -8,7 +8,7 @@ namespace molgr
     namespace reconstruct
     {
         int AssignRadicalDots(OpenBabel::OBAtom &atom);
-        void AssignChargeRadicalForAtom(OpenBabel::OBAtom &atom);
-        void FreshOmolChargeRadical(OpenBabel::OBMol &mol);
+        bool AssignChargeRadicalForAtom(OpenBabel::OBAtom &atom);
+        bool FreshOmolChargeRadical(OpenBabel::OBMol &mol);
     }
 }

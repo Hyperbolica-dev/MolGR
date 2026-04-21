@@ -1,5 +1,5 @@
 """
-Stage-level helpers for parity testing
+Development-only stage helpers
 """
 
 from __future__ import annotations

@@ -33,6 +33,7 @@ from molgr.utils.equivalence import check_equivalence
 
 
 _with_metals: Any = _core.pipeline.reconstruct_with_metals
+_dev_with_metals: Any = _core.dev.pipeline.reconstruct_with_metals
 
 
 @typed_lru_cache(maxsize=1024, typed=True)
@@ -170,7 +171,7 @@ O 3.2 0.0 0.0
     assert len(metal_atoms) == 1
 
     py_states = py_build_metal_states(metal_atoms[0].OBAtom)
-    cpp_states = _with_metals.build_metal_states_ptr(
+    cpp_states = _dev_with_metals.build_metal_states_ptr(
         _get_ptr(metal_seed.OBMol),
         metal_atoms[0].idx,
     )
@@ -222,7 +223,7 @@ O 3.2 0.0 0.0
 """,
     )
     py_state = py_build_metal_states(metal_seed_py.OBMol.GetAtom(1))[0]
-    cpp_state = _with_metals.build_metal_states_ptr(
+    cpp_state = _dev_with_metals.build_metal_states_ptr(
         _get_ptr(metal_seed_cpp.OBMol),
         1,
     )[0]
@@ -245,7 +246,7 @@ O 3.2 0.0 0.0
     )
 
     py_combined = py_combine_metal_with_omol(organic_py, [py_state])
-    _with_metals.combine_metal_with_omol_ptr(
+    _dev_with_metals.combine_metal_with_omol_ptr(
         _get_ptr(organic_cpp.OBMol),
         [cpp_state],
     )

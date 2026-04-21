@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
 project(molgr)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 
 # ==============================================================================
@@ -54,9 +59,11 @@ message(STATUS "OpenBabel library: ${OB_LIBRARY}")
 # ==============================================================================
 
 add_library(molgr STATIC
+    src/cpp/src/state.cpp
     src/cpp/src/utils/consts.cpp
     src/cpp/src/utils/utils.cpp
     src/cpp/src/utils/conversions.cpp
+    src/cpp/src/utils/smarts.cpp
     src/cpp/src/utils/scoring.cpp
     src/cpp/src/utils/logger.cpp
     src/cpp/src/pipeline/reconstruct_with_metals.cpp

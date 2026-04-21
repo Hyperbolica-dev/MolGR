@@ -42,13 +42,21 @@ namespace molgr
             return std::max(0, typical_valence - total_valence);
         }
 
-        void AssignChargeRadicalForAtom(OBAtom &atom)
+        bool AssignChargeRadicalForAtom(OBAtom &atom)
         {
+            const int before_charge = atom.GetFormalCharge();
+            const int before_spin = atom.GetSpinMultiplicity();
+            auto changed = [&]() -> bool
+            {
+                return atom.GetFormalCharge() != before_charge ||
+                       atom.GetSpinMultiplicity() != before_spin;
+            };
+
             const int rad = AssignRadicalDots(atom);
             if (rad > 0)
             {
                 atom.SetSpinMultiplicity(rad);
-                return;
+                return changed();
             }
 
             const int atomic_num = atom.GetAtomicNum();
@@ -57,13 +65,13 @@ namespace molgr
             const ElementInfo *info = GetElementInfo(atomic_num);
             if (!info)
             {
-                return;
+                return changed();
             }
 
             if (info->num_outer_electrons == 3 && current_val == 4)
             {
                 atom.SetFormalCharge(-1);
-                return;
+                return changed();
             }
 
             const int spin = atom.GetSpinMultiplicity();
@@ -74,7 +82,7 @@ namespace molgr
 
             if (low_valence_total == 0)
             {
-                return;
+                return changed();
             }
 
             if (low_valence_total <= high_valence_total)
@@ -86,14 +94,17 @@ namespace molgr
                 const int new_spin = info->num_outer_electrons - current_val + spin - charge;
                 atom.SetSpinMultiplicity(new_spin);
             }
+            return changed();
         }
 
-        void FreshOmolChargeRadical(OBMol &mol)
+        bool FreshOmolChargeRadical(OBMol &mol)
         {
+            bool hit = false;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
-                AssignChargeRadicalForAtom(*atom_iter);
+                hit = AssignChargeRadicalForAtom(*atom_iter) || hit;
             }
+            return hit;
         }
     }
 }

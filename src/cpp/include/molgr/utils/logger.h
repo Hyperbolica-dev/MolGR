@@ -1,13 +1,6 @@
 #pragma once
 
 #include <iostream>
-#include <string>
-
-namespace OpenBabel
-{
-    class OBMol;
-}
-
 namespace molgr
 {
     enum class LogLevel
@@ -22,7 +15,6 @@ namespace molgr
     extern LogLevel g_current_log_level;
 
     void SetLogLevel(LogLevel level);
-    void LogOmolInfos(OpenBabel::OBMol &mol, const std::string &comment = "");
 }
 
 #define LOG_DEBUG(msg)                                            \

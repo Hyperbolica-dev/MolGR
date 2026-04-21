@@ -3,6 +3,7 @@
 #include "molgr/stages/internal_helpers.h"
 
 #include "molgr/utils/logger.h"
+#include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
 #include <openbabel/atom.h>
@@ -17,10 +18,10 @@ namespace molgr
     {
         using namespace OpenBabel;
 
-        std::vector<int> GetFlatAtomList(OBMol &mol, const std::string &smarts)
+        std::vector<int> GetFlatAtomList(OBMol &mol, molgr::smarts::PatternId pattern_id)
         {
             std::vector<int> atom_indices;
-            auto matches = molgr::utils::FindSmarts(mol, smarts);
+            auto matches = molgr::smarts::Match(mol, pattern_id);
             for (const auto &match : matches)
             {
                 for (int idx : match)
@@ -34,13 +35,11 @@ namespace molgr
             return std::find(atom_indices.begin(), atom_indices.end(), atom_idx) != atom_indices.end();
         }
 
-        void MakeConnections(OBMol &mol, double factor)
+        bool MakeConnections(OBMol &mol, double factor)
         {
-            std::string donate_smarts = "[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3]";
-            std::string accept_smarts = "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]";
-
-            std::vector<int> donate_atoms = GetFlatAtomList(mol, donate_smarts);
-            std::vector<int> accept_atoms = GetFlatAtomList(mol, accept_smarts);
+            bool hit = false;
+            std::vector<int> donate_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_DONATE);
+            std::vector<int> accept_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_ACCEPT);
 
             while (!donate_atoms.empty() && !accept_atoms.empty())
             {
@@ -97,26 +96,30 @@ namespace molgr
                         if (!bond)
                         {
                             mol.AddBond(p1, p2, 1);
+                            hit = true;
                             LOG_DEBUG("[MakeConnections] Add Bond " << p1 << "-" << p2);
                             continue;
                         }
                         if (bond->GetBondOrder() == 0)
                         {
                             bond->SetBondOrder(1);
+                            hit = true;
                             LOG_DEBUG("[MakeConnections] Set Bond Order 1 " << p1 << "-" << p2);
-                            donate_atoms = GetFlatAtomList(mol, donate_smarts);
-                            accept_atoms = GetFlatAtomList(mol, accept_smarts);
+                            donate_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_DONATE);
+                            accept_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_ACCEPT);
                         }
                     }
                 }
             }
+            return hit;
         }
 
-        void PreClean(OBMol &mol)
+        bool PreClean(OBMol &mol)
         {
+            bool hit = false;
             while (true)
             {
-                auto matches1 = molgr::utils::FindSmarts(mol, "[Cv5,Nv5,Pv5,Siv5]=,#[*]");
+                auto matches1 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_HYPERVALENT);
                 if (matches1.empty())
                 {
                     break;
@@ -126,12 +129,13 @@ namespace molgr
                 if (bond)
                 {
                     bond->SetBondOrder(bond->GetBondOrder() - 1);
+                    hit = true;
                 }
             }
 
             while (true)
             {
-                auto matches2 = molgr::utils::FindSmarts(mol, "[#6]1([#6]2)([#6]3)[#7]23[#6]1");
+                auto matches2 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_5);
                 if (matches2.empty())
                 {
                     break;
@@ -158,13 +162,16 @@ namespace molgr
                 {
                     OBBond *bond = mol.GetBond(n_idx, c_idx);
                     if (bond)
+                    {
                         mol.DeleteBond(bond);
+                        hit = true;
+                    }
                 }
             }
 
             while (true)
             {
-                auto matches3 = molgr::utils::FindSmarts(mol, "[#6]1([#6]2)[#7]2[#6]1");
+                auto matches3 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_4);
                 if (matches3.empty())
                 {
                     break;
@@ -190,13 +197,16 @@ namespace molgr
                 {
                     OBBond *bond = mol.GetBond(amine_n, butyl_c);
                     if (bond)
+                    {
                         mol.DeleteBond(bond);
+                        hit = true;
+                    }
                 }
             }
 
             while (true)
             {
-                auto matches4 = molgr::utils::FindSmarts(mol, "[Siv5]-[O,F]");
+                auto matches4 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_SI_O_F);
                 if (matches4.empty())
                 {
                     break;
@@ -206,8 +216,10 @@ namespace molgr
                 if (bond)
                 {
                     mol.DeleteBond(bond);
+                    hit = true;
                 }
             }
+            return hit;
         }
     }
 }

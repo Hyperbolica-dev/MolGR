@@ -14,17 +14,17 @@ __all__: list[str] = [
 
 def clean_carbene_neighbor_unsaturated_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
-) -> None:
+) -> bool:
     """
     Apply clean.clean_carbene_neighbor_unsaturated to an existing OBMol.
     """
 
-def clean_neighbor_radicals_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> None:
+def clean_neighbor_radicals_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
     """
     Apply clean.clean_neighbor_radicals to an existing OBMol.
     """
 
-def clean_resonances_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> None:
+def clean_resonances_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
     """
     Apply clean.clean_resonances to an existing OBMol.
     """

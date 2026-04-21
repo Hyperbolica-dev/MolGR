@@ -433,3 +433,7 @@ test.ipynb
 AGENTS.md
 **/AGENTS.md
 .codex
+
+
+.clangd
+compile_commands.json

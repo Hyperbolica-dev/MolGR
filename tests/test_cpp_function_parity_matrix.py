@@ -77,7 +77,10 @@ from molgr.utils.equivalence import check_equivalence
 
 _pipeline: Any = _core.pipeline
 _with_metals: Any = _pipeline.reconstruct_with_metals
-_stages: Any = _core.stages
+_dev_pipeline: Any = _core.dev.pipeline
+_dev_with_metals: Any = _dev_pipeline.reconstruct_with_metals
+_dev_resonance: Any = _dev_pipeline.resonance
+_stages: Any = _core.dev.stages
 _BENCHMARK_HARD_CASE_INDICES: tuple[int, ...] = (7, 20, 24, 33, 35, 47, 49, 52)
 
 
@@ -125,7 +128,14 @@ def _smiles_from_mol_data(mol_data: _core.utils.MoleculeData) -> str:
     return Chem.MolToSmiles(rdmol, canonical=True)
 
 
+def _unwrap_molecule_result(result: Any) -> pybel.Molecule:
+    if isinstance(result, tuple):
+        return result[0]
+    return result
+
+
 def _molecule_signature(mol: pybel.Molecule) -> dict[str, Any]:
+    mol = _unwrap_molecule_result(mol)
     atoms: list[dict[str, int]] = []
     for idx in range(1, mol.OBMol.NumAtoms() + 1):
         atom = mol.OBMol.GetAtom(idx)
@@ -161,6 +171,7 @@ def _molecule_signature(mol: pybel.Molecule) -> dict[str, Any]:
 
 
 def _charge_and_radicals(mol: pybel.Molecule) -> tuple[int, int]:
+    mol = _unwrap_molecule_result(mol)
     charge = 0
     radicals = 0
     for atom in mol.atoms:
@@ -170,6 +181,7 @@ def _charge_and_radicals(mol: pybel.Molecule) -> tuple[int, int]:
 
 
 def _break_bond_signature(mol: pybel.Molecule) -> dict[str, Any]:
+    mol = _unwrap_molecule_result(mol)
     total_charge, total_radicals = _charge_and_radicals(mol)
     return {
         "smiles": _smiles_token(mol),
@@ -521,7 +533,7 @@ O 1.200 0.000 0.000
             given_charge=given_charge,
             given_radical=given_radical,
         )
-        cpp_charge = _stages.break_bond.break_one_bond_ptr(
+        cpp_charge, _cpp_hit = _stages.break_bond.break_one_bond_ptr(
             _get_ptr(cpp_mol.OBMol),
             given_charge,
             given_radical,
@@ -634,7 +646,7 @@ O 1.200 0.000 0.000
 
         rows.append(
             FunctionParityRow(
-                function_name="pipeline.resonance.process_resonance_ptr",
+                function_name="dev.pipeline.resonance.process_resonance_ptr",
                 case_name=case_name,
                 case_input=(
                     f"benchmark_case_index={case_index},"
@@ -822,7 +834,7 @@ Li 0.0 0.0 0.0
 
     rows.append(
         FunctionParityRow(
-            function_name="pipeline.reconstruct_with_metals.build_metal_states_ptr",
+            function_name="dev.pipeline.reconstruct_with_metals.build_metal_states_ptr",
             case_name="li_co_atom_1",
             case_input="xyz=LiCO,atom_idx=1",
             cpp_source_path="src/cpp/src/pipeline/reconstruct_with_metals.cpp",
@@ -847,7 +859,7 @@ Li 0.0 0.0 0.0
         metal_seed_py = pybel.readstring("xyz", xyz_li_co)
         metal_seed_cpp = pybel.readstring("xyz", xyz_li_co)
         py_state = py_build_metal_states(metal_seed_py.OBMol.GetAtom(1))[0]
-        cpp_state = _with_metals.build_metal_states_ptr(_get_ptr(metal_seed_cpp.OBMol), 1)[0]
+        cpp_state = _dev_with_metals.build_metal_states_ptr(_get_ptr(metal_seed_cpp.OBMol), 1)[0]
 
         organic_xyz = """2
 CO
@@ -857,12 +869,12 @@ O 3.2 0.0 0.0
         organic_py = pybel.readstring("xyz", organic_xyz)
         organic_cpp = pybel.readstring("xyz", organic_xyz)
         py_after = py_combine_metal_with_omol(organic_py, [py_state])
-        _with_metals.combine_metal_with_omol_ptr(_get_ptr(organic_cpp.OBMol), [cpp_state])
+        _dev_with_metals.combine_metal_with_omol_ptr(_get_ptr(organic_cpp.OBMol), [cpp_state])
         return py_after, organic_cpp
 
     rows.append(
         FunctionParityRow(
-            function_name="pipeline.reconstruct_with_metals.combine_metal_with_omol_ptr",
+            function_name="dev.pipeline.reconstruct_with_metals.combine_metal_with_omol_ptr",
             case_name="single_metal_insert",
             case_input="organic=CO,metal=Li",
             cpp_source_path="src/cpp/src/pipeline/reconstruct_with_metals.cpp",
@@ -1169,10 +1181,9 @@ F 0.000 0.000 1.600
     def run_break_one_bond_charge_case() -> tuple[Any, Any]:
         py_mol = pybel.readstring("smi", "[NH+]=C")
         cpp_mol = pybel.readstring("smi", "[NH+]=C")
-        py_after, py_charge, _py_hit = py_break_one_bond(
-            py_mol, given_charge=0, given_radical=1
-        )
-        cpp_charge = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 1)
+        py_after, py_charge, _py_hit = py_break_one_bond(py_mol, given_charge=0, given_radical=1)
+        cpp_charge, cpp_hit = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 1)
+        assert cpp_hit is True
         return (
             {
                 "charge": int(py_charge),
@@ -1198,10 +1209,9 @@ F 0.000 0.000 1.600
     def run_break_one_bond_single_delete_case() -> tuple[Any, Any]:
         py_mol = pybel.readstring("smi", "CC")
         cpp_mol = pybel.readstring("smi", "CC")
-        py_after, py_charge, _py_hit = py_break_one_bond(
-            py_mol, given_charge=0, given_radical=3
-        )
-        cpp_charge = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 3)
+        py_after, py_charge, _py_hit = py_break_one_bond(py_mol, given_charge=0, given_radical=3)
+        cpp_charge, cpp_hit = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 3)
+        assert cpp_hit is True
         return (
             {
                 "charge": int(py_charge),
@@ -1226,7 +1236,7 @@ F 0.000 0.000 1.600
 
     rows.append(
         FunctionParityRow(
-            function_name="pipeline.resonance.get_radical_resonances_ptr",
+            function_name="dev.pipeline.resonance.get_radical_resonances_ptr",
             case_name="cc_equals_c_atom1",
             case_input="smiles=CC=C,radical_atom_indices=[1]",
             cpp_source_path="src/cpp/src/pipeline/resonance.cpp",
@@ -1237,7 +1247,7 @@ F 0.000 0.000 1.600
 
     rows.append(
         FunctionParityRow(
-            function_name="pipeline.resonance.process_resonance_ptr",
+            function_name="dev.pipeline.resonance.process_resonance_ptr",
             case_name="c_equals_cc_equals_c_charge0",
             case_input="smiles=C=CC=C,radical_atom_indices=[2],charge=0",
             cpp_source_path="src/cpp/src/pipeline/resonance.cpp",
@@ -1276,7 +1286,7 @@ O 3.2 0.0 0.0
     )
     return (
         py_build_metal_states(py_mol.OBMol.GetAtom(1)),
-        _with_metals.build_metal_states_ptr(_get_ptr(cpp_mol.OBMol), 1),
+        _dev_with_metals.build_metal_states_ptr(_get_ptr(cpp_mol.OBMol), 1),
     )
 
 
@@ -1318,9 +1328,9 @@ C 0.000 0.000 0.000
 def _run_eliminate_13_case() -> tuple[tuple[pybel.Molecule, int], tuple[pybel.Molecule, int]]:
     py_mol = pybel.readstring("smi", "[O-]N=C")
     cpp_mol = pybel.readstring("smi", "[O-]N=C")
-    py_out = py_eliminate_1_3_dipole(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_1_3_dipole_ptr(_get_ptr(cpp_mol.OBMol), 0)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_1_3_dipole(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_1_3_dipole_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_positive_case() -> tuple[tuple[pybel.Molecule, int], tuple[pybel.Molecule, int]]:
@@ -1328,9 +1338,9 @@ def _run_eliminate_positive_case() -> tuple[tuple[pybel.Molecule, int], tuple[py
     cpp_mol = pybel.readstring("smi", "C")
     py_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
     cpp_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
-    py_out = py_eliminate_positive_charges(py_mol, 1)
-    cpp_charge = _stages.eliminate.eliminate_positive_charges_ptr(_get_ptr(cpp_mol.OBMol), 1)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_positive_charges(py_mol, 1)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_positive_charges_ptr(_get_ptr(cpp_mol.OBMol), 1)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_negative_case() -> tuple[tuple[pybel.Molecule, int], tuple[pybel.Molecule, int]]:
@@ -1338,17 +1348,17 @@ def _run_eliminate_negative_case() -> tuple[tuple[pybel.Molecule, int], tuple[py
     cpp_mol = pybel.readstring("smi", "O")
     py_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
     cpp_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
-    py_out = py_eliminate_negative_charges(py_mol, -1)
-    cpp_charge = _stages.eliminate.eliminate_negative_charges_ptr(_get_ptr(cpp_mol.OBMol), -1)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_negative_charges(py_mol, -1)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_negative_charges_ptr(_get_ptr(cpp_mol.OBMol), -1)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_nnn_case() -> tuple[tuple[pybel.Molecule, int], tuple[pybel.Molecule, int]]:
     py_mol = pybel.readstring("smi", "N=N=N")
     cpp_mol = pybel.readstring("smi", "N=N=N")
-    py_out = py_eliminate_nnn(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_nnn_ptr(_get_ptr(cpp_mol.OBMol), 0)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_nnn(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_nnn_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_high_positive_case() -> tuple[
@@ -1360,11 +1370,11 @@ def _run_eliminate_high_positive_case() -> tuple[
     cpp_mol.OBMol.GetAtom(1).SetFormalCharge(1)
     py_mol.OBMol.GetAtom(2).SetSpinMultiplicity(1)
     cpp_mol.OBMol.GetAtom(2).SetSpinMultiplicity(1)
-    py_out = py_eliminate_high_positive_charge_atoms(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_high_positive_charge_atoms_ptr(
+    py_mol, py_charge, _py_hit = py_eliminate_high_positive_charge_atoms(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_high_positive_charge_atoms_ptr(
         _get_ptr(cpp_mol.OBMol), 0
     )
-    return py_out, (cpp_mol, cpp_charge)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_cn_in_doubt_case() -> tuple[
@@ -1372,17 +1382,17 @@ def _run_eliminate_cn_in_doubt_case() -> tuple[
 ]:
     py_mol = pybel.readstring("smi", "[CH2]=[NH2+]")
     cpp_mol = pybel.readstring("smi", "[CH2]=[NH2+]")
-    py_out = py_eliminate_cn_in_doubt(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_cn_in_doubt_ptr(_get_ptr(cpp_mol.OBMol), 0)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_cn_in_doubt(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_cn_in_doubt_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_carboxyl_case() -> tuple[tuple[pybel.Molecule, int], tuple[pybel.Molecule, int]]:
     py_mol = pybel.readstring("smi", "OC=O")
     cpp_mol = pybel.readstring("smi", "OC=O")
-    py_out = py_eliminate_carboxyl(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_carboxyl_ptr(_get_ptr(cpp_mol.OBMol), 0)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_carboxyl(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_carboxyl_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_carbene_neighbor_heteroatom_case() -> tuple[
@@ -1392,12 +1402,12 @@ def _run_eliminate_carbene_neighbor_heteroatom_case() -> tuple[
     cpp_mol = pybel.readstring("smi", "CO")
     py_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
     cpp_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
-    py_out = py_eliminate_carbene_neighbor_heteroatom(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_carbene_neighbor_heteroatom_ptr(
+    py_mol, py_charge, _py_hit = py_eliminate_carbene_neighbor_heteroatom(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_carbene_neighbor_heteroatom_ptr(
         _get_ptr(cpp_mol.OBMol),
         0,
     )
-    return py_out, (cpp_mol, cpp_charge)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_eliminate_charge_spliting_case() -> tuple[
@@ -1408,9 +1418,9 @@ def _run_eliminate_charge_spliting_case() -> tuple[
     for idx in (1, 2, 3):
         py_mol.OBMol.GetAtom(idx).SetSpinMultiplicity(1)
         cpp_mol.OBMol.GetAtom(idx).SetSpinMultiplicity(1)
-    py_out = py_eliminate_charge_spliting(py_mol, 0)
-    cpp_charge = _stages.eliminate.eliminate_charge_spliting_ptr(_get_ptr(cpp_mol.OBMol), 0)
-    return py_out, (cpp_mol, cpp_charge)
+    py_mol, py_charge, _py_hit = py_eliminate_charge_spliting(py_mol, 0)
+    cpp_charge, _cpp_hit = _stages.eliminate.eliminate_charge_spliting_ptr(_get_ptr(cpp_mol.OBMol), 0)
+    return (py_mol, py_charge), (cpp_mol, cpp_charge)
 
 
 def _run_clean_neighbor_radicals_case() -> tuple[pybel.Molecule, pybel.Molecule]:
@@ -1420,7 +1430,7 @@ def _run_clean_neighbor_radicals_case() -> tuple[pybel.Molecule, pybel.Molecule]
     py_mol.OBMol.GetAtom(2).SetSpinMultiplicity(1)
     cpp_mol.OBMol.GetAtom(1).SetSpinMultiplicity(1)
     cpp_mol.OBMol.GetAtom(2).SetSpinMultiplicity(1)
-    py_after = py_clean_neighbor_radicals(py_mol)
+    py_after, _py_hit = py_clean_neighbor_radicals(py_mol)
     _stages.clean.clean_neighbor_radicals_ptr(_get_ptr(cpp_mol.OBMol))
     return py_after, cpp_mol
 
@@ -1430,7 +1440,7 @@ def _run_clean_carbene_neighbor_unsaturated_case() -> tuple[pybel.Molecule, pybe
     cpp_mol = pybel.readstring("smi", "CC=C")
     py_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
     cpp_mol.OBMol.GetAtom(1).SetSpinMultiplicity(2)
-    py_after = py_clean_carbene_neighbor_unsaturated(py_mol)
+    py_after, _py_hit = py_clean_carbene_neighbor_unsaturated(py_mol)
     _stages.clean.clean_carbene_neighbor_unsaturated_ptr(_get_ptr(cpp_mol.OBMol))
     return py_after, cpp_mol
 
@@ -1443,9 +1453,9 @@ def _run_get_radical_resonances_case(
     py_seed = seed.clone
     cpp_seed = seed.clone
     py_tokens = [_smiles_token(mol) for mol in py_get_radical_resonances(py_seed)]
-    cpp_ptrs = [int(ptr) for ptr in _pipeline.get_radical_resonances_ptr(_get_ptr(cpp_seed.OBMol))]
+    cpp_ptrs = [int(ptr) for ptr in _dev_resonance.get_radical_resonances_ptr(_get_ptr(cpp_seed.OBMol))]
     try:
-        cpp_tokens = [_pipeline.smiles_token_ptr(ptr) for ptr in cpp_ptrs]
+        cpp_tokens = [_dev_resonance.smiles_token_ptr(ptr) for ptr in cpp_ptrs]
     finally:
         for ptr in cpp_ptrs:
             _core.free_obmol_ptr(ptr)
@@ -1461,17 +1471,17 @@ def _run_process_resonance_case(
     py_seed = seed.clone
     cpp_seed = seed.clone
     py_resonances = py_get_radical_resonances(py_seed)
-    cpp_ptrs = [int(ptr) for ptr in _pipeline.get_radical_resonances_ptr(_get_ptr(cpp_seed.OBMol))]
+    cpp_ptrs = [int(ptr) for ptr in _dev_resonance.get_radical_resonances_ptr(_get_ptr(cpp_seed.OBMol))]
     try:
         py_out: list[tuple[str, int]] = []
         cpp_out: list[tuple[str, int]] = []
         for py_resonance, cpp_ptr in zip(py_resonances, cpp_ptrs):
-            py_processed, py_charge = py_process_resonance(py_resonance.clone, charge)
-            cpp_processed_ptr, cpp_charge = _pipeline.process_resonance_ptr(cpp_ptr, charge)
+            py_processed, py_charge, _py_hit = py_process_resonance(py_resonance.clone, charge)
+            cpp_processed_ptr, cpp_charge = _dev_resonance.process_resonance_ptr(cpp_ptr, charge)
             cpp_processed_ptr = int(cpp_processed_ptr)
             try:
                 py_out.append((_smiles_token(py_processed), int(py_charge)))
-                cpp_out.append((_pipeline.smiles_token_ptr(cpp_processed_ptr), int(cpp_charge)))
+                cpp_out.append((_dev_resonance.smiles_token_ptr(cpp_processed_ptr), int(cpp_charge)))
             finally:
                 _core.free_obmol_ptr(cpp_processed_ptr)
     finally:
@@ -1500,7 +1510,7 @@ def _run_process_resonance_from_xyz_intermediate_case(
     py_out: list[tuple[str, int]] = []
     if py_seed is not None:
         for py_resonance in py_get_radical_resonances(py_seed.clone):
-            py_processed, py_charge = py_process_resonance(py_resonance.clone, charge)
+            py_processed, py_charge, _py_hit = py_process_resonance(py_resonance.clone, charge)
             py_out.append((_smiles_token(py_processed), int(py_charge)))
 
     cpp_out: list[tuple[str, int]] = []
@@ -1509,13 +1519,13 @@ def _run_process_resonance_from_xyz_intermediate_case(
 
     cpp_seed_ptr = _core.utils.molecule_data_to_obmol_ptr(cpp_seed_data)
     try:
-        cpp_ptrs = [int(ptr) for ptr in _pipeline.get_radical_resonances_ptr(cpp_seed_ptr)]
+        cpp_ptrs = [int(ptr) for ptr in _dev_resonance.get_radical_resonances_ptr(cpp_seed_ptr)]
         try:
             for cpp_ptr in cpp_ptrs:
-                cpp_processed_ptr, cpp_charge = _pipeline.process_resonance_ptr(cpp_ptr, charge)
+                cpp_processed_ptr, cpp_charge = _dev_resonance.process_resonance_ptr(cpp_ptr, charge)
                 cpp_processed_ptr = int(cpp_processed_ptr)
                 try:
-                    cpp_out.append((_pipeline.smiles_token_ptr(cpp_processed_ptr), int(cpp_charge)))
+                    cpp_out.append((_dev_resonance.smiles_token_ptr(cpp_processed_ptr), int(cpp_charge)))
                 finally:
                     _core.free_obmol_ptr(cpp_processed_ptr)
         finally:

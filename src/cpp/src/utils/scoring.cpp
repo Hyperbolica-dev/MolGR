@@ -1,390 +1,542 @@
-/**
- * @file scoring.cpp
- * @brief Implementation of molecular structure scoring logic with logging.
- * @namespace molgr::scoring
- * @author TMJ
- * @date 2025-12-25
- */
-
 #include "molgr/utils/scoring.h"
-#include "molgr/utils/consts.h"
-#include "molgr/utils/utils.h"
-#include "molgr/utils/logger.h"
 
-#include <openbabel/graphsym.h>
-#include <openbabel/elements.h>
-#include <openbabel/obiter.h>
+#include "molgr/utils/consts.h"
+#include "molgr/utils/smarts.h"
+#include "molgr/utils/utils.h"
+
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <openbabel/elements.h>
+#include <openbabel/graphsym.h>
+#include <openbabel/obconversion.h>
+#include <openbabel/obiter.h>
 
 #include <cmath>
-#include <set>
-#include <iostream>
+#include <cstdint>
 #include <algorithm>
+#include <sstream>
+#include <unordered_set>
+
+namespace
+{
+    constexpr double kCoordinateScale = 1000000.0;
+
+    OpenBabel::OBMol &MutableMol(const OpenBabel::OBMol &mol)
+    {
+        return const_cast<OpenBabel::OBMol &>(mol);
+    }
+
+    std::int64_t QuantizedCoordinate(double value)
+    {
+        return static_cast<std::int64_t>(std::llround(value * kCoordinateScale));
+    }
+
+    double CalculateChargeInteractionPenalty(int metal_valence, int ligand_charge, double dist_sq)
+    {
+        if (dist_sq <= 0.0)
+        {
+            return 0.0;
+        }
+        if (ligand_charge > 0)
+        {
+            return 100.0 * (ligand_charge * metal_valence) / dist_sq;
+        }
+        if (ligand_charge < 0)
+        {
+            return -5.0 * (std::abs(ligand_charge) * metal_valence) / dist_sq;
+        }
+        return 0.0;
+    }
+
+    double CalculateChargePenaltyFromData(
+        int atomic_num,
+        int charge,
+        int total_valence,
+        int spin_multiplicity)
+    {
+        if (charge == 0)
+        {
+            return 0.0;
+        }
+
+        const auto info_it = molgr::kNonMetalDict.find(atomic_num);
+        if (info_it == molgr::kNonMetalDict.end())
+        {
+            return 0.0;
+        }
+
+        const int total_electrons =
+            info_it->second.num_outer_electrons + total_valence - charge + spin_multiplicity;
+        if (total_electrons == 8 || total_electrons == 2)
+        {
+            return 0.0;
+        }
+
+        const double en = OpenBabel::OBElements::GetElectroNeg(atomic_num);
+        if (charge > 0)
+        {
+            return std::abs(charge) * std::max(0.0, en - 2.0) * 3.0;
+        }
+        return std::abs(charge) * std::max(0.0, 4.0 - en) * 3.0;
+    }
+
+    double CalculateRadicalPenaltyFromData(int atomic_num, int radical_num, int heavy_degree)
+    {
+        if (radical_num == 0)
+        {
+            return 0.0;
+        }
+        if (molgr::kHeteroatoms.find(atomic_num) != molgr::kHeteroatoms.end())
+        {
+            return radical_num * 10.0;
+        }
+        return (3.0 - static_cast<double>(heavy_degree)) * 1.5;
+    }
+
+    double CalculateCoulombicPenalty(const OpenBabel::OBBond &bond)
+    {
+        const int q1 = bond.GetBeginAtom()->GetFormalCharge();
+        const int q2 = bond.GetEndAtom()->GetFormalCharge();
+        if (q1 == 0 || q2 == 0)
+        {
+            return 0.0;
+        }
+        if (q1 * q2 > 0)
+        {
+            return 15.0;
+        }
+        return -0.5;
+    }
+
+    double CalcRemainBondOrderReward(const OpenBabel::OBMol &mol)
+    {
+        OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+        double remain_valence = 0.0;
+        double bond_order_sum = 0.0;
+        FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
+        {
+            OpenBabel::OBAtom &atom = *atom_iter;
+            if (atom.IsMetal())
+            {
+                continue;
+            }
+            const auto info_it = molgr::kNonMetalDict.find(atom.GetAtomicNum());
+            if (info_it != molgr::kNonMetalDict.end())
+            {
+                remain_valence += info_it->second.default_valence;
+            }
+        }
+        FOR_BONDS_OF_MOL(bond_iter, mutable_mol)
+        {
+            bond_order_sum += bond_iter->GetBondOrder();
+        }
+        return (remain_valence - bond_order_sum * 2.0) * 5.0;
+    }
+
+    double MetalStateSymmetryPenalty(const std::vector<molgr::MetalAtomPosition> &metal_states)
+    {
+        std::unordered_set<std::string> unique_states;
+        for (const auto &metal_state : metal_states)
+        {
+            unique_states.insert(
+                std::to_string(metal_state.element_idx) + ":" +
+                std::to_string(metal_state.valence) + ":" +
+                std::to_string(metal_state.radical_num));
+        }
+        return (static_cast<double>(unique_states.size()) - static_cast<double>(metal_states.size())) * 2.0;
+    }
+}
 
 namespace molgr
 {
     namespace scoring
     {
-
-        using namespace OpenBabel;
-
-        // 辅助：获取易读的原子标识，如 "C(1)"
-        std::string AtomId(OBAtom *atom)
+        std::string BuildScoreKey(const OpenBabel::OBMol &mol)
         {
-            std::string s = OBElements::GetSymbol(atom->GetAtomicNum());
-            s += "(" + std::to_string(atom->GetIdx()) + ")";
-            return s;
+            thread_local OpenBabel::OBConversion conv;
+            thread_local bool initialized = false;
+            if (!initialized)
+            {
+                conv.SetOutFormat("molreport");
+                initialized = true;
+            }
+            OpenBabel::OBMol mol_copy(mol);
+            return conv.WriteString(&mol_copy, true);
         }
 
-        // =============================================================================
-        // 1. Geometry Deviation Score
-        // =============================================================================
-
-        double GetDeviationScore(OBMol &mol, OBAtom *atom)
+        std::string BuildMetalStateKey(const std::vector<MetalAtomPosition> &metal_states)
         {
-            std::vector<OBAtom *> neighbors;
-            FOR_NB_OF_ATOM(nbr, atom)
+            std::ostringstream oss;
+            for (const auto &metal_state : metal_states)
             {
-                neighbors.push_back(&*nbr);
+                oss << metal_state.idx << ','
+                    << metal_state.element_idx << ','
+                    << metal_state.valence << ','
+                    << metal_state.radical_num << ','
+                    << QuantizedCoordinate(metal_state.position_x) << ','
+                    << QuantizedCoordinate(metal_state.position_y) << ','
+                    << QuantizedCoordinate(metal_state.position_z) << ';';
+            }
+            return oss.str();
+        }
+
+        double GetDeviationScore(const OpenBabel::OBMol &mol, const OpenBabel::OBAtom *atom)
+        {
+            if (atom == nullptr)
+            {
+                return 0.0;
             }
 
-            // Case 1: 2 Neighbors -> Angle check (Target 108.0)
+            std::vector<const OpenBabel::OBAtom *> neighbors;
+            FOR_NB_OF_ATOM(neighbor_iter, const_cast<OpenBabel::OBAtom *>(atom))
+            {
+                neighbors.push_back(&(*neighbor_iter));
+            }
+
             if (neighbors.size() == 2)
             {
-                double angle = mol.GetAngle(neighbors[0], atom, neighbors[1]);
-                double score = std::abs(angle - 108.0) / 108.0;
-                return score;
+                const double angle = MutableMol(mol).GetAngle(
+                    const_cast<OpenBabel::OBAtom *>(neighbors[0]),
+                    const_cast<OpenBabel::OBAtom *>(atom),
+                    const_cast<OpenBabel::OBAtom *>(neighbors[1]));
+                return std::abs(angle - 108.0) / 108.0;
             }
 
-            // Case 2: 3 Neighbors -> Tetrahedral shape quality
             if (neighbors.size() == 3)
             {
-                vector3 p1 = neighbors[0]->GetVector();
-                vector3 p2 = neighbors[1]->GetVector();
-                vector3 p3 = neighbors[2]->GetVector();
-                vector3 p_atom = atom->GetVector();
-
-                double quality = molgr::utils::CalculateShapeQuality(p1, p2, p3, p_atom);
-                double score = 1.0 - quality;
-                return score;
+                return 1.0 - molgr::utils::CalculateShapeQuality(
+                                 neighbors[0]->GetVector(),
+                                 neighbors[1]->GetVector(),
+                                 neighbors[2]->GetVector(),
+                                 atom->GetVector());
             }
 
             return 0.0;
         }
 
-        // =============================================================================
-        // 2. Symmetry Penalty
-        // =============================================================================
-
-        double CalcSymmetryPenalty(OBMol &mol)
+        double CalcSymmetryPenalty(const OpenBabel::OBMol &mol)
         {
-            OBGraphSym gs(&mol);
+            OpenBabel::OBGraphSym graph_sym(&MutableMol(mol));
             std::vector<unsigned int> symmetry_ids;
-            gs.GetSymmetry(symmetry_ids);
-
-            std::set<unsigned int> unique_ids(symmetry_ids.begin(), symmetry_ids.end());
-
-            // logic: (num_unique_classes - num_atoms) * 2.0
-            double penalty = (static_cast<double>(unique_ids.size()) - static_cast<double>(mol.NumAtoms())) * 2.0;
-
-            LOG_DEBUG("[Symmetry] Classes: " << unique_ids.size()
-                                             << ", Atoms: " << mol.NumAtoms()
-                                             << " -> Penalty: " << penalty);
-
-            return penalty;
+            graph_sym.GetSymmetry(symmetry_ids);
+            std::unordered_set<unsigned int> unique_ids(symmetry_ids.begin(), symmetry_ids.end());
+            return (static_cast<double>(unique_ids.size()) - static_cast<double>(mol.NumAtoms())) * 2.0;
         }
 
-        // =============================================================================
-        // 3. PhysChem Penalty (Internal Helpers)
-        // =============================================================================
-
-        double CalculateChargePenalty(OBAtom *atom)
+        double CalculatePhysChemPenalty(const OpenBabel::OBMol &mol)
         {
-            double penalty = 0.0;
-            int charge = atom->GetFormalCharge();
-            if (charge == 0)
-                return penalty;
-
-            int atomic_num = atom->GetAtomicNum();
-            if (kNonMetalDict.find(atomic_num) == kNonMetalDict.end())
-                return penalty;
-
-            const ElementInfo &info = kNonMetalDict.at(atomic_num);
-            int total_electrons = info.num_outer_electrons + atom->GetTotalValence() - charge + atom->GetSpinMultiplicity();
-
-            // 稳定八隅体或二隅体
-            if (total_electrons == 8 || total_electrons == 2)
-                return penalty;
-
-            double en = OBElements::GetElectroNeg(atomic_num);
-
-            if (charge > 0)
-            {
-                penalty += std::abs(charge) * std::max(0.0, en - 2.0) * 3.0;
-            }
-            if (charge < 0)
-            {
-                penalty += std::abs(charge) * std::max(0.0, 4.0 - en) * 3.0;
-            }
-
-            if (penalty > 0.0)
-            {
-                LOG_DEBUG("[PhysChem] Charge Penalty on " << AtomId(atom)
-                                                          << " (Q=" << charge << ", EN=" << en << "): " << penalty);
-            }
-
-            return penalty;
-        }
-
-        double CalculateRadicalPenalty(OBAtom *atom)
-        {
-            double penalty = 0.0;
-            int radical_num = atom->GetSpinMultiplicity();
-            if (radical_num == 0)
-                return penalty;
-
-            int atomic_num = atom->GetAtomicNum();
-
-            if (kHeteroatoms.find(atomic_num) != kHeteroatoms.end())
-            {
-                penalty = radical_num * 10.0;
-            }
-            else
-            {
-                penalty = (3.0 - static_cast<double>(atom->GetHvyDegree())) * 1.5;
-            }
-
-            LOG_DEBUG("[PhysChem] Radical Penalty on " << AtomId(atom)
-                                                       << " (Rad=" << radical_num << "): " << penalty);
-
-            return penalty;
-        }
-
-        double CalculateCoulombicPenalty(OBBond *bond)
-        {
-            OBAtom *atom1 = bond->GetBeginAtom();
-            OBAtom *atom2 = bond->GetEndAtom();
-            int q1 = atom1->GetFormalCharge();
-            int q2 = atom2->GetFormalCharge();
-
-            if (q1 == 0 || q2 == 0)
-                return 0.0;
-
-            if (q1 * q2 > 0)
-            {
-                // 同性相斥
-                LOG_DEBUG("[PhysChem] Coulombic Repulsion: " << AtomId(atom1) << " <-> " << AtomId(atom2) << " (+15.0)");
-                return 15.0;
-            }
-            // 异性相吸
-            return -0.5;
-        }
-
-        double CalculateConjugationReward(OBMol &mol)
-        {
-            auto matches = molgr::utils::FindSmarts(mol, "[*]=,#,:[*]-,:[*]=,#,:[*]");
-            return matches.size() * 2.0;
-        }
-
-        double CalculatePhysChemPenalty(OBMol &mol)
-        {
+            OpenBabel::OBMol &mutable_mol = MutableMol(mol);
             double total_penalty = 0.0;
-
-            FOR_ATOMS_OF_MOL(atom, mol)
+            FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
             {
-                if (atom->IsMetal())
+                OpenBabel::OBAtom &atom = *atom_iter;
+                if (atom.IsMetal())
+                {
                     continue;
-                total_penalty += CalculateChargePenalty(&*atom);
-                total_penalty += CalculateRadicalPenalty(&*atom);
+                }
+                total_penalty += CalculateChargePenaltyFromData(
+                    atom.GetAtomicNum(),
+                    atom.GetFormalCharge(),
+                    atom.GetTotalValence(),
+                    atom.GetSpinMultiplicity());
+                total_penalty += CalculateRadicalPenaltyFromData(
+                    atom.GetAtomicNum(),
+                    atom.GetSpinMultiplicity(),
+                    atom.GetHvyDegree());
             }
 
-            FOR_BONDS_OF_MOL(bond, mol)
+            FOR_BONDS_OF_MOL(bond_iter, mutable_mol)
             {
-                total_penalty += CalculateCoulombicPenalty(&*bond);
+                total_penalty += CalculateCoulombicPenalty(*bond_iter);
             }
-
             return total_penalty;
         }
 
-        // =============================================================================
-        // 4. Metal Penalty (Internal Helpers)
-        // =============================================================================
-
-        std::vector<std::pair<OBAtom *, double>> GetMetalCoordinationSphere(OBMol &mol, OBAtom *metal_atom, double cutoff = 2.8)
+        double CalculateMetalPenalty(const OpenBabel::OBMol &mol)
         {
-            std::vector<std::pair<OBAtom *, double>> neighbors;
-            FOR_ATOMS_OF_MOL(other, mol)
-            {
-                if (other->GetIdx() == metal_atom->GetIdx())
-                    continue;
-                double dist = metal_atom->GetDistance(&*other);
-                if (dist <= cutoff)
-                {
-                    neighbors.push_back({&*other, dist});
-                }
-            }
-            return neighbors;
-        }
-
-        double CalculateMetalPenalty(OBMol &mol)
-        {
+            OpenBabel::OBMol &mutable_mol = MutableMol(mol);
             double penalty = 0.0;
-
-            FOR_ATOMS_OF_MOL(atom, mol)
+            FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
             {
-                if (!atom->IsMetal())
+                OpenBabel::OBAtom &metal_atom = *atom_iter;
+                if (!metal_atom.IsMetal())
+                {
                     continue;
+                }
 
-                std::string symbol = OBElements::GetSymbol(atom->GetAtomicNum());
-                int valence = atom->GetFormalCharge();
-
-                double atom_penalty = 0.0;
-
-                // Rule 1: Valence Validity
+                const std::string symbol = OpenBabel::OBElements::GetSymbol(metal_atom.GetAtomicNum());
+                const int valence = metal_atom.GetFormalCharge();
                 if (valence <= 0)
-                    atom_penalty += 10.0;
-
-                bool is_prior = false;
-                bool is_minor = false;
-
-                if (kMetalValencePrior.count(symbol))
                 {
-                    const auto &vec = kMetalValencePrior.at(symbol);
-                    for (int v : vec)
-                        if (v == valence)
-                            is_prior = true;
+                    penalty += 10.0 * std::max(std::abs(valence), 1);
                 }
 
-                if (kMetalValenceMinor.count(symbol))
+                const auto prior_it = molgr::kMetalValencePrior.find(symbol);
+                const auto minor_it = molgr::kMetalValenceMinor.find(symbol);
+                const bool in_prior = prior_it != molgr::kMetalValencePrior.end() &&
+                                      std::find(prior_it->second.begin(), prior_it->second.end(), valence) !=
+                                          prior_it->second.end();
+                const bool in_minor = minor_it != molgr::kMetalValenceMinor.end() &&
+                                      std::find(minor_it->second.begin(), minor_it->second.end(), valence) !=
+                                          minor_it->second.end();
+                if (!in_prior)
                 {
-                    const auto &vec = kMetalValenceMinor.at(symbol);
-                    for (int v : vec)
-                        if (v == valence)
-                            is_minor = true;
-                }
-
-                if (!is_prior)
-                {
-                    if (is_minor)
+                    if (in_minor)
                     {
-                        atom_penalty += 2.0;
-                        LOG_DEBUG("[Metal] " << symbol << " Minor Valence (" << valence << ") +2.0");
+                        penalty += 10.0;
                     }
                     else
                     {
-                        atom_penalty += 10.0;
-                        LOG_DEBUG("[Metal] " << symbol << " Invalid/Rare Valence (" << valence << ") +10.0");
+                        penalty += 20.0;
                     }
                 }
 
-                // Rule 2: Coordination Sphere Electrostatics
-                auto neighbors = GetMetalCoordinationSphere(mol, &*atom, 2.6);
-                for (const auto &pair : neighbors)
+                if (valence <= 0)
                 {
-                    OBAtom *ligand = pair.first;
-                    double dist = pair.second;
-                    int ligand_charge = ligand->GetFormalCharge();
-
-                    if (valence > 0)
-                    {
-                        if (ligand_charge > 0)
-                        {
-                            double p = 10.0 * (ligand_charge * valence) / (dist * dist);
-                            atom_penalty += p;
-                            LOG_DEBUG("[Metal] Repulsion with " << AtomId(ligand) << " Dist=" << dist << " -> +" << p);
-                        }
-                        else if (ligand_charge < 0)
-                        {
-                            double p = 2.0 * (std::abs(ligand_charge) * valence) / dist;
-                            atom_penalty -= p; // Bonus
-                            // LOG_DEBUG("[Metal] Attraction with " << AtomId(ligand) << " -> -" << p); // 奖励通常不打印，除非调试
-                        }
-                    }
+                    continue;
                 }
 
-                penalty += atom_penalty;
+                FOR_ATOMS_OF_MOL(other_iter, mutable_mol)
+                {
+                    OpenBabel::OBAtom &other = *other_iter;
+                    if (other.GetIdx() == metal_atom.GetIdx())
+                    {
+                        continue;
+                    }
+                    const double dist = metal_atom.GetDistance(&other);
+                    if (dist > 2.6)
+                    {
+                        continue;
+                    }
+                    penalty += CalculateChargeInteractionPenalty(
+                        valence,
+                        other.GetFormalCharge(),
+                        dist * dist);
+                }
             }
             return penalty;
         }
-        // =============================================================================
-        // Main Score Function
-        // =============================================================================
 
-        double OmolScore(OBMol &mol)
+        double CalculateMetalPenaltyFromMetalStates(
+            const ChargedAtomSnapshotList &charged_atom_snapshots,
+            const std::vector<MetalAtomPosition> &metal_states,
+            double cutoff)
         {
-            LOG_DEBUG("=== Scoring Start (Atoms: " << mol.NumAtoms() << ") ===");
-            mol.SetAromaticPerceived(false);
-            double score = 0.0;
+            double penalty = 0.0;
+            const double cutoff_sq = cutoff * cutoff;
 
-            // 1. Symmetry
-            double sym = CalcSymmetryPenalty(mol);
-            score += sym;
-
-            // 2. Geometry Deviation
-            double geo_penalty = 0.0;
-            FOR_ATOMS_OF_MOL(atom, mol)
+            for (std::size_t i = 0; i < metal_states.size(); ++i)
             {
-                if (atom->IsMetal())
-                    continue;
-
-                if (atom->IsAromatic())
-                    score -= 5.0 - atom->GetFormalCharge() * 3.0; // 芳香原子奖励
-
-                double dev = GetDeviationScore(mol, &*atom);
-                int charge = atom->GetFormalCharge();
-                int radical = atom->GetSpinMultiplicity();
-
-                double term = 0.0;
-                if (radical > 0)
-                    term = dev * 10.0;
-                else if (charge > 0)
-                    term = dev * 10.0;
-                else if (charge < 0)
-                    term = (1.0 - dev) * 10.0;
-
-                if (term > 0.5)
-                { // 只记录显著的几何偏差罚分
-                    LOG_DEBUG("[Geometry] " << AtomId(&*atom) << " Dev=" << dev << " (Q=" << charge << ",R=" << radical << ") -> +" << term);
+                const auto &metal_state = metal_states[i];
+                const int valence = metal_state.valence;
+                if (valence <= 0)
+                {
+                    penalty += 10.0 * std::max(std::abs(valence), 1);
                 }
-                geo_penalty += term;
 
-                if (atom->GetAtomicNum() == 6)
+                const auto prior_it = molgr::kMetalValencePrior.find(metal_state.symbol);
+                const auto minor_it = molgr::kMetalValenceMinor.find(metal_state.symbol);
+                const bool in_prior = prior_it != molgr::kMetalValencePrior.end() &&
+                                      std::find(prior_it->second.begin(), prior_it->second.end(), valence) !=
+                                          prior_it->second.end();
+                const bool in_minor = minor_it != molgr::kMetalValenceMinor.end() &&
+                                      std::find(minor_it->second.begin(), minor_it->second.end(), valence) !=
+                                          minor_it->second.end();
+                if (!in_prior)
+                {
+                    if (in_minor)
+                    {
+                        penalty += 10.0;
+                    }
+                    else
+                    {
+                        penalty += 20.0;
+                    }
+                }
+
+                if (valence <= 0)
+                {
+                    continue;
+                }
+
+                for (const auto &[ligand_charge, x, y, z] : charged_atom_snapshots)
+                {
+                    const double dx = metal_state.position_x - x;
+                    const double dy = metal_state.position_y - y;
+                    const double dz = metal_state.position_z - z;
+                    const double dist_sq = dx * dx + dy * dy + dz * dz;
+                    if (dist_sq > cutoff_sq)
+                    {
+                        continue;
+                    }
+                    penalty += CalculateChargeInteractionPenalty(valence, ligand_charge, dist_sq);
+                }
+
+                for (std::size_t j = 0; j < metal_states.size(); ++j)
+                {
+                    if (i == j)
+                    {
+                        continue;
+                    }
+                    const auto &other_metal = metal_states[j];
+                    if (other_metal.valence == 0)
+                    {
+                        continue;
+                    }
+                    const double dx = metal_state.position_x - other_metal.position_x;
+                    const double dy = metal_state.position_y - other_metal.position_y;
+                    const double dz = metal_state.position_z - other_metal.position_z;
+                    const double dist_sq = dx * dx + dy * dy + dz * dz;
+                    if (dist_sq > cutoff_sq)
+                    {
+                        continue;
+                    }
+                    penalty += CalculateChargeInteractionPenalty(valence, other_metal.valence, dist_sq);
+                }
+            }
+
+            return penalty;
+        }
+
+        static double CalculateHeteroatomPenalty(const OpenBabel::OBMol &mol)
+        {
+            OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+            double penalty = 0.0;
+            FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
+            {
+                OpenBabel::OBAtom &atom = *atom_iter;
+                if (molgr::kHeteroatoms.find(atom.GetAtomicNum()) == molgr::kHeteroatoms.end())
+                {
+                    continue;
+                }
+                penalty += 10.0 * (atom.GetFormalCharge() - atom.GetTotalValence());
+            }
+            return penalty;
+        }
+
+        static double CalculateConjugationReward(const OpenBabel::OBMol &mol)
+        {
+            auto matches = molgr::smarts::Match(
+                MutableMol(mol),
+                molgr::smarts::PatternId::SCORING_CONJUGATION);
+            return static_cast<double>(matches.size()) * 2.0;
+        }
+
+        double OrganicCoreScore(const OpenBabel::OBMol &mol)
+        {
+            OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+            double score = CalcRemainBondOrderReward(mol);
+
+            FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
+            {
+                OpenBabel::OBAtom &atom = *atom_iter;
+                if (atom.IsMetal())
+                {
+                    continue;
+                }
+
+                if (atom.IsAromatic())
+                {
+                    score -= 5.0 - std::abs(atom.GetFormalCharge()) * 3.0;
+                }
+
+                const bool needs_deviation = atom.GetSpinMultiplicity() > 0 || atom.GetFormalCharge() != 0;
+                if (needs_deviation)
+                {
+                    const double deviation = GetDeviationScore(mol, &atom);
+                    if (atom.GetSpinMultiplicity() > 0)
+                    {
+                        score += deviation * 10.0;
+                    }
+                    if (atom.GetFormalCharge() > 0)
+                    {
+                        score += deviation * 10.0;
+                    }
+                    if (atom.GetFormalCharge() < 0)
+                    {
+                        score += (1.0 - deviation) * 10.0;
+                    }
+                }
+
+                if (atom.GetAtomicNum() == 6)
                 {
                     bool all_double_bond = true;
-                    FOR_BONDS_OF_ATOM(bond, &*atom)
+                    FOR_BONDS_OF_ATOM(bond_iter, const_cast<OpenBabel::OBAtom *>(&atom))
                     {
-                        if (bond->GetBondOrder() != 2.0)
+                        if (bond_iter->GetBondOrder() != 2)
                         {
                             all_double_bond = false;
                             break;
                         }
                     }
                     if (all_double_bond)
-                        score += 5.0; // 联烯惩罚
+                    {
+                        score += 5.0;
+                    }
                 }
             }
-            score += geo_penalty;
-            LOG_DEBUG(">> Geometry Total: " << geo_penalty);
 
-            // 3. PhysChem
-            double phys = CalculatePhysChemPenalty(mol);
-            score += phys;
-            LOG_DEBUG(">> PhysChem Total: " << phys);
-
-            // 4. Metal
-            double metal = CalculateMetalPenalty(mol);
-            score += metal;
-            LOG_DEBUG(">> Metal Total:    " << metal);
-
-            LOG_DEBUG("=== Final Score: " << score << " ===");
-            
-            // 5. Conjugation reward
-            double conjugation = CalculateConjugationReward(mol);
-            score -= conjugation;
-            LOG_DEBUG(">> Conjugation Total: " << conjugation);
+            score += CalculatePhysChemPenalty(mol);
+            score += CalculateHeteroatomPenalty(mol);
+            score -= CalculateConjugationReward(mol);
             return score;
         }
 
-    } // namespace scoring
-} // namespace molgr
+        double PostReinsertionScore(const OpenBabel::OBMol &mol)
+        {
+            return CalcSymmetryPenalty(mol) + CalculateMetalPenalty(mol);
+        }
+
+        std::pair<double, ChargedAtomSnapshotList> BuildPostReinsertionBaseComponents(
+            const OpenBabel::OBMol &mol)
+        {
+            OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+            ChargedAtomSnapshotList charged_atom_snapshots;
+            FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
+            {
+                OpenBabel::OBAtom &atom = *atom_iter;
+                if (atom.GetFormalCharge() == 0)
+                {
+                    continue;
+                }
+                charged_atom_snapshots.emplace_back(
+                    atom.GetFormalCharge(),
+                    atom.GetX(),
+                    atom.GetY(),
+                    atom.GetZ());
+            }
+            return {CalcSymmetryPenalty(mol), charged_atom_snapshots};
+        }
+
+        double PostReinsertionScoreFromMetalStates(
+            double base_symmetry_penalty,
+            const ChargedAtomSnapshotList &charged_atom_snapshots,
+            const std::vector<MetalAtomPosition> &metal_states)
+        {
+            return base_symmetry_penalty +
+                   MetalStateSymmetryPenalty(metal_states) +
+                   CalculateMetalPenaltyFromMetalStates(charged_atom_snapshots, metal_states);
+        }
+
+        double CombinedCandidateScoreFromMetalStates(
+            double organic_score,
+            const std::string &post_reinsertion_base_key,
+            double base_symmetry_penalty,
+            const ChargedAtomSnapshotList &charged_atom_snapshots,
+            const std::vector<MetalAtomPosition> &metal_states)
+        {
+            (void)post_reinsertion_base_key;
+            return organic_score +
+                   PostReinsertionScoreFromMetalStates(
+                       base_symmetry_penalty,
+                       charged_atom_snapshots,
+                       metal_states);
+        }
+
+        double OmolScore(const OpenBabel::OBMol &mol)
+        {
+            MutableMol(mol).SetAromaticPerceived(false);
+            return OrganicCoreScore(mol) + PostReinsertionScore(mol);
+        }
+    }
+}

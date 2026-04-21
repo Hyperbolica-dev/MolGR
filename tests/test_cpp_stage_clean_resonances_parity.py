@@ -14,7 +14,7 @@ from molgr import _core  # type: ignore
 from molgr.fallback.stages import clean
 
 
-_stages: Any = _core.stages
+_stages: Any = _core.dev.stages
 
 
 def _get_ptr(obmol) -> int:
@@ -26,6 +26,12 @@ def _get_ptr(obmol) -> int:
 
 def _clone_mol(mol: pybel.Molecule) -> pybel.Molecule:
     return pybel.Molecule(ob.OBMol(mol.OBMol))
+
+
+def _unwrap_mol(result):
+    if isinstance(result, tuple):
+        return result[0]
+    return result
 
 
 def _smiles_token(mol: pybel.Molecule) -> str:
@@ -171,7 +177,7 @@ def _applied_rule_ids_in_python_order(mol: pybel.Molecule) -> List[int]:
     applied_ids: List[int] = []
     for rule_id, fn in ordered_rules:
         before = _state_signature(probe)
-        probe = fn(probe)
+        probe = _unwrap_mol(fn(probe))
         after = _state_signature(probe)
         if before != after:
             applied_ids.append(rule_id)
@@ -192,7 +198,7 @@ def test_clean_resonances_cpp_matches_python(seed_builder, key_bonds) -> None:
     applied_rule_ids = _applied_rule_ids_in_python_order(py_mol)
     assert len(set(applied_rule_ids)) >= 2
 
-    py_mol = clean.clean_resonances(py_mol)
+    py_mol = _unwrap_mol(clean.clean_resonances(py_mol))
     _stages.clean.clean_resonances_ptr(_get_ptr(cpp_mol.OBMol))
 
     _assert_atom_state_parity(py_mol, cpp_mol)
@@ -207,7 +213,7 @@ def test_clean_resonances_rule12_room_guard_keeps_problematic_token() -> None:
     py_mol = pybel.readstring("smi", smiles)
     cpp_mol = pybel.readstring("smi", smiles)
 
-    py_mol = clean.clean_resonances(py_mol)
+    py_mol = _unwrap_mol(clean.clean_resonances(py_mol))
     _stages.clean.clean_resonances_ptr(_get_ptr(cpp_mol.OBMol))
 
     assert _smiles_token(py_mol) == expected_token

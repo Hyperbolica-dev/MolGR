@@ -4,6 +4,7 @@
 
 #include "molgr/utils/consts.h"
 #include "molgr/utils/logger.h"
+#include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
 #include <openbabel/atom.h>
@@ -19,11 +20,12 @@ namespace molgr
     {
         using namespace OpenBabel;
 
-        void CleanCarbeneNeighborUnsaturated(OBMol &mol)
+        bool CleanCarbeneNeighborUnsaturated(OBMol &mol)
         {
+            bool hit = false;
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*]-[*]=[*]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_CARBENE_NEIGHBOR_UNSAT);
                 if (matches.empty())
                     break;
                 bool any_applied = false;
@@ -44,6 +46,7 @@ namespace molgr
                             b12->SetBondOrder(b12->GetBondOrder() + 1);
                             a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
                             a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() + 1);
+                            hit = true;
                             any_applied = true;
                             break;
                         }
@@ -52,15 +55,17 @@ namespace molgr
                 if (!any_applied)
                     break;
             }
+            return hit;
         }
 
-        void EliminateNNN(OBMol &mol, int &charge, bool positive)
+        bool EliminateNNN(OBMol &mol, int &charge, bool positive)
         {
+            bool hit = false;
             if (!positive)
             {
                 while (true)
                 {
-                    auto matches = molgr::utils::FindSmarts(mol, "[#7v1+0]-[#7v2+0]-[#7v1+0]");
+                    auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_NEGATIVE);
                     if (matches.empty())
                     {
                         break;
@@ -90,14 +95,15 @@ namespace molgr
                     a3->SetFormalCharge(a3->GetFormalCharge() - 1);
 
                     charge += 1;
+                    hit = true;
                     LOG_DEBUG("[EliminateNNN] Applied negative branch");
                 }
-                return;
+                return hit;
             }
 
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#7v3+0]-[#7v2+0]-[#7v3+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_POSITIVE);
                 if (matches.empty())
                 {
                     break;
@@ -116,15 +122,18 @@ namespace molgr
                 a1->SetFormalCharge(a1->GetFormalCharge() + 1);
                 a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
                 charge -= 1;
+                hit = true;
                 LOG_DEBUG("[EliminateNNN] Applied positive branch");
             }
+            return hit;
         }
 
-        void EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
+        bool EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
         {
+            bool hit = false;
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[*+1,*+2,*+3]-[Ov1+0,Nv2+0,Sv1+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
                 if (matches.empty())
                     break;
 
@@ -142,13 +151,16 @@ namespace molgr
                 a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
                 a2->SetFormalCharge(a2->GetFormalCharge() - 1);
                 charge += 1;
+                hit = true;
                 LOG_DEBUG("[EliminateHighPos] Applied");
             }
+            return hit;
         }
 
-        void EliminateCNInDoubt(OBMol &mol, int &charge)
+        bool EliminateCNInDoubt(OBMol &mol, int &charge)
         {
-            auto matches = molgr::utils::FindSmarts(mol, "[#6v4+0]=,#[#7v4+1,#15v4+1]");
+            bool hit = false;
+            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
             size_t count = matches.size();
             if (count > 0 && count % 2 == 0)
             {
@@ -163,27 +175,32 @@ namespace molgr
                     bond->SetBondOrder(bond->GetBondOrder() - 1);
                     a2->SetFormalCharge(0);
                     charge += 2;
+                    hit = true;
                 }
                 LOG_DEBUG("[EliminateCN] Applied to " << count / 2 << " pairs");
             }
+            return hit;
         }
 
-        void EliminateCarboxyl(OBMol &mol, int &charge)
+        bool EliminateCarboxyl(OBMol &mol, int &charge)
         {
+            bool hit = false;
             while (true)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[Ov1+0]-C=O");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CARBOXYL);
                 if (matches.empty())
                     break;
                 OBAtom *a1 = mol.GetAtom(matches[0][0]);
                 a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
                 a1->SetFormalCharge(a1->GetFormalCharge() - 1);
                 charge += 1;
+                hit = true;
                 LOG_DEBUG("[EliminateCarboxyl] Applied");
             }
+            return hit;
         }
 
-        void EliminateCarbeneNeighborHeteroatom(OBMol &mol, int &charge)
+        bool EliminateCarbeneNeighborHeteroatom(OBMol &mol, int &charge)
         {
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
@@ -214,15 +231,17 @@ namespace molgr
                             atom->SetFormalCharge(atom->GetFormalCharge() - 1);
                             nbr->SetFormalCharge(nbr->GetFormalCharge() + 1);
                             LOG_DEBUG("[EliminateCarbeneHetero] Applied");
-                            return;
+                            return true;
                         }
                     }
                 }
             }
+            return false;
         }
 
-        void CleanNeighborRadicals(OBMol &mol)
+        bool CleanNeighborRadicals(OBMol &mol)
         {
+            bool hit = false;
             FOR_BONDS_OF_MOL(bond_iter, mol)
             {
                 OBBond *bond = &(*bond_iter);
@@ -236,12 +255,15 @@ namespace molgr
                     bond->SetBondOrder(bond->GetBondOrder() + to_add);
                     a1->SetSpinMultiplicity(r1 - to_add);
                     a2->SetSpinMultiplicity(r2 - to_add);
+                    hit = true;
                 }
             }
+            return hit;
         }
 
-        void EliminateChargeSpliting(OBMol &mol, int &charge)
+        bool EliminateChargeSpliting(OBMol &mol, int &charge)
         {
+            bool hit = false;
             bool all_neutral = true;
             int sum_radicals = 0;
             std::vector<OBAtom *> radical_atoms;
@@ -283,6 +305,7 @@ namespace molgr
                             atom->SetFormalCharge(atom->GetFormalCharge() - 1);
                             charge += 1;
                             radical_atoms.erase(it);
+                            hit = true;
                             found = true;
                             break;
                         }
@@ -295,11 +318,13 @@ namespace molgr
                 process(6, true);
                 process(6, false);
             }
+            return hit;
         }
 
-        void Eliminate13Dipole(OBMol &mol, int &charge)
+        bool Eliminate13Dipole(OBMol &mol, int &charge)
         {
-            auto matches = molgr::utils::FindSmarts(mol, "[*-1]-,=[N+0,O+0]-,=[*]");
+            bool hit = false;
+            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_1_3_DIPOLE);
             while (!matches.empty())
             {
                 auto idxs = matches.front();
@@ -322,15 +347,18 @@ namespace molgr
                     bond23->SetBondOrder(static_cast<int>(bond23->GetBondOrder() + 1));
                     atom3->SetSpinMultiplicity(atom3->GetSpinMultiplicity() - 1);
                     charge -= 1;
+                    hit = true;
                 }
             }
+            return hit;
         }
 
-        void EliminatePositiveCharges(OBMol &mol, int &charge)
+        bool EliminatePositiveCharges(OBMol &mol, int &charge)
         {
+            bool hit = false;
             while (charge > 0)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[Nv3+0]=[Nv2+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
                 if (matches.empty())
                 {
                     break;
@@ -346,11 +374,12 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
                 atom->SetFormalCharge(1);
                 charge -= 1;
+                hit = true;
             }
 
             while (charge > 0)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#6v3+0,#6v2+0,#1v0+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
                 if (matches.empty())
                 {
                     break;
@@ -366,6 +395,7 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
                 atom->SetFormalCharge(1);
                 charge -= 1;
+                hit = true;
             }
 
             FOR_ATOMS_OF_MOL(atom_iter, mol)
@@ -381,12 +411,15 @@ namespace molgr
                     atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                     atom->SetFormalCharge(to_add);
                     charge -= to_add;
+                    hit = true;
                 }
             }
+            return hit;
         }
 
-        void EliminateNegativeCharges(OBMol &mol, int &charge)
+        bool EliminateNegativeCharges(OBMol &mol, int &charge)
         {
+            bool hit = false;
             const std::vector<int> heteroatom_priority = {9, 8, 17, 7, 35, 54, 16, 34, 15};
 
             std::vector<std::pair<OBAtom *, size_t>> possible_heteroatoms;
@@ -420,11 +453,12 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
+                hit = true;
             }
 
             while (charge < 0)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#6v3+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3);
                 if (matches.empty())
                 {
                     break;
@@ -441,11 +475,12 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
+                hit = true;
             }
 
             while (charge < 0)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#1v0+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_H);
                 if (matches.empty())
                 {
                     break;
@@ -462,11 +497,12 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
+                hit = true;
             }
 
             while (charge < 0)
             {
-                auto matches = molgr::utils::FindSmarts(mol, "[#6v2+0,#6v1+0,#6v0+0]");
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW);
                 if (matches.empty())
                 {
                     break;
@@ -483,7 +519,9 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
+                hit = true;
             }
+            return hit;
         }
     }
 }
