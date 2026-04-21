@@ -1,3 +1,5 @@
+"""Radical/resonance cleanup stages for fallback."""
+
 from __future__ import annotations
 
 from typing import List, Tuple, cast
@@ -6,13 +8,15 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.stages.fresh import fresh_omol_charge_radical
-from molgr.fallback.utils import consts
+from molgr.fallback.utils import consts, smarts
 
 
-def clean_carbene_neighbor_unsaturated(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_carbene_neighbor_unsaturated(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    """Shift a carbene radical toward an adjacent unsaturated bond when favorable."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*]-[*]=[*]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_CARBENE_NEIGHBOR_UNSAT.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -26,10 +30,14 @@ def clean_carbene_neighbor_unsaturated(omol: pybel.Molecule) -> pybel.Molecule:
             )
             atom1.SetSpinMultiplicity(atom1.GetSpinMultiplicity() - 1)
             atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() + 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_neighbor_radicals(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_neighbor_radicals(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    """Fuse adjacent radicals into higher bond order whenever both endpoints allow it."""
+
+    hit = False
     for bond in list(ob.OBMolBondIter(omol.OBMol)):
         begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
         end_atom = cast(ob.OBAtom, bond.GetEndAtom())
@@ -38,13 +46,15 @@ def clean_neighbor_radicals(omol: pybel.Molecule) -> pybel.Molecule:
             bond.SetBondOrder(bond.GetBondOrder() + bond_to_add)
             begin_atom.SetSpinMultiplicity(begin_atom.GetSpinMultiplicity() - bond_to_add)
             end_atom.SetSpinMultiplicity(end_atom.GetSpinMultiplicity() - bond_to_add)
-    return omol
+            if bond_to_add > 0:
+                hit = True
+    return omol, hit
 
 
-def clean_resonances_0(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_resonances_0(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*-]-[*]=[*]~[*+]")
-    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int]] = list(smarts.CLEAN_RESONANCE_0.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -53,8 +63,7 @@ def clean_resonances_0(omol: pybel.Molecule) -> pybel.Molecule:
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         obbond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
-            > obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence > obatom1.GetTotalValence()
             and consts.NON_METAL_DICT[obatom4.GetAtomicNum()].default_valence
             > obatom4.GetTotalValence()
         ):
@@ -63,13 +72,14 @@ def clean_resonances_0(omol: pybel.Molecule) -> pybel.Molecule:
             obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom4.SetFormalCharge(obatom4.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_1(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_resonances_1(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*-]=[*+]=[*+0]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_RESONANCE_1.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -80,14 +90,14 @@ def clean_resonances_1(omol: pybel.Molecule) -> pybel.Molecule:
         obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
         obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
         obatom3.SetFormalCharge(obatom3.GetFormalCharge() - 1)
-    return omol
+        hit = True
+    return omol, hit
 
 
-def clean_resonances_2(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_resonances_2(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-
-    smarts = pybel.Smarts("[#8]=[#6](-[!-])-[*]=[*]-[#7-,#6-]")
-    res: List[Tuple[int, int, int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int, int, int]] = list(smarts.CLEAN_RESONANCE_2.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -110,17 +120,14 @@ def clean_resonances_2(omol: pybel.Molecule) -> pybel.Molecule:
             obbond1.SetBondOrder(obbond1.GetBondOrder() - 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
             obatom5.SetFormalCharge(obatom5.GetFormalCharge() + 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_3(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    净结果产生一个氮宾
-    """
+def clean_resonances_3(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-
-    smarts = pybel.Smarts("[#7v2+]=[*]-[*]=[*]-[#8-]")
-    res: List[Tuple[int, int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int, int]] = list(smarts.CLEAN_RESONANCE_3.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -135,14 +142,15 @@ def clean_resonances_3(omol: pybel.Molecule) -> pybel.Molecule:
         obbond4.SetBondOrder(obbond4.GetBondOrder() + 1)
         obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
         obatom5.SetFormalCharge(obatom5.GetFormalCharge() + 1)
-        omol = fresh_omol_charge_radical(omol)
-    return omol
+        omol, _ = fresh_omol_charge_radical(omol)
+        hit = True
+    return omol, hit
 
 
-def clean_resonances_4(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_resonances_4(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#7+,#8+]=[*]-[#6-,#7-,#8-]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_RESONANCE_4.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -153,16 +161,14 @@ def clean_resonances_4(omol: pybel.Molecule) -> pybel.Molecule:
         obbond1.SetBondOrder(obbond1.GetBondOrder() - 1)
         obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
         obatom3.SetFormalCharge(obatom3.GetFormalCharge() + 1)
-    return omol
+        hit = True
+    return omol, hit
 
 
-def clean_resonances_5(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    1,3负离子共振，净结果产生一个相对更稳定的阴离子
-    """
+def clean_resonances_5(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#7+0,#8+0,#16+0]=[*+0]-[#6-,#7-]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_RESONANCE_5.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -179,16 +185,14 @@ def clean_resonances_5(omol: pybel.Molecule) -> pybel.Molecule:
             obbond1.SetBondOrder(obbond1.GetBondOrder() - 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
             obatom3.SetFormalCharge(obatom3.GetFormalCharge() + 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_6(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    净结果产生一个炔丙基（氰基亚甲基）负离子
-    """
+def clean_resonances_6(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#6]=[#6]=[#6-,#7-]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_RESONANCE_6.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -199,16 +203,14 @@ def clean_resonances_6(omol: pybel.Molecule) -> pybel.Molecule:
         obbond1.SetBondOrder(obbond1.GetBondOrder() - 1)
         obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
         obatom3.SetFormalCharge(obatom3.GetFormalCharge() + 1)
-    return omol
+        hit = True
+    return omol, hit
 
 
-def clean_resonances_7(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    酚基邻位类型芳构化，净结果产生一个酚基（或等电子体）负离子
-    """
+def clean_resonances_7(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1")
-    res: List[Tuple[int, int, int, int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int, int, int, int]] = list(smarts.CLEAN_RESONANCE_7.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -225,17 +227,15 @@ def clean_resonances_7(omol: pybel.Molecule) -> pybel.Molecule:
             obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom3.SetFormalCharge(obatom3.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_8(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    酚基对位类型芳构化，净结果产生一个酚基（或等电子体）负离子
-    """
+def clean_resonances_8(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
     obmol.SetAromaticPerceived(False)
-    smarts = pybel.Smarts("[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1")
-    res = smarts.findall(omol)
+    res = smarts.CLEAN_RESONANCE_8.findall(omol)
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -256,49 +256,41 @@ def clean_resonances_8(omol: pybel.Molecule) -> pybel.Molecule:
             obbond4.SetBondOrder(obbond4.GetBondOrder() - 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom5.SetFormalCharge(obatom5.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_9(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    净结果消除相邻相反电荷对
-    """
+def clean_resonances_9(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*+,*+2,*+3]-,=[*-,*-2,*-3]")
-    res: List[Tuple[int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int]] = list(smarts.CLEAN_RESONANCE_9.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
-            - obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence()
             >= 1
             and consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence
             - obatom2.GetTotalValence()
             >= 1
         ):
             bond_to_add = min(
-                consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
-                - obatom1.GetTotalValence(),
-                consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence
-                - obatom2.GetTotalValence(),
+                consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence(),
+                consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence - obatom2.GetTotalValence(),
             )
             obbond1.SetBondOrder(obbond1.GetBondOrder() + bond_to_add)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() - bond_to_add)
             obatom2.SetFormalCharge(obatom2.GetFormalCharge() + bond_to_add)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_10(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    净结果消除离域的两个自由基并形成共轭
-    """
+def clean_resonances_10(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-
-    smarts = pybel.Smarts("[*]-[*]=,#[*]-[*]")
-    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int]] = list(smarts.CLEAN_RESONANCE_10.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -312,16 +304,14 @@ def clean_resonances_10(omol: pybel.Molecule) -> pybel.Molecule:
             obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
             obatom1.SetSpinMultiplicity(obatom1.GetSpinMultiplicity() - 1)
             obatom3.SetSpinMultiplicity(obatom3.GetSpinMultiplicity() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_11(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    净结果形成更稳定的鎓离子
-    """
+def clean_resonances_11(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#7v3+0,#8v2+0,#16v2+0]-,=,:[*+1]")
-    res: List[Tuple[int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int]] = list(smarts.CLEAN_RESONANCE_11.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -335,16 +325,14 @@ def clean_resonances_11(omol: pybel.Molecule) -> pybel.Molecule:
             obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom2.SetFormalCharge(obatom2.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_12(omol: pybel.Molecule) -> pybel.Molecule:
-    """
-    通过离域形成更稳定的鎓离子
-    """
+def clean_resonances_12(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#7v3+0,#8v2+0,#16v2+0]-,:[*]=,:[*]-,:[*+1]")
-    res: List[Tuple[int, int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int, int]] = list(smarts.CLEAN_RESONANCE_12.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -364,13 +352,14 @@ def clean_resonances_12(omol: pybel.Molecule) -> pybel.Molecule:
             obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom4.SetFormalCharge(obatom4.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances_13(omol: pybel.Molecule) -> pybel.Molecule:
+def clean_resonances_13(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*-]:[*]=[#7+0,#8+0]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.CLEAN_RESONANCE_13.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
@@ -378,8 +367,7 @@ def clean_resonances_13(omol: pybel.Molecule) -> pybel.Molecule:
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
-            - obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence()
             >= 1
             and obbond1.GetBondOrder() == 1
         ):
@@ -387,44 +375,45 @@ def clean_resonances_13(omol: pybel.Molecule) -> pybel.Molecule:
             obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
             obatom3.SetFormalCharge(obatom3.GetFormalCharge() - 1)
-    return omol
+            hit = True
+    return omol, hit
 
 
-def clean_resonances(omol: pybel.Molecule) -> pybel.Molecule:
-    omol = clean_resonances_11(omol)
-    omol = clean_resonances_0(omol)
-    omol = clean_resonances_1(omol)
-    omol = clean_resonances_2(omol)
-    omol = clean_resonances_3(omol)
-    omol = clean_resonances_4(omol)
-    omol = clean_resonances_9(omol)
-    omol = clean_resonances_5(omol)
-    omol = clean_resonances_6(omol)
-    omol = clean_resonances_7(omol)
-    omol = clean_resonances_8(omol)
-    omol = clean_resonances_9(omol)
-    omol = clean_resonances_10(omol)
-    omol = clean_resonances_12(omol)
-    omol = clean_resonances_13(omol)
-    return omol
+def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    """Run the ordered resonance normalization rule set after candidate generation."""
+
+    hit = False
+    omol, stage_hit = clean_resonances_11(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_0(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_1(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_2(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_3(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_4(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_9(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_5(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_6(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_7(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_8(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_9(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_10(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_12(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_13(omol)
+    hit = stage_hit or hit
+    return omol, hit
 
 
-__all__ = [
-    "clean_carbene_neighbor_unsaturated",
-    "clean_neighbor_radicals",
-    "clean_resonances",
-    "clean_resonances_0",
-    "clean_resonances_1",
-    "clean_resonances_10",
-    "clean_resonances_11",
-    "clean_resonances_12",
-    "clean_resonances_13",
-    "clean_resonances_2",
-    "clean_resonances_3",
-    "clean_resonances_4",
-    "clean_resonances_5",
-    "clean_resonances_6",
-    "clean_resonances_7",
-    "clean_resonances_8",
-    "clean_resonances_9",
-]
+__all__ = ["clean_carbene_neighbor_unsaturated", "clean_neighbor_radicals", "clean_resonances"]

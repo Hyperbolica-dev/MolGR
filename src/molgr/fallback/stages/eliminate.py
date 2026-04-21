@@ -1,3 +1,5 @@
+"""Charge-elimination heuristics shared by the linear and resonance cleanup paths."""
+
 from __future__ import annotations
 
 from typing import List, Tuple, cast
@@ -5,15 +7,17 @@ from typing import List, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.fallback.utils import consts
+from molgr.fallback.utils import consts, smarts
 
 
 def eliminate_high_positive_charge_atoms(
     omol: pybel.Molecule, given_charge: int
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
+    """Neutralize unstable highly positive atoms by borrowing electrons from neighbors."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[*+1,*+2,*+3]-[Ov1+0,Nv2+0,Sv1+0]")
-    while res := smarts.findall(omol):
+    hit = False
+    while res := smarts.ELIM_HIGH_POSITIVE.findall(omol):
         idxs = cast(List[Tuple[int, int]], res.pop(0))
         atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
@@ -25,14 +29,19 @@ def eliminate_high_positive_charge_atoms(
         atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
         atom2.SetFormalCharge(atom2.GetFormalCharge() - 1)
         given_charge += 1
-    return omol, given_charge
+        hit = True
+    return omol, given_charge, hit
 
 
-def eliminate_CN_in_doubt(omol: pybel.Molecule, given_charge: int) -> Tuple[pybel.Molecule, int]:
+def eliminate_CN_in_doubt(
+    omol: pybel.Molecule, given_charge: int
+) -> tuple[pybel.Molecule, int, bool]:
+    """Resolve ambiguous C/N charge assignments in paired motifs."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[#6v4+0]=,#[#7v4+1,#15v4+1]")
-    doubt_pair: List[Tuple[int, int]] = smarts.findall(omol)
+    doubt_pair: List[Tuple[int, int]] = smarts.ELIM_CN_IN_DOUBT.findall(omol)
     cn_in_doubt = len(doubt_pair)
+    hit = False
     if cn_in_doubt % 2 == 0 and cn_in_doubt > 0:
         for atom_1_idx, atom_2_idx in doubt_pair[: cn_in_doubt // 2]:
             atom_1 = cast(ob.OBAtom, obmol.GetAtom(atom_1_idx))
@@ -42,31 +51,38 @@ def eliminate_CN_in_doubt(omol: pybel.Molecule, given_charge: int) -> Tuple[pybe
             bond.SetBondOrder(bond.GetBondOrder() - 1)
             atom_2.SetFormalCharge(0)
             given_charge += 2
-    return omol, given_charge
+            hit = True
+    return omol, given_charge, hit
 
 
-def eliminate_carboxyl(omol: pybel.Molecule, given_charge: int) -> Tuple[pybel.Molecule, int]:
+def eliminate_carboxyl(omol: pybel.Molecule, given_charge: int) -> tuple[pybel.Molecule, int, bool]:
+    """Collapse carboxyl-like radical patterns into their charged form."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
-    smarts = pybel.Smarts("[Ov1+0]-C=O")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.ELIM_CARBOXYL.findall(omol))
+    hit = False
     while len(res):
         idxs = res.pop(0)
         atom_1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         atom_1.SetSpinMultiplicity(atom_1.GetSpinMultiplicity() - 1)
         atom_1.SetFormalCharge(atom_1.GetFormalCharge() - 1)
         given_charge += 1
-    return omol, given_charge
+        hit = True
+    return omol, given_charge, hit
 
 
 def eliminate_carbene_neighbor_heteroatom(
     omol: pybel.Molecule, given_charge: int
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
+    """Push carbene radical density onto a neighboring heteroatom when possible."""
+
+    hit = False
     for atom in omol.atoms:
         obatom = cast(ob.OBAtom, atom.OBAtom)
         if obatom.GetSpinMultiplicity() == 2:
             for neighbor in ob.OBAtomAtomIter(obatom):
                 if cast(ob.OBAtom, neighbor).GetSpinMultiplicity():
-                    return omol, given_charge
+                    return omol, given_charge, hit
             for neighbor in ob.OBAtomAtomIter(obatom):
                 if (
                     cast(ob.OBAtom, neighbor).GetAtomicNum() in consts.HETEROATOM
@@ -80,17 +96,20 @@ def eliminate_carbene_neighbor_heteroatom(
                     cast(ob.OBAtom, neighbor).SetFormalCharge(
                         cast(ob.OBAtom, neighbor).GetFormalCharge() + 1
                     )
+                    hit = True
                     break
-    return omol, given_charge
+    return omol, given_charge, hit
 
 
 def eliminate_NNN(
     omol: pybel.Molecule, given_charge: int, positive: bool = False
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
+    """Resolve the two N-N-N motifs that are common charge/radical ambiguities."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
     if not positive:
-        smarts = pybel.Smarts("[#7v1+0]-[#7v2+0]-[#7v1+0]")
-        while res := smarts.findall(omol):
+        while res := smarts.ELIM_NNN_NEGATIVE.findall(omol):
             idxs = cast(List[Tuple[int, int, int]], res.pop(0))
             atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
             atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
@@ -106,9 +125,9 @@ def eliminate_NNN(
             atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 1)
             atom3.SetFormalCharge(atom3.GetFormalCharge() - 1)
             given_charge += 1
+            hit = True
     else:
-        smarts = pybel.Smarts("[#7v3+0]-[#7v2+0]-[#7v3+0]")
-        while res := smarts.findall(omol):
+        while res := smarts.ELIM_NNN_POSITIVE.findall(omol):
             idxs = cast(List[Tuple[int, int, int]], res.pop(0))
             atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
             atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
@@ -118,13 +137,17 @@ def eliminate_NNN(
             atom1.SetFormalCharge(atom1.GetFormalCharge() + 1)
             atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
             given_charge -= 1
-    return omol, given_charge
+            hit = True
+    return omol, given_charge, hit
 
 
 def eliminate_charge_spliting(
     omol: pybel.Molecule, given_charge: int
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
+    """Reduce overly split radical charge patterns before resonance expansion."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
 
     if (
         all(cast(ob.OBAtom, atom).GetFormalCharge() == 0 for atom in ob.OBMolAtomIter(obmol))
@@ -141,6 +164,7 @@ def eliminate_charge_spliting(
                     atom.SetFormalCharge(atom.GetFormalCharge() - 1)
                     given_charge += 1
                     radical_atoms.remove(atom)
+                    hit = True
                     break
             else:
                 break
@@ -151,6 +175,7 @@ def eliminate_charge_spliting(
                     atom.SetFormalCharge(atom.GetFormalCharge() - 1)
                     given_charge += 1
                     radical_atoms.remove(atom)
+                    hit = True
                     break
             else:
                 break
@@ -165,6 +190,7 @@ def eliminate_charge_spliting(
                     atom.SetFormalCharge(atom.GetFormalCharge() - 1)
                     given_charge += 1
                     radical_atoms.remove(atom)
+                    hit = True
                     break
             else:
                 break
@@ -175,17 +201,22 @@ def eliminate_charge_spliting(
                     atom.SetFormalCharge(atom.GetFormalCharge() - 1)
                     given_charge += 1
                     radical_atoms.remove(atom)
+                    hit = True
                     break
             else:
                 break
-    return omol, given_charge
+    return omol, given_charge, hit
 
 
-def eliminate_1_3_dipole(omol: pybel.Molecule, given_charge: int) -> Tuple[pybel.Molecule, int]:
+def eliminate_1_3_dipole(
+    omol: pybel.Molecule, given_charge: int
+) -> tuple[pybel.Molecule, int, bool]:
+    """Collapse simple 1,3-dipole motifs during resonance post-processing."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
 
-    smarts = pybel.Smarts("[*-1]-,=[N+0,O+0]-,=[*]")
-    res: List[Tuple[int, int, int]] = list(smarts.findall(omol))
+    res: List[Tuple[int, int, int]] = list(smarts.ELIM_1_3_DIPOLE.findall(omol))
     while len(res):
         idxs = res.pop(0)
         atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
@@ -201,29 +232,31 @@ def eliminate_1_3_dipole(omol: pybel.Molecule, given_charge: int) -> Tuple[pybel
             bond2.SetBondOrder(int(bond2.GetBondOrder() + 1))
             atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 1)
             given_charge -= 1
-    return omol, given_charge
+            hit = True
+    return omol, given_charge, hit
 
 
 def eliminate_positive_charges(
     omol: pybel.Molecule, given_charge: int
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
 
-    smarts = pybel.Smarts("[Nv3+0]=[Nv2+0]")
-    while given_charge > 0 and (res := smarts.findall(omol)):
+    while given_charge > 0 and (res := smarts.ELIM_POSITIVE_N.findall(omol)):
         idxs_1 = cast(Tuple[int, int], res.pop(0))
         abatom = cast(ob.OBAtom, obmol.GetAtom(idxs_1[1]))
         abatom.SetSpinMultiplicity(abatom.GetSpinMultiplicity() - 1)
         abatom.SetFormalCharge(1)
         given_charge -= 1
+        hit = True
 
-    smarts = pybel.Smarts("[#6v3+0,#6v2+0,#1v0+0]")
-    while given_charge > 0 and (res := smarts.findall(omol)):
+    while given_charge > 0 and (res := smarts.ELIM_POSITIVE_C_H.findall(omol)):
         idxs_2 = cast(Tuple[int, int, int], res.pop(0))
         abatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs_2[0]))
         abatom2.SetSpinMultiplicity(abatom2.GetSpinMultiplicity() - 1)
         abatom2.SetFormalCharge(1)
         given_charge -= 1
+        hit = True
     for atom in omol.atoms:
         obatom = cast(ob.OBAtom, atom.OBAtom)
         if given_charge <= 0:
@@ -233,13 +266,16 @@ def eliminate_positive_charges(
             obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
             obatom.SetFormalCharge(to_add)
             given_charge -= to_add
-    return omol, given_charge
+            if to_add > 0:
+                hit = True
+    return omol, given_charge, hit
 
 
 def eliminate_negative_charges(
     omol: pybel.Molecule, given_charge: int
-) -> Tuple[pybel.Molecule, int]:
+) -> tuple[pybel.Molecule, int, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
     possible_heteroatoms: List[Tuple[ob.OBAtom, int]] = []
     for atom in omol.atoms:
         obatom = cast(ob.OBAtom, atom.OBAtom)
@@ -257,34 +293,39 @@ def eliminate_negative_charges(
         obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
         obatom.SetFormalCharge(-to_add)
         given_charge += to_add
+        if to_add > 0:
+            hit = True
 
-    smarts = pybel.Smarts("[#6v3+0]")
-    while given_charge < 0 and (res := smarts.findall(omol)):
+    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_V3.findall(omol)):
         idxs = cast(Tuple[int], res.pop(0))
         obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         to_add = min(obatom1.GetSpinMultiplicity(), abs(given_charge))
         obatom1.SetSpinMultiplicity(obatom1.GetSpinMultiplicity() - to_add)
         obatom1.SetFormalCharge(-to_add)
         given_charge += to_add
+        if to_add > 0:
+            hit = True
 
-    smarts = pybel.Smarts("[#1v0+0]")
-    while given_charge < 0 and (res := smarts.findall(omol)):
+    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_H.findall(omol)):
         idxs = cast(Tuple[int], res.pop(0))
         obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         to_add = min(obatom2.GetSpinMultiplicity(), abs(given_charge))
         obatom2.SetSpinMultiplicity(obatom2.GetSpinMultiplicity() - to_add)
         obatom2.SetFormalCharge(-to_add)
         given_charge += to_add
+        if to_add > 0:
+            hit = True
 
-    smarts = pybel.Smarts("[#6v2+0,#6v1+0,#6v0+0]")
-    while given_charge < 0 and (res := smarts.findall(omol)):
+    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_LOW.findall(omol)):
         idxs = cast(Tuple[int], res.pop(0))
         obatom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         to_add = min(obatom3.GetSpinMultiplicity(), abs(given_charge))
         obatom3.SetSpinMultiplicity(obatom3.GetSpinMultiplicity() - to_add)
         obatom3.SetFormalCharge(-to_add)
         given_charge += to_add
-    return omol, given_charge
+        if to_add > 0:
+            hit = True
+    return omol, given_charge, hit
 
 
 __all__ = [

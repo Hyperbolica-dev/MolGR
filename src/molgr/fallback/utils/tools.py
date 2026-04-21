@@ -1,11 +1,10 @@
 """
 Author: TMJ
-Date: 2026-02-22 13:40:17
+Date: 2026-04-19 15:46:50
 LastEditors: TMJ
-LastEditTime: 2026-02-22 16:54:19
+LastEditTime: 2026-04-19 22:15:02
 Description: 请填写简介
 """
-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -32,3 +31,6 @@ def typed_lru_cache(
         return cast(CachedFunc[P, R_co], cached)
 
     return decorator
+
+
+__all__ = ["typed_lru_cache"]

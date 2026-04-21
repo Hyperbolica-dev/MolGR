@@ -1,3 +1,5 @@
+"""Early structure preparation and validation stages for fallback."""
+
 from __future__ import annotations
 
 import itertools
@@ -6,10 +8,14 @@ from typing import List, Optional, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
+from molgr.fallback.utils import smarts
+
 
 def validate_omol(
     omol: pybel.Molecule, total_charge: int = 0, total_radical_electrons: int = 0
 ) -> bool:
+    """Check whether the current molecule matches the requested charge/radical budget."""
+
     if sum(cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in omol.atoms) != total_charge:
         return False
     radical_sum = sum(cast(ob.OBAtom, atom.OBAtom).GetSpinMultiplicity() for atom in omol.atoms)
@@ -26,14 +32,13 @@ def validate_omol(
     return radical_sum == total_radical_electrons
 
 
-def make_connections(omol: pybel.Molecule, factor: float = 1.4) -> pybel.Molecule:
+def make_connections(omol: pybel.Molecule, factor: float = 1.4) -> tuple[pybel.Molecule, bool]:
+    """Reconnect obvious donor/acceptor pairs before formal valence cleanup starts."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
-    donate_smarts = pybel.Smarts("[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3]")
-    accept_smarts = pybel.Smarts(
-        "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]"
-    )
-    donate_atoms: List[int] = list(itertools.chain(*donate_smarts.findall(omol)))
-    accept_atoms: List[int] = list(itertools.chain(*accept_smarts.findall(omol)))
+    donate_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_DONATE.findall(omol)))
+    accept_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_ACCEPT.findall(omol)))
+    hit = False
     while donate_atoms and accept_atoms:
         donate_atom_id = donate_atoms.pop(0)
         pairs = sorted(
@@ -63,25 +68,29 @@ def make_connections(omol: pybel.Molecule, factor: float = 1.4) -> pybel.Molecul
             ):
                 if obmol.GetBond(pair_1, pair_2) is None:
                     obmol.AddBond(pair_1, pair_2, 1)
+                    hit = True
                     continue
                 if cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).GetBondOrder() == 0:
                     cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).SetBondOrder(1)
-                    donate_atoms = list(itertools.chain(*donate_smarts.findall(omol)))
-                    accept_atoms = list(itertools.chain(*accept_smarts.findall(omol)))
-    return omol
+                    hit = True
+                    donate_atoms = list(itertools.chain(*smarts.PREPROCESS_DONATE.findall(omol)))
+                    accept_atoms = list(itertools.chain(*smarts.PREPROCESS_ACCEPT.findall(omol)))
+    return omol, hit
 
 
-def pre_clean(omol: pybel.Molecule) -> pybel.Molecule:
+def pre_clean(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    """Apply cheap structural fixes that simplify the later heuristic stages."""
+
     obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
 
-    smarts = pybel.Smarts("[Cv5,Nv5,Pv5,Siv5]=,#[*]")
-    while res := smarts.findall(omol):
+    while res := smarts.PRE_CLEAN_HYPERVALENT.findall(omol):
         idxs_1 = cast(Tuple[int, int], res.pop(0))
         obbond = cast(ob.OBBond, obmol.GetBond(idxs_1[0], idxs_1[1]))
         obbond.SetBondOrder(obbond.GetBondOrder() - 1)
+        hit = True
 
-    smarts = pybel.Smarts("[#6]1([#6]2)([#6]3)[#7]23[#6]1")
-    while res := smarts.findall(omol):
+    while res := smarts.PRE_CLEAN_BCP_RING_5.findall(omol):
         idxs_2 = cast(Tuple[int, int, int, int, int], res.pop(0))
         bcp_n: Optional[int] = None
         bcp_c: Optional[int] = None
@@ -94,9 +103,9 @@ def pre_clean(omol: pybel.Molecule) -> pybel.Molecule:
                     bcp_c = idx
         if bcp_n is not None and bcp_c is not None:
             obmol.DeleteBond(cast(ob.OBBond, obmol.GetBond(bcp_n, bcp_c)))
+            hit = True
 
-    smarts = pybel.Smarts("[#6]1([#6]2)[#7]2[#6]1")
-    while res := smarts.findall(omol):
+    while res := smarts.PRE_CLEAN_BCP_RING_4.findall(omol):
         idxs_3 = cast(Tuple[int, int, int, int], res.pop(0))
         amine_n: Optional[int] = None
         butyl_c: Optional[int] = None
@@ -109,17 +118,14 @@ def pre_clean(omol: pybel.Molecule) -> pybel.Molecule:
                     butyl_c = idx
         if amine_n is not None and butyl_c is not None:
             obmol.DeleteBond(obmol.GetBond(amine_n, butyl_c))
+            hit = True
 
-    smarts = pybel.Smarts("[Siv5]-[O,F]")
-    while res := smarts.findall(omol):
+    while res := smarts.PRE_CLEAN_SI_O_F.findall(omol):
         idxs = cast(Tuple[int, int], res.pop(0))
         obmol.DeleteBond(obmol.GetBond(idxs[0], idxs[1]))
+        hit = True
 
-    return omol
+    return omol, hit
 
 
-__all__ = [
-    "make_connections",
-    "pre_clean",
-    "validate_omol",
-]
+__all__ = ["make_connections", "pre_clean", "validate_omol"]

@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
 
-from rdkit import Chem
-
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -108,15 +107,9 @@ class MolGRFallbackMethod(BenchmarkMethod):
                 error="pybel_to_rdmol returned None",
                 timing_ms_breakdown=timing_ms_breakdown,
             )
-        rdkit_mol = Chem.RemoveHs(rdkit_mol)
-
         postprocess_started = time.perf_counter()
         try:
-            predicted_smiles = Chem.MolToSmiles(
-                rdkit_mol,
-                canonical=True,
-                isomericSmiles=True,
-            )
+            rdkit_mol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdkit_mol)
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["postprocess_ms"] = (
                 time.perf_counter() - postprocess_started

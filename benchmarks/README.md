@@ -5,6 +5,7 @@ This directory contains benchmark entrypoints and benchmark-specific docs.
 ## Available benchmarks
 
 - `smiles_xyz_benchmark`: compares molecule reconstruction methods from XYZ-like inputs.
+- `molfile_xyz_benchmark`: compares the same reconstruction methods using `.mol` / `.molfile` / `.sdf` inputs converted to XYZ cases.
 
 Methods currently wired in `smiles_xyz_benchmark`:
 
@@ -13,6 +14,8 @@ Methods currently wired in `smiles_xyz_benchmark`:
 - `cell2mol_v2`
 - `molgr_fallback`
 - `xyzgraph_cheminf_full`
+
+`molfile_xyz_benchmark` currently reuses the same method registry and result format as `smiles_xyz_benchmark`, but loads cases from molfile/SDF inputs through `scripts/molgr_cases_molfile.py`. The recommended fixture root is `tests/data/sdf/`, which can contain nested category directories such as cations, anions, or metal complexes.
 
 ## Requirements
 
@@ -30,6 +33,15 @@ bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py 
   --input tests/test_cases.csv \
   --limit 10 \
   --out benchmarks/_runs/demo
+```
+
+Molfile / SDF benchmark example:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py \
+  --input tests/data/sdf/MoNNMo.sdf \
+  --limit 1 \
+  --out benchmarks/_runs/molfile-demo
 ```
 
 Optional shell switch for repeated benchmark commands:
@@ -50,9 +62,15 @@ Run the benchmark with the dedicated env script:
 bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
 ```
 
+Run the molfile / SDF benchmark with the same environment:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py --input tests/data/sdf/MoNNMo.sdf --out benchmarks/_runs/molfile-run1
+```
+
 Useful flags:
 
-- `--input`: input cases file
+- `--input`: input cases file or molfile/SDF fixture directory
 - `--limit`: cap number of cases for quick checks
 - `--out`: output run directory
 

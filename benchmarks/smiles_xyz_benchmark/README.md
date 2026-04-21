@@ -17,6 +17,7 @@ This benchmark compares molecule reconstruction approaches from XYZ-like inputs 
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
+- `molgr_fallback`
 - `xyzgraph_cheminf_full`
 
 ## Run

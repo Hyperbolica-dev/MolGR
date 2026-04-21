@@ -239,3 +239,13 @@ METAL_VALENCE_AVAILABLE_PRIOR: Dict[str, List[int]] = {
     "Sb": [5, 3],
     "Bi": [5, 3],
 }
+
+
+__all__ = [
+    "D_ELECTRONS_SPIN",
+    "HETEROATOM",
+    "METAL_F_D_S_P_ELECTRONS",
+    "METAL_VALENCE_AVAILABLE_MINOR",
+    "METAL_VALENCE_AVAILABLE_PRIOR",
+    "NON_METAL_DICT",
+]

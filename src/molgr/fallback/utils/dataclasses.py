@@ -1,11 +1,3 @@
-"""
-Author: TMJ
-Date: 2026-02-22 12:26:22
-LastEditors: TMJ
-LastEditTime: 2026-02-22 14:44:41
-Description: 请填写简介
-"""
-
 import dataclasses
 
 
@@ -34,3 +26,6 @@ class MetalAtomPosition:
     position_x: float
     position_y: float
     position_z: float
+
+
+__all__ = ["ElementInfo", "FDSP", "MetalAtomPosition"]
