@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
 
-from rdkit import Chem
-
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -114,7 +113,6 @@ class MolGRCppMethod(BenchmarkMethod):
         to_rdkit_started = time.perf_counter()
         try:
             rdkit_mol = mol_data_to_rdkit(mol_data)
-            rdkit_mol = Chem.RemoveHs(rdkit_mol)
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["mol_data_to_rdkit_ms"] = (
                 time.perf_counter() - to_rdkit_started
@@ -130,11 +128,7 @@ class MolGRCppMethod(BenchmarkMethod):
 
         postprocess_started = time.perf_counter()
         try:
-            predicted_smiles = Chem.MolToSmiles(
-                rdkit_mol,
-                canonical=True,
-                isomericSmiles=True,
-            )
+            rdkit_mol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdkit_mol)
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["postprocess_ms"] = (
                 time.perf_counter() - postprocess_started

@@ -56,7 +56,7 @@ def _build_case(molfile_path: Path, case_idx: int) -> dict[str, Any]:
     try:
         mol = Chem.MolFromMolFile(
             str(molfile_path),
-            sanitize=True,
+            sanitize=False,
             removeHs=False,
             strictParsing=False,
         )

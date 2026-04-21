@@ -516,7 +516,7 @@ O 1.200 0.000 0.000
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         py_mol = pybel.readstring("smi", smiles)
         cpp_mol = pybel.readstring("smi", smiles)
-        py_after, py_charge = py_break_one_bond(
+        py_after, py_charge, _py_hit = py_break_one_bond(
             py_mol,
             given_charge=given_charge,
             given_radical=given_radical,
@@ -1169,7 +1169,9 @@ F 0.000 0.000 1.600
     def run_break_one_bond_charge_case() -> tuple[Any, Any]:
         py_mol = pybel.readstring("smi", "[NH+]=C")
         cpp_mol = pybel.readstring("smi", "[NH+]=C")
-        py_after, py_charge = py_break_one_bond(py_mol, given_charge=0, given_radical=1)
+        py_after, py_charge, _py_hit = py_break_one_bond(
+            py_mol, given_charge=0, given_radical=1
+        )
         cpp_charge = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 1)
         return (
             {
@@ -1196,7 +1198,9 @@ F 0.000 0.000 1.600
     def run_break_one_bond_single_delete_case() -> tuple[Any, Any]:
         py_mol = pybel.readstring("smi", "CC")
         cpp_mol = pybel.readstring("smi", "CC")
-        py_after, py_charge = py_break_one_bond(py_mol, given_charge=0, given_radical=3)
+        py_after, py_charge, _py_hit = py_break_one_bond(
+            py_mol, given_charge=0, given_radical=3
+        )
         cpp_charge = _stages.break_bond.break_one_bond_ptr(_get_ptr(cpp_mol.OBMol), 0, 3)
         return (
             {

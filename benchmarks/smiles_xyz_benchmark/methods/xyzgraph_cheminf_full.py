@@ -8,6 +8,7 @@ from typing import Any
 from rdkit import Chem
 
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 pt = Chem.GetPeriodicTable()
@@ -113,7 +114,9 @@ def _graph_to_rdkit_mol(
     conf = Chem.Conformer(len(graph.nodes))
     for idx, node in graph.nodes.data():
         conf.SetAtomPosition(idx, node.get("position", (0.0, 0.0, 0.0)))
-        rw.GetAtomWithIdx(idx).SetFormalCharge(int(node.get("formal_charge", 0)))
+        rw.GetAtomWithIdx(idx).SetFormalCharge(
+            int(node.get("formal_charge", 0)) or int(node.get("oxidation_state", 0))
+        )
 
     mol = rw.GetMol()
     mol.RemoveAllConformers()
@@ -239,8 +242,7 @@ class XYZGraphCheminfFullMethod(BenchmarkMethod):
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"kekulize failed: {exc}")
 
-            mol_no_h = Chem.RemoveHs(mol)
-            predicted_smiles = Chem.MolToSmiles(mol_no_h, canonical=True, isomericSmiles=True)
+            mol, predicted_smiles = finalize_rdmol_with_dative_bonds(mol)
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["postprocess_ms"] = (
                 time.perf_counter() - postprocess_started

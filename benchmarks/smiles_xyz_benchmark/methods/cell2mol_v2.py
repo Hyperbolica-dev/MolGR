@@ -8,9 +8,8 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from rdkit import Chem
-
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -98,16 +97,11 @@ class Cell2MolV2Method(BenchmarkMethod):
                         error="cell2mol molecule missing rdkit_obj",
                         timing_ms_breakdown=timing_ms_breakdown,
                     )
-                rdkit_mol = Chem.RemoveHs(rdkit_mol)
                 postprocess_started = time.perf_counter()
                 warnings: list[str] = []
                 predicted_smiles: str | None = None
                 try:
-                    predicted_smiles = Chem.MolToSmiles(
-                        rdkit_mol,
-                        canonical=True,
-                        isomericSmiles=True,
-                    )
+                    rdkit_mol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdkit_mol)
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"MolToSmiles failed: {exc}")
                 timing_ms_breakdown["postprocess_ms"] = (

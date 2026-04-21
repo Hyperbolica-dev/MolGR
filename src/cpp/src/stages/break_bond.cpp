@@ -139,23 +139,28 @@ namespace molgr
                 LOG_DEBUG("[BreakOneBond] Broken charge-transfer candidate");
             }
 
-            while (true)
             {
                 auto matches = molgr::utils::FindSmarts(mol, "[*+0]:[*+0]");
-                if (matches.empty())
-                    break;
-                if (check_cond())
-                    return;
-                const auto &idxs = matches.front();
-                OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
-                if (!bond)
-                    break;
-                bond->SetBondOrder(bond->GetBondOrder() - 1);
-                OBAtom *begin_atom = bond->GetBeginAtom();
-                OBAtom *end_atom = bond->GetEndAtom();
-                begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
-                end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
-                LOG_DEBUG("[BreakOneBond] Broken aromatic candidate");
+                if (!matches.empty())
+                {
+                    if (check_cond())
+                        return;
+                    for (const auto &idxs : matches)
+                    {
+                        OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
+                        if (!bond)
+                            continue;
+                        if (bond->GetBondOrder() == 1)
+                            continue;
+                        bond->SetBondOrder(bond->GetBondOrder() - 1);
+                        OBAtom *begin_atom = bond->GetBeginAtom();
+                        OBAtom *end_atom = bond->GetEndAtom();
+                        begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
+                        end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                        LOG_DEBUG("[BreakOneBond] Broken aromatic candidate");
+                        break;
+                    }
+                }
             }
 
             if (check_cond())
@@ -172,10 +177,11 @@ namespace molgr
                 {
                     single_bonds.push_back(&*b);
                 }
-                for (OBBond *single_bond : single_bonds)
+                if (!single_bonds.empty())
                 {
                     if (check_cond())
                         return;
+                    OBBond *single_bond = single_bonds.front();
                     OBAtom *b_at = single_bond->GetBeginAtom();
                     OBAtom *e_at = single_bond->GetEndAtom();
                     b_at->SetSpinMultiplicity(b_at->GetSpinMultiplicity() + 1);

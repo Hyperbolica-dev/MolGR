@@ -6,9 +6,9 @@ from importlib import import_module
 from typing import Any
 
 from openbabel import pybel
-from rdkit import Chem
 
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,6 @@ class OpenBabelReadXYZMethod(BenchmarkMethod):
         try:
             pybel_to_rdmol = import_module("molgr.interface").pybel_to_rdmol
             rdmol = pybel_to_rdmol(omol)
-            rdmol = Chem.RemoveHs(rdmol)
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["pybel_to_rdmol_ms"] = (
                 time.perf_counter() - pybel_to_rdmol_started
@@ -75,7 +74,7 @@ class OpenBabelReadXYZMethod(BenchmarkMethod):
         predicted_smiles: str | None = None
         postprocess_started = time.perf_counter()
         try:
-            predicted_smiles = Chem.MolToSmiles(rdmol, canonical=True, isomericSmiles=True)
+            rdmol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdmol)
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"MolToSmiles failed: {exc}")
         timing_ms_breakdown["postprocess_ms"] = (time.perf_counter() - postprocess_started) * 1000.0

@@ -16,6 +16,7 @@ from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
 
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -92,8 +93,7 @@ class RDKitDetermineBondsMethod(BenchmarkMethod):
 
         predicted_smiles: str | None = None
         try:
-            mol = Chem.RemoveHs(mol)
-            predicted_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+            mol, predicted_smiles = finalize_rdmol_with_dative_bonds(mol)
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"MolToSmiles failed: {exc}")
         timing_ms_breakdown["postprocess_ms"] = (time.perf_counter() - postprocess_started) * 1000.0

@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-27 23:35:43
 LastEditors: TMJ
-LastEditTime: 2026-02-28 00:43:00
+LastEditTime: 2026-04-20 11:44:39
 Description: 请填写简介
 """
 
@@ -30,6 +30,11 @@ def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol
         close_non_metal_atom_ids = np.argsort(distance_to_non_metal_atoms)
 
         for close_non_metal_atom_id in close_non_metal_atom_ids:
+            if (
+                rwmol.GetBondBetweenAtoms(int(close_non_metal_atom_id), int(metal_atom_id))
+                is not None
+            ):
+                continue
             non_metal_atom = rwmol.GetAtomWithIdx(int(close_non_metal_atom_id))
             if non_metal_atom.GetAtomicNum() not in NON_METAL_DICT:
                 continue
@@ -55,4 +60,10 @@ def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol
                 rwmol.AddBond(
                     int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.DATIVE
                 )
+    Chem.SetAromaticity(rwmol)
+    Chem.DetectBondStereochemistry(rwmol)
+    Chem.SetBondStereoFromDirections(rwmol)
+    Chem.AssignStereochemistryFrom3D(rwmol)
+    Chem.AssignCIPLabels(rwmol)
+
     return rwmol.GetMol()

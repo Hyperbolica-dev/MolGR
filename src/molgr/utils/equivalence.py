@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-22 20:18:39
 LastEditors: TMJ
-LastEditTime: 2026-02-25 19:18:00
+LastEditTime: 2026-04-19 20:48:18
 Description: 用于判定对于同一个分子坐标输入下不同的分子图重建算法结果的一致性，只要和标准答案在共振异构级别上有一个一致，就认为是一致的。
 """
 
@@ -157,9 +157,13 @@ def check_equivalence(
     Returns:
         (Tuple[bool, EquivalenceInfo]): Whether the two molecules are equivalent and the reason.
     """
+    m1 = Chem.Mol(mol1)
+    m2 = Chem.Mol(mol2)
+    Chem.SanitizeMol(m1)
+    Chem.SanitizeMol(m2)
 
-    m1 = Chem.RemoveHs(Chem.Mol(mol1))
-    m2 = Chem.RemoveHs(Chem.Mol(mol2))
+    m1 = Chem.RemoveHs(m1)
+    m2 = Chem.RemoveHs(m2)
 
     fc1 = sum(m1.GetAtomWithIdx(atom_id).GetFormalCharge() for atom_id in range(m1.GetNumAtoms()))
     fc2 = sum(m2.GetAtomWithIdx(atom_id).GetFormalCharge() for atom_id in range(m2.GetNumAtoms()))

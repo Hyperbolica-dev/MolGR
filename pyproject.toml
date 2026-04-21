@@ -11,7 +11,7 @@ dependencies = [
     "rdkit<=2023.9.6; python_version == '3.9'",
     "numpy>=1.26,<2; python_version == '3.9'",
     "rdkit>=2025.3.6; python_version >= '3.10'",
-    "numpy>=2; python_version >= '3.10'",
+    "numpy>=1.26; python_version >= '3.10'",
 ]
 
 [build-system]
@@ -39,8 +39,7 @@ benchmark = [
     "scipy>=1.10.1",
     "xyzgraph>=1.6.1",
     "numpy<2; python_version == '3.8'",
-    "numpy>=1.26,<2; python_version == '3.9'",
-    "numpy>=2; python_version >= '3.10'",
+    "numpy>=1.26,<2; python_version >= '3.9'",
     "pandas",
     "tqdm",
     "rdkit-dof; python_version >= '3.9'",
@@ -53,6 +52,7 @@ dev = [
     "pandas>=2.0.3; python_version < '3.12'",
     "pandas>=2.2; python_version >= '3.12'",
     "pybind11>=3.0.1",
+    "py-spy>=0.3.14",
     "pytest",
     "pytest-cov",
     "rich",
