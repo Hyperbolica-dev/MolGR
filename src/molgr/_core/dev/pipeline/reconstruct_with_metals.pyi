@@ -7,7 +7,12 @@ from __future__ import annotations
 import collections.abc
 import typing
 
-__all__: list[str] = ["MetalAtomPosition", "build_metal_states_ptr", "combine_metal_with_omol_ptr"]
+__all__: list[str] = [
+    "MetalAtomPosition",
+    "build_metal_states_ptr",
+    "combine_metal_with_omol_ptr",
+    "debug_scored_candidate_summaries",
+]
 
 class MetalAtomPosition:
     symbol: str
@@ -59,4 +64,15 @@ def combine_metal_with_omol_ptr(
 ) -> None:
     """
     Combine metal states with an existing OBMol pointer in place.
+    """
+
+def debug_scored_candidate_summaries(
+    xyz_block: str,
+    total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
+    *,
+    config: object = None,
+) -> dict:
+    """
+    Return scored metal candidates for the first successful search layer.
     """

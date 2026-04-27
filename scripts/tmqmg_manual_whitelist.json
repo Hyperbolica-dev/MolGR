@@ -1,0 +1,22 @@
+{
+  "ABEGOD": {
+    "status": "accepted_reference_issue",
+    "reason": "Manually reviewed: the current MolGR Co(III) assignment is considered chemically preferable to the dataset reference graph."
+  },
+  "ABENRE": {
+    "status": "accepted_reference_issue",
+    "reason": "Manually reviewed: the current MolGR nitrosyl/nitrite interpretation is considered chemically preferable to the dataset reference graph."
+  },
+  "ABETIK": {
+    "status": "accepted_reference_issue",
+    "reason": "Manually reviewed: the current MolGR Zr complex graph is considered chemically preferable to the dataset reference graph."
+  },
+  "ABETOQ": {
+    "status": "accepted_reference_issue",
+    "reason": "Manually reviewed: the current MolGR reconstruction is considered chemically preferable to the dataset reference graph."
+  },
+  "ABATEC": {
+    "status": "accepted_ambiguous",
+    "reason": "Manually reviewed: this metal-hydride geometry is transition-state-like and both reconstructions are acceptable."
+  }
+}

@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-27 23:35:43
 LastEditors: TMJ
-LastEditTime: 2026-04-20 11:44:39
+LastEditTime: 2026-04-24 22:48:31
 Description: 请填写简介
 """
 
@@ -16,12 +16,15 @@ pt = Chem.GetPeriodicTable()
 
 
 def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol:
-    rwmol = Chem.RWMol(rdmol)
     metal_atom_ids = [
         atom_id
-        for atom_id in range(rwmol.GetNumAtoms())
-        if rwmol.GetAtomWithIdx(atom_id).GetAtomicNum() not in NON_METAL_DICT
+        for atom_id in range(rdmol.GetNumAtoms())
+        if rdmol.GetAtomWithIdx(atom_id).GetAtomicNum() not in NON_METAL_DICT
     ]
+    if not metal_atom_ids:
+        return rdmol
+
+    rwmol = Chem.RWMol(rdmol)
     distance_matrix = Chem.Get3DDistanceMatrix(rwmol)
 
     for metal_atom_id in metal_atom_ids:
@@ -50,9 +53,16 @@ def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol
             ):
                 continue
             if non_metal_atom.GetFormalCharge() < 0:
-                rwmol.AddBond(
-                    int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.DATIVE
-                )
+                if non_metal_atom.GetAtomicNum() == 1:
+                    rwmol.AddBond(
+                        int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.SINGLE
+                    )
+                    non_metal_atom.SetFormalCharge(0)
+                    metal_atom.SetFormalCharge(metal_atom.GetFormalCharge() - 1)
+                else:
+                    rwmol.AddBond(
+                        int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.DATIVE
+                    )
             if (
                 pt.GetNOuterElecs(non_metal_atom.GetAtomicNum()) in (5, 6, 7)
                 and non_metal_atom.GetFormalCharge() == 0
@@ -60,6 +70,7 @@ def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol
                 rwmol.AddBond(
                     int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.DATIVE
                 )
+    rwmol.UpdatePropertyCache(strict=False)
     Chem.SetAromaticity(rwmol)
     Chem.DetectBondStereochemistry(rwmol)
     Chem.SetBondStereoFromDirections(rwmol)

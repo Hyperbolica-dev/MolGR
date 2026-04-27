@@ -8,6 +8,7 @@
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/kekulize.h>
+#include <openbabel/obiter.h>
 
 #include <openbabel/obconversion.h>
 #include <algorithm>
@@ -18,17 +19,68 @@ namespace molgr
     {
         using namespace OpenBabel;
 
+        bool CleanCarbeneNeighborUnsaturated(OBMol &mol)
+        {
+            bool hit = false;
+            while (true)
+            {
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_CARBENE_NEIGHBOR_UNSAT);
+                if (matches.empty())
+                    break;
+                bool any_applied = false;
+
+                for (const auto &idxs : matches)
+                {
+                    OBAtom *a1 = mol.GetAtom(idxs[0]);
+                    OBAtom *a2 = mol.GetAtom(idxs[1]);
+                    OBAtom *a3 = mol.GetAtom(idxs[2]);
+
+                    if (a1->GetSpinMultiplicity() == 2 && a3->GetSpinMultiplicity() == 0)
+                    {
+                        OBBond *b23 = mol.GetBond(a2, a3);
+                        OBBond *b12 = mol.GetBond(a1, a2);
+                        if (b23 && b12)
+                        {
+                            b23->SetBondOrder(b23->GetBondOrder() - 1);
+                            b12->SetBondOrder(b12->GetBondOrder() + 1);
+                            a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
+                            a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() + 1);
+                            hit = true;
+                            any_applied = true;
+                            break;
+                        }
+                    }
+                }
+                if (!any_applied)
+                    break;
+            }
+            return hit;
+        }
+
+        bool CleanNeighborRadicals(OBMol &mol)
+        {
+            bool hit = false;
+            FOR_BONDS_OF_MOL(bond_iter, mol)
+            {
+                OBBond *bond = &(*bond_iter);
+                OBAtom *a1 = bond->GetBeginAtom();
+                OBAtom *a2 = bond->GetEndAtom();
+                int r1 = a1->GetSpinMultiplicity();
+                int r2 = a2->GetSpinMultiplicity();
+                if (r1 > 0 && r2 > 0)
+                {
+                    int to_add = std::min(r1, r2);
+                    bond->SetBondOrder(bond->GetBondOrder() + to_add);
+                    a1->SetSpinMultiplicity(r1 - to_add);
+                    a2->SetSpinMultiplicity(r2 - to_add);
+                    hit = true;
+                }
+            }
+            return hit;
+        }
+
         namespace
         {
-            int TotalValenceForRoomCheck(const OBAtom *atom)
-            {
-                if (atom == nullptr)
-                {
-                    return 0;
-                }
-                return atom->GetExplicitValence() + atom->GetImplicitHCount();
-            }
-
             bool CleanResonances0(OBMol &mol)
             {
                 bool hit = false;
@@ -253,7 +305,6 @@ namespace molgr
             bool CleanResonances7(OBMol &mol)
             {
                 bool hit = false;
-                auto kekulize = OpenBabel::OBKekulize(&mol);
                 auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_7);
                 while (!matches.empty())
                 {
@@ -286,7 +337,7 @@ namespace molgr
             bool CleanResonances8(OBMol &mol)
             {
                 bool hit = false;
-                auto kekulize = OpenBabel::OBKekulize(&mol);
+                mol.SetAromaticPerceived(false);
                 auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_8);
                 while (!matches.empty())
                 {
@@ -412,7 +463,7 @@ namespace molgr
                     const ElementInfo *info2 = GetElementInfo(atom2->GetAtomicNum());
                     const int atom2_room = info2 == nullptr
                                                ? -1
-                                               : info2->default_valence - TotalValenceForRoomCheck(atom2);
+                                               : info2->default_valence - atom2->GetTotalValence();
                     if (info2 != nullptr &&
                         atom2_room >= 1 &&
                         (bond->GetBondOrder() == 1 || bond->GetBondOrder() == 2))
@@ -448,7 +499,7 @@ namespace molgr
                     const ElementInfo *info4 = GetElementInfo(atom4->GetAtomicNum());
                     const int atom4_room = info4 == nullptr
                                                ? -1
-                                               : info4->default_valence - TotalValenceForRoomCheck(atom4);
+                                               : info4->default_valence - atom4->GetTotalValence();
                     if (info4 != nullptr &&
                         atom4_room >= 1 &&
                         bond1->GetBondOrder() == 1 &&
@@ -503,6 +554,7 @@ namespace molgr
         bool CleanResonances(OBMol &mol)
         {
             bool hit = false;
+            hit = CleanResonances11(mol) || hit;
             hit = CleanResonances0(mol) || hit;
             hit = CleanResonances1(mol) || hit;
             hit = CleanResonances2(mol) || hit;
@@ -515,7 +567,6 @@ namespace molgr
             hit = CleanResonances8(mol) || hit;
             hit = CleanResonances9(mol) || hit;
             hit = CleanResonances10(mol) || hit;
-            hit = CleanResonances11(mol) || hit;
             hit = CleanResonances12(mol) || hit;
             hit = CleanResonances13(mol) || hit;
             return hit;

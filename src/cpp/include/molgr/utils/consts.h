@@ -30,6 +30,8 @@ namespace molgr
     };
 
     extern const std::map<int, ElementInfo> kNonMetalDict;
+    extern const std::map<int, double> kNonMetalPaulingElectronegativity;
+    extern const std::map<int, double> kNonMetalFirstIonizationEnergyEv;
     extern const std::set<int> kHeteroatoms;
     extern const std::map<std::string, LennardJonesParams> kLJParams;
     extern const std::map<std::string, FDSP> kMetalFDSP;

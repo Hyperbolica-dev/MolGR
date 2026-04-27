@@ -1,6 +1,7 @@
 #include "molgr/utils/scoring.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/force_field.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
@@ -8,27 +9,17 @@
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
 #include <openbabel/graphsym.h>
-#include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
 
 #include <cmath>
-#include <cstdint>
 #include <algorithm>
-#include <sstream>
 #include <unordered_set>
 
 namespace
 {
-    constexpr double kCoordinateScale = 1000000.0;
-
     OpenBabel::OBMol &MutableMol(const OpenBabel::OBMol &mol)
     {
         return const_cast<OpenBabel::OBMol &>(mol);
-    }
-
-    std::int64_t QuantizedCoordinate(double value)
-    {
-        return static_cast<std::int64_t>(std::llround(value * kCoordinateScale));
     }
 
     double CalculateChargeInteractionPenalty(int metal_valence, int ligand_charge, double dist_sq)
@@ -145,41 +136,13 @@ namespace
         }
         return (static_cast<double>(unique_states.size()) - static_cast<double>(metal_states.size())) * 2.0;
     }
+
 }
 
 namespace molgr
 {
     namespace scoring
     {
-        std::string BuildScoreKey(const OpenBabel::OBMol &mol)
-        {
-            thread_local OpenBabel::OBConversion conv;
-            thread_local bool initialized = false;
-            if (!initialized)
-            {
-                conv.SetOutFormat("molreport");
-                initialized = true;
-            }
-            OpenBabel::OBMol mol_copy(mol);
-            return conv.WriteString(&mol_copy, true);
-        }
-
-        std::string BuildMetalStateKey(const std::vector<MetalAtomPosition> &metal_states)
-        {
-            std::ostringstream oss;
-            for (const auto &metal_state : metal_states)
-            {
-                oss << metal_state.idx << ','
-                    << metal_state.element_idx << ','
-                    << metal_state.valence << ','
-                    << metal_state.radical_num << ','
-                    << QuantizedCoordinate(metal_state.position_x) << ','
-                    << QuantizedCoordinate(metal_state.position_y) << ','
-                    << QuantizedCoordinate(metal_state.position_z) << ';';
-            }
-            return oss.str();
-        }
-
         double GetDeviationScore(const OpenBabel::OBMol &mol, const OpenBabel::OBAtom *atom)
         {
             if (atom == nullptr)
@@ -212,6 +175,11 @@ namespace molgr
             }
 
             return 0.0;
+        }
+
+        OrganicTopologyMetrics ComputeOrganicTopologyMetrics(const OpenBabel::OBMol &mol)
+        {
+            return molgr::organic_topology::ComputeOrganicTopologyMetrics(mol);
         }
 
         double CalcSymmetryPenalty(const OpenBabel::OBMol &mol)
@@ -482,6 +450,11 @@ namespace molgr
             return score;
         }
 
+        double OrganicCoreScore(const OpenBabel::OBMol &mol, const molgr::config::MolGRConfig &config)
+        {
+            return OrganicForceFieldEnergy(mol, config);
+        }
+
         double PostReinsertionScore(const OpenBabel::OBMol &mol)
         {
             return CalcSymmetryPenalty(mol) + CalculateMetalPenalty(mol);
@@ -537,6 +510,11 @@ namespace molgr
         {
             MutableMol(mol).SetAromaticPerceived(false);
             return OrganicCoreScore(mol) + PostReinsertionScore(mol);
+        }
+
+        double OmolScore(const OpenBabel::OBMol &mol, const molgr::config::MolGRConfig &config)
+        {
+            return OrganicCoreScore(mol, config);
         }
     }
 }

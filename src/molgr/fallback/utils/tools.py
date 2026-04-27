@@ -8,7 +8,7 @@ Description: 请填写简介
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Callable, cast
+from typing import Callable, NamedTuple, Optional, cast
 
 from typing_extensions import ParamSpec, Protocol, TypeVar
 
@@ -17,9 +17,16 @@ P = ParamSpec("P")
 R_co = TypeVar("R_co", covariant=True)
 
 
+class CacheInfo(NamedTuple):
+    hits: int
+    misses: int
+    maxsize: Optional[int]
+    currsize: int
+
+
 class CachedFunc(Protocol[P, R_co]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
-    def cache_info(self): ...
+    def cache_info(self) -> CacheInfo: ...
     def cache_clear(self) -> None: ...
 
 
@@ -33,4 +40,4 @@ def typed_lru_cache(
     return decorator
 
 
-__all__ = ["typed_lru_cache"]
+__all__ = ["CacheInfo", "typed_lru_cache"]

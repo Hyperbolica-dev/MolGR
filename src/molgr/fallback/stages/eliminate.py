@@ -118,11 +118,11 @@ def eliminate_NNN(
             bond1.SetBondOrder(bond1.GetBondOrder() + 1)
             bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
             bond2.SetBondOrder(bond2.GetBondOrder() + 1)
-            atom1.SetSpinMultiplicity(atom1.GetSpinMultiplicity() - 1)
+            atom1.SetSpinMultiplicity(atom1.GetSpinMultiplicity() - 2)
             atom1.SetFormalCharge(atom1.GetFormalCharge() - 1)
             atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
             atom2.SetFormalCharge(atom2.GetFormalCharge() + 1)
-            atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 1)
+            atom3.SetSpinMultiplicity(atom3.GetSpinMultiplicity() - 2)
             atom3.SetFormalCharge(atom3.GetFormalCharge() - 1)
             given_charge += 1
             hit = True
@@ -325,6 +325,19 @@ def eliminate_negative_charges(
         given_charge += to_add
         if to_add > 0:
             hit = True
+
+    while given_charge < 0:
+        for atom in ob.OBMolAtomIter(obmol):
+            atom = cast(ob.OBAtom, atom)
+            if atom.GetSpinMultiplicity() >= 1 and atom.GetFormalCharge() == 0:
+                to_add = min(atom.GetSpinMultiplicity(), abs(given_charge))
+                atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - to_add)
+                atom.SetFormalCharge(-to_add)
+                given_charge += to_add
+                if to_add > 0:
+                    hit = True
+        else:
+            break
     return omol, given_charge, hit
 
 

@@ -259,10 +259,10 @@ cpp-ide-init:
 stubs:
 	@echo "🤖 Checking for pybind11-stubgen..."
 	@uv run python -c "import pybind11_stubgen" 2>/dev/null || (echo "⚠️ pybind11-stubgen not found. Installing..." && uv pip install pybind11-stubgen)
-	@echo "🧹 Removing stale pipeline module stub (package form is canonical)..."
+	@echo "🧹 Removing stale C++ backend stubs..."
+	@rm -rf src/molgr/_core/dev src/molgr/_core/dev.pyi
 	@rm -f src/molgr/_core/pipeline.pyi
-	@echo "🧹 Removing stale stages module stub (package form is canonical)..."
-	@rm -f src/molgr/_core/stages.pyi
+	@rm -rf src/molgr/_core/stages src/molgr/_core/stages.pyi
 	@echo "🤖 Generating Type Stubs for: $(EXTENSION_MODULES)..."
 	@for module in $(EXTENSION_MODULES); do \
 		echo "   Processing $$module..."; \
@@ -272,7 +272,6 @@ stubs:
 			--ignore-all-errors \
 			--numpy-array-use-type-var; \
 	done
-	@rm -f src/molgr/_core/stages.pyi
 	@if [ -f src/molgr/_core/pipeline.pyi ]; then \
 		mkdir -p src/molgr/_core/pipeline; \
 		mv src/molgr/_core/pipeline.pyi src/molgr/_core/pipeline/__init__.pyi; \

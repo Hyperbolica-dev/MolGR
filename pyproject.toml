@@ -3,7 +3,11 @@ name = "molgr"
 dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.8"
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+]
 dependencies = [
     "openbabel-wheel>=3.1.1.22",
     "rdkit<=2023.9.6; python_version == '3.8'",
@@ -58,6 +62,7 @@ dev = [
     "rich",
     "ruff",
     "scikit-build-core>=0.11.6",
+    "scipy>=1.10.1",
     "setuptools-scm>=9.2.2",
     "jinja2"
 ]

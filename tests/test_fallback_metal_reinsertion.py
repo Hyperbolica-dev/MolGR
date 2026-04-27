@@ -7,8 +7,8 @@ pytest.importorskip("openbabel")
 
 from openbabel import pybel
 
-from molgr.fallback.pipeline.reconstruct_with_metals import combine_metal_with_omol
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
+from molgr.fallback.utils.metals.preparation import combine_metal_with_omol
 
 
 def test_combine_metal_with_omol_inserts_li_into_original_slot() -> None:

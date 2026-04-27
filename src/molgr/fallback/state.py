@@ -1,8 +1,8 @@
 """State containers and explicit state-machine helpers for fallback.
 
 The v2 pipeline keeps chemical mutations explicit: each stage mutates an `omol`
-through a small state machine, while score/key caches live on the frozen state
-objects and are invalidated only when the molecule actually changes.
+through a small state machine, while frozen `ReconstructionState` snapshots are
+hashable and can be cached directly by pure helper functions.
 """
 
 from __future__ import annotations
@@ -24,13 +24,14 @@ from typing import (
 from openbabel import pybel
 
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
+from molgr.fallback.utils.tools import typed_lru_cache
 
 
 if TYPE_CHECKING:
-    from molgr.fallback.utils.scoring import (
-        ChargedAtomSnapshot,
+    from molgr.config import MolGRConfig
+    from molgr.fallback.utils.force_field import (
+        ForceFieldScoreKey,
         MetalStateKey,
-        PostReinsertionKey,
     )
 
 
@@ -38,14 +39,23 @@ T = TypeVar("T")
 ReconstructionScoreProfile = Literal["organic_core", "full"]
 MetalCandidateScoreProfile = Literal["combined"]
 CombinedOmolBuilder = Callable[[pybel.Molecule, Sequence[MetalAtomPosition]], pybel.Molecule]
+_DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE = 4096
 _OMOL_DERIVED_METADATA_KEYS = (
+    "force_field_energy",
+    "force_field_config_key",
+    "force_field_requested",
+    "force_field_resolved_force_field",
+    "force_field_score_key",
     "organic_core_score",
-    "post_reinsertion_base_key",
-    "post_reinsertion_base_symmetry_penalty",
-    "post_reinsertion_charged_atom_snapshots",
     "score",
 )
-_CANDIDATE_DERIVED_METADATA_KEYS = ("score",)
+_CANDIDATE_DERIVED_METADATA_KEYS = (
+    "force_field_energy",
+    "force_field_config_key",
+    "force_field_requested",
+    "force_field_resolved_force_field",
+    "score",
+)
 
 
 def _invalidate_omol_derived_metadata(metadata: Dict[str, Any]) -> None:
@@ -59,12 +69,13 @@ def _invalidate_candidate_derived_state(
 ) -> None:
     for key in _CANDIDATE_DERIVED_METADATA_KEYS:
         metadata.pop(key, None)
-    key_cache.pop("combined_score_key", None)
+    key_cache.pop("force_field_candidate_key", None)
     key_cache.pop("combined_score", None)
+    key_cache.pop("force_field_energy", None)
     key_cache.pop("combined_omol", None)
 
 
-@dataclass
+@dataclass(eq=False)
 class ReconstructionState:
     """Frozen no-metal reconstruction state plus score/key caches."""
 
@@ -74,118 +85,127 @@ class ReconstructionState:
     total_radical_electrons: int
     phase_history: Tuple[str, ...] = ()
     metadata: Dict[str, Any] = field(default_factory=dict)
-    key_cache: Dict[str, Any] = field(default_factory=dict)
     omol_revision: int = 0
+
+    def _cache_identity(self) -> tuple[int, int, int, int, int]:
+        return (
+            id(self.omol),
+            int(self.given_charge),
+            int(self.total_charge),
+            int(self.total_radical_electrons),
+            int(self.omol_revision),
+        )
+
+    def __hash__(self) -> int:
+        return hash(self._cache_identity())
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ReconstructionState):
+            return NotImplemented
+        return self._cache_identity() == other._cache_identity()
 
     def get_cached_revision_value(
         self,
         cache_name: str,
         builder: Callable[[], T],
     ) -> T:
-        cached = self.key_cache.get(cache_name)
-        if cached is not None:
-            cached_revision, cached_value = cast(Tuple[int, T], cached)
-            if cached_revision == self.omol_revision:
-                return cached_value
-
-        value = builder()
-        self.key_cache[cache_name] = (self.omol_revision, value)
-        return value
+        return cast(T, _cached_reconstruction_revision_value(self, cache_name, builder))
 
     def get_cached_omol_value(
         self,
         cache_name: str,
         builder: Callable[[pybel.Molecule], T],
     ) -> T:
-        return self.get_cached_revision_value(cache_name, lambda: builder(self.omol))
+        return cast(T, _cached_reconstruction_omol_value(self, cache_name, builder))
 
-    def post_reinsertion_base_key(self) -> str:
-        """Return the cached key for no-metal score components."""
+    def force_field_score_key(self) -> ForceFieldScoreKey:
+        """Return the cached key for the no-metal force-field evaluation."""
 
-        cached_key = self.metadata.get("post_reinsertion_base_key")
-        if cached_key is not None:
-            self.key_cache["organic_score_key"] = (self.omol_revision, cached_key)
-            return cast(str, cached_key)
+        from molgr.fallback.utils.force_field import _build_score_key
 
-        from molgr.fallback.utils.scoring import _build_score_key
+        score_key = self.get_cached_omol_value("force_field_score_key", _build_score_key)
+        self.metadata["force_field_score_key"] = score_key
+        return cast(Any, score_key)
 
-        score_key = self.get_cached_omol_value("organic_score_key", _build_score_key)
-        self.metadata["post_reinsertion_base_key"] = score_key
-        return cast(str, score_key)
+    def organic_core_score(self, *, config: MolGRConfig | None = None) -> float:
+        """Score the metal-free reconstruction with the fixed organic force-field policy."""
 
-    def organic_core_score(self) -> float:
-        """Score only the organic/no-metal part of the reconstruction."""
+        from molgr.config import force_field_config_cache_key
+        current_force_field_config_key = force_field_config_cache_key(config)
 
-        cached_score = self.metadata.get("organic_core_score")
-        if isinstance(cached_score, (float, int)):
-            self.key_cache["organic_core_score"] = (self.omol_revision, float(cached_score))
-            return float(cached_score)
-
-        from molgr.fallback.utils.scoring import organic_core_score_from_key
-
-        def _build_score() -> float:
-            score_key = self.post_reinsertion_base_key()
-            score_value = organic_core_score_from_key(score_key, self.omol)
-            self.metadata["organic_core_score"] = score_value
-            self.metadata["post_reinsertion_base_key"] = score_key
-            return score_value
-
-        score = self.get_cached_revision_value("organic_core_score", _build_score)
+        from molgr.fallback.utils.force_field import (
+            OmolForceFieldContext,
+            organic_force_field_evaluation,
+        )
+        score_key = self.force_field_score_key()
+        if config is None:
+            evaluation = organic_force_field_evaluation(
+                OmolForceFieldContext(self.omol, score_key=score_key)
+            )
+        else:
+            evaluation = organic_force_field_evaluation(
+                OmolForceFieldContext(self.omol, score_key=score_key),
+                config=config,
+            )
+        score = evaluation.energy_kj_mol
+        self.metadata["force_field_energy"] = score
+        self.metadata["force_field_config_key"] = current_force_field_config_key
+        self.metadata["force_field_requested"] = evaluation.requested_force_field
+        self.metadata["force_field_resolved_force_field"] = evaluation.resolved_force_field
         self.metadata["organic_core_score"] = score
+        self.metadata["score"] = score
+        self.metadata["force_field_score_key"] = score_key
         return float(score)
 
-    def post_reinsertion_base_components(
-        self,
-    ) -> Tuple[float, Tuple[ChargedAtomSnapshot, ...]]:
-        """Return cached score components reused during metal reinsertion scoring."""
-
-        cached_symmetry_penalty = self.metadata.get("post_reinsertion_base_symmetry_penalty")
-        cached_charged_atom_snapshots = self.metadata.get("post_reinsertion_charged_atom_snapshots")
-        if isinstance(cached_symmetry_penalty, (float, int)) and isinstance(
-            cached_charged_atom_snapshots,
-            tuple,
-        ):
-            components = (float(cached_symmetry_penalty), cached_charged_atom_snapshots)
-            self.key_cache["post_reinsertion_base_components"] = (self.omol_revision, components)
-            return components
-
-        from molgr.fallback.utils.scoring import build_post_reinsertion_base_components
-
-        base_symmetry_penalty, charged_atom_snapshots = self.get_cached_revision_value(
-            "post_reinsertion_base_components",
-            lambda: build_post_reinsertion_base_components(self.omol),
-        )
-        self.metadata["post_reinsertion_base_symmetry_penalty"] = base_symmetry_penalty
-        self.metadata["post_reinsertion_charged_atom_snapshots"] = charged_atom_snapshots
-        return base_symmetry_penalty, charged_atom_snapshots
-
-    def full_score(self) -> float:
+    def full_score(self, *, config: MolGRConfig | None = None) -> float:
         """Score the complete no-metal reconstruction state."""
 
-        cached_score = self.metadata.get("score")
-        if isinstance(cached_score, (float, int)):
-            self.key_cache["full_score"] = (self.omol_revision, float(cached_score))
-            return float(cached_score)
+        from molgr.config import force_field_config_cache_key
+        current_force_field_config_key = force_field_config_cache_key(config)
 
-        from molgr.fallback.utils.scoring import omol_score_from_parts
-
-        def _build_score() -> float:
-            organic_score = self.organic_core_score()
-            post_key = self.post_reinsertion_base_key()
-            score_value = omol_score_from_parts(organic_score, post_key, self.omol)
-            self.metadata["score"] = score_value
-            return score_value
-
-        score = self.get_cached_revision_value("full_score", _build_score)
+        if config is None:
+            score = self.organic_core_score()
+        else:
+            score = self.organic_core_score(config=config)
+        self.metadata["force_field_config_key"] = current_force_field_config_key
         self.metadata["score"] = score
         return float(score)
 
-    def score(self, profile: ReconstructionScoreProfile = "full") -> float:
+    def score(
+        self,
+        profile: ReconstructionScoreProfile = "full",
+        *,
+        config: MolGRConfig | None = None,
+    ) -> float:
         if profile == "organic_core":
-            return self.organic_core_score()
+            if config is None:
+                return self.organic_core_score()
+            return self.organic_core_score(config=config)
         if profile == "full":
-            return self.full_score()
+            if config is None:
+                return self.full_score()
+            return self.full_score(config=config)
         raise ValueError(f"Unsupported ReconstructionState score profile: {profile!r}")
+
+
+@typed_lru_cache(maxsize=_DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE, typed=True)
+def _cached_reconstruction_revision_value(
+    state: ReconstructionState,
+    cache_name: str,
+    builder: Callable[[], Any],
+) -> Any:
+    del cache_name
+    return builder()
+
+
+@typed_lru_cache(maxsize=_DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE, typed=True)
+def _cached_reconstruction_omol_value(
+    state: ReconstructionState,
+    cache_name: str,
+    builder: Callable[[pybel.Molecule], Any],
+) -> Any:
+    del cache_name
+    return builder(state.omol)
 
 
 class OmolStateMachine:
@@ -215,7 +235,6 @@ class OmolStateMachine:
             state.given_charge,
             phase_history=state.phase_history,
             metadata=state.metadata,
-            key_cache=state.key_cache,
             omol_revision=state.omol_revision,
         )
 
@@ -314,7 +333,6 @@ class OmolStateMachine:
             total_radical_electrons=total_radical_electrons,
             phase_history=tuple(self.phase_history),
             metadata=dict(self.metadata),
-            key_cache=dict(self.key_cache),
             omol_revision=self.omol_revision,
         )
 
@@ -374,14 +392,14 @@ class MetalCandidateState:
         if cached is not None:
             return cached
 
-        from molgr.fallback.utils.scoring import build_metal_state_key
+        from molgr.fallback.utils.force_field import build_metal_state_key
 
         metal_key = build_metal_state_key(self.metal_states)
         self.key_cache["metal_state_key"] = metal_key
         return metal_key
 
-    def combined_score_key(self) -> PostReinsertionKey:
-        """Return the key for the combined no-metal + metal score."""
+    def combined_score_key(self) -> Tuple[ForceFieldScoreKey, MetalStateKey]:
+        """Return the cache key for the combined no-metal + metal selection score."""
 
         no_metal_state = self.no_metal_state
         if no_metal_state is None:
@@ -389,9 +407,9 @@ class MetalCandidateState:
 
         dependency_key = (id(no_metal_state), no_metal_state.omol_revision)
         return self.get_cached_candidate_value(
-            "combined_score_key",
+            "force_field_candidate_key",
             dependency_key,
-            lambda: (no_metal_state.post_reinsertion_base_key(), self.metal_state_key()),
+            lambda: (no_metal_state.force_field_score_key(), self.metal_state_key()),
         )
 
     def combined_omol_dependency_key(self) -> Tuple[int, int, MetalStateKey]:
@@ -420,14 +438,18 @@ class MetalCandidateState:
         self.combined_omol = combined_omol
         return combined_omol
 
-    def combined_score(self) -> float:
-        """Score the candidate without materializing metals unless needed."""
+    def combined_score(self, *, config: MolGRConfig | None = None) -> float:
+        """Score the candidate using only the shared organic force-field energy."""
 
+        from molgr.config import force_field_config_cache_key
         no_metal_state = self.no_metal_state
         if no_metal_state is None:
             raise ValueError("MetalCandidateState requires no_metal_state before scoring")
 
-        score_key = self.combined_score_key()
+        score_key = (
+            self.combined_score_key(),
+            force_field_config_cache_key(config),
+        )
         cached = self.key_cache.get("combined_score")
         if cached is not None:
             cached_key, cached_score = cast(Tuple[object, float], cached)
@@ -436,27 +458,34 @@ class MetalCandidateState:
                 self.metadata["score"] = float(cached_score)
                 return float(cached_score)
 
-        from molgr.fallback.utils.scoring import combined_candidate_score_from_metal_states
-
-        organic_score = no_metal_state.score("organic_core")
-        base_symmetry_penalty, charged_atom_snapshots = (
-            no_metal_state.post_reinsertion_base_components()
+        if config is None:
+            organic_score = no_metal_state.score("organic_core")
+        else:
+            organic_score = no_metal_state.score("organic_core", config=config)
+        score_value = organic_score
+        self.metadata["force_field_energy"] = organic_score
+        self.metadata["force_field_config_key"] = force_field_config_cache_key(config)
+        self.metadata["force_field_requested"] = no_metal_state.metadata.get(
+            "force_field_requested",
+            "auto",
         )
-        score_value = combined_candidate_score_from_metal_states(
-            organic_score,
-            score_key[0],
-            base_symmetry_penalty,
-            charged_atom_snapshots,
-            self.metal_states,
+        self.metadata["force_field_resolved_force_field"] = no_metal_state.metadata.get(
+            "force_field_resolved_force_field",
+            self.metadata["force_field_requested"],
         )
         self.key_cache["combined_score"] = (score_key, score_value)
         self.metadata["score"] = score_value
         self.score = score_value
         return score_value
 
-    def evaluate_score(self, profile: MetalCandidateScoreProfile = "combined") -> float:
+    def evaluate_score(
+        self,
+        profile: MetalCandidateScoreProfile = "combined",
+        *,
+        config: MolGRConfig | None = None,
+    ) -> float:
         if profile == "combined":
-            return self.combined_score()
+            return self.combined_score(config=config)
         raise ValueError(f"Unsupported MetalCandidateState score profile: {profile!r}")
 
 

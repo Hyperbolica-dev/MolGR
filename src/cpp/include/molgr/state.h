@@ -1,5 +1,6 @@
 #pragma once
 
+#include "molgr/config.h"
 #include "molgr/types.h"
 
 #include <openbabel/mol.h>
@@ -28,6 +29,9 @@ namespace molgr
         struct PreheatedNoMetalScoreBundle
         {
             std::string post_reinsertion_base_key;
+            std::string force_field_config_key;
+            std::string force_field_requested;
+            std::string force_field_resolved_force_field;
             double organic_core_score = 0.0;
             double base_symmetry_penalty = 0.0;
             molgr::ChargedAtomSnapshotList charged_atom_snapshots;
@@ -40,7 +44,7 @@ namespace molgr
             int total_charge = 0;
             int total_radical_electrons = 0;
             std::vector<std::string> phase_history;
-            MetadataMap metadata;
+            mutable MetadataMap metadata;
             int omol_revision = 0;
 
             mutable std::optional<std::pair<int, std::string>> organic_score_key_cache;
@@ -66,13 +70,17 @@ namespace molgr
             OpenBabel::OBMol &MutableMol();
 
             void InvalidateOmolDerivedCache();
-            PreheatedNoMetalScoreBundle BuildPreheatedScoreBundle() const;
-            void PreheatScoreBundle();
+            PreheatedNoMetalScoreBundle BuildPreheatedScoreBundle(
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig()) const;
+            void PreheatScoreBundle(
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig());
             const PreheatedNoMetalScoreBundle *PreheatedScoreBundle() const;
             std::string PostReinsertionBaseKey() const;
-            double OrganicCoreScore() const;
+            double OrganicCoreScore(
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig()) const;
             std::pair<double, molgr::ChargedAtomSnapshotList> PostReinsertionBaseComponents() const;
-            double FullScore() const;
+            double FullScore(
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig()) const;
         };
 
         class OmolStateMachine
@@ -81,7 +89,7 @@ namespace molgr
             std::shared_ptr<OpenBabel::OBMol> omol;
             int given_charge = 0;
             std::vector<std::string> phase_history;
-            MetadataMap metadata;
+            mutable MetadataMap metadata;
             int omol_revision = 0;
 
             mutable std::optional<std::pair<int, std::string>> organic_score_key_cache;
@@ -166,7 +174,7 @@ namespace molgr
             int total_charge = 0;
             int total_radical_electrons = 0;
             std::vector<std::string> phase_history;
-            MetadataMap metadata;
+            mutable MetadataMap metadata;
         };
 
         struct MetalCandidateState
@@ -175,7 +183,7 @@ namespace molgr
             int no_metal_charge_target = 0;
             int no_metal_radical_target = 0;
             std::vector<std::string> phase_history;
-            MetadataMap metadata;
+            mutable MetadataMap metadata;
             std::shared_ptr<ReconstructionState> no_metal_state;
             std::shared_ptr<OpenBabel::OBMol> combined_omol;
             mutable std::optional<double> score;
@@ -190,7 +198,8 @@ namespace molgr
             std::pair<std::string, std::string> CombinedScoreKey() const;
             std::shared_ptr<OpenBabel::OBMol> MaterializeCombinedOmol(
                 const CombinedOmolBuilder &builder);
-            double CombinedScore() const;
+            double CombinedScore(
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig()) const;
         };
 
         class MetalCandidateStateMachine

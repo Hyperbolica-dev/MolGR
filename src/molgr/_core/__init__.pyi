@@ -21,7 +21,9 @@ __all__: list[str] = [
     "WARN",
     "dev",
     "free_obmol_ptr",
+    "get_default_config",
     "pipeline",
+    "set_default_config",
     "set_log_level",
     "utils",
 ]
@@ -67,6 +69,16 @@ class LogLevel:
 def free_obmol_ptr(arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
     """
     Manually delete the OBMol pointer
+    """
+
+def get_default_config() -> dict:
+    """
+    Return a summary of the default runtime configuration used by the C++ backend.
+    """
+
+def set_default_config(config: typing.Any) -> None:
+    """
+    Set the default runtime configuration used by the C++ backend.
     """
 
 def set_log_level(level: LogLevel) -> None:

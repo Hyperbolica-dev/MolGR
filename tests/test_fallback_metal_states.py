@@ -11,7 +11,8 @@ pytest.importorskip("openbabel")
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.fallback.pipeline.reconstruct_with_metals import _build_metal_states, xyz2omol
+from molgr.fallback.pipeline.reconstruct_with_metals import xyz2omol
+from molgr.fallback.utils.metals.preparation import _build_metal_states
 
 
 def test_build_metal_states_unknown_symbol_defaults() -> None:

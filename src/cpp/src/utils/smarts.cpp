@@ -37,7 +37,7 @@ namespace
         "[#8]=[#6](-[!-])-[*]=[*]-[#7-,#6-]",
         "[#7v2+]=[*]-[*]=[*]-[#8-]",
         "[#7+,#8+]=[*]-[#6-,#7-,#8-]",
-        "[#7+0,#8+0,#16+0]=[*+0]-[#6-,#7-]",
+        "[#7+0,#8+0,#16+0]=[#6+0]-[#6-,#7-]",
         "[#6]=[#6]=[#6-,#7-]",
         "[*-]1-,:[*](=,:[*])-,:[*]=,:[*]-,:[*]=,:[*]1",
         "[*-]1-,:[*]=,:[*]-,:[*](=,:[*])-,:[*]=,:[*]1",
@@ -54,22 +54,27 @@ namespace
         "[*]-,=,:[*]=,#,:[*]",
         "[*]=,#,:[*]-,:[*]=,#,:[*]",
     };
+    using PatternArray = std::array<std::unique_ptr<OpenBabel::OBSmartsPattern>, kPatternCount>;
 
-    thread_local std::array<std::unique_ptr<OpenBabel::OBSmartsPattern>, kPatternCount> t_patterns = []()
+    PatternArray &ThreadLocalPatterns()
     {
-        std::array<std::unique_ptr<OpenBabel::OBSmartsPattern>, kPatternCount> compiled_patterns{};
-        for (std::size_t idx = 0; idx < kPatternCount; ++idx)
+        thread_local PatternArray *compiled_patterns = nullptr;
+        if (compiled_patterns == nullptr)
         {
-            auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
-            if (!pattern->Init(kSmartsPatterns[idx]))
+            compiled_patterns = new PatternArray{};
+            for (std::size_t idx = 0; idx < kPatternCount; ++idx)
             {
-                throw std::runtime_error(
-                    std::string("Invalid built-in SMARTS pattern: ") + kSmartsPatterns[idx]);
+                auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
+                if (!pattern->Init(kSmartsPatterns[idx]))
+                {
+                    throw std::runtime_error(
+                        std::string("Invalid built-in SMARTS pattern: ") + kSmartsPatterns[idx]);
+                }
+                (*compiled_patterns)[idx] = std::move(pattern);
             }
-            compiled_patterns[idx] = std::move(pattern);
         }
-        return compiled_patterns;
-    }();
+        return *compiled_patterns;
+    }
 }
 
 namespace molgr
@@ -79,7 +84,7 @@ namespace molgr
         std::vector<std::vector<int>> Match(OpenBabel::OBMol &mol, PatternId pattern_id)
         {
             OpenBabel::OBSmartsPattern &pattern =
-                *t_patterns.at(static_cast<std::size_t>(pattern_id));
+                *ThreadLocalPatterns().at(static_cast<std::size_t>(pattern_id));
             if (pattern.Match(mol))
             {
                 return pattern.GetMapList();

@@ -1,11 +1,14 @@
 #pragma once
 
+#include "molgr/config.h"
 #include "molgr/types.h"
+#include "molgr/utils/organic_topology.h"
 
 #include <openbabel/mol.h>
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace molgr
 {
@@ -15,11 +18,12 @@ namespace molgr
         using ChargedAtomSnapshotList = molgr::ChargedAtomSnapshotList;
         using MetalAtomPosition = molgr::MetalAtomPosition;
 
-        std::string BuildScoreKey(const OpenBabel::OBMol &mol);
-        std::string BuildMetalStateKey(const std::vector<MetalAtomPosition> &metal_states);
+        using OrganicTopologyMetrics = molgr::organic_topology::OrganicTopologyMetrics;
 
         double OmolScore(const OpenBabel::OBMol &mol);
+        double OmolScore(const OpenBabel::OBMol &mol, const molgr::config::MolGRConfig &config);
         double OrganicCoreScore(const OpenBabel::OBMol &mol);
+        double OrganicCoreScore(const OpenBabel::OBMol &mol, const molgr::config::MolGRConfig &config);
         double PostReinsertionScore(const OpenBabel::OBMol &mol);
         std::pair<double, ChargedAtomSnapshotList> BuildPostReinsertionBaseComponents(
             const OpenBabel::OBMol &mol);
@@ -42,5 +46,6 @@ namespace molgr
             const std::vector<MetalAtomPosition> &metal_states,
             double cutoff = 2.6);
         double GetDeviationScore(const OpenBabel::OBMol &mol, const OpenBabel::OBAtom *atom);
+        OrganicTopologyMetrics ComputeOrganicTopologyMetrics(const OpenBabel::OBMol &mol);
     }
 }

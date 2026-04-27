@@ -9,6 +9,7 @@
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
+#include <openbabel/obiter.h>
 
 #include <algorithm>
 
@@ -33,6 +34,46 @@ namespace molgr
         bool ContainsAtomIdx(const std::vector<int> &atom_indices, int atom_idx)
         {
             return std::find(atom_indices.begin(), atom_indices.end(), atom_idx) != atom_indices.end();
+        }
+
+        bool ValidateOmol(OBMol &mol, int total_charge, int total_radical, bool emit_warnings)
+        {
+            int charge_sum = 0;
+            int radical_sum = 0;
+            int radical_sum_singlet = 0;
+
+            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            {
+                OpenBabel::OBAtom *atom = &(*atom_iter);
+                charge_sum += atom->GetFormalCharge();
+                int spin = atom->GetSpinMultiplicity();
+                radical_sum += spin;
+                radical_sum_singlet += (spin % 2);
+            }
+
+            if (charge_sum != total_charge)
+            {
+                if (emit_warnings)
+                {
+                    LOG_WARN("[Validate] Charge mismatch. Target: " << total_charge << ", Actual: " << charge_sum);
+                }
+                return false;
+            }
+
+            if (radical_sum_singlet == total_radical)
+            {
+                radical_sum = radical_sum_singlet;
+            }
+
+            if (radical_sum != total_radical)
+            {
+                if (emit_warnings)
+                {
+                    LOG_WARN("[Validate] Radical mismatch. Target: " << total_radical << ", Actual: " << radical_sum);
+                }
+                return false;
+            }
+            return true;
         }
 
         bool MakeConnections(OBMol &mol, double factor)

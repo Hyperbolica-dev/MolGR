@@ -20,44 +20,6 @@ namespace molgr
     {
         using namespace OpenBabel;
 
-        bool CleanCarbeneNeighborUnsaturated(OBMol &mol)
-        {
-            bool hit = false;
-            while (true)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_CARBENE_NEIGHBOR_UNSAT);
-                if (matches.empty())
-                    break;
-                bool any_applied = false;
-
-                for (const auto &idxs : matches)
-                {
-                    OBAtom *a1 = mol.GetAtom(idxs[0]);
-                    OBAtom *a2 = mol.GetAtom(idxs[1]);
-                    OBAtom *a3 = mol.GetAtom(idxs[2]);
-
-                    if (a1->GetSpinMultiplicity() == 2 && a3->GetSpinMultiplicity() == 0)
-                    {
-                        OBBond *b23 = mol.GetBond(a2, a3);
-                        OBBond *b12 = mol.GetBond(a1, a2);
-                        if (b23 && b12)
-                        {
-                            b23->SetBondOrder(b23->GetBondOrder() - 1);
-                            b12->SetBondOrder(b12->GetBondOrder() + 1);
-                            a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
-                            a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() + 1);
-                            hit = true;
-                            any_applied = true;
-                            break;
-                        }
-                    }
-                }
-                if (!any_applied)
-                    break;
-            }
-            return hit;
-        }
-
         bool EliminateNNN(OBMol &mol, int &charge, bool positive)
         {
             bool hit = false;
@@ -85,13 +47,13 @@ namespace molgr
                     bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                     bond2->SetBondOrder(bond2->GetBondOrder() + 1);
 
-                    a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
+                    a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 2);
                     a1->SetFormalCharge(a1->GetFormalCharge() - 1);
 
                     a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
                     a2->SetFormalCharge(a2->GetFormalCharge() + 1);
 
-                    a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() - 1);
+                    a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() - 2);
                     a3->SetFormalCharge(a3->GetFormalCharge() - 1);
 
                     charge += 1;
@@ -202,6 +164,7 @@ namespace molgr
 
         bool EliminateCarbeneNeighborHeteroatom(OBMol &mol, int &charge)
         {
+            bool hit = false;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OBAtom *atom = &(*atom_iter);
@@ -217,7 +180,9 @@ namespace molgr
                         }
                     }
                     if (neighbor_radical)
-                        continue;
+                    {
+                        return hit;
+                    }
 
                     FOR_NB_OF_ATOM(nbr, atom)
                     {
@@ -230,32 +195,11 @@ namespace molgr
                             atom->SetSpinMultiplicity(0);
                             atom->SetFormalCharge(atom->GetFormalCharge() - 1);
                             nbr->SetFormalCharge(nbr->GetFormalCharge() + 1);
+                            hit = true;
                             LOG_DEBUG("[EliminateCarbeneHetero] Applied");
-                            return true;
+                            break;
                         }
                     }
-                }
-            }
-            return false;
-        }
-
-        bool CleanNeighborRadicals(OBMol &mol)
-        {
-            bool hit = false;
-            FOR_BONDS_OF_MOL(bond_iter, mol)
-            {
-                OBBond *bond = &(*bond_iter);
-                OBAtom *a1 = bond->GetBeginAtom();
-                OBAtom *a2 = bond->GetEndAtom();
-                int r1 = a1->GetSpinMultiplicity();
-                int r2 = a2->GetSpinMultiplicity();
-                if (r1 > 0 && r2 > 0)
-                {
-                    int to_add = std::min(r1, r2);
-                    bond->SetBondOrder(bond->GetBondOrder() + to_add);
-                    a1->SetSpinMultiplicity(r1 - to_add);
-                    a2->SetSpinMultiplicity(r2 - to_add);
-                    hit = true;
                 }
             }
             return hit;
@@ -313,7 +257,10 @@ namespace molgr
                             break;
                     }
                 };
-                process(8, false);
+                for (const int atomic_num : {8, 9, 17, 35, 53})
+                {
+                    process(atomic_num, false);
+                }
                 process(7, false);
                 process(6, true);
                 process(6, false);
@@ -420,7 +367,7 @@ namespace molgr
         bool EliminateNegativeCharges(OBMol &mol, int &charge)
         {
             bool hit = false;
-            const std::vector<int> heteroatom_priority = {9, 8, 17, 7, 35, 54, 16, 34, 15};
+            const std::vector<int> heteroatom_priority = {9, 8, 17, 7, 35, 53, 16, 34, 15};
 
             std::vector<std::pair<OBAtom *, size_t>> possible_heteroatoms;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
@@ -453,7 +400,10 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
-                hit = true;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
             }
 
             while (charge < 0)
@@ -475,7 +425,10 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
-                hit = true;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
             }
 
             while (charge < 0)
@@ -497,7 +450,10 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
-                hit = true;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
             }
 
             while (charge < 0)
@@ -519,7 +475,41 @@ namespace molgr
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
-                hit = true;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
+            }
+
+            while (charge < 0)
+            {
+                bool updated = false;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    OBAtom *atom = &(*atom_iter);
+                    if (atom->GetSpinMultiplicity() < 1 || atom->GetFormalCharge() != 0)
+                    {
+                        continue;
+                    }
+
+                    const int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
+                    atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
+                    atom->SetFormalCharge(-to_add);
+                    charge += to_add;
+                    if (to_add > 0)
+                    {
+                        hit = true;
+                        updated = true;
+                    }
+                    if (charge >= 0)
+                    {
+                        break;
+                    }
+                }
+                if (!updated)
+                {
+                    break;
+                }
             }
             return hit;
         }

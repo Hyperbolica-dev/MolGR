@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 from molgr.fallback.utils.dataclasses import FDSP, ElementInfo
 
@@ -40,7 +40,7 @@ METAL_VALENCE_AVAILABLE_MINOR: Dict[str, List[int]] = {
     "Cr": [5, 4, 1, -1, -2, -4, 0],
     "Mo": [5, 2, 1, -1, -2, -4, 0],
     "W": [5, 3, 2, 1, -1, -2, -4, 0],
-    "Mn": [0, 5, 1, -1, -2, -3, 0],
+    "Mn": [5, 1, -1, -2, -3, 0],
     "Tc": [6, 3, 2, 5, 1, -1, -3, 0],
     "Re": [6, 3, 2, 5, 1, -1, -3, 0],
     "Fe": [6, 7, 5, 1, -1, -2, -4],
@@ -94,6 +94,48 @@ NON_METAL_DICT: Dict[int, ElementInfo] = {
     84: ElementInfo("Po", 6, 2),
     85: ElementInfo("At", 7, 1),
     86: ElementInfo("Rn", 8, 0),
+}
+NON_METAL_PAULING_ELECTRONEGATIVITY: Dict[int, float] = {
+    1: 2.20,
+    5: 2.04,
+    6: 2.55,
+    7: 3.04,
+    8: 3.44,
+    9: 3.98,
+    14: 1.90,
+    15: 2.19,
+    16: 2.58,
+    17: 3.16,
+    32: 2.01,
+    33: 2.18,
+    34: 2.55,
+    35: 2.96,
+    51: 2.05,
+    52: 2.10,
+    53: 2.66,
+    84: 2.00,
+    85: 2.20,
+}
+NON_METAL_FIRST_IONIZATION_ENERGY_EV: Dict[int, float] = {
+    1: 13.60,
+    5: 8.30,
+    6: 11.26,
+    7: 14.53,
+    8: 13.62,
+    9: 17.42,
+    14: 8.15,
+    15: 10.49,
+    16: 10.36,
+    17: 12.97,
+    32: 7.90,
+    33: 9.79,
+    34: 9.75,
+    35: 11.81,
+    51: 8.64,
+    52: 9.01,
+    53: 10.45,
+    84: 8.42,
+    85: 9.30,
 }
 HETEROATOM: Tuple[int, ...] = (9, 8, 17, 7, 35, 53, 16, 34, 15)
 D_ELECTRONS_SPIN: List[List[int]] = [
@@ -239,6 +281,87 @@ METAL_VALENCE_AVAILABLE_PRIOR: Dict[str, List[int]] = {
     "Sb": [5, 3],
     "Bi": [5, 3],
 }
+_D_SHELL_REARRANGEMENT_METALS: Set[str] = {
+    "Sc",
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Zn",
+    "Y",
+    "Zr",
+    "Nb",
+    "Mo",
+    "Tc",
+    "Ru",
+    "Rh",
+    "Pd",
+    "Ag",
+    "Cd",
+    "Hf",
+    "Ta",
+    "W",
+    "Re",
+    "Os",
+    "Ir",
+    "Pt",
+    "Au",
+    "Hg",
+}
+
+
+def get_possible_metal_radicals(metal: str, valence: int) -> Set[int]:
+    """Return heuristic radical counts for a metal under a candidate valence.
+
+    This is a coarse electron-counting model built from the element's nominal
+    ``f/d/s/p`` occupation and a free-ion ``d^n`` unpaired-electron table.
+
+    The logic is intentionally simple:
+    1. Remove electrons from ``s``/``p`` first.
+    2. Then remove electrons from ``d``.
+    3. For low-valent ``d``-block metals, allow remaining ``s/p`` electrons to
+       relax into the ``d`` manifold up to ``d10`` before counting radicals.
+    4. Collapse any remaining non-``d`` contribution to parity only.
+
+    Known limitations:
+    - It does not model ligand-field splitting, so high-/low-spin ordering is
+      not encoded.
+    - For partially occupied ``p`` shells it keeps only parity, not the full
+      Hund-rule unpaired-electron manifold.
+    - For ``f`` electrons it also keeps only parity, which is especially crude
+      for lanthanides/actinides.
+    """
+
+    f_d_s_p = METAL_F_D_S_P_ELECTRONS.get(metal)
+    if f_d_s_p is None:
+        return set()
+
+    f, d, s, p = f_d_s_p.f, f_d_s_p.d, f_d_s_p.s, f_d_s_p.p
+    total_outer = f + d + s + p
+    if valence > total_outer:
+        return set()
+
+    remaining_sp = max(0, s + p - valence)
+    removed_from_d = min(d, max(0, valence - (s + p)))
+    remaining_d = d - removed_from_d
+    removed_from_f = min(f, max(0, valence - (s + p + d)))
+    remaining_f = f - removed_from_f
+
+    promoted_to_d = 0
+    if metal in _D_SHELL_REARRANGEMENT_METALS:
+        promoted_to_d = min(remaining_sp, max(0, 10 - remaining_d))
+
+    effective_d = remaining_d + promoted_to_d
+    residual_sp = remaining_sp - promoted_to_d
+    if 0 <= effective_d < len(D_ELECTRONS_SPIN):
+        base = (remaining_f + residual_sp) % 2
+        return {base + dd for dd in D_ELECTRONS_SPIN[effective_d]}
+
+    return {(remaining_f + residual_sp) % 2}
 
 
 __all__ = [
@@ -248,4 +371,5 @@ __all__ = [
     "METAL_VALENCE_AVAILABLE_MINOR",
     "METAL_VALENCE_AVAILABLE_PRIOR",
     "NON_METAL_DICT",
+    "get_possible_metal_radicals",
 ]

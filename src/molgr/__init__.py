@@ -11,7 +11,24 @@ import importlib.metadata
 from openbabel import pybel
 
 from . import _core as core
-from ._core import dev, pipeline
+from . import config
+from ._core import pipeline
+from .config import (
+    DEFAULT_MOLGR_CONFIG,
+    CacheConfig,
+    CppBackendConfig,
+    ForceFieldConfig,
+    MetalRadicalInferenceConfig,
+    MetalScoringConfig,
+    MolGRConfig,
+    ResonanceConfig,
+    force_field_config_cache_key,
+    get_config,
+    make_default_config,
+    reset_config,
+    set_config,
+    sync_cpp_backend_default_config,
+)
 
 
 try:
@@ -35,10 +52,25 @@ def set_log_level(level: core.LogLevel):
 
 
 __all__ = [
+    "DEFAULT_MOLGR_CONFIG",
+    "CacheConfig",
+    "CppBackendConfig",
+    "ForceFieldConfig",
+    "MetalRadicalInferenceConfig",
+    "MetalScoringConfig",
+    "MolGRConfig",
+    "ResonanceConfig",
+    "config",
+    "force_field_config_cache_key",
     "set_log_level",
-    "dev",
+    "get_config",
+    "make_default_config",
+    "reset_config",
+    "set_config",
+    "sync_cpp_backend_default_config",
     "pipeline",
 ]
 
 # 默认可以设为 WARN
 set_log_level(core.LogLevel.WARN)
+sync_cpp_backend_default_config(get_config())

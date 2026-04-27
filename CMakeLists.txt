@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 
 # ==============================================================================
@@ -63,6 +67,19 @@ add_library(molgr STATIC
     src/cpp/src/utils/consts.cpp
     src/cpp/src/utils/utils.cpp
     src/cpp/src/utils/conversions.cpp
+    src/cpp/src/utils/xyz.cpp
+    src/cpp/src/utils/force_field.cpp
+    src/cpp/src/utils/metal_radical_inference.cpp
+    src/cpp/src/vendor/forcefielduff.cpp
+    src/cpp/src/utils/metals/preparation.cpp
+    src/cpp/src/utils/metals/scoring.cpp
+    src/cpp/src/utils/metals/search.cpp
+    src/cpp/src/utils/no_metals/preparation.cpp
+    src/cpp/src/utils/no_metals/resonance.cpp
+    src/cpp/src/utils/no_metals/selection.cpp
+    src/cpp/src/utils/organic_topology.cpp
+    src/cpp/src/utils/perf.cpp
+    src/cpp/src/utils/resonance.cpp
     src/cpp/src/utils/smarts.cpp
     src/cpp/src/utils/scoring.cpp
     src/cpp/src/utils/logger.cpp
@@ -93,6 +110,7 @@ pybind11_add_module(_core
     src/bindings/bind_utils.cpp
     src/bindings/bind_pipeline.cpp
     src/bindings/bind_stages.cpp
+    src/cpp/src/config.cpp
 )
 
 target_link_libraries(_core PRIVATE molgr)

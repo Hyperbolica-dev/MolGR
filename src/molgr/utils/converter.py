@@ -29,7 +29,7 @@ def mol_data_to_pybel(mol_data: core.utils.MoleculeData) -> pybel.Molecule:
         obatom.SetSpinMultiplicity(atom.radical_num)
         obatom.SetVector(atom.x, atom.y, atom.z)
     for bond in mol_data.bonds:
-        obmol.NewBond(bond.begin_atom_idx, bond.end_atom_idx, bond.order)
+        obmol.AddBond(bond.begin_atom_idx, bond.end_atom_idx, bond.order)
     obmol.EndModify()
     return pybel.Molecule(obmol)
 
@@ -38,46 +38,9 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
     """
     Convert MoleculeData to RDKit Mol.
     """
-    rwmol = Chem.RWMol()
-    for atom in mol_data.atoms:
-        atom_idx = rwmol.AddAtom(Chem.Atom(atom.atomic_num))
-        rdatom = rwmol.GetAtomWithIdx(atom_idx)
-        rdatom.SetNoImplicit(True)
-        rdatom.SetFormalCharge(atom.formal_charge)
-        rdatom.SetNumRadicalElectrons(atom.radical_num)
-    for bond_data in mol_data.bonds:
-        rwmol.AddBond(
-            bond_data.begin_atom_idx - 1,
-            bond_data.end_atom_idx - 1,
-            OB_RDKIT_BOND_ORDER_MAPPING[bond_data.order],
-        )
-
-    rdmol = Chem.MolFromMolBlock(
-        Chem.MolToMolBlock(rwmol),
-        sanitize=False,
-        removeHs=False,
-    )
-    if rdmol is None:
-        raise ValueError("MolFromMolBlock failed")
-
-    conf = Chem.Conformer(rdmol.GetNumAtoms())
-    for atom_idx, atom in enumerate(mol_data.atoms):
-        conf.SetAtomPosition(atom_idx, (atom.x, atom.y, atom.z))
-    rdmol.RemoveAllConformers()
-    rdmol.AddConformer(conf)
-
-    if sanitize:
-        Chem.SanitizeMol(rdmol)
-    Chem.AssignAtomChiralTagsFromStructure(rdmol)
-    Chem.AssignStereochemistryFrom3D(rdmol)
-    Chem.AssignCIPLabels(rdmol)
-    mol = Chem.Mol(rdmol)
-    for bond_idx in range(mol.GetNumBonds()):
-        rd_bond = mol.GetBondWithIdx(bond_idx)
-        if rd_bond.GetStereo() == Chem.BondStereo.STEREONONE:
-            rd_bond.SetBondDir(Chem.BondDir.NONE)
-    Chem.Kekulize(mol)
-    return mol
+    # Keep the C++ and Python backend boundary identical by routing MoleculeData
+    # through the same OpenBabel -> RDKit conversion path used by the fallback.
+    return pybel_to_rdmol(mol_data_to_pybel(mol_data), sanitize=sanitize)
 
 
 def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
@@ -109,8 +72,12 @@ def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
         atom.SetFormalCharge(charge)
         atom.SetNumRadicalElectrons(radical)
     rdmol = Chem.MolFromMolBlock(Chem.MolToMolBlock(rwmol), removeHs=False)
+    rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
         Chem.SanitizeMol(rdmol)
+    else:
+        rdmol.UpdatePropertyCache(strict=False)
+    rdmol.UpdatePropertyCache(strict=False)
     Chem.AssignAtomChiralTagsFromStructure(rdmol)
     Chem.AssignStereochemistryFrom3D(rdmol)
     Chem.AssignCIPLabels(rdmol)

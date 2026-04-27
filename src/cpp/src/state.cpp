@@ -1,5 +1,6 @@
 #include "molgr/state.h"
 
+#include "molgr/utils/force_field.h"
 #include "molgr/utils/scoring.h"
 
 #include <array>
@@ -8,15 +9,21 @@
 
 namespace
 {
-    constexpr std::array<const char *, 5> kOmolDerivedMetadataKeys = {
+    constexpr std::array<const char *, 7> kOmolDerivedMetadataKeys = {
+        "force_field_energy",
+        "force_field_config_key",
+        "force_field_requested",
+        "force_field_resolved_force_field",
+        "force_field_score_key",
         "organic_core_score",
-        "post_reinsertion_base_key",
-        "post_reinsertion_base_symmetry_penalty",
-        "post_reinsertion_charged_atom_snapshots",
         "score",
     };
 
-    constexpr std::array<const char *, 1> kCandidateDerivedMetadataKeys = {
+    constexpr std::array<const char *, 5> kCandidateDerivedMetadataKeys = {
+        "force_field_energy",
+        "force_field_config_key",
+        "force_field_requested",
+        "force_field_resolved_force_field",
         "score",
     };
 
@@ -34,6 +41,52 @@ namespace
         {
             metadata.erase(key);
         }
+    }
+
+    std::string JoinStrings(const std::vector<std::string> &values)
+    {
+        std::string out;
+        for (std::size_t i = 0; i < values.size(); ++i)
+        {
+            if (i > 0)
+            {
+                out += ",";
+            }
+            out += values[i];
+        }
+        return out;
+    }
+
+    std::string ForceFieldConfigKey(const molgr::config::MolGRConfig &config)
+    {
+        return "ForceFieldConfig(auto_force_fields_metal_free=(" +
+               JoinStrings(config.force_field.auto_force_fields_metal_free) +
+               "), auto_force_fields_with_metals=(" +
+               JoinStrings(config.force_field.auto_force_fields_with_metals) +
+               "), organic_force_field=" +
+               config.force_field.organic_force_field +
+               ", selection_force_field=" +
+               config.force_field.selection_force_field +
+               ", combined_force_field=" +
+               config.force_field.combined_force_field +
+               ")";
+    }
+
+    void StoreNoMetalForceFieldMetadata(
+        molgr::state::MetadataMap &metadata,
+        const std::string &score_key,
+        const std::string &config_key,
+        const std::string &requested_force_field,
+        const std::string &resolved_force_field,
+        double score)
+    {
+        metadata["force_field_energy"] = score;
+        metadata["force_field_config_key"] = config_key;
+        metadata["force_field_requested"] = requested_force_field;
+        metadata["force_field_resolved_force_field"] = resolved_force_field;
+        metadata["force_field_score_key"] = score_key;
+        metadata["organic_core_score"] = score;
+        metadata["score"] = score;
     }
 
 }
@@ -89,21 +142,34 @@ namespace molgr
             InvalidateOmolDerivedMetadata(metadata);
         }
 
-        PreheatedNoMetalScoreBundle ReconstructionState::BuildPreheatedScoreBundle() const
+        PreheatedNoMetalScoreBundle ReconstructionState::BuildPreheatedScoreBundle(
+            const molgr::config::MolGRConfig &config) const
         {
             PreheatedNoMetalScoreBundle bundle;
             bundle.post_reinsertion_base_key = molgr::scoring::BuildScoreKey(Mol());
-            bundle.organic_core_score = molgr::scoring::OrganicCoreScore(Mol());
+            bundle.force_field_config_key = ForceFieldConfigKey(config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            bundle.force_field_requested = evaluation.requested_force_field;
+            bundle.force_field_resolved_force_field = evaluation.resolved_force_field;
+            bundle.organic_core_score = evaluation.energy_kj_mol;
             const auto base_components = molgr::scoring::BuildPostReinsertionBaseComponents(Mol());
             bundle.base_symmetry_penalty = base_components.first;
             bundle.charged_atom_snapshots = base_components.second;
             return bundle;
         }
 
-        void ReconstructionState::PreheatScoreBundle()
+        void ReconstructionState::PreheatScoreBundle(const molgr::config::MolGRConfig &config)
         {
-            preheated_score_bundle =
-                std::make_shared<const PreheatedNoMetalScoreBundle>(BuildPreheatedScoreBundle());
+            auto bundle = std::make_shared<const PreheatedNoMetalScoreBundle>(
+                BuildPreheatedScoreBundle(config));
+            StoreNoMetalForceFieldMetadata(
+                metadata,
+                bundle->post_reinsertion_base_key,
+                bundle->force_field_config_key,
+                bundle->force_field_requested,
+                bundle->force_field_resolved_force_field,
+                bundle->organic_core_score);
+            preheated_score_bundle = std::move(bundle);
         }
 
         const PreheatedNoMetalScoreBundle *ReconstructionState::PreheatedScoreBundle() const
@@ -126,18 +192,37 @@ namespace molgr
             return score_key;
         }
 
-        double ReconstructionState::OrganicCoreScore() const
+        double ReconstructionState::OrganicCoreScore(const molgr::config::MolGRConfig &config) const
         {
             if (preheated_score_bundle)
             {
+                StoreNoMetalForceFieldMetadata(
+                    metadata,
+                    preheated_score_bundle->post_reinsertion_base_key,
+                    preheated_score_bundle->force_field_config_key,
+                    preheated_score_bundle->force_field_requested,
+                    preheated_score_bundle->force_field_resolved_force_field,
+                    preheated_score_bundle->organic_core_score);
                 return preheated_score_bundle->organic_core_score;
             }
             if (organic_core_score_cache.has_value() && organic_core_score_cache->first == omol_revision)
             {
+                metadata["organic_core_score"] = organic_core_score_cache->second;
+                metadata["score"] = organic_core_score_cache->second;
                 return organic_core_score_cache->second;
             }
-            const double score = molgr::scoring::OrganicCoreScore(Mol());
+            const std::string score_key = PostReinsertionBaseKey();
+            const std::string config_key = ForceFieldConfigKey(config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            const double score = evaluation.energy_kj_mol;
             organic_core_score_cache = std::make_pair(omol_revision, score);
+            StoreNoMetalForceFieldMetadata(
+                metadata,
+                score_key,
+                config_key,
+                evaluation.requested_force_field,
+                evaluation.resolved_force_field,
+                score);
             return score;
         }
 
@@ -168,14 +253,16 @@ namespace molgr
             return components;
         }
 
-        double ReconstructionState::FullScore() const
+        double ReconstructionState::FullScore(const molgr::config::MolGRConfig &config) const
         {
             if (full_score_cache.has_value() && full_score_cache->first == omol_revision)
             {
+                metadata["score"] = full_score_cache->second;
                 return full_score_cache->second;
             }
-            const double score = molgr::scoring::OmolScore(Mol());
+            const double score = OrganicCoreScore(config);
             full_score_cache = std::make_pair(omol_revision, score);
+            metadata["score"] = score;
             return score;
         }
 
@@ -338,15 +425,8 @@ namespace molgr
                 return *combined_score_key_cache;
             }
 
-            std::optional<PreheatedNoMetalScoreBundle> local_bundle;
-            const auto *bundle = no_metal_state->PreheatedScoreBundle();
-            if (bundle == nullptr)
-            {
-                local_bundle = no_metal_state->BuildPreheatedScoreBundle();
-                bundle = &*local_bundle;
-            }
             combined_score_key_cache = std::make_pair(
-                bundle->post_reinsertion_base_key,
+                no_metal_state->PostReinsertionBaseKey(),
                 MetalStateKey());
             return *combined_score_key_cache;
         }
@@ -373,16 +453,18 @@ namespace molgr
             return combined_omol;
         }
 
-        double MetalCandidateState::CombinedScore() const
+        double MetalCandidateState::CombinedScore(const molgr::config::MolGRConfig &config) const
         {
             if (!no_metal_state)
             {
                 throw std::runtime_error("MetalCandidateState requires a no-metal state before scoring");
             }
             const auto combined_key = CombinedScoreKey();
-            const std::string cache_key = combined_key.first + "\n--metal--\n" + combined_key.second;
+            const std::string cache_key = combined_key.first + "\n--metal--\n" + combined_key.second +
+                                          "\n--config--\n" + ForceFieldConfigKey(config);
             if (combined_score_cache.has_value() && combined_score_cache->first == cache_key)
             {
+                metadata["score"] = combined_score_cache->second;
                 return combined_score_cache->second;
             }
 
@@ -390,16 +472,22 @@ namespace molgr
             const auto *bundle = no_metal_state->PreheatedScoreBundle();
             if (bundle == nullptr)
             {
-                local_bundle = no_metal_state->BuildPreheatedScoreBundle();
+                local_bundle = no_metal_state->BuildPreheatedScoreBundle(config);
                 bundle = &*local_bundle;
             }
-            const double score_value = molgr::scoring::CombinedCandidateScoreFromMetalStates(
-                bundle->organic_core_score,
-                combined_key.first,
-                bundle->base_symmetry_penalty,
-                bundle->charged_atom_snapshots,
-                metal_states);
+            const double score_value = bundle->organic_core_score;
             combined_score_cache = std::make_pair(cache_key, score_value);
+            metadata["force_field_energy"] = score_value;
+            metadata["force_field_config_key"] = bundle->force_field_config_key;
+            metadata["force_field_requested"] = bundle->force_field_requested.empty()
+                                                    ? std::string("auto")
+                                                    : bundle->force_field_requested;
+            metadata["force_field_resolved_force_field"] =
+                bundle->force_field_resolved_force_field.empty()
+                    ? std::get<std::string>(metadata["force_field_requested"])
+                    : bundle->force_field_resolved_force_field;
+            metadata["score"] = score_value;
+            score = score_value;
             return score_value;
         }
 
