@@ -7,6 +7,9 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 
+_AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD = 4
+
+
 @dataclass(frozen=True)
 class OrganicTopologyMetrics:
     aromatic_atom_count: int
@@ -24,6 +27,29 @@ def _prepare_topology_working_molecule(omol: pybel.Molecule) -> pybel.Molecule:
     working_obmol.SetAromaticPerceived(False)
     ob.OBAromaticTyper().AssignAromaticFlags(working_obmol)
     return working
+
+
+def _ring_atom_indices(ring: ob.OBRing) -> Tuple[int, ...]:
+    return tuple(int(atom_idx) for atom_idx in getattr(ring, "_path", ()))
+
+
+def _ring_formal_charge_sum(obmol: ob.OBMol, ring: ob.OBRing) -> int:
+    charge_sum = 0
+    for atom_idx in _ring_atom_indices(ring):
+        atom = obmol.GetAtom(atom_idx)
+        if atom is None:
+            continue
+        charge_sum += cast(int, atom.GetFormalCharge())
+    return charge_sum
+
+
+def _is_charge_accepted_aromatic_ring(obmol: ob.OBMol, ring: ob.OBRing) -> bool:
+    if not ring.IsAromatic():
+        return False
+    return (
+        abs(_ring_formal_charge_sum(obmol, ring))
+        < _AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD
+    )
 
 
 def _atom_has_odd_spin(atom: ob.OBAtom) -> bool:
@@ -84,13 +110,19 @@ def compute_organic_topology_metrics(
         working_omol = _prepare_topology_working_molecule(omol)
         obmol = cast(ob.OBMol, working_omol.OBMol)
 
-        aromatic_atom_count = sum(
-            1
-            for atom_iter in ob.OBMolAtomIter(obmol)
-            if cast(ob.OBAtom, atom_iter).GetAtomicNum() != 1
-            and cast(ob.OBAtom, atom_iter).IsAromatic()
-        )
-        aromatic_ring_count = sum(1 for ring in ob.OBMolRingIter(obmol) if ring.IsAromatic())
+        aromatic_ring_count = 0
+        aromatic_atom_indices: Set[int] = set()
+        for ring_iter in ob.OBMolRingIter(obmol):
+            ring = cast(ob.OBRing, ring_iter)
+            if not _is_charge_accepted_aromatic_ring(obmol, ring):
+                continue
+            aromatic_ring_count += 1
+            for atom_idx in _ring_atom_indices(ring):
+                atom = obmol.GetAtom(atom_idx)
+                if atom is None or atom.GetAtomicNum() == 1:
+                    continue
+                aromatic_atom_indices.add(atom_idx)
+        aromatic_atom_count = len(aromatic_atom_indices)
 
         conjugated_neighbors: Dict[int, Set[int]] = {}
         conjugated_atom_indices: Set[int] = set()

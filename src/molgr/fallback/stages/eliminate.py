@@ -41,6 +41,9 @@ def eliminate_CN_in_doubt(
     obmol = cast(ob.OBMol, omol.OBMol)
     doubt_pair: List[Tuple[int, int]] = smarts.ELIM_CN_IN_DOUBT.findall(omol)
     cn_in_doubt = len(doubt_pair)
+    # confirm that all atoms in doubt_pair are unique
+    if len({atom_id for pair in doubt_pair for atom_id in pair}) != cn_in_doubt * 2:
+        return omol, given_charge, False
     hit = False
     if cn_in_doubt % 2 == 0 and cn_in_doubt > 0:
         for atom_1_idx, atom_2_idx in doubt_pair[: cn_in_doubt // 2]:
@@ -157,49 +160,66 @@ def eliminate_charge_spliting(
         radical_atoms: List[ob.OBAtom] = [
             atom for atom in ob.OBMolAtomIter(obmol) if cast(ob.OBAtom, atom).GetSpinMultiplicity()
         ]
-        while len(radical_atoms) > abs(given_charge) + 1:
+        total_radicals = sum(cast(ob.OBAtom, atom).GetSpinMultiplicity() for atom in radical_atoms)
+        while total_radicals > abs(given_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() in (8, 9, 17, 35, 53):
-                    atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - 1)
-                    atom.SetFormalCharge(atom.GetFormalCharge() - 1)
-                    given_charge += 1
+                    atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
+                    given_charge += atom.GetSpinMultiplicity()
+                    total_radicals -= atom.GetSpinMultiplicity()
+                    atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
                     hit = True
                     break
             else:
                 break
-        while len(radical_atoms) > abs(given_charge) + 1:
+        while total_radicals > abs(given_charge):
+            for atom in radical_atoms:
+                if atom.GetAtomicNum() == 16:
+                    atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
+                    given_charge += atom.GetSpinMultiplicity()
+                    total_radicals -= atom.GetSpinMultiplicity()
+                    atom.SetSpinMultiplicity(0)
+                    radical_atoms.remove(atom)
+                    hit = True
+                    break
+            else:
+                break
+        while total_radicals > abs(given_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 7:
-                    atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - 1)
-                    atom.SetFormalCharge(atom.GetFormalCharge() - 1)
-                    given_charge += 1
+                    atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
+                    given_charge += atom.GetSpinMultiplicity()
+                    total_radicals -= atom.GetSpinMultiplicity()
+                    atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
                     hit = True
                     break
             else:
                 break
-        while len(radical_atoms) > abs(given_charge) + 1:
+        while total_radicals > abs(given_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 6 and not any(
                     _atom
                     for _atom in ob.OBAtomAtomIter(atom)
                     if cast(ob.OBAtom, _atom).GetAtomicNum() in consts.HETEROATOM
                 ):
-                    atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - 1)
-                    atom.SetFormalCharge(atom.GetFormalCharge() - 1)
-                    given_charge += 1
+                    atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
+                    given_charge += atom.GetSpinMultiplicity()
+                    total_radicals -= atom.GetSpinMultiplicity()
+                    atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
                     hit = True
                     break
             else:
                 break
-        while len(radical_atoms) > abs(given_charge) + 1:
+        while total_radicals > abs(given_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 6:
-                    atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - 1)
-                    atom.SetFormalCharge(atom.GetFormalCharge() - 1)
-                    given_charge += 1
+                    atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
+                    given_charge += atom.GetSpinMultiplicity()
+                    total_radicals -= atom.GetSpinMultiplicity()
+                    atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
                     hit = True
                     break

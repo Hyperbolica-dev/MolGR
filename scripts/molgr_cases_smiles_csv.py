@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-24 11:44:45
 LastEditors: TMJ
-LastEditTime: 2026-02-24 23:33:23
+LastEditTime: 2026-04-28 23:13:47
 Description: 请填写简介
 """
 
@@ -13,6 +13,7 @@ from typing import Any
 
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
+from rdkit.Chem.rdForceFieldHelpers import UFFOptimizeMolecule
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore
@@ -46,7 +47,8 @@ def _build_case(smiles: str, case_idx: int) -> dict[str, Any]:
         ground_truth_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
 
         mol_h = Chem.AddHs(mol)
-        embed_code = rdDistGeom.EmbedMolecule(mol_h)  # pyright: ignore[reportCallIssue]
+        embed_code = rdDistGeom.EmbedMolecule(mol_h, randomSeed=0xC0FFEE)  # pyright: ignore[reportCallIssue]
+        UFFOptimizeMolecule(mol_h)
         if int(embed_code) != 0:
             raise ValueError(f"RDKit EmbedMolecule failed: code={embed_code}")
 

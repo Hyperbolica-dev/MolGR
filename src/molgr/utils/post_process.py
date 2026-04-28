@@ -2,20 +2,34 @@
 Author: TMJ
 Date: 2026-02-27 23:35:43
 LastEditors: TMJ
-LastEditTime: 2026-04-24 22:48:31
+LastEditTime: 2026-04-28 23:23:34
 Description: 请填写简介
 """
+
+from __future__ import annotations
+
+from typing import Optional
 
 import numpy as np
 from rdkit import Chem
 
+from molgr.config import MolGRConfig, resolve_config
 from molgr.fallback.utils.consts import NON_METAL_DICT
 
 
 pt = Chem.GetPeriodicTable()
 
 
-def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol:
+def make_dative_bond(
+    rdmol: Chem.Mol,
+    extra_tolerance: Optional[float] = None,
+    *,
+    config: MolGRConfig | None = None,
+) -> Chem.Mol:
+    if extra_tolerance is None:
+        extra_tolerance = resolve_config(
+            config
+        ).metal_scoring.metal_coordination_extra_tolerance_angstrom
     metal_atom_ids = [
         atom_id
         for atom_id in range(rdmol.GetNumAtoms())
@@ -70,11 +84,20 @@ def make_dative_bond(rdmol: Chem.Mol, extra_tolerance: float = 0.35) -> Chem.Mol
                 rwmol.AddBond(
                     int(close_non_metal_atom_id), int(metal_atom_id), Chem.BondType.DATIVE
                 )
-    rwmol.UpdatePropertyCache(strict=False)
-    Chem.SetAromaticity(rwmol)
-    Chem.DetectBondStereochemistry(rwmol)
-    Chem.SetBondStereoFromDirections(rwmol)
-    Chem.AssignStereochemistryFrom3D(rwmol)
-    Chem.AssignCIPLabels(rwmol)
 
     return rwmol.GetMol()
+
+
+def make_stereochemistry(rdmol: Chem.Mol) -> Chem.Mol:
+    rdmol.UpdatePropertyCache(strict=False)
+    Chem.SetAromaticity(rdmol)
+    Chem.DetectBondStereochemistry(rdmol)
+    Chem.SetBondStereoFromDirections(rdmol)
+    Chem.AssignAtomChiralTagsFromStructure(rdmol)
+    Chem.AssignStereochemistryFrom3D(rdmol)
+    Chem.AssignCIPLabels(rdmol)
+    for bond_idx in range(rdmol.GetNumBonds()):
+        rd_bond = rdmol.GetBondWithIdx(bond_idx)
+        if rd_bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            rd_bond.SetBondDir(Chem.BondDir.NONE)
+    return rdmol

@@ -81,7 +81,7 @@ def xyz2omol_state(
 
             for candidate in candidates:
                 try:
-                    scored_candidate = scoring._score_candidate_with_no_metal_state(
+                    scored_candidate = scoring._prepare_candidate_with_no_metal_state(
                         candidate,
                         no_metal_state,
                         config=config,

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections import deque
 from heapq import heappop, heappush
-from typing import Callable, Deque, List, Optional, Tuple
+from typing import Callable, Deque, List, Optional, Tuple, cast
 
 from openbabel import pybel
 
 from molgr.fallback.utils import resonance as resonance_utils
 from molgr.fallback.utils.resonance import (
+    LimitedDiscrepancyResonanceTraversalPolicy,
     ProcessedResonanceKey,
     ResonanceBondIndexMap,
     ResonanceSearchNode,
@@ -64,7 +65,7 @@ def walk_radical_resonances(
         _walk_radical_resonances_limited_discrepancy(
             omol,
             max_depth=max_depth,
-            traversal_policy=traversal_policy,
+            traversal_policy=cast(LimitedDiscrepancyResonanceTraversalPolicy, traversal_policy),
             visit=visit,
         )
         return
@@ -134,7 +135,7 @@ def _walk_radical_resonances_limited_discrepancy(
     omol: pybel.Molecule,
     *,
     max_depth: int,
-    traversal_policy: ResonanceTraversalPolicy,
+    traversal_policy: LimitedDiscrepancyResonanceTraversalPolicy,
     visit: Optional[Callable[[ResonanceSearchNode], bool]],
 ) -> None:
     visitor = visit if visit is not None else (lambda _node: True)
@@ -203,6 +204,7 @@ def _walk_radical_resonances_limited_discrepancy(
 
 __all__ = [
     "ProcessedResonanceKey",
+    "LimitedDiscrepancyResonanceTraversalPolicy",
     "ResonanceBondIndexMap",
     "ResonanceSearchNode",
     "ResonanceStateKey",

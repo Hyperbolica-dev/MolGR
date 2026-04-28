@@ -315,7 +315,7 @@ namespace molgr
                             const auto &job = score_jobs[job_index];
                             const auto &prepared_bucket = *prepared_buckets[job.bucket_index];
                             scored_buckets[job.bucket_index][job.candidate_index] =
-                                molgr::metal::scoring::ScoreCandidateWithNoMetalState(
+                                molgr::metal::scoring::PrepareCandidateWithNoMetalState(
                                     target_bucket_tasks[job.bucket_index].candidates[job.candidate_index],
                                     prepared_bucket.no_metal_state,
                                     run_config);

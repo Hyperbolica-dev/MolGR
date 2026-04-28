@@ -26,7 +26,7 @@ class ForceFieldConfig:
 class ResonanceConfig:
     max_depth: int = 2
     limited_discrepancy_max_discrepancy: int = 1
-    traversal_score: str = "force_field"
+    traversal_score: str = "direct_gain"
 
 
 @dataclass(frozen=True)
@@ -34,49 +34,22 @@ class CppBackendConfig:
     max_threads: Optional[int] = None
     enable_target_bucket_parallelism: bool = True
     enable_candidate_scoring_parallelism: bool = False
-    enable_resonance_candidate_parallelism: bool = True
     enable_uff_atom_typing_cache: bool = True
-    resonance_candidate_parallel_threshold: int = 8
     candidate_score_parallel_threshold: int = 32
 
 
 @dataclass(frozen=True)
 class MetalScoringConfig:
     organic_score_bucket_relative_ratio: float = 0.20
-    organic_force_field_hard_max_ratio: float = 2.5
     open_shell_multimetal_state_penalty_window: float = 10.0
     open_shell_multimetal_min_state_options: int = 6
     same_element_multimetal_unify_threshold: int = 3
     max_mixed_valence_spread: Optional[int] = 3
     max_assignments_per_target: int = 64
-    selection_weight_values: Tuple[float, ...] = (
-        8.0,
-        6.0,
-        6.0,
-        1.5,
-        1.5,
-        2.0,
-        2.0,
-        0.5,
-        1.2,
-        1.2,
-        2.0,
-    )
-    selection_scale_values: Tuple[float, ...] = (
-        1.0,
-        1.0,
-        1.0,
-        1.0,
-        1.0,
-        1.0,
-        1.0,
-        2.0,
-        1.0,
-        1.0,
-        10.0,
-    )
     metal_local_potential_cutoff_angstrom: float = 6.0
     metal_donor_cutoff_angstrom: float = 3.4
+    metal_coordination_radius_scale: float = 1.25
+    metal_coordination_extra_tolerance_angstrom: float = 0.35
     min_distance_angstrom: float = 1.2
     metal_access_radius_scale: float = 1.0
     metal_access_clearance_angstrom: float = 0.0

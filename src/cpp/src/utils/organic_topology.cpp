@@ -7,12 +7,40 @@
 #include <openbabel/typer.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <vector>
 
 namespace
 {
+    constexpr int kAromaticRingFormalChargeAbsRejectionThreshold = 4;
+
+    int RingFormalChargeSum(OpenBabel::OBMol &mol, const OpenBabel::OBRing &ring)
+    {
+        int charge_sum = 0;
+        for (int atom_idx : ring._path)
+        {
+            const OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            if (atom == nullptr)
+            {
+                continue;
+            }
+            charge_sum += atom->GetFormalCharge();
+        }
+        return charge_sum;
+    }
+
+    bool IsChargeAcceptedAromaticRing(OpenBabel::OBMol &mol, OpenBabel::OBRing &ring)
+    {
+        if (!ring.IsAromatic())
+        {
+            return false;
+        }
+        return std::abs(RingFormalChargeSum(mol, ring)) <
+               kAromaticRingFormalChargeAbsRejectionThreshold;
+    }
+
     bool AtomHasOddSpin(const OpenBabel::OBAtom &atom)
     {
         return atom.GetSpinMultiplicity() % 2 == 1;
@@ -111,22 +139,25 @@ namespace molgr
             OpenBabel::OBAromaticTyper().AssignAromaticFlags(working);
 
             OrganicTopologyMetrics metrics;
-            FOR_ATOMS_OF_MOL(atom_iter, working)
-            {
-                OpenBabel::OBAtom &atom = *atom_iter;
-                if (atom.GetAtomicNum() != 1 && atom.IsAromatic())
-                {
-                    ++metrics.aromatic_atom_count;
-                }
-            }
-
+            std::set<int> aromatic_atom_indices;
             for (OpenBabel::OBRing *ring : working.GetSSSR())
             {
-                if (ring != nullptr && ring->IsAromatic())
+                if (ring == nullptr || !IsChargeAcceptedAromaticRing(working, *ring))
                 {
-                    ++metrics.aromatic_ring_count;
+                    continue;
+                }
+                ++metrics.aromatic_ring_count;
+                for (int atom_idx : ring->_path)
+                {
+                    const OpenBabel::OBAtom *atom = working.GetAtom(atom_idx);
+                    if (atom == nullptr || atom->GetAtomicNum() == 1)
+                    {
+                        continue;
+                    }
+                    aromatic_atom_indices.insert(atom_idx);
                 }
             }
+            metrics.aromatic_atom_count = static_cast<int>(aromatic_atom_indices.size());
 
             const std::set<int> conjugated_bond_indices = ValidatedConjugatedBondIndices(working);
             metrics.conjugated_bond_count = static_cast<int>(conjugated_bond_indices.size());

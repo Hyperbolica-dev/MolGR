@@ -64,7 +64,7 @@ N -4.0 5.0 -6.0
     assert p2.z == pytest.approx(-6.0)
 
 
-@pytest.mark.parametrize("case_idx", [52])
+@pytest.mark.parametrize("case_idx", [1])
 def test_mol_data_to_rdkit_matches_fallback_pybel_conversion_for_hard_cases(case_idx: int) -> None:
     from rdkit import Chem
 

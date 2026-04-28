@@ -38,9 +38,29 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
     """
     Convert MoleculeData to RDKit Mol.
     """
-    # Keep the C++ and Python backend boundary identical by routing MoleculeData
-    # through the same OpenBabel -> RDKit conversion path used by the fallback.
-    return pybel_to_rdmol(mol_data_to_pybel(mol_data), sanitize=sanitize)
+    rwmol = Chem.RWMol()
+    for atom in mol_data.atoms:
+        atom_id = rwmol.AddAtom(Chem.Atom(atom.atomic_num))
+        rwmol.GetAtomWithIdx(atom_id).SetNoImplicit(True)
+        rwmol.GetAtomWithIdx(atom_id).SetFormalCharge(atom.formal_charge)
+        rwmol.GetAtomWithIdx(atom_id).SetNumRadicalElectrons(atom.radical_num)
+    for bond_data in mol_data.bonds:
+        rwmol.AddBond(
+            bond_data.begin_atom_idx - 1,
+            bond_data.end_atom_idx - 1,
+            OB_RDKIT_BOND_ORDER_MAPPING.get(bond_data.order, Chem.BondType.ZERO),
+        )
+    rdmol = rwmol.GetMol()
+    conf = Chem.Conformer(rdmol.GetNumAtoms())
+    for atom_idx, atom in enumerate(mol_data.atoms):
+        conf.SetAtomPosition(atom_idx, (atom.x, atom.y, atom.z))
+    rdmol.RemoveAllConformers()
+    rdmol.AddConformer(conf)
+
+    if sanitize:
+        Chem.SanitizeMol(rdmol)
+    Chem.Kekulize(rdmol)
+    return rdmol
 
 
 def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
@@ -71,15 +91,9 @@ def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
         atom.SetNoImplicit(True)
         atom.SetFormalCharge(charge)
         atom.SetNumRadicalElectrons(radical)
-    rdmol = Chem.MolFromMolBlock(Chem.MolToMolBlock(rwmol), removeHs=False)
+    rdmol = rwmol.GetMol()
     rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
         Chem.SanitizeMol(rdmol)
-    else:
-        rdmol.UpdatePropertyCache(strict=False)
-    rdmol.UpdatePropertyCache(strict=False)
-    Chem.AssignAtomChiralTagsFromStructure(rdmol)
-    Chem.AssignStereochemistryFrom3D(rdmol)
-    Chem.AssignCIPLabels(rdmol)
     Chem.Kekulize(rdmol)
     return rdmol

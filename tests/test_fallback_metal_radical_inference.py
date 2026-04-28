@@ -18,7 +18,7 @@ from molgr.fallback.utils.metal_radical_inference import (
 from molgr.fallback.utils.metals.preparation import _build_metal_states
 
 
-def test_infer_metal_radical_state_square_planar_co_i_prefers_closed_shell() -> None:
+def test_infer_metal_radical_state_square_planar_co_i_keeps_closed_shell() -> None:
     xyz = """5
 CoN4
 Co 0.0000 0.0000 0.0000
@@ -56,6 +56,28 @@ Cl 1.1500 -1.1500 -1.1500
     assert result.field_strength == "weak"
     assert result.effective_d_electrons == 8
     assert result.radical_counts == (2,)
+
+
+def test_infer_metal_radical_state_octahedral_pt_iv_keeps_strong_and_weak_field_states() -> None:
+    xyz = """7
+PtO2Cl4
+Pt 0.0000 0.0000 0.0000
+O  2.1000 0.0000 0.0000
+O -2.1000 0.0000 0.0000
+Cl 0.0000 2.3000 0.0000
+Cl 0.0000 -2.3000 0.0000
+Cl 0.0000 0.0000 2.3500
+Cl 0.0000 0.0000 -2.3500
+"""
+    mol = pybel.readstring("xyz", xyz)
+    metal = cast(ob.OBAtom, mol.OBMol.GetAtom(1))
+
+    result = infer_metal_radical_state(metal, 4)
+
+    assert result.geometry == "octahedral_like"
+    assert result.field_strength == "weak"
+    assert result.effective_d_electrons == 6
+    assert result.radical_counts == (0, 4)
 
 
 def test_build_metal_states_uses_environment_sensitive_radical_inference() -> None:

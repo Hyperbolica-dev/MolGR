@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
 
+from rdkit import Chem
+
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
-from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -15,8 +16,7 @@ class MolGRFallbackMethod(BenchmarkMethod):
 
     def run(self, case: dict[str, Any]) -> MethodRunOutput:
         timing_ms_breakdown: dict[str, float] = {
-            "fallback_xyz2omol_ms": 0.0,
-            "pybel_to_rdmol_ms": 0.0,
+            "molgr_interface_ms": 0.0,
             "postprocess_ms": 0.0,
         }
 
@@ -49,74 +49,51 @@ class MolGRFallbackMethod(BenchmarkMethod):
             )
 
         try:
-            fallback = import_module("molgr.fallback")
+            xyz_to_rdmol = import_module("molgr.interface").xyz_to_rdmol
         except Exception as exc:  # noqa: BLE001
             return MethodRunOutput(
                 status="error",
-                error=f"import molgr.fallback failed: {exc}",
+                error=f"import molgr interface failed: {exc}",
                 timing_ms_breakdown=timing_ms_breakdown,
             )
 
-        fallback_started = time.perf_counter()
+        interface_started = time.perf_counter()
         try:
-            omol = fallback.xyz2omol(
+            rdkit_mol = xyz_to_rdmol(
                 xyz_block,
-                total_charge=total_charge,
-                total_radical_electrons=total_radical_electrons,
+                total_charge,
+                total_radical_electrons + 1,
+                backend="python",
+                make_dative_bonds=True,
             )
         except Exception as exc:  # noqa: BLE001
-            timing_ms_breakdown["fallback_xyz2omol_ms"] = (
-                time.perf_counter() - fallback_started
+            timing_ms_breakdown["molgr_interface_ms"] = (
+                time.perf_counter() - interface_started
             ) * 1000.0
             return MethodRunOutput(
                 status="error",
-                error=f"fallback.xyz2omol failed: {exc}",
+                error=f"molgr.interface.xyz_to_rdmol failed: {exc}",
                 timing_ms_breakdown=timing_ms_breakdown,
             )
-        timing_ms_breakdown["fallback_xyz2omol_ms"] = (
-            time.perf_counter() - fallback_started
+        timing_ms_breakdown["molgr_interface_ms"] = (
+            time.perf_counter() - interface_started
         ) * 1000.0
 
-        if omol is None:
-            return MethodRunOutput(
-                status="error",
-                error="fallback.xyz2omol returned None",
-                timing_ms_breakdown=timing_ms_breakdown,
-            )
-
-        pybel_to_rdmol_started = time.perf_counter()
-        try:
-            pybel_to_rdmol = import_module("molgr.interface").pybel_to_rdmol
-            rdkit_mol = pybel_to_rdmol(omol)
-        except Exception as exc:  # noqa: BLE001
-            timing_ms_breakdown["pybel_to_rdmol_ms"] = (
-                time.perf_counter() - pybel_to_rdmol_started
-            ) * 1000.0
-            return MethodRunOutput(
-                status="error",
-                error=f"pybel_to_rdmol failed: {exc}",
-                timing_ms_breakdown=timing_ms_breakdown,
-            )
-        timing_ms_breakdown["pybel_to_rdmol_ms"] = (
-            time.perf_counter() - pybel_to_rdmol_started
-        ) * 1000.0
-
-        if rdkit_mol is None:
-            return MethodRunOutput(
-                status="error",
-                error="pybel_to_rdmol returned None",
-                timing_ms_breakdown=timing_ms_breakdown,
-            )
         postprocess_started = time.perf_counter()
         try:
-            rdkit_mol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdkit_mol)
+            rdkit_mol = Chem.RemoveHs(rdkit_mol)
+            predicted_smiles = Chem.MolToSmiles(
+                rdkit_mol,
+                canonical=True,
+                isomericSmiles=True,
+            )
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["postprocess_ms"] = (
                 time.perf_counter() - postprocess_started
             ) * 1000.0
             return MethodRunOutput(
                 status="error",
-                error=f"MolToSmiles failed: {exc}",
+                error=f"MolGR result postprocess failed: {exc}",
                 rdkit_mol=rdkit_mol,
                 timing_ms_breakdown=timing_ms_breakdown,
             )

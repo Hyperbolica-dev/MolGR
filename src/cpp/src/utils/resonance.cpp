@@ -8,13 +8,16 @@
 #include "molgr/utils/lru_cache.h"
 #include "molgr/utils/scoring.h"
 #include "molgr/utils/smarts.h"
+#include "molgr/utils/utils.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <openbabel/elements.h>
 #include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <exception>
 #include <limits>
@@ -26,9 +29,13 @@
 namespace
 {
     constexpr std::size_t kDefaultResonanceMoveScoreCacheMaxSize = 4096;
-    constexpr double kDirectGainConjugationScoreWeight = 4.0;
-    constexpr double kDirectGainDeviationScoreWeight = 10.0;
-    constexpr double kDirectGainBranchBoundStepSlack = 10.0;
+    constexpr double kUffLiteBondStrainScoreWeight = 1.0;
+    constexpr double kUffLiteAngleStrainScoreWeight = 0.35;
+    constexpr double kUffLiteRadicalScoreWeight = 1.0;
+    constexpr double kUffLiteConjugationScoreWeight = 0.25;
+    constexpr double kUffLiteBranchBoundStepSlack = 25.0;
+    constexpr double kKcalToKj = 4.184;
+    constexpr double kDegreesToRadians = 3.14159265358979323846 / 180.0;
 
     using BondOrderOverrides = std::map<std::pair<int, int>, int>;
 
@@ -55,6 +62,238 @@ namespace
         return bond.GetBondOrder();
     }
 
+    double NormalizedBondOrderWithOverrides(
+        const OpenBabel::OBBond &bond,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        const int begin_idx = bond.GetBeginAtom()->GetIdx();
+        const int end_idx = bond.GetEndAtom()->GetIdx();
+        const auto it = bond_order_overrides.find(BondPair(begin_idx, end_idx));
+        if (it != bond_order_overrides.end())
+        {
+            return static_cast<double>(std::max(it->second, 1));
+        }
+        if (bond.IsAromatic())
+        {
+            return 1.5;
+        }
+        if (const_cast<OpenBabel::OBBond &>(bond).IsAmide())
+        {
+            return 1.41;
+        }
+        return static_cast<double>(std::max(static_cast<int>(bond.GetBondOrder()), 1));
+    }
+
+    double ClampedElectronegativity(int atomic_num)
+    {
+        const double value = OpenBabel::OBElements::GetElectroNeg(atomic_num);
+        return std::max(value, 0.25);
+    }
+
+    double ClampedCovalentRadius(int atomic_num)
+    {
+        const double value = OpenBabel::OBElements::GetCovalentRad(atomic_num);
+        return value > 0.0 ? value : 0.75;
+    }
+
+    double EstimateUffEquilibriumBondLength(
+        int atomic_num_a,
+        int atomic_num_b,
+        double bond_order)
+    {
+        const double ri = ClampedCovalentRadius(atomic_num_a);
+        const double rj = ClampedCovalentRadius(atomic_num_b);
+        const double chi_i = ClampedElectronegativity(atomic_num_a);
+        const double chi_j = ClampedElectronegativity(atomic_num_b);
+        const double safe_bond_order = std::max(bond_order, 0.25);
+
+        // UFF equations 2-4 use an order contraction term and an electronegativity
+        // correction. OB covalent radii are not UFF radii, but the monotonic signal
+        // is the important part for resonance move ordering.
+        const double rbo = -0.1332 * (ri + rj) * std::log(safe_bond_order);
+        const double ren =
+            ri * rj * std::pow(std::sqrt(chi_i) - std::sqrt(chi_j), 2.0) /
+            std::max(chi_i * ri + chi_j * rj, 1.0e-9);
+        return std::max(ri + rj + rbo - ren, 0.4);
+    }
+
+    double EstimateUffBondForceConstant(double equilibrium_distance)
+    {
+        // UFF folds the 1/2 into kb and scales approximately as 1/r0^3. We omit
+        // element-specific effective charges to keep this proxy setup-free.
+        return (0.5 * kKcalToKj * 664.12) /
+               std::max(equilibrium_distance * equilibrium_distance * equilibrium_distance, 1.0e-6);
+    }
+
+    double UffLiteBondStretchEnergy(
+        const OpenBabel::OBBond &bond,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        const auto *begin_atom = bond.GetBeginAtom();
+        const auto *end_atom = bond.GetEndAtom();
+        if (begin_atom == nullptr || end_atom == nullptr)
+        {
+            return 0.0;
+        }
+        const double bond_order = NormalizedBondOrderWithOverrides(bond, bond_order_overrides);
+        const double r0 = EstimateUffEquilibriumBondLength(
+            begin_atom->GetAtomicNum(),
+            end_atom->GetAtomicNum(),
+            bond_order);
+        const double dx = begin_atom->GetX() - end_atom->GetX();
+        const double dy = begin_atom->GetY() - end_atom->GetY();
+        const double dz = begin_atom->GetZ() - end_atom->GetZ();
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const double delta = distance - r0;
+        return EstimateUffBondForceConstant(r0) * delta * delta;
+    }
+
+    double LocalBondStretchEnergy(
+        const OpenBabel::OBMol &mol,
+        const std::set<std::pair<int, int>> &affected_bonds,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        double energy = 0.0;
+        auto &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+        for (const auto &bond_pair : affected_bonds)
+        {
+            OpenBabel::OBBond *bond = mutable_mol.GetBond(bond_pair.first, bond_pair.second);
+            if (bond != nullptr)
+            {
+                energy += UffLiteBondStretchEnergy(*bond, bond_order_overrides);
+            }
+        }
+        return energy;
+    }
+
+    double IdealAngleRadiansForAtom(
+        const OpenBabel::OBAtom &atom,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        int heavy_degree = 0;
+        int multiple_bond_count = 0;
+        double max_bond_order = 1.0;
+        FOR_BONDS_OF_ATOM(bond_iter, const_cast<OpenBabel::OBAtom *>(&atom))
+        {
+            const OpenBabel::OBAtom *other =
+                bond_iter->GetNbrAtom(const_cast<OpenBabel::OBAtom *>(&atom));
+            if (other != nullptr && other->GetAtomicNum() != 1)
+            {
+                ++heavy_degree;
+            }
+            const double bond_order =
+                NormalizedBondOrderWithOverrides(*bond_iter, bond_order_overrides);
+            max_bond_order = std::max(max_bond_order, bond_order);
+            if (bond_order >= 1.5)
+            {
+                ++multiple_bond_count;
+            }
+        }
+
+        if (max_bond_order >= 2.5 || multiple_bond_count >= 2)
+        {
+            return 180.0 * kDegreesToRadians;
+        }
+        if (max_bond_order >= 1.5 || heavy_degree == 3)
+        {
+            return 120.0 * kDegreesToRadians;
+        }
+        return 109.5 * kDegreesToRadians;
+    }
+
+    double UffLiteAngleEnergy(
+        const OpenBabel::OBMol &mol,
+        const OpenBabel::OBAtom &left,
+        const OpenBabel::OBAtom &center,
+        const OpenBabel::OBAtom &right,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        auto &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+        OpenBabel::OBBond *left_bond = mutable_mol.GetBond(left.GetIdx(), center.GetIdx());
+        OpenBabel::OBBond *right_bond = mutable_mol.GetBond(center.GetIdx(), right.GetIdx());
+        if (left_bond == nullptr || right_bond == nullptr)
+        {
+            return 0.0;
+        }
+
+        const double theta_degrees = mutable_mol.GetAngle(
+            const_cast<OpenBabel::OBAtom *>(&left),
+            const_cast<OpenBabel::OBAtom *>(&center),
+            const_cast<OpenBabel::OBAtom *>(&right));
+        if (!std::isfinite(theta_degrees))
+        {
+            return 0.0;
+        }
+
+        const double theta = theta_degrees * kDegreesToRadians;
+        const double theta0 = IdealAngleRadiansForAtom(center, bond_order_overrides);
+        const double left_order = NormalizedBondOrderWithOverrides(*left_bond, bond_order_overrides);
+        const double right_order = NormalizedBondOrderWithOverrides(*right_bond, bond_order_overrides);
+        const double left_r0 = EstimateUffEquilibriumBondLength(
+            left.GetAtomicNum(),
+            center.GetAtomicNum(),
+            left_order);
+        const double right_r0 = EstimateUffEquilibriumBondLength(
+            center.GetAtomicNum(),
+            right.GetAtomicNum(),
+            right_order);
+        const double stiffness =
+            25.0 * (1.0 + 0.15 * std::max(0.0, left_order + right_order - 2.0)) /
+            std::max(std::sqrt(left_r0 * right_r0), 0.5);
+        const double cos_delta = std::cos(theta) - std::cos(theta0);
+        return stiffness * cos_delta * cos_delta;
+    }
+
+    double LocalAngleStrainEnergy(
+        const OpenBabel::OBMol &mol,
+        const std::set<int> &affected_center_indices,
+        const BondOrderOverrides &bond_order_overrides)
+    {
+        double energy = 0.0;
+        auto &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+        for (int center_idx : affected_center_indices)
+        {
+            OpenBabel::OBAtom *center = mutable_mol.GetAtom(center_idx);
+            if (center == nullptr)
+            {
+                continue;
+            }
+
+            std::vector<OpenBabel::OBAtom *> neighbors;
+            FOR_NB_OF_ATOM(neighbor_iter, center)
+            {
+                neighbors.push_back(&(*neighbor_iter));
+            }
+            for (std::size_t i = 0; i < neighbors.size(); ++i)
+            {
+                for (std::size_t j = i + 1; j < neighbors.size(); ++j)
+                {
+                    energy += UffLiteAngleEnergy(
+                        mol,
+                        *neighbors[i],
+                        *center,
+                        *neighbors[j],
+                        bond_order_overrides);
+                }
+            }
+        }
+        return energy;
+    }
+
+    double RadicalPenaltyForAtom(int atomic_num, int radical_num, int heavy_degree)
+    {
+        if (radical_num <= 0)
+        {
+            return 0.0;
+        }
+        if (molgr::kHeteroatoms.find(atomic_num) != molgr::kHeteroatoms.end())
+        {
+            return static_cast<double>(radical_num) * 10.0;
+        }
+        return static_cast<double>(radical_num) *
+               std::max(0.0, 3.0 - static_cast<double>(heavy_degree)) * 1.5;
+    }
+
     int ConjugatedBondKind(
         const OpenBabel::OBBond &bond,
         const BondOrderOverrides &bond_order_overrides)
@@ -73,20 +312,6 @@ namespace
             return 1;
         }
         return 2;
-    }
-
-    double CalculateRadicalPenalty(const OpenBabel::OBAtom &atom)
-    {
-        const int radical_num = atom.GetSpinMultiplicity();
-        if (radical_num == 0)
-        {
-            return 0.0;
-        }
-        if (molgr::kHeteroatoms.find(atom.GetAtomicNum()) != molgr::kHeteroatoms.end())
-        {
-            return radical_num * 10.0;
-        }
-        return (3.0 - static_cast<double>(atom.GetHvyDegree())) * 1.5;
     }
 
     int EstimateRadicalConjugationSize(
@@ -136,30 +361,6 @@ namespace
 
         return static_cast<int>(visited_atoms.size());
     }
-
-    double CalculateAllDoubleBondCarbonBonus(
-        const OpenBabel::OBMol &mol,
-        int atom_idx,
-        const BondOrderOverrides &bond_order_overrides = {})
-    {
-        OpenBabel::OBAtom *atom = const_cast<OpenBabel::OBMol &>(mol).GetAtom(atom_idx);
-        if (atom == nullptr || atom->GetAtomicNum() != 6)
-        {
-            return 0.0;
-        }
-
-        bool saw_bond = false;
-        FOR_BONDS_OF_ATOM(bond_iter, atom)
-        {
-            saw_bond = true;
-            if (GetBondOrderWithOverrides(*bond_iter, bond_order_overrides) != 2)
-            {
-                return 0.0;
-            }
-        }
-        return saw_bond ? 5.0 : 0.0;
-    }
-
     molgr::resonance::DirectGainMetrics ComputeDirectGainResonanceMetrics(
         const OpenBabel::OBMol &mol,
         const std::tuple<int, int, int> &move_path)
@@ -185,23 +386,50 @@ namespace
             {BondPair(center_idx, new_radical_idx), bond_center_new->GetBondOrder() - 1},
         };
 
+        const std::set<std::pair<int, int>> affected_bonds{
+            BondPair(old_radical_idx, center_idx),
+            BondPair(center_idx, new_radical_idx),
+        };
+        const std::set<int> affected_angle_centers{
+            old_radical_idx,
+            center_idx,
+            new_radical_idx,
+        };
+
+        const double bond_strain_gain =
+            LocalBondStretchEnergy(mol, affected_bonds, {}) -
+            LocalBondStretchEnergy(mol, affected_bonds, bond_order_overrides);
+        const double angle_strain_gain =
+            LocalAngleStrainEnergy(mol, affected_angle_centers, {}) -
+            LocalAngleStrainEnergy(mol, affected_angle_centers, bond_order_overrides);
+        const double radical_penalty_before =
+            RadicalPenaltyForAtom(
+                old_atom->GetAtomicNum(),
+                old_atom->GetSpinMultiplicity(),
+                old_atom->GetHvyDegree()) +
+            RadicalPenaltyForAtom(
+                new_atom->GetAtomicNum(),
+                new_atom->GetSpinMultiplicity(),
+                new_atom->GetHvyDegree());
+        const double radical_penalty_after =
+            RadicalPenaltyForAtom(
+                old_atom->GetAtomicNum(),
+                old_atom->GetSpinMultiplicity() - 1,
+                old_atom->GetHvyDegree()) +
+            RadicalPenaltyForAtom(
+                new_atom->GetAtomicNum(),
+                new_atom->GetSpinMultiplicity() + 1,
+                new_atom->GetHvyDegree());
+        const double radical_penalty_gain = radical_penalty_before - radical_penalty_after;
         const double conjugation_gain =
             static_cast<double>(
                 EstimateRadicalConjugationSize(mol, new_radical_idx, bond_order_overrides) -
                 EstimateRadicalConjugationSize(mol, old_radical_idx));
-        const double deviation_gain =
-            molgr::scoring::GetDeviationScore(mol, old_atom) -
-            molgr::scoring::GetDeviationScore(mol, new_atom);
-        const double radical_penalty_gain =
-            CalculateRadicalPenalty(*old_atom) - CalculateRadicalPenalty(*new_atom);
-        const double double_bond_bonus_gain =
-            CalculateAllDoubleBondCarbonBonus(mol, new_radical_idx, bond_order_overrides) -
-            CalculateAllDoubleBondCarbonBonus(mol, old_radical_idx);
         return {
-            conjugation_gain,
-            deviation_gain,
+            bond_strain_gain,
+            angle_strain_gain,
             radical_penalty_gain,
-            double_bond_bonus_gain,
+            conjugation_gain,
         };
     }
 
@@ -289,20 +517,20 @@ namespace
     {
         return std::max(
             0.0,
-            metrics[0] * kDirectGainConjugationScoreWeight +
-                metrics[1] * kDirectGainDeviationScoreWeight +
-                metrics[2] +
-                metrics[3] +
-                static_cast<double>(std::max(remaining_steps, 0)) * kDirectGainBranchBoundStepSlack);
+            metrics[0] * kUffLiteBondStrainScoreWeight +
+                metrics[1] * kUffLiteAngleStrainScoreWeight +
+                metrics[2] * kUffLiteRadicalScoreWeight +
+                metrics[3] * kUffLiteConjugationScoreWeight +
+                static_cast<double>(std::max(remaining_steps, 0)) * kUffLiteBranchBoundStepSlack);
     }
 
     double DirectGainMoveScore(const molgr::resonance::DirectGainMetrics &metrics)
     {
         return -(
-            metrics[0] * kDirectGainConjugationScoreWeight +
-            metrics[1] * kDirectGainDeviationScoreWeight +
-            metrics[2] +
-            metrics[3]);
+            metrics[0] * kUffLiteBondStrainScoreWeight +
+            metrics[1] * kUffLiteAngleStrainScoreWeight +
+            metrics[2] * kUffLiteRadicalScoreWeight +
+            metrics[3] * kUffLiteConjugationScoreWeight);
     }
 
     void AppendStringVector(std::string &out, const std::vector<std::string> &values)

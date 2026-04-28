@@ -266,8 +266,6 @@ namespace molgr
                                 molgr::metal::scoring::MetadataDouble(candidate, "metal_donor_penalty");
                             item["metal_prior_penalty"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "metal_prior_penalty");
-                            item["weighted_selection_score"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "weighted_selection_score");
                             py::list metal_states;
                             for (const auto &metal_state : candidate.metal_states)
                             {

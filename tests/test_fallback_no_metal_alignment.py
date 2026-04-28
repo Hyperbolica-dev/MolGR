@@ -11,6 +11,7 @@ import pytest
 
 pytest.importorskip("openbabel")
 
+from openbabel import openbabel as ob
 from openbabel import pybel
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
@@ -21,7 +22,11 @@ from molgr.fallback.pipeline.reconstruct_without_metals import (
     xyz_to_omol_no_metal,
     xyz_to_omol_no_metal_state,
 )
-from molgr.fallback.stages.eliminate import eliminate_NNN
+from molgr.fallback.stages.eliminate import (
+    eliminate_charge_spliting,
+    eliminate_CN_in_doubt,
+    eliminate_NNN,
+)
 from molgr.fallback.stages.fresh import fresh_omol_charge_radical
 from molgr.fallback.state import ReconstructionState
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation_module
@@ -30,6 +35,7 @@ from molgr.fallback.utils.no_metals import selection as no_metal_selection_modul
 from molgr.fallback.utils.tools import typed_lru_cache
 from molgr.utils.converter import pybel_to_rdmol
 from molgr.utils.equivalence import check_equivalence
+from molgr.utils.post_process import make_stereochemistry
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore
@@ -42,6 +48,34 @@ def _total_charge_and_radicals(mol: Chem.Mol) -> tuple[int, int]:
         charge += int(atom.GetFormalCharge())
         radicals += int(atom.GetNumRadicalElectrons())
     return charge, radicals
+
+
+def _get_ptr(obmol: ob.OBMol) -> int:
+    this = getattr(obmol, "this", None)
+    if this is not None:
+        return int(this)  # type: ignore[arg-type]
+    return int(obmol)  # type: ignore[arg-type]
+
+
+def _pybel_stage_signature(
+    omol: pybel.Molecule,
+) -> tuple[tuple[tuple[int, int, int], ...], tuple[tuple[int, int, int], ...]]:
+    obmol = omol.OBMol
+    atoms = tuple(
+        (atom.idx, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
+        for atom in omol
+    )
+    bonds = tuple(
+        sorted(
+            (
+                bond.GetBeginAtomIdx(),
+                bond.GetEndAtomIdx(),
+                bond.GetBondOrder(),
+            )
+            for bond in ob.OBMolBondIter(obmol)
+        )
+    )
+    return atoms, bonds
 
 
 @typed_lru_cache(maxsize=128, typed=True)
@@ -75,7 +109,7 @@ def test_fallback_no_metal_reconstructs_curated_cases(smiles: str) -> None:
     assert expected is not None
     equivalent, info = check_equivalence(
         expected,
-        pybel_to_rdmol(result),
+        make_stereochemistry(pybel_to_rdmol(result)),
         use_chirality=True,
         max_resonance=100,
     )
@@ -109,7 +143,10 @@ def test_eliminate_nnn_negative_produces_closed_shell_azide() -> None:
     omol, hit = fresh_omol_charge_radical(omol)
 
     assert hit
-    assert [(atom.idx, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity()) for atom in omol] == [
+    assert [
+        (atom.idx, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
+        for atom in omol
+    ] == [
         (1, 0, 2),
         (2, 0, 1),
         (3, 0, 2),
@@ -119,11 +156,87 @@ def test_eliminate_nnn_negative_produces_closed_shell_azide() -> None:
 
     assert hit
     assert given_charge == 1
-    assert [(atom.idx, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity()) for atom in omol] == [
+    assert [
+        (atom.idx, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
+        for atom in omol
+    ] == [
         (1, -1, 0),
         (2, 1, 0),
         (3, -1, 0),
     ]
+
+
+def test_eliminate_cn_in_doubt_requires_disjoint_pairs_for_python_and_cpp() -> None:
+    smiles = "C[N+](C)=C=[N+](C)C"
+
+    omol = pybel.readstring("smi", smiles)
+    before = _pybel_stage_signature(omol)
+
+    omol, given_charge, hit = eliminate_CN_in_doubt(omol, 0)
+
+    assert not hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol) == before
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = pybel.readstring("smi", smiles)
+    before = _pybel_stage_signature(cpp_omol)
+
+    given_charge, hit = _core.dev.stages.eliminate.eliminate_cn_in_doubt_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert not hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(cpp_omol) == before
+
+
+@pytest.mark.parametrize("atomic_num", [8, 16, 7])
+def test_eliminate_charge_spliting_consumes_full_atom_radicals_for_python_and_cpp(
+    atomic_num: int,
+) -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        target = obmol.NewAtom()
+        target.SetAtomicNum(atomic_num)
+        target.SetFormalCharge(0)
+        target.SetSpinMultiplicity(2)
+        carbon = obmol.NewAtom()
+        carbon.SetAtomicNum(6)
+        carbon.SetFormalCharge(0)
+        carbon.SetSpinMultiplicity(1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+
+    omol, given_charge, hit = eliminate_charge_spliting(omol, 0)
+
+    assert hit
+    assert given_charge == 2
+    assert [
+        (atom.atomicnum, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
+        for atom in omol
+    ] == [(atomic_num, -2, 0), (6, 0, 1)]
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+
+    given_charge, hit = _core.dev.stages.eliminate.eliminate_charge_spliting_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert hit
+    assert given_charge == 2
+    assert [
+        (atom.atomicnum, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
+        for atom in cpp_omol
+    ] == [(atomic_num, -2, 0), (6, 0, 1)]
 
 
 def test_run_linear_pipeline_passes_current_charge_into_break_stages(
@@ -141,7 +254,7 @@ H 0.0 0.0 0.74
         total_radical_electrons=3,
         phase_history=("read_xyz",),
     )
-    recorded: dict[str, tuple[int, int]] = {}
+    recorded: dict[str, tuple[int, ...]] = {}
 
     monkeypatch.setattr(no_metal_preparation_module, "make_connections", lambda omol: (omol, False))
     monkeypatch.setattr(no_metal_preparation_module, "pre_clean", lambda omol: (omol, False))
@@ -191,20 +304,22 @@ H 0.0 0.0 0.74
         lambda omol, given_charge: (omol, given_charge, False),
     )
 
-    def record_break_deformed_ene(omol, given_charge, total_radical_electrons):
-        recorded["break_deformed_ene"] = (given_charge, total_radical_electrons)
+    def record_break_deformed_ene(omol, given_charge, total_radical_electrons, tolerance):
+        recorded["break_deformed_ene"] = (given_charge, total_radical_electrons, tolerance)
         return omol, False
 
     def record_break_one_bond(omol, given_charge, total_radical_electrons):
         recorded["break_one_bond"] = (given_charge, total_radical_electrons)
         return omol, given_charge, False
 
-    monkeypatch.setattr(no_metal_preparation_module, "break_deformed_ene", record_break_deformed_ene)
+    monkeypatch.setattr(
+        no_metal_preparation_module, "break_deformed_ene", record_break_deformed_ene
+    )
     monkeypatch.setattr(no_metal_preparation_module, "break_one_bond", record_break_one_bond)
 
     next_state = no_metal_preparation_module._run_linear_pipeline(state)
 
-    assert recorded["break_deformed_ene"] == (7, 3)
+    assert recorded["break_deformed_ene"] == (7, 3, 5.0)
     assert recorded["break_one_bond"] == (7, 3)
     assert next_state.given_charge == 7
 
@@ -236,7 +351,9 @@ def test_fallback_no_metal_reuses_resonance_score_metadata(monkeypatch: pytest.M
         metadata={"score": 2.0},
     )
 
-    monkeypatch.setattr(no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state)
+    monkeypatch.setattr(
+        no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
+    )
     monkeypatch.setattr(no_metal_preparation_module, "_run_linear_pipeline", lambda state: state)
     monkeypatch.setattr(
         no_metal_preparation_module,
@@ -290,7 +407,9 @@ def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_fie
         metadata={"score": 10.0},
     )
 
-    monkeypatch.setattr(no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state)
+    monkeypatch.setattr(
+        no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
+    )
     monkeypatch.setattr(no_metal_preparation_module, "_run_linear_pipeline", lambda state: state)
     monkeypatch.setattr(
         no_metal_preparation_module,
@@ -340,7 +459,9 @@ def test_no_metal_cached_pipeline_uses_config_in_key_and_execution(
     )
     seen_configs = []
 
-    monkeypatch.setattr(no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state)
+    monkeypatch.setattr(
+        no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
+    )
 
     def fake_run_from_state(seed_state: ReconstructionState, *, config=None):
         assert seed_state is base_state

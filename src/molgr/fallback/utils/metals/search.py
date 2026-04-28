@@ -84,7 +84,9 @@ def _build_unified_same_element_state_options(
             return None
         signature_maps.append(signature_map)
         signatures = set(signature_map)
-        shared_signatures = signatures if shared_signatures is None else shared_signatures & signatures
+        shared_signatures = (
+            signatures if shared_signatures is None else shared_signatures & signatures
+        )
     if not shared_signatures:
         return None
 
@@ -124,9 +126,15 @@ def _build_metal_state_search_groups(
 
         symbol = state_options[0].symbol
         grouped_indices = grouped_indices_by_symbol[symbol]
-        if unify_threshold >= 0 and len(grouped_indices) > unify_threshold and idx == grouped_indices[0]:
+        if (
+            unify_threshold >= 0
+            and len(grouped_indices) > unify_threshold
+            and idx == grouped_indices[0]
+        ):
             unified_state_options = _build_unified_same_element_state_options(
-                tuple(available_valence_radical_states[grouped_idx] for grouped_idx in grouped_indices)
+                tuple(
+                    available_valence_radical_states[grouped_idx] for grouped_idx in grouped_indices
+                )
             )
             if unified_state_options is not None:
                 search_groups.append(unified_state_options)
@@ -159,7 +167,8 @@ def _build_layered_metal_state_search_groups(
         reachable_state_options = tuple(
             state_choice
             for state_choice in state_search_group
-            if sum(int(metal_state.radical_num) for metal_state in state_choice) <= total_radical_electrons
+            if sum(int(metal_state.radical_num) for metal_state in state_choice)
+            <= total_radical_electrons
         )
         candidate_state_options = (
             reachable_state_options if reachable_state_options else tuple(state_search_group)
@@ -188,7 +197,9 @@ def _build_layered_metal_state_search_groups(
         max_penalty = unique_penalties[-1]
         while current_limit < max_penalty:
             if penalty_window == 0.0:
-                next_limit = next(penalty for penalty in unique_penalties if penalty > current_limit)
+                next_limit = next(
+                    penalty for penalty in unique_penalties if penalty > current_limit
+                )
             else:
                 candidate_limits = [
                     penalty
@@ -198,7 +209,9 @@ def _build_layered_metal_state_search_groups(
                 if candidate_limits:
                     next_limit = candidate_limits[-1]
                 else:
-                    next_limit = next(penalty for penalty in unique_penalties if penalty > current_limit)
+                    next_limit = next(
+                        penalty for penalty in unique_penalties if penalty > current_limit
+                    )
             thresholds.append(next_limit)
             current_limit = next_limit
         group_thresholds.append(tuple(thresholds))
@@ -211,7 +224,11 @@ def _build_layered_metal_state_search_groups(
         for ranked_state_entries, threshold_values in zip(ranked_group_entries, group_thresholds):
             threshold = threshold_values[min(layer_idx, len(threshold_values) - 1)]
             layer_groups.append(
-                tuple(state_choice for state_choice, penalty in ranked_state_entries if penalty <= threshold)
+                tuple(
+                    state_choice
+                    for state_choice, penalty in ranked_state_entries
+                    if penalty <= threshold
+                )
             )
         layer = tuple(layer_groups)
         if previous_layer is not None and layer == previous_layer:
@@ -373,9 +390,7 @@ def _merge_valence_bounds(
             return None
         merged_bounds[symbol] = (next_lower, next_upper)
 
-    return tuple(
-        sorted((symbol, lower, upper) for symbol, (lower, upper) in merged_bounds.items())
-    )
+    return tuple(sorted((symbol, lower, upper) for symbol, (lower, upper) in merged_bounds.items()))
 
 
 def _bucket_partial_assignments_by_charge_radicals(
@@ -464,7 +479,8 @@ def _combine_partial_assignment_frontiers(
                                 for right_entry in right_entries:
                                     bucket.append(
                                         _PartialMetalAssignment(
-                                            metal_states=left_entry.metal_states + right_entry.metal_states,
+                                            metal_states=left_entry.metal_states
+                                            + right_entry.metal_states,
                                             total_metal_charge=left_entry.total_metal_charge
                                             + right_entry.total_metal_charge,
                                             total_metal_radicals=left_entry.total_metal_radicals
@@ -536,7 +552,7 @@ def _group_candidates_by_target_dp(
     )
     grouped_candidates: Dict[Tuple[int, int], List[MetalCandidateState]] = {}
     combination_index = 0
-    for target, entries in grouped_entries.items():
+    for target, entries in sorted(grouped_entries.items()):
         bucket: List[MetalCandidateState] = []
         for entry in entries:
             candidate_machine = MetalCandidateStateMachine(

@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
 
+from rdkit import Chem
+
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
-from benchmarks.smiles_xyz_benchmark.methods.postprocess import finalize_rdmol_with_dative_bonds
 
 
 @dataclass(frozen=True)
@@ -15,11 +16,10 @@ class MolGRCppMethod(BenchmarkMethod):
 
     def run(self, case: dict[str, Any]) -> MethodRunOutput:
         timing_ms_breakdown: dict[str, float] = {
-            "cpp_xyz2omol_ms": 0.0,
+            "molgr_interface_ms": 0.0,
             "cpp_no_metal_pipeline_ms": 0.0,
             "cpp_resonance_handling_enumeration_ms": 0.0,
             "cpp_metal_enumeration_combination_ms": 0.0,
-            "mol_data_to_rdkit_ms": 0.0,
             "postprocess_ms": 0.0,
         }
 
@@ -52,18 +52,18 @@ class MolGRCppMethod(BenchmarkMethod):
             )
 
         try:
+            molgr_interface = import_module("molgr.interface")
+            xyz_to_rdmol = molgr_interface.xyz_to_rdmol
             cpp_pipeline = import_module("molgr._core.pipeline")
-            cpp_xyz2omol_uncached = cpp_pipeline.reconstruct_with_metals.xyz2omol
             cpp_last_timing = getattr(
                 cpp_pipeline,
                 "get_last_run_timing_breakdown_ms",
                 None,
             )
-            mol_data_to_rdkit = import_module("molgr.interface").mol_data_to_rdkit
         except Exception as exc:  # noqa: BLE001
             return MethodRunOutput(
                 status="error",
-                error=f"import molgr core pipeline failed: {exc}",
+                error=f"import molgr interface failed: {exc}",
                 timing_ms_breakdown=timing_ms_breakdown,
             )
 
@@ -85,57 +85,45 @@ class MolGRCppMethod(BenchmarkMethod):
                 raw.get("metal_enumeration_combination_ms", 0.0)
             )
 
-        cpp_started = time.perf_counter()
+        interface_started = time.perf_counter()
         try:
-            mol_data = cpp_xyz2omol_uncached(
+            rdkit_mol = xyz_to_rdmol(
                 xyz_block,
                 total_charge,
-                total_radical_electrons,
+                total_radical_electrons + 1,
+                backend="cpp",
+                make_dative_bonds=True,
             )
         except Exception as exc:  # noqa: BLE001
-            timing_ms_breakdown["cpp_xyz2omol_ms"] = (time.perf_counter() - cpp_started) * 1000.0
+            timing_ms_breakdown["molgr_interface_ms"] = (
+                time.perf_counter() - interface_started
+            ) * 1000.0
             _merge_cpp_internal_timing()
             return MethodRunOutput(
                 status="error",
-                error=f"molgr._core.pipeline.reconstruct_with_metals.xyz2omol failed: {exc}",
+                error=f"molgr.interface.xyz_to_rdmol failed: {exc}",
                 timing_ms_breakdown=timing_ms_breakdown,
             )
-        timing_ms_breakdown["cpp_xyz2omol_ms"] = (time.perf_counter() - cpp_started) * 1000.0
-        _merge_cpp_internal_timing()
-
-        if mol_data is None:
-            return MethodRunOutput(
-                status="error",
-                error="molgr._core.pipeline.reconstruct_with_metals.xyz2omol returned None",
-                timing_ms_breakdown=timing_ms_breakdown,
-            )
-
-        to_rdkit_started = time.perf_counter()
-        try:
-            rdkit_mol = mol_data_to_rdkit(mol_data)
-        except Exception as exc:  # noqa: BLE001
-            timing_ms_breakdown["mol_data_to_rdkit_ms"] = (
-                time.perf_counter() - to_rdkit_started
-            ) * 1000.0
-            return MethodRunOutput(
-                status="error",
-                error=f"mol_data_to_rdkit failed: {exc}",
-                timing_ms_breakdown=timing_ms_breakdown,
-            )
-        timing_ms_breakdown["mol_data_to_rdkit_ms"] = (
-            time.perf_counter() - to_rdkit_started
+        timing_ms_breakdown["molgr_interface_ms"] = (
+            time.perf_counter() - interface_started
         ) * 1000.0
+        _merge_cpp_internal_timing()
 
         postprocess_started = time.perf_counter()
         try:
-            rdkit_mol, predicted_smiles = finalize_rdmol_with_dative_bonds(rdkit_mol)
+            rdkit_mol = Chem.RemoveHs(rdkit_mol)
+            predicted_smiles = Chem.MolToSmiles(
+                rdkit_mol,
+                canonical=True,
+                isomericSmiles=True,
+            )
         except Exception as exc:  # noqa: BLE001
             timing_ms_breakdown["postprocess_ms"] = (
                 time.perf_counter() - postprocess_started
             ) * 1000.0
             return MethodRunOutput(
                 status="error",
-                error=f"MolToSmiles failed: {exc}",
+                error=f"MolGR result postprocess failed: {exc}",
                 rdkit_mol=rdkit_mol,
                 timing_ms_breakdown=timing_ms_breakdown,
             )

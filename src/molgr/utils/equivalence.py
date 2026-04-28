@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-22 20:18:39
 LastEditors: TMJ
-LastEditTime: 2026-04-19 20:48:18
+LastEditTime: 2026-04-28 22:58:17
 Description: 用于判定对于同一个分子坐标输入下不同的分子图重建算法结果的一致性，只要和标准答案在共振异构级别上有一个一致，就认为是一致的。
 """
 
@@ -19,6 +19,9 @@ from rdkit import Chem
 from rdkit.Chem import ResonanceMolSupplier, inchi
 
 from .radical_resonance import enumerate_resonance_radical
+
+
+pt = Chem.GetPeriodicTable()
 
 
 # ================================
@@ -138,7 +141,7 @@ _THIOSEMICARBAZONE_RESONANCE_PATTERNS = tuple(
 def _canon_smiles(m: Chem.Mol, use_chirality: bool) -> str:
     if Chem.SanitizeMol(m) != Chem.SanitizeFlags.SANITIZE_NONE:
         raise ValueError("Molecule is not sanitized.")
-    return Chem.MolToSmiles(m, canonical=True, isomericSmiles=use_chirality)
+    return Chem.CanonSmiles(Chem.MolToSmiles(m, canonical=True, isomericSmiles=use_chirality))
 
 
 def _inchi_connectivity_key(m: Chem.Mol) -> str | None:
@@ -160,7 +163,7 @@ def _safe_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
     clone.UpdatePropertyCache(strict=False)
     with suppress(Exception):
         Chem.SanitizeMol(clone)
-    return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality)
+    return Chem.CanonSmiles(Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality))
 
 
 def _best_effort_sanitize(mol: Chem.Mol) -> str | None:
@@ -219,7 +222,11 @@ def _iter_resonance_structures(
 
 
 def _formula_key_without_hydrogen(mol: Chem.Mol) -> str:
-    counts = Counter(atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1)
+    counts = Counter(
+        mol.GetAtomWithIdx(atom_idx).GetSymbol()
+        for atom_idx in range(mol.GetNumAtoms())
+        if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() != 1
+    )
     if not counts:
         return ""
 
@@ -235,7 +242,8 @@ def _formula_key_without_hydrogen(mol: Chem.Mol) -> str:
 def _strip_metal_coordination_bonds(mol: Chem.Mol) -> tuple[Chem.Mol, bool]:
     rw_mol = Chem.RWMol(Chem.Mol(mol))
     bonds_to_remove: list[tuple[int, int]] = []
-    for bond in rw_mol.GetBonds():
+    for bond_idx in range(rw_mol.GetNumBonds()):
+        bond = rw_mol.GetBondWithIdx(bond_idx)
         begin_atom = bond.GetBeginAtom()
         end_atom = bond.GetEndAtom()
         if _is_metal_atom(begin_atom) == _is_metal_atom(end_atom):
@@ -250,67 +258,32 @@ def _strip_metal_coordination_bonds(mol: Chem.Mol) -> tuple[Chem.Mol, bool]:
     return stripped, bool(bonds_to_remove)
 
 
-def _is_carbene_zwitterion_candidate_ring(mol: Chem.Mol, ring_atom_ids: tuple[int, ...]) -> bool:
-    ring_atom_set = set(ring_atom_ids)
-    ring_atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring_atom_ids]
-    nitrogen_count = sum(1 for atom in ring_atoms if atom.GetAtomicNum() == 7)
-    carbon_count = sum(1 for atom in ring_atoms if atom.GetAtomicNum() == 6)
-    if nitrogen_count != 2 or carbon_count != 3:
-        return False
-
-    has_carbene_like_carbon = any(
-        atom.GetAtomicNum() == 6 and atom.GetNumRadicalElectrons() > 0 for atom in ring_atoms
-    )
-    has_charge_separated_ring = any(
-        atom.GetFormalCharge() != 0 or atom.GetNumRadicalElectrons() != 0 for atom in ring_atoms
-    )
-    has_metal_bound_carbene_carbon = any(
-        atom.GetAtomicNum() == 6
-        and any(
-            bond.GetBondType() == Chem.BondType.DATIVE
-            and bond.GetOtherAtom(atom).GetIdx() not in ring_atom_set
-            and _is_metal_atom(bond.GetOtherAtom(atom))
-            for bond in atom.GetBonds()
-        )
-        for atom in ring_atoms
-    )
-
-    return has_carbene_like_carbon or has_charge_separated_ring or has_metal_bound_carbene_carbon
-
-
 def _normalize_carbene_zwitterion_forms(mol: Chem.Mol) -> Chem.Mol:
     normalized = Chem.Mol(mol)
     rw_mol = Chem.RWMol(normalized)
-    ring_info = normalized.GetRingInfo()
+    Chem.Kekulize(rw_mol)
 
-    for ring_atom_ids in ring_info.AtomRings():
-        if len(ring_atom_ids) != 5:
-            continue
-        ring_atom_ids_tuple = tuple(int(atom_idx) for atom_idx in ring_atom_ids)
-        if not _is_carbene_zwitterion_candidate_ring(normalized, ring_atom_ids_tuple):
-            continue
-
-        ring_atom_set = set(ring_atom_ids_tuple)
-        for atom_idx in ring_atom_ids_tuple:
-            atom = rw_mol.GetAtomWithIdx(atom_idx)
-            atom.SetFormalCharge(0)
-            atom.SetNumRadicalElectrons(0)
-            atom.SetIsAromatic(False)
-            atom.SetNumExplicitHs(0)
-            atom.SetNoImplicit(False)
-        for bond in normalized.GetBonds():
-            begin_atom_idx = bond.GetBeginAtomIdx()
-            end_atom_idx = bond.GetEndAtomIdx()
-            if begin_atom_idx not in ring_atom_set or end_atom_idx not in ring_atom_set:
-                continue
-            ring_bond = rw_mol.GetBondBetweenAtoms(begin_atom_idx, end_atom_idx)
-            if ring_bond is None:
-                continue
-            ring_bond.SetBondType(Chem.BondType.SINGLE)
-            ring_bond.SetIsAromatic(False)
+    smarts = Chem.MolFromSmarts("[*-]=[*+]")
+    for match in rw_mol.GetSubstructMatches(smarts):
+        begin_idx, end_idx = (int(atom_idx) for atom_idx in match)
+        bond = rw_mol.GetBondBetweenAtoms(begin_idx, end_idx)
+        atom_begin = rw_mol.GetAtomWithIdx(begin_idx)
+        atom_end = rw_mol.GetAtomWithIdx(end_idx)
+        if (
+            pt.GetDefaultValence(atom_begin.GetAtomicNum()) - atom_begin.GetTotalValence() == 1
+        ) and (pt.GetDefaultValence(atom_end.GetAtomicNum()) - atom_end.GetTotalValence() == -1):
+            bond.SetBondType(Chem.BondType.SINGLE)
+            atom_begin.SetFormalCharge(atom_begin.GetFormalCharge() + 1)
+            atom_end.SetFormalCharge(atom_end.GetFormalCharge() - 1)
+            atom_begin.SetNumRadicalElectrons(2)
+            atom_end.SetNumRadicalElectrons(0)
 
     normalized_mol = rw_mol.GetMol()
     normalized_mol.UpdatePropertyCache(strict=False)
+    Chem.Cleanup(normalized_mol)
+    for atom_idx in range(normalized_mol.GetNumAtoms()):
+        normalized_mol.GetAtomWithIdx(atom_idx).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        normalized_mol.GetAtomWithIdx(atom_idx).SetIsAromatic(False)
     return normalized_mol
 
 
@@ -320,10 +293,12 @@ def _carbene_zwitterion_normalized_smiles(
     use_chirality: bool,
 ) -> str:
     normalized = _normalize_carbene_zwitterion_forms(mol)
-    return Chem.MolToSmiles(
-        normalized,
-        canonical=True,
-        isomericSmiles=use_chirality,
+    return Chem.CanonSmiles(
+        Chem.MolToSmiles(
+            normalized,
+            canonical=True,
+            isomericSmiles=use_chirality,
+        )
     )
 
 
@@ -383,10 +358,12 @@ def _special_resonance_normalized_smiles(
     use_chirality: bool,
 ) -> str:
     normalized = _normalize_special_resonance_forms(mol)
-    return Chem.MolToSmiles(
-        normalized,
-        canonical=True,
-        isomericSmiles=use_chirality,
+    return Chem.CanonSmiles(
+        Chem.MolToSmiles(
+            normalized,
+            canonical=True,
+            isomericSmiles=use_chirality,
+        )
     )
 
 

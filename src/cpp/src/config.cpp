@@ -68,19 +68,6 @@ namespace molgr::config
             return value.cast<std::vector<std::string>>();
         }
 
-        std::vector<double> CastDoubleVectorAttrOr(
-            py::handle object,
-            const char *name,
-            std::vector<double> fallback)
-        {
-            py::object value = AttrOrNone(object, name);
-            if (value.is_none())
-            {
-                return fallback;
-            }
-            return value.cast<std::vector<double>>();
-        }
-
         py::object ResolvePythonConfig(py::handle config)
         {
             if (!config.is_none())
@@ -163,18 +150,10 @@ namespace molgr::config
                 cpp_backend,
                 "enable_candidate_scoring_parallelism",
                 out.cpp_backend.enable_candidate_scoring_parallelism);
-            out.cpp_backend.enable_resonance_candidate_parallelism = CastAttrOr<bool>(
-                cpp_backend,
-                "enable_resonance_candidate_parallelism",
-                out.cpp_backend.enable_resonance_candidate_parallelism);
             out.cpp_backend.enable_uff_atom_typing_cache = CastAttrOr<bool>(
                 cpp_backend,
                 "enable_uff_atom_typing_cache",
                 out.cpp_backend.enable_uff_atom_typing_cache);
-            out.cpp_backend.resonance_candidate_parallel_threshold = CastAttrOr<int>(
-                cpp_backend,
-                "resonance_candidate_parallel_threshold",
-                out.cpp_backend.resonance_candidate_parallel_threshold);
             out.cpp_backend.candidate_score_parallel_threshold = CastAttrOr<int>(
                 cpp_backend,
                 "candidate_score_parallel_threshold",
@@ -188,10 +167,6 @@ namespace molgr::config
                 metal_scoring,
                 "organic_score_bucket_relative_ratio",
                 out.metal_scoring.organic_score_bucket_relative_ratio);
-            out.metal_scoring.organic_force_field_hard_max_ratio = CastAttrOr<double>(
-                metal_scoring,
-                "organic_force_field_hard_max_ratio",
-                out.metal_scoring.organic_force_field_hard_max_ratio);
             out.metal_scoring.open_shell_multimetal_state_penalty_window = CastAttrOr<double>(
                 metal_scoring,
                 "open_shell_multimetal_state_penalty_window",
@@ -212,14 +187,14 @@ namespace molgr::config
                 metal_scoring,
                 "max_assignments_per_target",
                 out.metal_scoring.max_assignments_per_target);
-            out.metal_scoring.selection_weight_values = CastDoubleVectorAttrOr(
+            out.metal_scoring.metal_coordination_radius_scale = CastAttrOr<double>(
                 metal_scoring,
-                "selection_weight_values",
-                out.metal_scoring.selection_weight_values);
-            out.metal_scoring.selection_scale_values = CastDoubleVectorAttrOr(
+                "metal_coordination_radius_scale",
+                out.metal_scoring.metal_coordination_radius_scale);
+            out.metal_scoring.metal_coordination_extra_tolerance_angstrom = CastAttrOr<double>(
                 metal_scoring,
-                "selection_scale_values",
-                out.metal_scoring.selection_scale_values);
+                "metal_coordination_extra_tolerance_angstrom",
+                out.metal_scoring.metal_coordination_extra_tolerance_angstrom);
             out.metal_scoring.visible_coordination_reward_weight = CastAttrOr<double>(
                 metal_scoring,
                 "visible_coordination_reward_weight",
@@ -270,6 +245,8 @@ namespace molgr::config
                                               ? py::cast(*config.metal_scoring.max_mixed_valence_spread)
                                               : py::none();
         out["max_assignments_per_target"] = config.metal_scoring.max_assignments_per_target;
+        out["metal_coordination_extra_tolerance_angstrom"] =
+            config.metal_scoring.metal_coordination_extra_tolerance_angstrom;
         return out;
     }
 }

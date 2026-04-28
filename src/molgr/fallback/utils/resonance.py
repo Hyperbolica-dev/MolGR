@@ -30,8 +30,11 @@ ResonanceStateKey = Tuple[Tuple[ResonanceAtomKey, ...], Tuple[ResonanceBondKey, 
 ProcessedResonanceKey = str
 ResonanceBondIndexMap = Dict[Tuple[int, int], int]
 _DEFAULT_RESONANCE_MOVE_SCORE_CACHE_MAXSIZE = 4096
-_DIRECT_GAIN_CONJUGATION_SCORE_WEIGHT = 4.0
-_DIRECT_GAIN_DEVIATION_SCORE_WEIGHT = 10.0
+_UFF_LITE_BOND_STRAIN_SCORE_WEIGHT = 1.0
+_UFF_LITE_ANGLE_STRAIN_SCORE_WEIGHT = 0.35
+_UFF_LITE_RADICAL_SCORE_WEIGHT = 1.0
+_UFF_LITE_CONJUGATION_SCORE_WEIGHT = 0.25
+_KCAL_TO_KJ = 4.184
 
 _BondOrderOverrides = Dict[Tuple[int, int], int]
 _DirectGainMetrics = Tuple[float, float, float, float]
@@ -77,6 +80,10 @@ class ResonanceTraversalPolicy(Protocol):
         context: ResonanceTraversalContext,
         moves: Sequence[ResonanceTraversalMove],
     ) -> Optional[Sequence[ResonanceTraversalMove]]: ...
+
+
+class LimitedDiscrepancyResonanceTraversalPolicy(ResonanceTraversalPolicy, Protocol):
+    max_discrepancy: int
 
 
 @dataclass(frozen=True)
@@ -325,6 +332,193 @@ def _get_bond_order_with_overrides(
     return cast(int, bond.GetBondOrder())
 
 
+def _normalized_bond_order_with_overrides(
+    bond: ob.OBBond,
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    override = bond_order_overrides.get(
+        _bond_pair(
+            cast(int, cast(ob.OBAtom, bond.GetBeginAtom()).GetIdx()),
+            cast(int, cast(ob.OBAtom, bond.GetEndAtom()).GetIdx()),
+        )
+    )
+    if override is not None:
+        return float(max(override, 1))
+    if bond.IsAromatic():
+        return 1.5
+    if bond.IsAmide():
+        return 1.41
+    return float(max(cast(int, bond.GetBondOrder()), 1))
+
+
+def _clamped_electronegativity(atomic_num: int) -> float:
+    return max(float(ob.GetElectroNeg(atomic_num)), 0.25)
+
+
+def _clamped_covalent_radius(atomic_num: int) -> float:
+    value = float(ob.GetCovalentRad(atomic_num))
+    return value if value > 0.0 else 0.75
+
+
+def _estimate_uff_equilibrium_bond_length(
+    atomic_num_a: int,
+    atomic_num_b: int,
+    bond_order: float,
+) -> float:
+    ri = _clamped_covalent_radius(atomic_num_a)
+    rj = _clamped_covalent_radius(atomic_num_b)
+    chi_i = _clamped_electronegativity(atomic_num_a)
+    chi_j = _clamped_electronegativity(atomic_num_b)
+    safe_bond_order = max(bond_order, 0.25)
+    rbo = -0.1332 * (ri + rj) * math.log(safe_bond_order)
+    ren = (
+        ri
+        * rj
+        * math.pow(math.sqrt(chi_i) - math.sqrt(chi_j), 2.0)
+        / max(
+            chi_i * ri + chi_j * rj,
+            1e-9,
+        )
+    )
+    return max(ri + rj + rbo - ren, 0.4)
+
+
+def _estimate_uff_bond_force_constant(equilibrium_distance: float) -> float:
+    return (0.5 * _KCAL_TO_KJ * 664.12) / max(equilibrium_distance**3, 1e-6)
+
+
+def _uff_lite_bond_stretch_energy(
+    bond: ob.OBBond,
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
+    end_atom = cast(ob.OBAtom, bond.GetEndAtom())
+    if begin_atom is None or end_atom is None:
+        return 0.0
+    bond_order = _normalized_bond_order_with_overrides(bond, bond_order_overrides)
+    r0 = _estimate_uff_equilibrium_bond_length(
+        cast(int, begin_atom.GetAtomicNum()),
+        cast(int, end_atom.GetAtomicNum()),
+        bond_order,
+    )
+    dx = float(begin_atom.GetX()) - float(end_atom.GetX())
+    dy = float(begin_atom.GetY()) - float(end_atom.GetY())
+    dz = float(begin_atom.GetZ()) - float(end_atom.GetZ())
+    distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    delta = distance - r0
+    return _estimate_uff_bond_force_constant(r0) * delta * delta
+
+
+def _local_bond_stretch_energy(
+    obmol: ob.OBMol,
+    affected_bonds: Sequence[Tuple[int, int]],
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    total = 0.0
+    for left_idx, right_idx in affected_bonds:
+        bond = cast(ob.OBBond, obmol.GetBond(left_idx, right_idx))
+        if bond is not None:
+            total += _uff_lite_bond_stretch_energy(bond, bond_order_overrides)
+    return total
+
+
+def _ideal_angle_radians_for_atom(
+    atom: ob.OBAtom,
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    heavy_degree = 0
+    multiple_bond_count = 0
+    max_bond_order = 1.0
+    for bond_iter in ob.OBAtomBondIter(atom):
+        bond = cast(ob.OBBond, bond_iter)
+        other = cast(ob.OBAtom, bond.GetNbrAtom(atom))
+        if other is not None and cast(int, other.GetAtomicNum()) != 1:
+            heavy_degree += 1
+        bond_order = _normalized_bond_order_with_overrides(bond, bond_order_overrides)
+        max_bond_order = max(max_bond_order, bond_order)
+        if bond_order >= 1.5:
+            multiple_bond_count += 1
+
+    if max_bond_order >= 2.5 or multiple_bond_count >= 2:
+        return math.pi
+    if max_bond_order >= 1.5 or heavy_degree == 3:
+        return 2.0 * math.pi / 3.0
+    return math.radians(109.5)
+
+
+def _uff_lite_angle_energy(
+    obmol: ob.OBMol,
+    left_atom: ob.OBAtom,
+    center_atom: ob.OBAtom,
+    right_atom: ob.OBAtom,
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    left_bond = cast(ob.OBBond, obmol.GetBond(left_atom.GetIdx(), center_atom.GetIdx()))
+    right_bond = cast(ob.OBBond, obmol.GetBond(center_atom.GetIdx(), right_atom.GetIdx()))
+    if left_bond is None or right_bond is None:
+        return 0.0
+
+    theta_degrees = float(obmol.GetAngle(left_atom, center_atom, right_atom))
+    if not math.isfinite(theta_degrees):
+        return 0.0
+
+    theta = math.radians(theta_degrees)
+    theta0 = _ideal_angle_radians_for_atom(center_atom, bond_order_overrides)
+    left_order = _normalized_bond_order_with_overrides(left_bond, bond_order_overrides)
+    right_order = _normalized_bond_order_with_overrides(right_bond, bond_order_overrides)
+    left_r0 = _estimate_uff_equilibrium_bond_length(
+        cast(int, left_atom.GetAtomicNum()),
+        cast(int, center_atom.GetAtomicNum()),
+        left_order,
+    )
+    right_r0 = _estimate_uff_equilibrium_bond_length(
+        cast(int, center_atom.GetAtomicNum()),
+        cast(int, right_atom.GetAtomicNum()),
+        right_order,
+    )
+    stiffness = (
+        25.0
+        * (1.0 + 0.15 * max(0.0, left_order + right_order - 2.0))
+        / max(
+            math.sqrt(left_r0 * right_r0),
+            0.5,
+        )
+    )
+    cos_delta = math.cos(theta) - math.cos(theta0)
+    return stiffness * cos_delta * cos_delta
+
+
+def _local_angle_strain_energy(
+    obmol: ob.OBMol,
+    affected_center_indices: Sequence[int],
+    bond_order_overrides: _BondOrderOverrides,
+) -> float:
+    total = 0.0
+    for center_idx in affected_center_indices:
+        center_atom = cast(ob.OBAtom, obmol.GetAtom(center_idx))
+        if center_atom is None:
+            continue
+        neighbors = [cast(ob.OBAtom, neighbor) for neighbor in ob.OBAtomAtomIter(center_atom)]
+        for left_index in range(len(neighbors)):
+            for right_index in range(left_index + 1, len(neighbors)):
+                total += _uff_lite_angle_energy(
+                    obmol,
+                    neighbors[left_index],
+                    center_atom,
+                    neighbors[right_index],
+                    bond_order_overrides,
+                )
+    return total
+
+
+def _radical_penalty_for_atom(atomic_num: int, radical_num: int, heavy_degree: int) -> float:
+    if radical_num <= 0:
+        return 0.0
+    if atomic_num in consts.HETEROATOM:
+        return float(radical_num) * 10.0
+    return float(radical_num) * max(0.0, 3.0 - float(heavy_degree)) * 1.5
+
+
 def _conjugated_bond_kind(
     bond: ob.OBBond,
     bond_order_overrides: _BondOrderOverrides,
@@ -337,15 +531,6 @@ def _conjugated_bond_kind(
     if bond_order == 1:
         return 1
     return 2
-
-
-def _calculate_radical_penalty(atom: ob.OBAtom) -> float:
-    radical_num = cast(int, atom.GetSpinMultiplicity())
-    if radical_num == 0:
-        return 0.0
-    if cast(int, atom.GetAtomicNum()) in consts.HETEROATOM:
-        return float(radical_num) * 10.0
-    return (3.0 - float(atom.GetHvyDegree())) * 1.5
 
 
 def _estimate_radical_conjugation_size(
@@ -382,115 +567,6 @@ def _estimate_radical_conjugation_size(
     return len(visited_atoms)
 
 
-def _calculate_all_double_bond_carbon_bonus(
-    obmol: ob.OBMol,
-    atom_idx: int,
-    bond_order_overrides: Optional[_BondOrderOverrides] = None,
-) -> float:
-    atom = cast(ob.OBAtom, obmol.GetAtom(atom_idx))
-    if atom is None or cast(int, atom.GetAtomicNum()) != 6:
-        return 0.0
-
-    overrides = bond_order_overrides or {}
-    saw_bond = False
-    for bond_iter in ob.OBAtomBondIter(atom):
-        saw_bond = True
-        bond = cast(ob.OBBond, bond_iter)
-        if _get_bond_order_with_overrides(bond, overrides) != 2:
-            return 0.0
-    return 5.0 if saw_bond else 0.0
-
-
-def _atom_coords(atom: ob.OBAtom) -> Tuple[float, float, float]:
-    return float(atom.GetX()), float(atom.GetY()), float(atom.GetZ())
-
-
-def _vector_sub(
-    left: Tuple[float, float, float],
-    right: Tuple[float, float, float],
-) -> Tuple[float, float, float]:
-    return left[0] - right[0], left[1] - right[1], left[2] - right[2]
-
-
-def _vector_dot(
-    left: Tuple[float, float, float],
-    right: Tuple[float, float, float],
-) -> float:
-    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
-
-
-def _vector_cross(
-    left: Tuple[float, float, float],
-    right: Tuple[float, float, float],
-) -> Tuple[float, float, float]:
-    return (
-        left[1] * right[2] - left[2] * right[1],
-        left[2] * right[0] - left[0] * right[2],
-        left[0] * right[1] - left[1] * right[0],
-    )
-
-
-def _vector_length_sq(vector: Tuple[float, float, float]) -> float:
-    return _vector_dot(vector, vector)
-
-
-def _calculate_tetrahedron_volume(
-    p1: Tuple[float, float, float],
-    p2: Tuple[float, float, float],
-    p3: Tuple[float, float, float],
-    p4: Tuple[float, float, float],
-) -> float:
-    v1 = _vector_sub(p1, p4)
-    v2 = _vector_sub(p2, p4)
-    v3 = _vector_sub(p3, p4)
-    return abs(_vector_dot(v1, _vector_cross(v2, v3))) / 6.0
-
-
-def _calculate_shape_quality(
-    p1: Tuple[float, float, float],
-    p2: Tuple[float, float, float],
-    p3: Tuple[float, float, float],
-    p4: Tuple[float, float, float],
-) -> float:
-    volume = _calculate_tetrahedron_volume(p1, p2, p3, p4)
-    if volume < 1e-9:
-        return 0.0
-
-    edges_sq_sum = 0.0
-    edges_sq_sum += _vector_length_sq(_vector_sub(p1, p2))
-    edges_sq_sum += _vector_length_sq(_vector_sub(p1, p3))
-    edges_sq_sum += _vector_length_sq(_vector_sub(p1, p4))
-    edges_sq_sum += _vector_length_sq(_vector_sub(p2, p3))
-    edges_sq_sum += _vector_length_sq(_vector_sub(p2, p4))
-    edges_sq_sum += _vector_length_sq(_vector_sub(p3, p4))
-
-    l_rms_squared = edges_sq_sum / 6.0
-    l_rms_cubed = math.pow(l_rms_squared, 1.5)
-    if l_rms_cubed < 1e-9:
-        return 0.0
-
-    quality = 6.0 * math.sqrt(2.0) * (volume / l_rms_cubed)
-    return max(0.0, min(1.0, quality))
-
-
-def _get_deviation_score(obmol: ob.OBMol, atom: Optional[ob.OBAtom]) -> float:
-    if atom is None:
-        return 0.0
-
-    neighbors = [cast(ob.OBAtom, neighbor) for neighbor in ob.OBAtomAtomIter(atom)]
-    if len(neighbors) == 2:
-        angle = float(obmol.GetAngle(neighbors[0], atom, neighbors[1]))
-        return abs(angle - 108.0) / 108.0
-    if len(neighbors) == 3:
-        return 1.0 - _calculate_shape_quality(
-            _atom_coords(neighbors[0]),
-            _atom_coords(neighbors[1]),
-            _atom_coords(neighbors[2]),
-            _atom_coords(atom),
-        )
-    return 0.0
-
-
 def _compute_direct_gain_resonance_metrics(
     omol: pybel.Molecule,
     move_path: Tuple[int, int, int],
@@ -509,30 +585,59 @@ def _compute_direct_gain_resonance_metrics(
         _bond_pair(old_radical_idx, center_idx): cast(int, bond_old_center.GetBondOrder()) + 1,
         _bond_pair(center_idx, new_radical_idx): cast(int, bond_center_new.GetBondOrder()) - 1,
     }
+    affected_bonds = (
+        _bond_pair(old_radical_idx, center_idx),
+        _bond_pair(center_idx, new_radical_idx),
+    )
+    affected_angle_centers = (old_radical_idx, center_idx, new_radical_idx)
+
+    bond_strain_gain = _local_bond_stretch_energy(
+        obmol,
+        affected_bonds,
+        {},
+    ) - _local_bond_stretch_energy(obmol, affected_bonds, bond_order_overrides)
+    angle_strain_gain = _local_angle_strain_energy(
+        obmol,
+        affected_angle_centers,
+        {},
+    ) - _local_angle_strain_energy(obmol, affected_angle_centers, bond_order_overrides)
+    radical_penalty_before = _radical_penalty_for_atom(
+        cast(int, old_atom.GetAtomicNum()),
+        cast(int, old_atom.GetSpinMultiplicity()),
+        cast(int, old_atom.GetHvyDegree()),
+    ) + _radical_penalty_for_atom(
+        cast(int, new_atom.GetAtomicNum()),
+        cast(int, new_atom.GetSpinMultiplicity()),
+        cast(int, new_atom.GetHvyDegree()),
+    )
+    radical_penalty_after = _radical_penalty_for_atom(
+        cast(int, old_atom.GetAtomicNum()),
+        cast(int, old_atom.GetSpinMultiplicity()) - 1,
+        cast(int, old_atom.GetHvyDegree()),
+    ) + _radical_penalty_for_atom(
+        cast(int, new_atom.GetAtomicNum()),
+        cast(int, new_atom.GetSpinMultiplicity()) + 1,
+        cast(int, new_atom.GetHvyDegree()),
+    )
+    radical_penalty_gain = radical_penalty_before - radical_penalty_after
     conjugation_gain = float(
         _estimate_radical_conjugation_size(obmol, new_radical_idx, bond_order_overrides)
         - _estimate_radical_conjugation_size(obmol, old_radical_idx)
     )
-    deviation_gain = _get_deviation_score(obmol, old_atom) - _get_deviation_score(obmol, new_atom)
-    radical_penalty_gain = _calculate_radical_penalty(old_atom) - _calculate_radical_penalty(new_atom)
-    double_bond_bonus_gain = (
-        _calculate_all_double_bond_carbon_bonus(obmol, new_radical_idx, bond_order_overrides)
-        - _calculate_all_double_bond_carbon_bonus(obmol, old_radical_idx)
-    )
     return (
-        conjugation_gain,
-        deviation_gain,
+        bond_strain_gain,
+        angle_strain_gain,
         radical_penalty_gain,
-        double_bond_bonus_gain,
+        conjugation_gain,
     )
 
 
 def _direct_gain_move_score(metrics: _DirectGainMetrics) -> float:
     return -(
-        metrics[0] * _DIRECT_GAIN_CONJUGATION_SCORE_WEIGHT
-        + metrics[1] * _DIRECT_GAIN_DEVIATION_SCORE_WEIGHT
-        + metrics[2]
-        + metrics[3]
+        metrics[0] * _UFF_LITE_BOND_STRAIN_SCORE_WEIGHT
+        + metrics[1] * _UFF_LITE_ANGLE_STRAIN_SCORE_WEIGHT
+        + metrics[2] * _UFF_LITE_RADICAL_SCORE_WEIGHT
+        + metrics[3] * _UFF_LITE_CONJUGATION_SCORE_WEIGHT
     )
 
 
@@ -573,7 +678,9 @@ def _order_direct_gain_moves(
 ) -> List[Tuple[ResonanceTraversalMove, float]]:
     ordered_moves: List[Tuple[ResonanceTraversalMove, float]] = []
     for move in moves:
-        ordered_moves.append((move, _direct_gain_move_score(_compute_direct_gain_resonance_metrics(omol, move.path))))
+        ordered_moves.append(
+            (move, _direct_gain_move_score(_compute_direct_gain_resonance_metrics(omol, move.path)))
+        )
     ordered_moves.sort(key=lambda item: (item[1], item[0].path))
     return ordered_moves
 
@@ -641,7 +748,9 @@ def _apply_resonance_traversal_policy(
             continue
         indexed_move = move_by_key.get(move_key)
         if indexed_move is None:
-            raise ValueError("resonance traversal policy returned a move outside the candidate frontier")
+            raise ValueError(
+                "resonance traversal policy returned a move outside the candidate frontier"
+            )
         seen_selected_keys.add(move_key)
         selected_indexed_moves.append(indexed_move)
     return selected_indexed_moves
@@ -655,6 +764,7 @@ __all__ = [
     "ResonanceTraversalContext",
     "ResonanceTraversalMove",
     "ResonanceTraversalPolicy",
+    "LimitedDiscrepancyResonanceTraversalPolicy",
     "build_processed_resonance_key",
     "build_resonance_state_key",
     "make_limited_discrepancy_direct_gain_traversal_policy",

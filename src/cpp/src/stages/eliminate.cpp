@@ -124,6 +124,18 @@ namespace molgr
             bool hit = false;
             auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
             size_t count = matches.size();
+            std::vector<int> atom_indices;
+            atom_indices.reserve(count * 2);
+            for (const auto &idxs : matches)
+            {
+                atom_indices.push_back(idxs[0]);
+                atom_indices.push_back(idxs[1]);
+            }
+            std::sort(atom_indices.begin(), atom_indices.end());
+            if (std::unique(atom_indices.begin(), atom_indices.end()) != atom_indices.end())
+            {
+                return false;
+            }
             if (count > 0 && count % 2 == 0)
             {
                 for (size_t i = 0; i < count / 2; ++i)
@@ -225,9 +237,10 @@ namespace molgr
 
             if (all_neutral && sum_radicals >= 2)
             {
+                int total_radicals = sum_radicals;
                 auto process = [&](int atomic_num, bool check_hetero_neighbor)
                 {
-                    while (radical_atoms.size() > static_cast<size_t>(std::abs(charge) + 1))
+                    while (total_radicals > std::abs(charge))
                     {
                         bool found = false;
                         for (auto it = radical_atoms.begin(); it != radical_atoms.end(); ++it)
@@ -245,9 +258,11 @@ namespace molgr
                                     continue;
                             }
 
-                            atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
-                            atom->SetFormalCharge(atom->GetFormalCharge() - 1);
-                            charge += 1;
+                            const int charge_delta = atom->GetSpinMultiplicity();
+                            atom->SetFormalCharge(atom->GetFormalCharge() - charge_delta);
+                            atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - charge_delta);
+                            charge += charge_delta;
+                            total_radicals -= charge_delta;
                             radical_atoms.erase(it);
                             hit = true;
                             found = true;
@@ -261,6 +276,7 @@ namespace molgr
                 {
                     process(atomic_num, false);
                 }
+                process(16, false);
                 process(7, false);
                 process(6, true);
                 process(6, false);

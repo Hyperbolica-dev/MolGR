@@ -55,9 +55,7 @@ def _run_linear_pipeline(state: ReconstructionState) -> ReconstructionState:
     machine.set_given_charge(
         "initialize_charge_budget",
         state.total_charge
-        - sum(
-            cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in machine.omol.atoms
-        ),
+        - sum(cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in machine.omol.atoms),
     )
 
     machine.run_omol_charge_stage("eliminate_NNN_negative", eliminate_NNN, False)
@@ -87,6 +85,7 @@ def _run_linear_pipeline(state: ReconstructionState) -> ReconstructionState:
         break_deformed_ene,
         machine.given_charge,
         state.total_radical_electrons,
+        5.0,
     )
     machine.run_omol_charge_stage(
         "break_one_bond",

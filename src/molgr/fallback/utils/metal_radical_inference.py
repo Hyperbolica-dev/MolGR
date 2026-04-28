@@ -305,22 +305,11 @@ def _candidate_d_unpaired_counts(
             return (0,)
         if effective_d in {7, 9}:
             return (1,)
-        if field_strength == "strong":
-            return (free_ion_candidates[0],)
-        if field_strength == "weak":
-            return (free_ion_candidates[-1],)
         return (free_ion_candidates[0], free_ion_candidates[-1])
 
     if geometry == "tetrahedral":
         return (free_ion_candidates[-1],)
 
-    if geometry in {"linear", "trigonal_planar"} and field_strength == "strong":
-        return (free_ion_candidates[0],)
-
-    if field_strength == "strong":
-        return (free_ion_candidates[0],)
-    if field_strength == "weak":
-        return (free_ion_candidates[-1],)
     if len(free_ion_candidates) == 1:
         return (free_ion_candidates[0],)
     return (free_ion_candidates[0], free_ion_candidates[-1])

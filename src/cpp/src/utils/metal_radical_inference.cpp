@@ -348,30 +348,10 @@ namespace
             {
                 return {1};
             }
-            if (field_strength == "strong")
-            {
-                return {free_ion_candidates.front()};
-            }
-            if (field_strength == "weak")
-            {
-                return {free_ion_candidates.back()};
-            }
             return {free_ion_candidates.front(), free_ion_candidates.back()};
         }
 
         if (geometry == "tetrahedral")
-        {
-            return {free_ion_candidates.back()};
-        }
-        if ((geometry == "linear" || geometry == "trigonal_planar") && field_strength == "strong")
-        {
-            return {free_ion_candidates.front()};
-        }
-        if (field_strength == "strong")
-        {
-            return {free_ion_candidates.front()};
-        }
-        if (field_strength == "weak")
         {
             return {free_ion_candidates.back()};
         }

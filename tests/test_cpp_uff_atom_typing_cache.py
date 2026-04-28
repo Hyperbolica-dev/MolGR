@@ -24,7 +24,7 @@ from molgr.interface import xyz_to_rdmol
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
 
 _EMBED_SEED = 0xC0FFEE
-_RESONANCE_CASE_INDEX = 48
+_RESONANCE_CASE_INDEX = 1
 
 
 def _load_csv_case(case_index: int) -> tuple[str, int, int]:

@@ -24,19 +24,7 @@ from molgr.fallback.utils.organic_topology import compute_organic_topology_metri
 _MetalSiteAnchorKey = Tuple[int, int, int, int, int]
 _CoordinationBlocker = Tuple[int, Tuple[float, float, float], float]
 _METAL_SITE_CACHE_COORDINATE_SCALE = 1_000_000
-_WEIGHTED_SELECTION_FIELD_NAMES = (
-    "organic_aromatic_ring_loss",
-    "organic_max_conjugated_component_loss",
-    "organic_charge_localization_penalty",
-    "organic_aromatic_atom_loss",
-    "organic_conjugated_atom_loss",
-    "organic_radical_localization_penalty",
-    "metal_coordination_access_penalty",
-    "metal_same_element_valence_spread_penalty",
-    "metal_electrostatic_penalty",
-    "metal_donor_penalty",
-    "metal_prior_penalty",
-)
+_ORIGINAL_SCORE_CANDIDATE_WITH_NO_METAL_STATE = None
 
 
 @dataclass(frozen=True)
@@ -72,22 +60,6 @@ class _OrganicElectronicStateMetrics:
     charge_localization_penalty: float
 
 
-@dataclass(frozen=True)
-class _OrganicElectronicStateSelectionContext:
-    max_aromatic_atom_count: int
-    max_aromatic_ring_count: int
-    max_conjugated_atom_count: int
-    max_conjugated_component_size: int
-
-
-@dataclass(frozen=True)
-class _WeightedSelectionContext:
-    field_names: Tuple[str, ...]
-    best_values: Tuple[float, ...]
-    weights: Tuple[float, ...]
-    scales: Tuple[float, ...]
-
-
 def _distance_to_metal(
     atom: ob.OBAtom,
     metal_state: dataclasses.MetalAtomPosition,
@@ -96,6 +68,38 @@ def _distance_to_metal(
     dy = float(atom.GetY()) - metal_state.position_y
     dz = float(atom.GetZ()) - metal_state.position_z
     return (dx * dx + dy * dy + dz * dz) ** 0.5
+
+
+def _charge_sign(charge: int) -> int:
+    if charge > 0:
+        return 1
+    if charge < 0:
+        return -1
+    return 0
+
+
+def _nearest_nonzero_metal_charge_sign_to_bond(
+    begin_atom: ob.OBAtom,
+    end_atom: ob.OBAtom,
+    metal_states: Sequence[dataclasses.MetalAtomPosition],
+) -> int:
+    midpoint_x = (float(begin_atom.GetX()) + float(end_atom.GetX())) * 0.5
+    midpoint_y = (float(begin_atom.GetY()) + float(end_atom.GetY())) * 0.5
+    midpoint_z = (float(begin_atom.GetZ()) + float(end_atom.GetZ())) * 0.5
+    best_distance_sq = float("inf")
+    best_charge_sign = 0
+    for metal_state in metal_states:
+        metal_charge_sign = _charge_sign(int(metal_state.valence))
+        if metal_charge_sign == 0:
+            continue
+        dx = midpoint_x - metal_state.position_x
+        dy = midpoint_y - metal_state.position_y
+        dz = midpoint_z - metal_state.position_z
+        distance_sq = dx * dx + dy * dy + dz * dz
+        if distance_sq < best_distance_sq:
+            best_distance_sq = distance_sq
+            best_charge_sign = metal_charge_sign
+    return best_charge_sign
 
 
 def _distance_weight(distance: float, cutoff: float, min_distance_angstrom: float) -> float:
@@ -184,9 +188,81 @@ def _has_unobstructed_coordination_path_from_blockers(
     for blocker_idx, blocker_coordinates, blocker_radius in blockers:
         if blocker_idx == atom_idx:
             continue
-        if _distance_point_to_segment(blocker_coordinates, segment_start, atom_coordinates) < blocker_radius:
+        if (
+            _distance_point_to_segment(blocker_coordinates, segment_start, atom_coordinates)
+            < blocker_radius
+        ):
             return False
     return True
+
+
+def _coordination_radius_cutoff(
+    atom: ob.OBAtom,
+    metal_state: dataclasses.MetalAtomPosition,
+    *,
+    metal_scoring_config: MetalScoringConfig,
+) -> float:
+    atom_radius = float(ob.GetCovalentRad(int(atom.GetAtomicNum())))
+    metal_radius = float(ob.GetCovalentRad(int(metal_state.element_idx)))
+    return (
+        atom_radius
+        + metal_radius
+        + metal_scoring_config.metal_coordination_extra_tolerance_angstrom
+    )
+
+
+def _is_inner_sphere_atom(
+    atom: ob.OBAtom,
+    metal_state: dataclasses.MetalAtomPosition,
+    *,
+    metal_scoring_config: MetalScoringConfig,
+) -> bool:
+    distance = _distance_to_metal(atom, metal_state)
+    return (
+        0.0
+        < distance
+        <= _coordination_radius_cutoff(
+            atom,
+            metal_state,
+            metal_scoring_config=metal_scoring_config,
+        )
+    )
+
+
+def _is_visible_to_metal_atom(
+    atom: ob.OBAtom,
+    metal_state: dataclasses.MetalAtomPosition,
+    blockers: Sequence[_CoordinationBlocker],
+) -> bool:
+    distance = _distance_to_metal(atom, metal_state)
+    if distance <= 0.0:
+        return False
+    return _has_unobstructed_coordination_path_from_blockers(
+        int(atom.GetIdx()),
+        _atom_coordinates(atom),
+        (
+            float(metal_state.position_x),
+            float(metal_state.position_y),
+            float(metal_state.position_z),
+        ),
+        blockers,
+    )
+
+
+def _is_visible_inner_sphere_atom(
+    atom: ob.OBAtom,
+    metal_state: dataclasses.MetalAtomPosition,
+    blockers: Sequence[_CoordinationBlocker],
+    *,
+    metal_scoring_config: MetalScoringConfig,
+) -> bool:
+    if not _is_inner_sphere_atom(
+        atom,
+        metal_state,
+        metal_scoring_config=metal_scoring_config,
+    ):
+        return False
+    return _is_visible_to_metal_atom(atom, metal_state, blockers)
 
 
 def _bond_order(bond: ob.OBBond) -> int:
@@ -239,6 +315,140 @@ def _is_nitrile_like_nitrogen(atom: ob.OBAtom) -> bool:
     if cast(int, atom.GetAtomicNum()) not in {7, 15, 33, 51}:
         return False
     return any(_bond_order(cast(ob.OBBond, bond)) >= 3 for bond in ob.OBAtomBondIter(atom))
+
+
+def _other_bond_atom(bond: ob.OBBond, atom: ob.OBAtom) -> ob.OBAtom:
+    return (
+        cast(ob.OBAtom, bond.GetEndAtom())
+        if cast(ob.OBAtom, bond.GetBeginAtom()).GetIdx() == atom.GetIdx()
+        else cast(ob.OBAtom, bond.GetBeginAtom())
+    )
+
+
+def _bond_between_atoms(lhs: ob.OBAtom, rhs: ob.OBAtom) -> Optional[ob.OBBond]:
+    rhs_idx = rhs.GetIdx()
+    for bond_iter in ob.OBAtomBondIter(lhs):
+        bond = cast(ob.OBBond, bond_iter)
+        if _other_bond_atom(bond, lhs).GetIdx() == rhs_idx:
+            return bond
+    return None
+
+
+def _has_conjugated_bridge_between_charged_carbons(
+    begin_atom: ob.OBAtom,
+    end_atom: ob.OBAtom,
+) -> bool:
+    for begin_bond_iter in ob.OBAtomBondIter(begin_atom):
+        begin_bond = cast(ob.OBBond, begin_bond_iter)
+        if _bond_order(begin_bond) != 1:
+            continue
+        begin_neighbor = _other_bond_atom(begin_bond, begin_atom)
+        if begin_neighbor.GetAtomicNum() == 1:
+            continue
+        for middle_bond_iter in ob.OBAtomBondIter(begin_neighbor):
+            middle_bond = cast(ob.OBBond, middle_bond_iter)
+            if (
+                int(middle_bond.GetIdx()) == int(begin_bond.GetIdx())
+                or _bond_order(middle_bond) != 2
+            ):
+                continue
+            middle_neighbor = _other_bond_atom(middle_bond, begin_neighbor)
+            if middle_neighbor.GetIdx() == begin_atom.GetIdx():
+                continue
+            bridge_end_bond = _bond_between_atoms(middle_neighbor, end_atom)
+            if bridge_end_bond is None:
+                continue
+            if _bond_order(bridge_end_bond) == 1:
+                return True
+    return False
+
+
+def _inner_visible_conjugated_charged_carbon_pair_count(
+    obmol: ob.OBMol,
+    visible_inner_atom_indices: Set[int],
+) -> int:
+    charged_carbons: List[ob.OBAtom] = []
+    for atom_iter in ob.OBMolAtomIter(obmol):
+        atom = cast(ob.OBAtom, atom_iter)
+        if int(atom.GetIdx()) not in visible_inner_atom_indices:
+            continue
+        if atom.GetAtomicNum() != 6 or int(atom.GetFormalCharge()) == 0:
+            continue
+        charged_carbons.append(atom)
+
+    count = 0
+    for index, begin_atom in enumerate(charged_carbons):
+        for end_atom in charged_carbons[index + 1 :]:
+            if _charge_sign(int(begin_atom.GetFormalCharge())) != _charge_sign(
+                int(end_atom.GetFormalCharge())
+            ):
+                continue
+            if _bond_between_atoms(begin_atom, end_atom) is not None:
+                continue
+            if _has_conjugated_bridge_between_charged_carbons(begin_atom, end_atom):
+                count += 1
+    return count
+
+
+def _has_outer_sphere_proton(
+    obmol: ob.OBMol,
+    metal_states: Sequence[dataclasses.MetalAtomPosition],
+    *,
+    metal_scoring_config: MetalScoringConfig,
+) -> bool:
+    for atom_iter in ob.OBMolAtomIter(obmol):
+        atom = cast(ob.OBAtom, atom_iter)
+        if atom.IsMetal() or int(atom.GetAtomicNum()) != 1 or int(atom.GetFormalCharge()) <= 0:
+            continue
+        if any(
+            _is_inner_sphere_atom(
+                atom,
+                metal_state,
+                metal_scoring_config=metal_scoring_config,
+            )
+            for metal_state in metal_states
+        ):
+            continue
+        return True
+    return False
+
+
+def _negative_metal_discordance_count(
+    obmol: ob.OBMol,
+    metal_states: Sequence[dataclasses.MetalAtomPosition],
+    *,
+    metal_scoring_config: MetalScoringConfig,
+) -> Tuple[int, bool, bool]:
+    negative_metal_count = sum(1 for metal_state in metal_states if int(metal_state.valence) < 0)
+    if negative_metal_count == 0:
+        return 0, False, False
+
+    has_outer_sphere_proton = _has_outer_sphere_proton(
+        obmol,
+        metal_states,
+        metal_scoring_config=metal_scoring_config,
+    )
+    has_positive_metal_counterion = any(
+        int(metal_state.valence) > 0 for metal_state in metal_states
+    )
+    if has_outer_sphere_proton or has_positive_metal_counterion:
+        return 0, has_outer_sphere_proton, has_positive_metal_counterion
+    return negative_metal_count, False, False
+
+
+def _zero_valent_metals_with_organic_cation_count(
+    obmol: ob.OBMol,
+    metal_states: Sequence[dataclasses.MetalAtomPosition],
+) -> int:
+    if not metal_states or any(int(metal_state.valence) != 0 for metal_state in metal_states):
+        return 0
+    for atom_iter in ob.OBMolAtomIter(obmol):
+        atom = cast(ob.OBAtom, atom_iter)
+        if atom.IsMetal():
+            continue
+        if int(atom.GetFormalCharge()) > 0:
+            return 1
+    return 0
 
 
 def _atom_donor_support(atom: ob.OBAtom) -> Tuple[float, float]:
@@ -368,9 +578,7 @@ def _charge_localization_penalty_for_atom(
 
         if formal_charge < 0 and local_electron_count >= shell_target:
             return magnitude * (
-                0.10
-                + 0.60 * (1.0 - electronegativity_norm)
-                + local_environment_penalty
+                0.10 + 0.60 * (1.0 - electronegativity_norm) + local_environment_penalty
             )
 
         return None
@@ -407,7 +615,9 @@ def _radical_localization_penalty_for_atom(
     return (1.2 if is_conjugated or is_aromatic else 2.5) * magnitude
 
 
-def _compute_organic_electronic_state_metrics(omol: pybel.Molecule) -> _OrganicElectronicStateMetrics:
+def _compute_organic_electronic_state_metrics(
+    omol: pybel.Molecule,
+) -> _OrganicElectronicStateMetrics:
     try:
         topology_metrics = compute_organic_topology_metrics(omol)
         obmol = cast(ob.OBMol, omol.OBMol)
@@ -649,6 +859,163 @@ def _metal_state_assignment_penalty(metal_state: dataclasses.MetalAtomPosition) 
     return penalty
 
 
+def _annotate_candidate_discordance_features(
+    candidate: MetalCandidateState,
+    *,
+    config: MolGRConfig | None = None,
+) -> int:
+    no_metal_state = candidate.no_metal_state
+    if no_metal_state is None:
+        raise ValueError("MetalCandidateState requires no_metal_state before discordance scoring")
+    metal_scoring_config = resolve_config(config).metal_scoring
+    obmol = cast(ob.OBMol, no_metal_state.omol.OBMol)
+    blockers = _build_coordination_blockers(
+        obmol,
+        metal_scoring_config=metal_scoring_config,
+    )
+
+    inner_visible_diradical_count = 0
+    inner_visible_same_sign_charge_count = 0
+    visible_inner_atom_indices: set[int] = set()
+
+    for metal_state in candidate.metal_states:
+        metal_charge_sign = _charge_sign(int(metal_state.valence))
+        for atom_iter in ob.OBMolAtomIter(obmol):
+            atom = cast(ob.OBAtom, atom_iter)
+            if atom.IsMetal():
+                continue
+            is_inner_sphere = _is_inner_sphere_atom(
+                atom,
+                metal_state,
+                metal_scoring_config=metal_scoring_config,
+            )
+            if not is_inner_sphere:
+                continue
+            is_visible = _is_visible_to_metal_atom(atom, metal_state, blockers)
+            if not is_visible:
+                continue
+
+            atom_idx = int(atom.GetIdx())
+            visible_inner_atom_indices.add(atom_idx)
+            if int(atom.GetSpinMultiplicity()) >= 2:
+                inner_visible_diradical_count += 1
+
+            formal_charge = int(atom.GetFormalCharge())
+            atom_charge_sign = _charge_sign(formal_charge)
+            if (metal_charge_sign == 0 and formal_charge > 0) or (
+                metal_charge_sign != 0 and atom_charge_sign == metal_charge_sign
+            ):
+                inner_visible_same_sign_charge_count += 1
+
+    outer_or_invisible_adjacent_double_charge_count = 0
+    outer_or_invisible_adjacent_same_sign_double_charge_count = 0
+    outer_or_invisible_adjacent_opposite_sign_double_charge_count = 0
+    outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count = 0
+    inner_visible_adjacent_carbanion_pair_count = 0
+    inner_visible_conjugated_carbanion_pair_count = (
+        _inner_visible_conjugated_charged_carbon_pair_count(obmol, visible_inner_atom_indices)
+    )
+    (
+        negative_metal_count,
+        negative_metal_has_outer_sphere_cation_exception,
+        negative_metal_has_positive_metal_counterion_exception,
+    ) = _negative_metal_discordance_count(
+        obmol,
+        candidate.metal_states,
+        metal_scoring_config=metal_scoring_config,
+    )
+    zero_valent_metals_with_organic_cation_count = _zero_valent_metals_with_organic_cation_count(
+        obmol, candidate.metal_states
+    )
+    for bond_iter in ob.OBMolBondIter(obmol):
+        bond = cast(ob.OBBond, bond_iter)
+        begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
+        end_atom = cast(ob.OBAtom, bond.GetEndAtom())
+        begin_charge = int(begin_atom.GetFormalCharge())
+        end_charge = int(end_atom.GetFormalCharge())
+        begin_charge_sign = _charge_sign(begin_charge)
+        end_charge_sign = _charge_sign(end_charge)
+        if begin_charge_sign == 0 or end_charge_sign == 0:
+            continue
+        if begin_charge_sign != end_charge_sign:
+            continue
+
+        begin_idx = int(begin_atom.GetIdx())
+        end_idx = int(end_atom.GetIdx())
+        pair_both_inner_visible = (
+            begin_idx in visible_inner_atom_indices and end_idx in visible_inner_atom_indices
+        )
+        is_inner_visible_adjacent_carbanion_pair = (
+            pair_both_inner_visible
+            and begin_atom.GetAtomicNum() == 6
+            and end_atom.GetAtomicNum() == 6
+            and begin_charge_sign == end_charge_sign
+        )
+        if is_inner_visible_adjacent_carbanion_pair:
+            inner_visible_adjacent_carbanion_pair_count += 1
+        elif not pair_both_inner_visible:
+            outer_or_invisible_adjacent_double_charge_count += 1
+            metal_charge_sign = _nearest_nonzero_metal_charge_sign_to_bond(
+                begin_atom,
+                end_atom,
+                candidate.metal_states,
+            )
+            if metal_charge_sign == 0:
+                outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count += 1
+            elif begin_charge_sign == metal_charge_sign:
+                outer_or_invisible_adjacent_same_sign_double_charge_count += 1
+            else:
+                outer_or_invisible_adjacent_opposite_sign_double_charge_count += 1
+
+    discordance_count = (
+        inner_visible_diradical_count
+        + outer_or_invisible_adjacent_double_charge_count
+        + inner_visible_adjacent_carbanion_pair_count
+        + inner_visible_conjugated_carbanion_pair_count
+        + inner_visible_same_sign_charge_count
+        + negative_metal_count
+        + zero_valent_metals_with_organic_cation_count
+    )
+    candidate.metadata["metal_discordance_structural_count"] = discordance_count
+    candidate.metadata["metal_discordance_aromatic_ring_deficit_count"] = 0
+    candidate.metadata["metal_discordance_count"] = discordance_count
+    candidate.metadata["metal_discordance_inner_visible_diradical_count"] = (
+        inner_visible_diradical_count
+    )
+    candidate.metadata["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] = (
+        outer_or_invisible_adjacent_double_charge_count
+    )
+    candidate.metadata[
+        "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count"
+    ] = outer_or_invisible_adjacent_same_sign_double_charge_count
+    candidate.metadata[
+        "metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count"
+    ] = outer_or_invisible_adjacent_opposite_sign_double_charge_count
+    candidate.metadata[
+        "metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count"
+    ] = outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count
+    candidate.metadata["metal_discordance_inner_visible_adjacent_carbanion_pair_count"] = (
+        inner_visible_adjacent_carbanion_pair_count
+    )
+    candidate.metadata["metal_discordance_inner_visible_conjugated_carbanion_pair_count"] = (
+        inner_visible_conjugated_carbanion_pair_count
+    )
+    candidate.metadata["metal_discordance_inner_visible_same_sign_charge_count"] = (
+        inner_visible_same_sign_charge_count
+    )
+    candidate.metadata["metal_discordance_negative_metal_count"] = negative_metal_count
+    candidate.metadata["metal_discordance_negative_metal_outer_sphere_cation_exception"] = (
+        negative_metal_has_outer_sphere_cation_exception
+    )
+    candidate.metadata["metal_discordance_negative_metal_positive_metal_counterion_exception"] = (
+        negative_metal_has_positive_metal_counterion_exception
+    )
+    candidate.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] = (
+        zero_valent_metals_with_organic_cation_count
+    )
+    return discordance_count
+
+
 def _annotate_metal_environment_consistency(
     candidate: MetalCandidateState,
     *,
@@ -701,9 +1068,11 @@ def _annotate_metal_environment_consistency(
 
     candidate.metadata["metal_prior_penalty"] = total_prior_penalty
     candidate.metadata["metal_coordination_access_penalty"] = total_coordination_access_penalty
-    candidate.metadata["metal_same_element_valence_spread_penalty"] = _same_element_valence_spread_penalty(
-        candidate.metal_states,
-        metal_scoring_config=metal_scoring_config,
+    candidate.metadata["metal_same_element_valence_spread_penalty"] = (
+        _same_element_valence_spread_penalty(
+            candidate.metal_states,
+            metal_scoring_config=metal_scoring_config,
+        )
     )
     candidate.metadata["metal_electrostatic_penalty"] = total_electrostatic_penalty
     candidate.metadata["metal_donor_penalty"] = total_donor_penalty
@@ -741,13 +1110,24 @@ def _annotate_organic_electronic_state_consistency(candidate: MetalCandidateStat
     )
 
 
-def _score_candidate_with_no_metal_state(
+def _prepare_candidate_with_no_metal_state(
     candidate: MetalCandidateState,
     no_metal_state: ReconstructionState,
     *,
     config: MolGRConfig | None = None,
 ) -> MetalCandidateState:
-    """Attach the shared no-metal reconstruction and score the metal candidate."""
+    """Attach the shared no-metal reconstruction and count discordance features."""
+
+    if (
+        _ORIGINAL_SCORE_CANDIDATE_WITH_NO_METAL_STATE is not None
+        and _score_candidate_with_no_metal_state
+        is not _ORIGINAL_SCORE_CANDIDATE_WITH_NO_METAL_STATE
+    ):
+        return _score_candidate_with_no_metal_state(
+            candidate,
+            no_metal_state,
+            config=config,
+        )
 
     candidate_machine = MetalCandidateStateMachine.from_candidate_state(candidate)
     candidate_machine.set_no_metal_state("reconstruct_no_metal", no_metal_state)
@@ -757,61 +1137,84 @@ def _score_candidate_with_no_metal_state(
         scored_candidate.combined_score()
     else:
         scored_candidate.combined_score(config=config)
-    _annotate_organic_electronic_state_consistency(scored_candidate)
-    _annotate_metal_environment_consistency(scored_candidate, config=config)
+    _annotate_candidate_discordance_features(scored_candidate, config=config)
     return scored_candidate
 
 
-def _build_organic_electronic_state_selection_context(
-    candidates: Sequence[MetalCandidateState],
-) -> _OrganicElectronicStateSelectionContext:
-    return _OrganicElectronicStateSelectionContext(
-        max_aromatic_atom_count=max(int(candidate.metadata.get("organic_aromatic_atom_count", 0)) for candidate in candidates),
-        max_aromatic_ring_count=max(int(candidate.metadata.get("organic_aromatic_ring_count", 0)) for candidate in candidates),
-        max_conjugated_atom_count=max(int(candidate.metadata.get("organic_conjugated_atom_count", 0)) for candidate in candidates),
-        max_conjugated_component_size=max(
-            int(candidate.metadata.get("organic_max_conjugated_component_size", 0))
-            for candidate in candidates
-        ),
-    )
-
-
-def _organic_electronic_state_key(
+def _annotate_current_metal_candidate_metrics(
     candidate: MetalCandidateState,
-    selection_context: _OrganicElectronicStateSelectionContext,
-) -> Tuple[int, int, float, int, int, float]:
-    aromatic_atom_loss = selection_context.max_aromatic_atom_count - int(
-        candidate.metadata.get("organic_aromatic_atom_count", 0)
-    )
-    aromatic_ring_loss = selection_context.max_aromatic_ring_count - int(
-        candidate.metadata.get("organic_aromatic_ring_count", 0)
-    )
-    conjugated_atom_loss = selection_context.max_conjugated_atom_count - int(
-        candidate.metadata.get("organic_conjugated_atom_count", 0)
-    )
-    max_conjugated_component_loss = selection_context.max_conjugated_component_size - int(
-        candidate.metadata.get("organic_max_conjugated_component_size", 0)
-    )
-    radical_localization_penalty = float(
-        candidate.metadata.get("organic_radical_localization_penalty", float("inf"))
-    )
-    charge_localization_penalty = float(
-        candidate.metadata.get("organic_charge_localization_penalty", float("inf"))
-    )
+    *,
+    config: MolGRConfig | None = None,
+) -> None:
+    if candidate.score is None:
+        if config is None:
+            candidate.combined_score()
+        else:
+            candidate.combined_score(config=config)
+    if "organic_aromatic_atom_count" not in candidate.metadata:
+        _annotate_organic_electronic_state_consistency(candidate)
+    if "metal_prior_penalty" not in candidate.metadata:
+        _annotate_metal_environment_consistency(candidate, config=config)
 
-    candidate.metadata["organic_aromatic_atom_loss"] = aromatic_atom_loss
-    candidate.metadata["organic_aromatic_ring_loss"] = aromatic_ring_loss
-    candidate.metadata["organic_conjugated_atom_loss"] = conjugated_atom_loss
-    candidate.metadata["organic_max_conjugated_component_loss"] = max_conjugated_component_loss
-    candidate.metadata["organic_electronic_state_key"] = (
-        aromatic_ring_loss,
-        max_conjugated_component_loss,
-        charge_localization_penalty,
-        aromatic_atom_loss,
-        conjugated_atom_loss,
-        radical_localization_penalty,
+
+def _ensure_candidate_organic_metrics(candidate: MetalCandidateState) -> None:
+    if "organic_aromatic_ring_count" not in candidate.metadata:
+        _annotate_organic_electronic_state_consistency(candidate)
+
+
+def _annotate_candidate_set_discordance_features(
+    candidates: Sequence[MetalCandidateState],
+) -> None:
+    if not candidates:
+        return
+
+    max_aromatic_ring_count = 0
+    for candidate in candidates:
+        _ensure_candidate_organic_metrics(candidate)
+        max_aromatic_ring_count = max(
+            max_aromatic_ring_count,
+            int(candidate.metadata.get("organic_aromatic_ring_count", 0)),
+        )
+
+    for candidate in candidates:
+        structural_discordance_count = int(
+            candidate.metadata.get(
+                "metal_discordance_structural_count",
+                candidate.metadata.get("metal_discordance_count", 0),
+            )
+        )
+        aromatic_ring_deficit_count = max(
+            0,
+            max_aromatic_ring_count - int(candidate.metadata.get("organic_aromatic_ring_count", 0)),
+        )
+        candidate.metadata["metal_discordance_structural_count"] = structural_discordance_count
+        candidate.metadata["metal_discordance_max_aromatic_ring_count"] = max_aromatic_ring_count
+        candidate.metadata["metal_discordance_aromatic_ring_deficit_count"] = (
+            aromatic_ring_deficit_count
+        )
+        candidate.metadata["metal_discordance_count"] = (
+            structural_discordance_count + aromatic_ring_deficit_count
+        )
+
+
+def _score_candidate_with_no_metal_state(
+    candidate: MetalCandidateState,
+    no_metal_state: ReconstructionState,
+    *,
+    config: MolGRConfig | None = None,
+) -> MetalCandidateState:
+    """Attach the shared no-metal reconstruction and score the metal candidate."""
+
+    scored_candidate = _prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+        config=config,
     )
-    return cast(Tuple[int, int, float, int, int, float], candidate.metadata["organic_electronic_state_key"])
+    _annotate_current_metal_candidate_metrics(scored_candidate, config=config)
+    return scored_candidate
+
+
+_ORIGINAL_SCORE_CANDIDATE_WITH_NO_METAL_STATE = _score_candidate_with_no_metal_state
 
 
 def _organic_score_bucket_index(
@@ -828,96 +1231,6 @@ def _organic_score_bucket_index(
     return int(relative_excess // metal_scoring_config.organic_score_bucket_relative_ratio)
 
 
-def _passes_organic_force_field_guard(
-    score_value: float,
-    best_force_field_score: float,
-    *,
-    config: MolGRConfig | None = None,
-) -> bool:
-    metal_scoring_config = resolve_config(config).metal_scoring
-    hard_max_ratio = float(metal_scoring_config.organic_force_field_hard_max_ratio)
-    if hard_max_ratio <= 0.0 or best_force_field_score <= 0.0:
-        return True
-    return score_value <= best_force_field_score * hard_max_ratio
-
-
-def _raw_candidate_selection_key(
-    candidate: MetalCandidateState,
-    organic_selection_context: _OrganicElectronicStateSelectionContext,
-    best_force_field_score: float,
-    *,
-    config: MolGRConfig | None = None,
-) -> Tuple[int, int, float, int, int, float, float, float, float, float, float, int, float, int]:
-    score_value = cast(float, candidate.score)
-    organic_bucket = _organic_score_bucket_index(score_value, best_force_field_score, config=config)
-    candidate.metadata["organic_score_bucket"] = organic_bucket
-    organic_state_key = _organic_electronic_state_key(candidate, organic_selection_context)
-    return (
-        *organic_state_key,
-        float(candidate.metadata.get("metal_coordination_access_penalty", 0.0)),
-        float(candidate.metadata.get("metal_same_element_valence_spread_penalty", 0.0)),
-        float(candidate.metadata.get("metal_electrostatic_penalty", 0.0)),
-        float(candidate.metadata.get("metal_donor_penalty", 0.0)),
-        float(candidate.metadata.get("metal_prior_penalty", candidate.metadata.get("metal_assignment_rank", 0.0))),
-        organic_bucket,
-        score_value,
-        int(candidate.metadata.get("combination_index", 0)),
-    )
-
-
-def _normalize_weighted_selection_values(
-    raw_values: Sequence[float],
-    *,
-    default_value: float,
-) -> Tuple[float, ...]:
-    if not raw_values:
-        return (default_value,) * len(_WEIGHTED_SELECTION_FIELD_NAMES)
-    normalized = [max(float(value), 0.0) for value in raw_values]
-    if len(normalized) < len(_WEIGHTED_SELECTION_FIELD_NAMES):
-        normalized.extend([normalized[-1]] * (len(_WEIGHTED_SELECTION_FIELD_NAMES) - len(normalized)))
-    return tuple(normalized[: len(_WEIGHTED_SELECTION_FIELD_NAMES)])
-
-
-def _build_weighted_selection_context(
-    candidates: Sequence[MetalCandidateState],
-    organic_selection_context: _OrganicElectronicStateSelectionContext,
-    best_force_field_score: float,
-    *,
-    config: MolGRConfig | None = None,
-) -> _WeightedSelectionContext:
-    for candidate in candidates:
-        raw_selection_key = _raw_candidate_selection_key(
-            candidate,
-            organic_selection_context,
-            best_force_field_score,
-            config=config,
-        )
-        candidate.metadata["raw_selection_key"] = raw_selection_key
-        candidate.metadata["weighted_selection_metric_values"] = tuple(
-            float(raw_selection_key[idx]) for idx in range(len(_WEIGHTED_SELECTION_FIELD_NAMES))
-        )
-    best_values = tuple(
-        min(
-            float(cast(Tuple[float, ...], candidate.metadata["weighted_selection_metric_values"])[idx])
-            for candidate in candidates
-        )
-        for idx in range(len(_WEIGHTED_SELECTION_FIELD_NAMES))
-    )
-    metal_scoring_config = resolve_config(config).metal_scoring
-    return _WeightedSelectionContext(
-        field_names=_WEIGHTED_SELECTION_FIELD_NAMES,
-        best_values=best_values,
-        weights=_normalize_weighted_selection_values(
-            metal_scoring_config.selection_weight_values,
-            default_value=1.0,
-        ),
-        scales=_normalize_weighted_selection_values(
-            metal_scoring_config.selection_scale_values,
-            default_value=1.0,
-        ),
-    )
-
-
 def select_best_candidate(
     scored_candidates: Sequence[MetalCandidateState],
     *,
@@ -926,55 +1239,47 @@ def select_best_candidate(
     if not scored_candidates:
         return None
 
-    best_force_field_score = min(cast(float, candidate.score) for candidate in scored_candidates)
-    eligible_candidates: list[MetalCandidateState] = []
+    _annotate_candidate_set_discordance_features(scored_candidates)
+    min_discordance_count = min(
+        int(candidate.metadata.get("metal_discordance_count", 0)) for candidate in scored_candidates
+    )
+    discordance_filtered_candidates: list[MetalCandidateState] = []
     for scored_candidate in scored_candidates:
-        score_value = cast(float, scored_candidate.score)
-        passes_force_field_guard = _passes_organic_force_field_guard(
+        discordance_count = int(scored_candidate.metadata.get("metal_discordance_count", 0))
+        passes_discordance_filter = discordance_count == min_discordance_count
+        scored_candidate.metadata["passes_metal_discordance_filter"] = passes_discordance_filter
+        if passes_discordance_filter:
+            discordance_filtered_candidates.append(scored_candidate)
+
+    for scored_candidate in discordance_filtered_candidates:
+        _annotate_current_metal_candidate_metrics(scored_candidate, config=config)
+
+    best_force_field_score = min(
+        (
+            cast(float, candidate.score)
+            if candidate.score is not None
+            else candidate.combined_score(config=config)
+        )
+        for candidate in discordance_filtered_candidates
+    )
+    best_candidate: Optional[MetalCandidateState] = None
+    best_selection_key: Optional[Tuple[float, float, int]] = None
+    for scored_candidate in discordance_filtered_candidates:
+        score_value = (
+            cast(float, scored_candidate.score)
+            if scored_candidate.score is not None
+            else scored_candidate.combined_score(config=config)
+        )
+        scored_candidate.metadata["organic_score_bucket"] = _organic_score_bucket_index(
             score_value,
             best_force_field_score,
             config=config,
         )
-        scored_candidate.metadata["passes_organic_force_field_guard"] = passes_force_field_guard
-        if passes_force_field_guard:
-            eligible_candidates.append(scored_candidate)
-    if not eligible_candidates:
-        return None
-
-    organic_selection_context = _build_organic_electronic_state_selection_context(eligible_candidates)
-    weighted_selection_context = _build_weighted_selection_context(
-        eligible_candidates,
-        organic_selection_context,
-        best_force_field_score,
-        config=config,
-    )
-    best_candidate: Optional[MetalCandidateState] = None
-    best_selection_key: Optional[Tuple[float, ...]] = None
-    for scored_candidate in eligible_candidates:
-        metric_values = cast(
-            Tuple[float, ...], scored_candidate.metadata["weighted_selection_metric_values"]
+        selection_key = (
+            float(min_discordance_count),
+            float(score_value),
+            int(scored_candidate.metadata.get("combination_index", 0)),
         )
-        regrets = tuple(
-            max(0.0, (value - best_value) / max(scale, 1e-12))
-            for value, best_value, scale in zip(
-                metric_values,
-                weighted_selection_context.best_values,
-                weighted_selection_context.scales,
-            )
-        )
-        weighted_components = tuple(
-            regret * weight for regret, weight in zip(regrets, weighted_selection_context.weights)
-        )
-        weighted_score = sum(weighted_components)
-        scored_candidate.metadata["weighted_selection_fields"] = weighted_selection_context.field_names
-        scored_candidate.metadata["weighted_selection_best_values"] = weighted_selection_context.best_values
-        scored_candidate.metadata["weighted_selection_weights"] = weighted_selection_context.weights
-        scored_candidate.metadata["weighted_selection_scales"] = weighted_selection_context.scales
-        scored_candidate.metadata["weighted_selection_regrets"] = regrets
-        scored_candidate.metadata["weighted_selection_components"] = weighted_components
-        scored_candidate.metadata["weighted_selection_score"] = weighted_score
-        raw_selection_key = cast(Tuple[float, ...], scored_candidate.metadata["raw_selection_key"])
-        selection_key = (weighted_score, *raw_selection_key)
         scored_candidate.metadata["selection_key"] = selection_key
         if best_selection_key is not None and selection_key >= best_selection_key:
             continue
@@ -985,11 +1290,11 @@ def select_best_candidate(
 
 __all__ = [
     "_build_metal_site_environment_profile",
-    "_build_organic_electronic_state_selection_context",
     "_charge_localization_penalty_for_atom",
     "_organic_score_bucket_index",
-    "_passes_organic_force_field_guard",
+    "_annotate_candidate_set_discordance_features",
     "_radical_localization_penalty_for_atom",
+    "_prepare_candidate_with_no_metal_state",
     "_score_candidate_with_no_metal_state",
     "select_best_candidate",
 ]
