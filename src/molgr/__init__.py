@@ -15,7 +15,6 @@ from . import config
 from ._core import pipeline
 from .config import (
     DEFAULT_MOLGR_CONFIG,
-    CacheConfig,
     CppBackendConfig,
     ForceFieldConfig,
     MetalRadicalInferenceConfig,
@@ -53,7 +52,6 @@ def set_log_level(level: core.LogLevel):
 
 __all__ = [
     "DEFAULT_MOLGR_CONFIG",
-    "CacheConfig",
     "CppBackendConfig",
     "ForceFieldConfig",
     "MetalRadicalInferenceConfig",

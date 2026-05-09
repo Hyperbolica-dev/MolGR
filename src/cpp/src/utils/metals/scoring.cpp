@@ -39,28 +39,6 @@ namespace
         double radius = 0.0;
     };
 
-    struct MetalSiteEnvironmentProfile
-    {
-        double electrostatic_support = 0.0;
-        double visible_anionic_donor_support = 0.0;
-        double visible_neutral_donor_support = 0.0;
-        double visible_effective_donor_support = 0.0;
-        double obstructed_negative_effective_donor_support = 0.0;
-    };
-
-    struct MetalSiteHeuristicScore
-    {
-        double electrostatic_support = 0.0;
-        double anionic_donor_support = 0.0;
-        double neutral_donor_support = 0.0;
-        double coordination_access_penalty = 0.0;
-        double visible_coordination_reward = 0.0;
-        double negative_metal_visible_coordination_penalty = 0.0;
-        double obstructed_opposite_charge_penalty = 0.0;
-        double electrostatic_penalty = 0.0;
-        double donor_penalty = 0.0;
-    };
-
     struct OrganicElectronicStateMetrics
     {
         int aromatic_atom_count = 0;
@@ -113,84 +91,6 @@ namespace
     int BondOrder(const OpenBabel::OBBond &bond)
     {
         return bond.IsAromatic() ? 2 : static_cast<int>(bond.GetBondOrder());
-    }
-
-    bool HasMultipleBondToAtomicNum(
-        OpenBabel::OBAtom &atom,
-        const std::set<int> &atomic_nums)
-    {
-        FOR_BONDS_OF_ATOM(bond_iter, &atom)
-        {
-            OpenBabel::OBBond &bond = *bond_iter;
-            if (BondOrder(bond) < 2)
-            {
-                continue;
-            }
-            OpenBabel::OBAtom *neighbor = bond.GetNbrAtom(&atom);
-            if (neighbor != nullptr &&
-                atomic_nums.find(static_cast<int>(neighbor->GetAtomicNum())) != atomic_nums.end())
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool IsCarbonylLikeOxygen(OpenBabel::OBAtom &atom)
-    {
-        const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        if (atomic_num != 8 && atomic_num != 16 && atomic_num != 34 && atomic_num != 52)
-        {
-            return false;
-        }
-        return HasMultipleBondToAtomicNum(atom, {6});
-    }
-
-    bool IsAmideLikeNitrogen(OpenBabel::OBAtom &atom)
-    {
-        const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        if (atomic_num != 7 && atomic_num != 15 && atomic_num != 33 && atomic_num != 51)
-        {
-            return false;
-        }
-
-        FOR_BONDS_OF_ATOM(bond_iter, &atom)
-        {
-            OpenBabel::OBBond &bond = *bond_iter;
-            if (BondOrder(bond) != 1)
-            {
-                continue;
-            }
-            OpenBabel::OBAtom *neighbor = bond.GetNbrAtom(&atom);
-            if (neighbor == nullptr || static_cast<int>(neighbor->GetAtomicNum()) != 6)
-            {
-                continue;
-            }
-            if (HasMultipleBondToAtomicNum(*neighbor, {8, 16, 34, 52}))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool IsNitrileLikeNitrogen(OpenBabel::OBAtom &atom)
-    {
-        const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        if (atomic_num != 7 && atomic_num != 15 && atomic_num != 33 && atomic_num != 51)
-        {
-            return false;
-        }
-
-        FOR_BONDS_OF_ATOM(bond_iter, &atom)
-        {
-            OpenBabel::OBBond &bond = *bond_iter;
-            if (BondOrder(bond) >= 3)
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     OpenBabel::OBAtom *OtherBondAtom(OpenBabel::OBBond &bond, OpenBabel::OBAtom &atom)
@@ -292,64 +192,6 @@ namespace
             }
         }
         return count;
-    }
-
-    std::pair<double, double> AtomDonorSupport(OpenBabel::OBAtom &atom)
-    {
-        const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        const int formal_charge = static_cast<int>(atom.GetFormalCharge());
-        if (atomic_num == 1 || atom.IsMetal() || formal_charge > 0)
-        {
-            return {0.0, 0.0};
-        }
-
-        if (formal_charge < 0)
-        {
-            const double magnitude = static_cast<double>(std::abs(formal_charge));
-            if (atomic_num == 9 || atomic_num == 17 || atomic_num == 35 || atomic_num == 53)
-            {
-                return {2.2 * magnitude, 0.0};
-            }
-            if (atomic_num == 8 || atomic_num == 16 || atomic_num == 34 || atomic_num == 52)
-            {
-                return {2.0 * magnitude, 0.0};
-            }
-            if (atomic_num == 7 || atomic_num == 15 || atomic_num == 33 || atomic_num == 51)
-            {
-                return {1.6 * magnitude, 0.0};
-            }
-            if (atomic_num == 6)
-            {
-                return {1.0 * magnitude, 0.0};
-            }
-            return {1.2 * magnitude, 0.0};
-        }
-
-        if (atomic_num == 9 || atomic_num == 17 || atomic_num == 35 || atomic_num == 53)
-        {
-            return {0.0, 0.0};
-        }
-        if (atomic_num == 8 || atomic_num == 16 || atomic_num == 34 || atomic_num == 52)
-        {
-            return {0.0, IsCarbonylLikeOxygen(atom) ? 0.7 : 1.0};
-        }
-        if (atomic_num == 7 || atomic_num == 15 || atomic_num == 33 || atomic_num == 51)
-        {
-            if (IsAmideLikeNitrogen(atom))
-            {
-                return {0.0, 0.2};
-            }
-            if (IsNitrileLikeNitrogen(atom))
-            {
-                return {0.0, 0.4};
-            }
-            if (atom.IsAromatic())
-            {
-                return {0.0, 0.7};
-            }
-            return {0.0, 0.9};
-        }
-        return {0.0, 0.0};
     }
 
     double ChargeLocalizationPenaltyForAtom(
@@ -621,17 +463,6 @@ namespace
         return best_charge_sign;
     }
 
-    double DistanceWeight(double distance, double cutoff, double min_distance_angstrom)
-    {
-        if (distance <= 0.0 || distance >= cutoff)
-        {
-            return 0.0;
-        }
-        const double scaled = distance / cutoff;
-        const double attenuation = std::max(0.0, 1.0 - scaled * scaled);
-        return (attenuation * attenuation) / std::max(distance, min_distance_angstrom);
-    }
-
     double DistancePointToSegment(
         const Point3D &point,
         const Point3D &segment_start,
@@ -749,19 +580,6 @@ namespace
             blockers);
     }
 
-    bool IsVisibleInnerSphereAtom(
-        OpenBabel::OBAtom &atom,
-        const molgr::MetalAtomPosition &metal_state,
-        const std::vector<CoordinationBlocker> &blockers,
-        const molgr::config::MetalScoringConfig &config)
-    {
-        if (!IsInnerSphereAtom(atom, metal_state, config))
-        {
-            return false;
-        }
-        return IsVisibleToMetalAtom(atom, metal_state, blockers);
-    }
-
     bool HasOuterSphereProton(
         OpenBabel::OBMol &mol,
         const std::vector<molgr::MetalAtomPosition> &metal_states,
@@ -850,184 +668,6 @@ namespace
             }
         }
         return 0;
-    }
-
-    MetalSiteEnvironmentProfile BuildMetalSiteEnvironmentProfile(
-        const OpenBabel::OBMol &mol,
-        const molgr::MetalAtomPosition &metal_state,
-        const molgr::config::MetalScoringConfig &config)
-    {
-        const auto blockers = BuildCoordinationBlockers(mol, config);
-        const Point3D segment_start = MetalCoordinates(metal_state);
-        MetalSiteEnvironmentProfile profile;
-
-        FOR_ATOMS_OF_MOL(atom_iter, const_cast<OpenBabel::OBMol &>(mol))
-        {
-            OpenBabel::OBAtom &atom = *atom_iter;
-            if (atom.IsMetal())
-            {
-                continue;
-            }
-
-            const int atom_idx = static_cast<int>(atom.GetIdx());
-            const Point3D atom_coordinates = AtomCoordinates(atom);
-            const double distance = DistanceToMetal(atom, metal_state);
-            const double electrostatic_weight = DistanceWeight(
-                distance,
-                config.metal_local_potential_cutoff_angstrom,
-                config.min_distance_angstrom);
-            const double formal_charge = static_cast<double>(static_cast<int>(atom.GetFormalCharge()));
-            if (electrostatic_weight > 0.0)
-            {
-                profile.electrostatic_support += -formal_charge * electrostatic_weight;
-            }
-
-            const double coordination_weight = DistanceWeight(
-                distance,
-                config.metal_donor_cutoff_angstrom,
-                config.min_distance_angstrom);
-            if (coordination_weight <= 0.0)
-            {
-                continue;
-            }
-
-            auto [atom_anionic_support, atom_neutral_support] = AtomDonorSupport(atom);
-            const double atom_effective_donor_support =
-                atom_anionic_support + config.local_neutral_donor_weight * atom_neutral_support;
-            if (atom_effective_donor_support <= 0.0)
-            {
-                continue;
-            }
-
-            const double weighted_effective_support = atom_effective_donor_support * coordination_weight;
-            if (HasUnobstructedCoordinationPathFromBlockers(
-                    atom_idx,
-                    atom_coordinates,
-                    segment_start,
-                    blockers))
-            {
-                profile.visible_anionic_donor_support += atom_anionic_support * coordination_weight;
-                profile.visible_neutral_donor_support += atom_neutral_support * coordination_weight;
-                profile.visible_effective_donor_support += weighted_effective_support;
-                continue;
-            }
-
-            if (formal_charge < 0.0)
-            {
-                profile.obstructed_negative_effective_donor_support += weighted_effective_support;
-            }
-        }
-
-        return profile;
-    }
-
-    MetalSiteHeuristicScore ScoreMetalSiteEnvironmentFromProfile(
-        const MetalSiteEnvironmentProfile &profile,
-        const molgr::MetalAtomPosition &metal_state,
-        const molgr::config::MetalScoringConfig &config)
-    {
-        MetalSiteHeuristicScore score;
-        score.electrostatic_support = profile.electrostatic_support;
-        score.anionic_donor_support = profile.visible_anionic_donor_support;
-        score.neutral_donor_support = profile.visible_neutral_donor_support;
-
-        const double metal_valence = static_cast<double>(metal_state.valence);
-        if (metal_valence >= 0.0 && profile.visible_effective_donor_support > 0.0)
-        {
-            score.visible_coordination_reward =
-                config.visible_coordination_reward_weight *
-                profile.visible_effective_donor_support;
-            score.coordination_access_penalty -= score.visible_coordination_reward;
-        }
-
-        if (metal_valence < 0.0 && profile.visible_effective_donor_support > 0.0)
-        {
-            score.negative_metal_visible_coordination_penalty =
-                config.negative_metal_visible_coordination_penalty_weight *
-                std::max(std::abs(metal_valence), 1.0) * profile.visible_effective_donor_support;
-            score.coordination_access_penalty += score.negative_metal_visible_coordination_penalty;
-        }
-
-        if (metal_valence > 0.0 && profile.obstructed_negative_effective_donor_support > 0.0)
-        {
-            score.obstructed_opposite_charge_penalty =
-                config.obstructed_opposite_charge_penalty_weight *
-                std::max(std::abs(metal_valence), 1.0) *
-                profile.obstructed_negative_effective_donor_support;
-            score.coordination_access_penalty += score.obstructed_opposite_charge_penalty;
-        }
-
-        const double target_valence = static_cast<double>(std::max(metal_state.valence, 0));
-        const double electrostatic_target =
-            config.local_potential_target_per_valence * target_valence;
-        const double electrostatic_under =
-            std::max(electrostatic_target - profile.electrostatic_support, 0.0);
-        const double electrostatic_over =
-            std::max(profile.electrostatic_support - electrostatic_target, 0.0);
-        score.electrostatic_penalty =
-            electrostatic_under + config.local_potential_oversupport_weight * electrostatic_over;
-
-        const double effective_donor_support =
-            score.anionic_donor_support + config.local_neutral_donor_weight * score.neutral_donor_support;
-        const double donor_target = config.local_donor_target_per_valence * target_valence;
-        const double donor_under = std::max(donor_target - effective_donor_support, 0.0);
-        const double donor_over = std::max(effective_donor_support - donor_target, 0.0);
-        score.donor_penalty = donor_under + config.local_donor_oversupport_weight * donor_over;
-        return score;
-    }
-
-    double SameElementValenceSpreadPenalty(
-        const std::vector<molgr::MetalAtomPosition> &metal_states,
-        const molgr::config::MetalScoringConfig &config)
-    {
-        std::map<std::string, std::vector<int>> grouped_valences;
-        for (const auto &metal_state : metal_states)
-        {
-            grouped_valences[metal_state.symbol].push_back(metal_state.valence);
-        }
-
-        double penalty = 0.0;
-        for (const auto &entry : grouped_valences)
-        {
-            const std::vector<int> &valences = entry.second;
-            if (valences.size() < 2)
-            {
-                continue;
-            }
-            const auto [min_it, max_it] = std::minmax_element(valences.begin(), valences.end());
-            penalty += config.same_element_valence_spread_weight *
-                       static_cast<double>(*max_it - *min_it);
-        }
-        return penalty;
-    }
-
-    double MetalStateAssignmentPenaltyValue(const molgr::MetalAtomPosition &metal_state)
-    {
-        double penalty = 0.0;
-        if (metal_state.valence <= 0)
-        {
-            penalty += 10.0 * std::max(std::abs(metal_state.valence), 1);
-        }
-
-        const auto prior_it = molgr::kMetalValencePrior.find(metal_state.symbol);
-        const auto minor_it = molgr::kMetalValenceMinor.find(metal_state.symbol);
-        const auto contains = [](const std::vector<int> &values, int target)
-        {
-            return std::find(values.begin(), values.end(), target) != values.end();
-        };
-
-        const bool in_prior =
-            prior_it != molgr::kMetalValencePrior.end() &&
-            contains(prior_it->second, metal_state.valence);
-        const bool in_minor =
-            minor_it != molgr::kMetalValenceMinor.end() &&
-            contains(minor_it->second, metal_state.valence);
-
-        if (!in_prior)
-        {
-            penalty += in_minor ? 10.0 : 20.0;
-        }
-        return penalty;
     }
 
     int AnnotateCandidateDiscordanceFeatures(
@@ -1190,45 +830,6 @@ namespace
         return discordance_count;
     }
 
-    void AnnotateMetalEnvironmentConsistency(
-        molgr::state::MetalCandidateState *candidate,
-        const molgr::config::MolGRConfig &config)
-    {
-        if (candidate == nullptr || !candidate->no_metal_state)
-        {
-            throw std::runtime_error(
-                "MetalCandidateState requires no_metal_state before metal scoring");
-        }
-
-        const auto &metal_scoring_config = config.metal_scoring;
-        double total_prior_penalty = 0.0;
-        double total_coordination_access_penalty = 0.0;
-        double total_electrostatic_penalty = 0.0;
-        double total_donor_penalty = 0.0;
-        for (const auto &metal_state : candidate->metal_states)
-        {
-            const double prior_penalty = MetalStateAssignmentPenaltyValue(metal_state);
-            const auto site_score = ScoreMetalSiteEnvironmentFromProfile(
-                BuildMetalSiteEnvironmentProfile(
-                    candidate->no_metal_state->Mol(),
-                    metal_state,
-                    metal_scoring_config),
-                metal_state,
-                metal_scoring_config);
-            total_prior_penalty += prior_penalty;
-            total_coordination_access_penalty += site_score.coordination_access_penalty;
-            total_electrostatic_penalty += site_score.electrostatic_penalty;
-            total_donor_penalty += site_score.donor_penalty;
-        }
-
-        candidate->metadata["metal_prior_penalty"] = total_prior_penalty;
-        candidate->metadata["metal_coordination_access_penalty"] = total_coordination_access_penalty;
-        candidate->metadata["metal_same_element_valence_spread_penalty"] =
-            SameElementValenceSpreadPenalty(candidate->metal_states, metal_scoring_config);
-        candidate->metadata["metal_electrostatic_penalty"] = total_electrostatic_penalty;
-        candidate->metadata["metal_donor_penalty"] = total_donor_penalty;
-    }
-
     void AnnotateOrganicElectronicStateConsistency(molgr::state::MetalCandidateState *candidate)
     {
         if (candidate == nullptr || !candidate->no_metal_state)
@@ -1250,7 +851,7 @@ namespace
             metrics.charge_localization_penalty;
     }
 
-    void AnnotateCurrentMetalCandidateMetrics(
+    void AnnotateSelectedCandidateMetrics(
         molgr::state::MetalCandidateState *candidate,
         const molgr::config::MolGRConfig &config)
     {
@@ -1267,10 +868,6 @@ namespace
         if (candidate->metadata.find("organic_aromatic_atom_count") == candidate->metadata.end())
         {
             AnnotateOrganicElectronicStateConsistency(candidate);
-        }
-        if (candidate->metadata.find("metal_prior_penalty") == candidate->metadata.end())
-        {
-            AnnotateMetalEnvironmentConsistency(candidate, config);
         }
     }
 
@@ -1340,22 +937,6 @@ namespace molgr
                     return static_cast<double>(*value);
                 }
                 return fallback;
-            }
-
-            int OrganicScoreBucketIndex(
-                double score_value,
-                double best_score,
-                const molgr::config::MolGRConfig &config)
-            {
-                if (score_value <= best_score)
-                {
-                    return 0;
-                }
-                const double ratio =
-                    std::max(config.metal_scoring.organic_score_bucket_relative_ratio, 1e-12);
-                const double baseline_scale = std::max(std::abs(best_score), 1.0);
-                const double relative_excess = (score_value - best_score) / baseline_scale;
-                return static_cast<int>(std::floor(relative_excess / ratio));
             }
 
             std::optional<molgr::state::MetalCandidateState> SelectBestCandidate(
@@ -1428,15 +1009,7 @@ namespace molgr
 
                 for (auto &candidate : discordance_filtered_candidates)
                 {
-                    AnnotateCurrentMetalCandidateMetrics(&candidate, config);
-                }
-
-                double best_force_field_score = std::numeric_limits<double>::infinity();
-                for (const auto &candidate : discordance_filtered_candidates)
-                {
-                    const double score_value =
-                        candidate.score.has_value() ? *candidate.score : candidate.CombinedScore(config);
-                    best_force_field_score = std::min(best_force_field_score, score_value);
+                    AnnotateSelectedCandidateMetrics(&candidate, config);
                 }
 
                 std::optional<std::tuple<double, int>> best_selection_key;
@@ -1445,9 +1018,6 @@ namespace molgr
                 {
                     const double score_value =
                         candidate.score.has_value() ? *candidate.score : candidate.CombinedScore(config);
-                    const int organic_bucket =
-                        OrganicScoreBucketIndex(score_value, best_force_field_score, config);
-                    candidate.metadata["organic_score_bucket"] = organic_bucket;
                     const auto selection_key =
                         std::make_tuple(score_value, CandidateCombinationIndex(candidate));
                     candidate.metadata["selection_key"] =
@@ -1480,18 +1050,6 @@ namespace molgr
                 return prepared_candidate;
             }
 
-            molgr::state::MetalCandidateState ScoreCandidateWithNoMetalState(
-                const molgr::state::MetalCandidateState &candidate,
-                const std::shared_ptr<molgr::state::ReconstructionState> &no_metal_state,
-                const molgr::config::MolGRConfig &config)
-            {
-                auto scored_candidate = PrepareCandidateWithNoMetalState(
-                    candidate,
-                    no_metal_state,
-                    config);
-                AnnotateCurrentMetalCandidateMetrics(&scored_candidate, config);
-                return scored_candidate;
-            }
         }
     }
 }

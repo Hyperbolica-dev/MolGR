@@ -202,7 +202,7 @@ namespace molgr
                                 for (const auto &candidate : target_entry.second)
                                 {
                                     current_layer_candidates.push_back(
-                                        molgr::metal::scoring::ScoreCandidateWithNoMetalState(
+                                        molgr::metal::scoring::PrepareCandidateWithNoMetalState(
                                             candidate,
                                             shared_no_metal_state,
                                             runtime_config));
@@ -256,16 +256,6 @@ namespace molgr
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_charge_localization_penalty");
                             item["organic_radical_localization_penalty"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_radical_localization_penalty");
-                            item["metal_coordination_access_penalty"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "metal_coordination_access_penalty");
-                            item["metal_same_element_valence_spread_penalty"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "metal_same_element_valence_spread_penalty");
-                            item["metal_electrostatic_penalty"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "metal_electrostatic_penalty");
-                            item["metal_donor_penalty"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "metal_donor_penalty");
-                            item["metal_prior_penalty"] =
-                                molgr::metal::scoring::MetadataDouble(candidate, "metal_prior_penalty");
                             py::list metal_states;
                             for (const auto &metal_state : candidate.metal_states)
                             {

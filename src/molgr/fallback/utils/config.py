@@ -2,7 +2,6 @@
 
 from molgr.config import (
     DEFAULT_MOLGR_CONFIG,
-    CacheConfig,
     CppBackendConfig,
     ForceFieldChoiceConfig,
     ForceFieldConfig,
@@ -22,7 +21,6 @@ from molgr.config import (
 
 __all__ = [
     "DEFAULT_MOLGR_CONFIG",
-    "CacheConfig",
     "CppBackendConfig",
     "ForceFieldChoiceConfig",
     "ForceFieldConfig",

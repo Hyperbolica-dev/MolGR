@@ -58,7 +58,6 @@ namespace molgr
         struct LimitedDiscrepancyTraversalConfig
         {
             int max_discrepancy = 1;
-            bool fallback_to_full_frontier = true;
         };
 
         std::string SmilesFirstToken(const OpenBabel::OBMol &mol);

@@ -3,7 +3,6 @@
 from . import config, consts, smarts
 from .config import (
     DEFAULT_MOLGR_CONFIG,
-    CacheConfig,
     CppBackendConfig,
     ForceFieldChoiceConfig,
     ForceFieldConfig,
@@ -51,7 +50,6 @@ from .tools import typed_lru_cache
 
 __all__ = [
     "DEFAULT_MOLGR_CONFIG",
-    "CacheConfig",
     "CppBackendConfig",
     "ForceFieldChoiceConfig",
     "ForceFieldChoice",

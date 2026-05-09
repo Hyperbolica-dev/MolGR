@@ -89,18 +89,12 @@ _IMPORTANT_SCORE_KEYS = (
     "passes_metal_discordance_filter",
     "score",
     "force_field_energy",
-    "organic_score_bucket",
     "organic_aromatic_ring_loss",
     "organic_max_conjugated_component_loss",
     "organic_charge_localization_penalty",
     "organic_aromatic_atom_loss",
     "organic_conjugated_atom_loss",
     "organic_radical_localization_penalty",
-    "metal_coordination_access_penalty",
-    "metal_same_element_valence_spread_penalty",
-    "metal_electrostatic_penalty",
-    "metal_donor_penalty",
-    "metal_prior_penalty",
     "selection_key",
 )
 
@@ -166,7 +160,7 @@ def _parse_args() -> argparse.Namespace:
         "--no-score-all-candidates",
         action="store_true",
         help=(
-            "Do not compute full legacy metal-candidate metrics for candidates filtered out by "
+            "Do not compute analysis metal-candidate metrics for candidates filtered out by "
             "discordance. Production metadata is still reported."
         ),
     )
@@ -441,32 +435,6 @@ def _candidate_score_rows(candidate: dict[str, Any]) -> list[tuple[str, Any]]:
     keys: list[str] = [key for key in _IMPORTANT_SCORE_KEYS if key in details]
     keys.extend(sorted(key for key in details if key not in set(keys)))
     return [(key, details[key]) for key in keys]
-
-
-def _environment_breakdown_rows(candidate: dict[str, Any]) -> list[list[Any]]:
-    breakdown = _score_detail_value(candidate, "metal_environment_breakdown", [])
-    if not isinstance(breakdown, list):
-        return []
-    rows: list[list[Any]] = []
-    for entry in breakdown:
-        if not isinstance(entry, dict):
-            continue
-        rows.append(
-            [
-                _metal_state_label(entry),
-                entry.get("prior_penalty", ""),
-                entry.get("coordination_access_penalty", ""),
-                entry.get("visible_coordination_reward", ""),
-                entry.get("electrostatic_penalty", ""),
-                entry.get("donor_penalty", ""),
-                entry.get("electrostatic_support", ""),
-                entry.get("anionic_donor_support", ""),
-                entry.get("neutral_donor_support", ""),
-                entry.get("negative_metal_visible_coordination_penalty", ""),
-                entry.get("obstructed_opposite_charge_penalty", ""),
-            ]
-        )
-    return rows
 
 
 def _render_case_summary(case: dict[str, Any]) -> str:
@@ -936,28 +904,6 @@ def _render_candidate_details(case: dict[str, Any]) -> str:
         lines.append(_markdown_table(("原子序号", "元素", "价态", "自由基数", "坐标"), metal_rows))
         lines.extend(["", "**分数明细**"])
         lines.append(_markdown_table(("分数项", "值"), _candidate_score_rows(raw_candidate)))
-
-        environment_rows = _environment_breakdown_rows(raw_candidate)
-        if environment_rows:
-            lines.extend(["", "**金属环境拆分**"])
-            lines.append(
-                _markdown_table(
-                    (
-                        "金属",
-                        "先验",
-                        "配位可达",
-                        "可见配位奖励",
-                        "静电惩罚",
-                        "供体惩罚",
-                        "静电支持",
-                        "阴离子供体支持",
-                        "中性供体支持",
-                        "负价金属可见配位惩罚",
-                        "遮挡反号电荷惩罚",
-                    ),
-                    environment_rows,
-                )
-            )
 
         production_metadata = cast(Dict[str, Any], raw_candidate.get("production_metadata", {}))
         if production_metadata:
@@ -1432,27 +1378,17 @@ def _annotate_analysis_scores_for_all_candidates(
 
     scoring._annotate_candidate_set_discordance_features(candidates)
     for candidate in candidates:
-        scoring._annotate_current_metal_candidate_metrics(candidate, config=config)
-
-    best_force_field_score = min(float(cast(float, candidate.score)) for candidate in candidates)
+        scoring._annotate_selected_candidate_metrics(candidate, config=config)
 
     for candidate in candidates:
         score_value = float(cast(float, candidate.score))
-        organic_bucket = scoring._organic_score_bucket_index(
-            score_value,
-            best_force_field_score,
-            config=config,
-        )
-        candidate.metadata["organic_score_bucket"] = organic_bucket
         candidate.metadata["analysis_selection_key_all_candidates"] = (
             float(candidate.metadata.get("metal_discordance_count", 0)),
             score_value,
             int(candidate.metadata.get("combination_index", 0)),
         )
 
-    return {
-        "best_force_field_score": best_force_field_score,
-    }
+    return {}
 
 
 def _candidate_report(

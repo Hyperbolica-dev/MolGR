@@ -33,28 +33,14 @@ namespace molgr::config
 
     struct MetalScoringConfig
     {
-        double organic_score_bucket_relative_ratio = 0.20;
         double open_shell_multimetal_state_penalty_window = 10.0;
         int open_shell_multimetal_min_state_options = 6;
         int same_element_multimetal_unify_threshold = 3;
         std::optional<int> max_mixed_valence_spread = 3;
         int max_assignments_per_target = 64;
-        double metal_local_potential_cutoff_angstrom = 6.0;
-        double metal_donor_cutoff_angstrom = 3.4;
-        double metal_coordination_radius_scale = 1.25;
         double metal_coordination_extra_tolerance_angstrom = 0.35;
-        double min_distance_angstrom = 1.2;
         double metal_access_radius_scale = 1.0;
         double metal_access_clearance_angstrom = 0.0;
-        double local_potential_target_per_valence = 0.20;
-        double local_potential_oversupport_weight = 0.25;
-        double local_donor_target_per_valence = 0.80;
-        double local_donor_oversupport_weight = 0.35;
-        double local_neutral_donor_weight = 0.35;
-        double visible_coordination_reward_weight = 1.5;
-        double negative_metal_visible_coordination_penalty_weight = 2.0;
-        double obstructed_opposite_charge_penalty_weight = 12.0;
-        double same_element_valence_spread_weight = 2.0;
     };
 
     struct MetalRadicalInferenceConfig

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -52,6 +53,46 @@ def _cpp_config(*, enable_uff_atom_typing_cache: bool):
             enable_uff_atom_typing_cache=enable_uff_atom_typing_cache,
         ),
     )
+
+
+def test_cpp_config_bridge_requires_current_config_shape() -> None:
+    incomplete_config = SimpleNamespace(
+        force_field=make_default_config().force_field,
+    )
+
+    with pytest.raises(AttributeError, match="missing required attribute 'resonance'"):
+        _core.set_default_config(incomplete_config)
+
+
+def test_cpp_config_bridge_reads_current_nested_fields() -> None:
+    base_config = make_default_config()
+    config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            metal_access_radius_scale=1.75,
+            metal_access_clearance_angstrom=0.42,
+        ),
+        metal_radical_inference=replace(
+            base_config.metal_radical_inference,
+            square_planar_planarity_tolerance_angstrom=0.12,
+            trigonal_planar_planarity_tolerance_angstrom=0.23,
+            linear_angle_min_degrees=166.0,
+        ),
+    )
+
+    _core.set_default_config(config)
+    summary = _core.get_default_config()
+
+    assert summary["metal_access_radius_scale"] == pytest.approx(1.75)
+    assert summary["metal_access_clearance_angstrom"] == pytest.approx(0.42)
+    assert summary["metal_radical_square_planar_planarity_tolerance_angstrom"] == pytest.approx(
+        0.12
+    )
+    assert summary["metal_radical_trigonal_planar_planarity_tolerance_angstrom"] == pytest.approx(
+        0.23
+    )
+    assert summary["metal_radical_linear_angle_min_degrees"] == pytest.approx(166.0)
 
 
 def _clear_cpp_scoring_caches(*, clear_uff_atom_typing_cache: bool) -> None:

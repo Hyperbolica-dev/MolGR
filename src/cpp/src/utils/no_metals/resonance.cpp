@@ -16,8 +16,6 @@
 
 namespace
 {
-    constexpr bool kDefaultResonanceFallbackToFullFrontier = true;
-
     struct RawResonanceCandidate
     {
         std::size_t resonance_index = 0;
@@ -113,7 +111,6 @@ namespace molgr
                     },
                     reconstruct::LimitedDiscrepancyTraversalConfig{
                         max_discrepancy,
-                        kDefaultResonanceFallbackToFullFrontier,
                     },
                     config);
 

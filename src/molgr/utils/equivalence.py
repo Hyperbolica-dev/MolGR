@@ -240,7 +240,9 @@ def _formula_key_without_hydrogen(mol: Chem.Mol) -> str:
 
 
 def _total_formal_charge(mol: Chem.Mol) -> int:
-    return sum(mol.GetAtomWithIdx(atom_idx).GetFormalCharge() for atom_idx in range(mol.GetNumAtoms()))
+    return sum(
+        mol.GetAtomWithIdx(atom_idx).GetFormalCharge() for atom_idx in range(mol.GetNumAtoms())
+    )
 
 
 def _total_radical_electrons(mol: Chem.Mol) -> int:
@@ -621,8 +623,7 @@ def check_equivalence(
                 resonance_flags=resonance_flags,
             )
             for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
-            if rm_radical is not None
-            and _total_formal_charge(rm_radical) == fc2
+            if rm_radical is not None and _total_formal_charge(rm_radical) == fc2
         }
         resonance_count = len(res2_set)
 

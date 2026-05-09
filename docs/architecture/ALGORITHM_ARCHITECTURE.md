@@ -56,7 +56,7 @@ The current algorithm can be read as seven layers:
 6. Metal candidate scoring and selection
    - each no-metal target bucket is reconstructed once and shared by all metal assignments in that bucket
    - each metal candidate inherits the shared organic-core force-field score
-   - selection then adds organic electronic-state metrics and local metal-environment heuristics
+   - selection compares metal-discordance count, then organic-core force-field score, then `combination_index`
    - only the final winner materializes metal reinsertion
 
 7. RDKit output finalization
@@ -175,7 +175,7 @@ sequenceDiagram
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
-                SC->>SC: annotate organic and metal environment metrics
+                SC->>SC: annotate organic metrics and metal-discordance features
             end
         end
         SC->>SC: select_best_candidate across scored metal candidates
@@ -287,7 +287,7 @@ Each `MetalCandidateState` is scored after attaching a shared
 `ReconstructionState`. Candidate selection uses:
 
 - the shared organic-core force-field score
-- organic electronic-state metrics:
+- metal-discordance features derived from organic electronic-state metrics:
   - aromatic atoms and rings
     - aromatic rings are first marked by OpenBabel and then filtered: if the
       absolute value of the formal-charge sum over the ring is at least 4, the
@@ -299,14 +299,8 @@ Each `MetalCandidateState` is scored after attaching a shared
   - maximum conjugated component size
   - charge localization penalty
   - radical localization penalty
-- local metal-environment metrics:
-  - metal-state prior penalty
-  - same-element valence spread penalty
-  - local electrostatic support
-  - anionic and neutral donor support
-  - visible coordination reward
-  - obstructed opposite-charge donor penalty
-  - visible-coordination penalty for negative metals
+- local metal-coordination discordance checks based on inner-sphere visibility,
+  formal charge signs, visible diradicals, and charge-balance exceptions
 
 ### Metal candidate discordance features
 
@@ -416,9 +410,9 @@ Final selection now keeps only discordance and the organic score:
   organic-core force-field score directly
 - if the organic score is still tied, use `combination_index` as a stable
   deterministic tie-breaker
-- organic electronic-state metrics and local metal-environment metrics are
-  still recorded for analysis and reporting, but no longer participate in final
-  ordering
+- selected candidates still record organic electronic-state metrics used to
+  derive discordance, but the removed metal-environment scoring metrics no
+  longer exist in the runtime metadata
 
 ## Extra C++ Optimizations
 

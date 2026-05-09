@@ -9,11 +9,6 @@ ForceFieldChoiceConfig = Tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class CacheConfig:
-    pass
-
-
-@dataclass(frozen=True)
 class ForceFieldConfig:
     auto_force_fields_metal_free: ForceFieldChoiceConfig = ("uff",)
     auto_force_fields_with_metals: ForceFieldChoiceConfig = ("uff",)
@@ -40,28 +35,14 @@ class CppBackendConfig:
 
 @dataclass(frozen=True)
 class MetalScoringConfig:
-    organic_score_bucket_relative_ratio: float = 0.20
     open_shell_multimetal_state_penalty_window: float = 10.0
     open_shell_multimetal_min_state_options: int = 6
     same_element_multimetal_unify_threshold: int = 3
     max_mixed_valence_spread: Optional[int] = 3
     max_assignments_per_target: int = 64
-    metal_local_potential_cutoff_angstrom: float = 6.0
-    metal_donor_cutoff_angstrom: float = 3.4
-    metal_coordination_radius_scale: float = 1.25
     metal_coordination_extra_tolerance_angstrom: float = 0.35
-    min_distance_angstrom: float = 1.2
     metal_access_radius_scale: float = 1.0
     metal_access_clearance_angstrom: float = 0.0
-    local_potential_target_per_valence: float = 0.20
-    local_potential_oversupport_weight: float = 0.25
-    local_donor_target_per_valence: float = 0.80
-    local_donor_oversupport_weight: float = 0.35
-    local_neutral_donor_weight: float = 0.35
-    visible_coordination_reward_weight: float = 1.5
-    negative_metal_visible_coordination_penalty_weight: float = 2.0
-    obstructed_opposite_charge_penalty_weight: float = 12.0
-    same_element_valence_spread_weight: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -77,7 +58,6 @@ class MetalRadicalInferenceConfig:
 
 @dataclass(frozen=True)
 class MolGRConfig:
-    cache: CacheConfig = field(default_factory=CacheConfig)
     force_field: ForceFieldConfig = field(default_factory=ForceFieldConfig)
     resonance: ResonanceConfig = field(default_factory=ResonanceConfig)
     cpp_backend: CppBackendConfig = field(default_factory=CppBackendConfig)
@@ -139,7 +119,6 @@ def force_field_config_cache_key(config: Optional[MolGRConfig] = None) -> str:
 
 __all__ = [
     "DEFAULT_MOLGR_CONFIG",
-    "CacheConfig",
     "CppBackendConfig",
     "ForceFieldChoiceConfig",
     "ForceFieldConfig",

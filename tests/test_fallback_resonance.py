@@ -497,9 +497,7 @@ def test_recover_resonance_candidates_returns_valid_candidates() -> None:
     assert min(scores) == sorted(scores)[0]
 
 
-def test_recover_resonance_candidates_returns_candidates_without_legacy_shared_region_scoring() -> (
-    None
-):
+def test_recover_resonance_candidates_returns_candidates_without_shared_region_scoring() -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,

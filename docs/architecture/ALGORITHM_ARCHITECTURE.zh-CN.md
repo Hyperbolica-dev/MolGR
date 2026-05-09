@@ -50,7 +50,7 @@ MolGR 的统一算法可以按七层理解：
 6. 金属候选评分和选择
    - 同一个 no-metal 目标桶只重建一次，然后共享给桶内所有金属态候选
    - 候选先继承共享有机骨架力场分数
-   - 再叠加有机电子态、金属局部环境、金属价态先验等选择指标
+   - 选择时依次比较金属失谐计数、有机骨架力场分数和 `combination_index`
    - 只为最终赢家执行金属回插
 
 7. RDKit 输出后处理
@@ -169,7 +169,7 @@ sequenceDiagram
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
-                SC->>SC: annotate organic and metal environment metrics
+                SC->>SC: annotate organic metrics and metal-discordance features
             end
         end
         SC->>SC: select_best_candidate across scored metal candidates
@@ -259,10 +259,10 @@ DP 合并后的 target bucket key 是：
 
 ### 金属候选评分
 
-每个 `MetalCandidateState` 绑定一个共享的 `ReconstructionState` 后评分。评分包含：
+每个 `MetalCandidateState` 绑定一个共享的 `ReconstructionState` 后评分。候选选择使用：
 
 - 共享有机骨架 force-field score。
-- 有机电子态指标：
+- 由有机电子态指标派生的金属失谐特征：
   - 芳香原子/环数量
     - 芳香环先由 OpenBabel 标记，再额外过滤：如果环上形式电荷之和的绝对值大于等于 4，该环不计入芳香环，也不贡献芳香原子数。
     - 该过滤避免高度电荷分离的环仅因形式上满足 `4n+2` 电子数而被当成芳环，从而让芳环损失进入失谐度判定。
@@ -270,14 +270,7 @@ DP 合并后的 target bucket key 是：
   - 最大共轭连通分量
   - 电荷局域化惩罚
   - 自由基局域化惩罚
-- 金属局部环境指标：
-  - 金属价态先验惩罚
-  - 同元素混合价态跨度惩罚
-  - 局部静电支持
-  - 阴离子/中性 donor 支持
-  - 可见配位奖励
-  - 被遮挡反电荷 donor 惩罚
-  - 负价金属可见配位惩罚
+- 局部金属配位失谐检查：基于内圈可见性、形式电荷符号、可见双自由基和电荷平衡例外。
 
 ### 金属候选失谐结构特征
 
@@ -330,7 +323,7 @@ DP 合并后的 target bucket key 是：
 - 先比较 `metal_discordance_count`，只保留失谐计数最低的候选。
 - 如果多个候选并列最低失谐计数，则直接比较有机骨架 force-field score。
 - 如果有机分仍然并列，则按 `combination_index` 做稳定的确定性打破平局。
-- 有机电子态指标和金属局部环境指标仍然会被记录，供分析和汇报使用，但不再参与最终排序。
+- 入选候选仍会记录用于派生失谐度的有机电子态指标；已移除的金属环境评分指标不再存在于运行时 metadata。
 
 ## C++ 后端已实现的额外优化
 
