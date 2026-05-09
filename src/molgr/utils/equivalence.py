@@ -239,6 +239,17 @@ def _formula_key_without_hydrogen(mol: Chem.Mol) -> str:
     )
 
 
+def _total_formal_charge(mol: Chem.Mol) -> int:
+    return sum(mol.GetAtomWithIdx(atom_idx).GetFormalCharge() for atom_idx in range(mol.GetNumAtoms()))
+
+
+def _total_radical_electrons(mol: Chem.Mol) -> int:
+    return sum(
+        mol.GetAtomWithIdx(atom_idx).GetNumRadicalElectrons()
+        for atom_idx in range(mol.GetNumAtoms())
+    )
+
+
 def _strip_metal_coordination_bonds(mol: Chem.Mol) -> tuple[Chem.Mol, bool]:
     rw_mol = Chem.RWMol(Chem.Mol(mol))
     bonds_to_remove: list[tuple[int, int]] = []
@@ -475,15 +486,11 @@ def check_equivalence(
     m1, prep_errors_1 = _prepare_equivalence_mol(mol1)
     m2, prep_errors_2 = _prepare_equivalence_mol(mol2)
 
-    fc1 = sum(m1.GetAtomWithIdx(atom_id).GetFormalCharge() for atom_id in range(m1.GetNumAtoms()))
-    fc2 = sum(m2.GetAtomWithIdx(atom_id).GetFormalCharge() for atom_id in range(m2.GetNumAtoms()))
+    fc1 = _total_formal_charge(m1)
+    fc2 = _total_formal_charge(m2)
 
-    rad1 = sum(
-        m1.GetAtomWithIdx(atom_id).GetNumRadicalElectrons() for atom_id in range(m1.GetNumAtoms())
-    )
-    rad2 = sum(
-        m2.GetAtomWithIdx(atom_id).GetNumRadicalElectrons() for atom_id in range(m2.GetNumAtoms())
-    )
+    rad1 = _total_radical_electrons(m1)
+    rad2 = _total_radical_electrons(m2)
 
     n1 = m1.GetNumAtoms()
     n2 = m2.GetNumAtoms()
@@ -615,6 +622,7 @@ def check_equivalence(
             )
             for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
             if rm_radical is not None
+            and _total_formal_charge(rm_radical) == fc2
         }
         resonance_count = len(res2_set)
 
@@ -625,6 +633,8 @@ def check_equivalence(
         ):
             for rm_radical in enumerate_resonance_radical(rm_charge, depth=3):
                 if rm_radical is None:
+                    continue
+                if _total_formal_charge(rm_radical) != fc1:
                     continue
                 s = canon(rm_radical)
                 if s in res2_set:
