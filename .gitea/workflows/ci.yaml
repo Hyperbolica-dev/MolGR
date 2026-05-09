@@ -3,30 +3,60 @@ name: Gitea CI/CD Workflow
 on:
   push:
     branches:
-      - "main"
-      - "develop"
+      - main
+      - develop
     tags:
       - "v*"
   pull_request:
     branches:
-      - "main"
+      - main
   workflow_dispatch:
 
 env:
+  PYPI_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
   UV_INDEX: https://mirrors.zju.edu.cn/pypi/web/simple
   UV_DEFAULT_INDEX: https://mirrors.zju.edu.cn/pypi/web/simple
+  PIP_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
+  PIP_DEFAULT_TIMEOUT: "120"
   SERVER_URL: ${{ vars.SERVER_URL }}
-  HTTP_PROXY: ${{ vars.HTTP_PROXY }}
-  HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+  HTTP_PROXY: http://10.72.200.48:7890
+  HTTPS_PROXY: http://10.72.200.48:7890
 
 jobs:
+  lint:
+    name: Lint (ubuntu-latest, Py 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: http://10.72.201.58:13000/actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        run: |
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/uv" --version
+
+      - name: Set up Python 3.11
+        run: $HOME/.local/bin/uv python install 3.11
+
+      - name: Install dependencies
+        run: |
+          "$HOME/.local/bin/uv" sync --python 3.11 --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$HOME/.local/bin/uv" pip install --python 3.11 ruff --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+
+      - name: Lint and format check
+        run: |
+          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff check .
+          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff format --check .
+
   build-test-linux-matrix:
-    name: Build/Test ${{ matrix.os }} Py${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+    name: Build/Test ubuntu-latest Py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
@@ -37,47 +67,49 @@ jobs:
 
       - name: Install uv
         run: |
-          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
-          if [ -n "${GITHUB_PATH:-}" ]; then
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          fi
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/uv" --version
 
       - name: Set up Python ${{ matrix.python-version }}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv python install ${{ matrix.python-version }}
+        run: $HOME/.local/bin/uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies (minimal)
+      - name: Install dependencies
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
-          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
-          uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          "$HOME/.local/bin/uv" sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$HOME/.local/bin/uv" pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+
+      - name: Ensure CMake available
+        run: $HOME/.local/bin/uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Build extension (editable install)
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv pip install -e . -v --no-build-isolation --python ${{ matrix.python-version }} --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+        run: $HOME/.local/bin/uv pip install -e . -v --no-build-isolation --python ${{ matrix.python-version }} --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Compile smoke check
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
+        run: $HOME/.local/bin/uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
 
       - name: Run tests
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv run --no-sync --python ${{ matrix.python-version }} pytest
+        run: $HOME/.local/bin/uv run --no-sync --python ${{ matrix.python-version }} pytest
 
-  publish-wheels:
-    name: Publish wheels Py${{ matrix.python-version }}
-    needs: build-test-linux-matrix
+  build-internal-release-wheels:
+    name: Build internal release wheels (${{ matrix.target }})
+    needs: [lint, build-test-linux-matrix]
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
-    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - target: linux-manylinux2014
+            build: "cp38-manylinux_* cp39-manylinux_* cp310-manylinux_* cp311-manylinux_* cp312-manylinux_*"
+            archs_linux: "x86_64 aarch64"
+            manylinux_x86_64_image: manylinux2014
+            manylinux_aarch64_image: manylinux2014
+          - target: linux-manylinux_2_28
+            build: "cp313-manylinux_* cp314-manylinux_*"
+            archs_linux: "x86_64 aarch64"
+            manylinux_x86_64_image: manylinux_2_28
+            manylinux_aarch64_image: manylinux_2_28
 
     steps:
       - name: Checkout code
@@ -85,49 +117,60 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
+      - name: Validate prerelease tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
-          if [ -n "${GITHUB_PATH:-}" ]; then
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          git fetch origin main:refs/remotes/origin/main --prune
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Prerelease tags must point to a commit reachable from origin/main."
+            exit 1
           fi
 
-      - name: Set up Python ${{ matrix.python-version }}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv python install ${{ matrix.python-version }}
+      - name: Set up QEMU for Linux aarch64
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
 
-      - name: Install build dependencies
+      - name: Install build tools
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
-          uv pip install --python ${{ matrix.python-version }} pybind11 scikit-build-core setuptools-scm typing-extensions --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
-          uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://mirrors.zju.edu.cn/pypi/web/simple --default-index https://mirrors.zju.edu.cn/pypi/web/simple
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cibuildwheel" --version
+          "$HOME/.local/bin/uv" --version
 
-      - name: Build wheel
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv build -p ${{ matrix.python-version }} --wheel --out-dir dist
+      - name: Build wheels via cibuildwheel
+        env:
+          CIBW_BUILD: ${{ matrix.build }}
+          CIBW_ARCHS_LINUX: ${{ matrix.archs_linux }}
+          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux_x86_64_image }}
+          CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.manylinux_aarch64_image }}
+          CIBW_ENVIRONMENT: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            HTTP_PROXY=http://10.72.200.48:7890
+            HTTPS_PROXY=http://10.72.200.48:7890
+          CIBW_BUILD_VERBOSITY: "1"
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
+            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+          CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
+        run: $HOME/.local/bin/cibuildwheel
 
-      - name: Publish wheel to Gitea Registry
+      - name: Publish wheels to Gitea Registry
         env:
           UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
           UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
           if [ -z "${SERVER_URL}" ]; then
-            echo "SERVER_URL is empty. Set repository variable SERVER_URL (for example: https://gitea.example.com:13000)."
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL, for example: https://gitea.example.com:13000."
             exit 1
           fi
-          PUBLISH_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi"
-          CHECK_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          uv publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.whl
+          PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          "$HOME/.local/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
 
-  publish-sdist:
-    name: Publish sdist to Gitea Registry
-    needs: publish-wheels
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
+  publish-internal-sdist:
+    name: Publish internal sdist
+    needs: build-internal-release-wheels
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
 
     steps:
       - name: Checkout code
@@ -135,33 +178,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
+      - name: Validate prerelease tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          curl -LsSf https://gitee.com/wangnov/uv-custom/releases/download/0.10.2/uv-installer-custom.sh | sh
-          if [ -n "${GITHUB_PATH:-}" ]; then
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          git fetch origin main:refs/remotes/origin/main --prune
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Prerelease tags must point to a commit reachable from origin/main."
+            exit 1
           fi
 
-      - name: Set up Python 3.11
+      - name: Install uv
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv python install 3.11
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/uv" --version
+
+      - name: Set up Python 3.11
+        run: $HOME/.local/bin/uv python install 3.11
 
       - name: Build sdist
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv build -p 3.11 --sdist --out-dir dist
+        run: $HOME/.local/bin/uv build -p 3.11 --sdist --out-dir dist
 
       - name: Publish sdist to Gitea Registry
         env:
           UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
           UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
           if [ -z "${SERVER_URL}" ]; then
-            echo "SERVER_URL is empty. Set repository variable SERVER_URL (for example: https://gitea.example.com:13000)."
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL, for example: https://gitea.example.com:13000."
             exit 1
           fi
-          PUBLISH_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi"
-          CHECK_URL="${SERVER_URL}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          uv publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.tar.gz
+          PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          "$HOME/.local/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.tar.gz

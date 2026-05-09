@@ -10,12 +10,12 @@ classifiers = [
 ]
 dependencies = [
     "openbabel-wheel>=3.1.1.22",
-    "rdkit<=2023.9.6; python_version == '3.8'",
+    "rdkit>=2023.9.6",
     "numpy<2; python_version == '3.8'",
-    "rdkit<=2023.9.6; python_version == '3.9'",
     "numpy>=1.26,<2; python_version == '3.9'",
-    "rdkit>=2025.3.6; python_version >= '3.10'",
-    "numpy>=1.26; python_version >= '3.10'",
+    "numpy>=1.26,<2.3; python_version >= '3.10' and python_version < '3.13'",
+    "numpy>=1.26; python_version >= '3.13'",
+    "typing-extensions>=4.13.2",
 ]
 
 [build-system]
@@ -33,22 +33,6 @@ metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
 sdist.include = ["src/molgr/_version.py"]
 
 [dependency-groups]
-benchmark = [
-    "ase",
-    "cell2mol",
-    "cosymlib>=0.11.1",
-    "huckelpy>=0.2.3",
-    "networkx>=3.1",
-    "pyyaml>=6.0.3",
-    "scipy>=1.10.1",
-    "xyzgraph>=1.6.1",
-    "numpy<2; python_version == '3.8'",
-    "numpy>=1.26,<2; python_version >= '3.9'",
-    "pandas",
-    "tqdm",
-    "rdkit-dof; python_version >= '3.9'",
-    "pandarallel"
-]
 dev = [
     "ipykernel",
     "ipywidgets",
@@ -64,7 +48,8 @@ dev = [
     "scikit-build-core>=0.11.6",
     "scipy>=1.10.1",
     "setuptools-scm>=9.2.2",
-    "jinja2"
+    "jinja2",
+    "pybind11-stubgen>=2.5.5",
 ]
 
 [tool.ruff]
@@ -131,6 +116,3 @@ exclude = "^(tests/|scripts/|build/|dist/|src/molgr/_core/)"
 [[tool.uv.index]]
 name = "pypi"
 url = "https://mirrors.zju.edu.cn/pypi/web/simple"
-
-[tool.uv.sources]
-cell2mol = { git = "https://github.com/lcmd-epfl/cell2mol.git", rev = "v2" }

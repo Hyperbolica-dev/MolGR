@@ -63,7 +63,8 @@ def clean_resonances_0(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         obbond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence > obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
+            > obatom1.GetTotalValence()
             and consts.NON_METAL_DICT[obatom4.GetAtomicNum()].default_valence
             > obatom4.GetTotalValence()
         ):
@@ -209,7 +210,9 @@ def clean_resonances_6(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
 
 def clean_resonances_7(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
-    res: List[Tuple[int, int, int, int, int, int, int]] = list(smarts.CLEAN_RESONANCE_7.findall(omol))
+    res: List[Tuple[int, int, int, int, int, int, int]] = list(
+        smarts.CLEAN_RESONANCE_7.findall(omol)
+    )
     hit = False
     while len(res):
         idxs = res.pop(0)
@@ -270,15 +273,18 @@ def clean_resonances_9(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
+            - obatom1.GetTotalValence()
             >= 1
             and consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence
             - obatom2.GetTotalValence()
             >= 1
         ):
             bond_to_add = min(
-                consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence(),
-                consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence - obatom2.GetTotalValence(),
+                consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
+                - obatom1.GetTotalValence(),
+                consts.NON_METAL_DICT[obatom2.GetAtomicNum()].default_valence
+                - obatom2.GetTotalValence(),
             )
             obbond1.SetBondOrder(obbond1.GetBondOrder() + bond_to_add)
             obatom1.SetFormalCharge(obatom1.GetFormalCharge() - bond_to_add)
@@ -367,7 +373,8 @@ def clean_resonances_13(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         if (
-            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - obatom1.GetTotalValence()
+            consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence
+            - obatom1.GetTotalValence()
             >= 1
             and obbond1.GetBondOrder() == 1
         ):

@@ -1,43 +1,50 @@
 # Molfile/SDF XYZ Benchmark
 
-## What it does
+[English](README.md) | [中文](README.zh-CN.md)
 
-This benchmark compares molecule reconstruction approaches from `.mol`, `.molfile`, and `.sdf` inputs.
+This benchmark compares molecule reconstruction methods on XYZ cases generated from
+`.mol`, `.molfile`, or `.sdf` fixtures. It is useful for regression checks against
+curated molecules with explicit coordinates, including metal-containing systems.
 
-The recommended fixture root is `tests/data/sdf/`. You can place files directly there or organize them into nested categories such as `tests/data/sdf/cations/`, `tests/data/sdf/anions/`, and `tests/data/sdf/metal_complexes/`.
+## Case Preparation
 
-Each input structure is first converted into an XYZ case with:
+For each molfile/SDF fixture, [`../../scripts/molgr_cases_molfile.py`](../../scripts/molgr_cases_molfile.py):
 
-- `xyz_block`
-- `total_charge`
-- `total_radical_electrons`
-- `ground_truth_rdmol`
+1. Loads the source file with RDKit using `sanitize=False`, `removeHs=False`, and
+   `strictParsing=False`.
+2. Verifies that conformer coordinates are present.
+3. Computes total formal charge and radical electron count.
+4. Converts the structure to an XYZ block.
+5. Uses the source RDKit molecule as the ground-truth structure for equivalence checking.
 
-using `scripts/molgr_cases_molfile.py`, then benchmarked with the shared method registry from `benchmarks/smiles_xyz_benchmark`.
+If case preparation fails, the benchmark records a skipped row for each method.
 
 ## Methods
 
-This benchmark currently reuses the same methods as `smiles_xyz_benchmark`:
+This benchmark reuses the shared method registry from `smiles_xyz_benchmark`:
 
 - `rdkit_determine_bonds`
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
-- `molgr_fallback`
 - `molgr_cpp`
 - `xyzgraph_cheminf_full`
 
-## Benchmark Environment (Python >=3.10)
+## Environment
 
-Reproduce the benchmark environment exactly as documented in `benchmarks/README.md`.
+Use the dedicated benchmark environment documented in [`../README.md`](../README.md).
+The environment uses Python `>=3.10,<3.12` and keeps benchmark-only dependencies in
+[`../pyproject.toml`](../pyproject.toml).
 
-From repo root:
+Create or refresh it from the repository root:
 
 ```bash
 bash scripts/benchmark_env.sh create
 ```
 
-Run directly inside the dedicated benchmark environment:
+## Run
+
+Recommended direct run:
 
 ```bash
 bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py \
@@ -46,7 +53,7 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --out benchmarks/_runs/molfile-demo
 ```
 
-Optional shell switch for repeated commands:
+Optional shell switch for repeated benchmark commands:
 
 ```bash
 eval "$(bash scripts/benchmark_env.sh env)"
@@ -61,26 +68,32 @@ uv run python benchmarks/molfile_xyz_benchmark/run.py \
   --out benchmarks/_runs/molfile-demo
 ```
 
-Switch back to the default project environment:
+Restore the normal project environment:
 
 ```bash
-unset UV_PROJECT_ENVIRONMENT UV_PYTHON
+unset UV_PROJECT UV_PROJECT_ENVIRONMENT UV_PYTHON
 ```
 
 ## Inputs
 
-- `--input` accepts either:
-  - a single `.mol` / `.molfile` / `.sdf` file, or
-  - a directory, recursively scanned for those suffixes.
-- Recommended fixture root: `tests/data/sdf/`.
-- Nested directories are supported, so you can benchmark a single class with a path like `tests/data/sdf/metal_complexes/` or the whole fixture tree with `tests/data/sdf/`.
-- `--limit` optionally caps the number of discovered files.
+`--input` accepts either:
+
+- a single `.mol`, `.molfile`, or `.sdf` file
+- a directory recursively scanned for those suffixes
+
+Recommended fixture root: [`../../tests/data/sdf/`](../../tests/data/sdf/).
+
+Nested directories under [`../../tests/data/sdf/`](../../tests/data/sdf/) are supported,
+so you can run either a specific category path or the whole fixture tree.
+
+`--limit` caps the number of discovered files after recursive path sorting.
 
 ## Outputs
 
 The output directory contains:
 
 - `results.csv`: one row per `(case, method)` run.
-- `summary.csv`: aggregated metrics by method.
+- `summary.csv`: aggregate counts and latency statistics by method.
 
-The CSV schema is intentionally shared with `smiles_xyz_benchmark` so comparisons stay straightforward.
+The CSV schema is shared with `smiles_xyz_benchmark`. Timing fields are flattened where
+available, and `timing_ms_breakdown_json` keeps the full timing dictionary.

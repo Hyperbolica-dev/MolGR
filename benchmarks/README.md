@@ -1,41 +1,61 @@
 # Benchmarks
 
-This directory contains benchmark entrypoints and benchmark-specific docs.
+[English](README.md) | [中文](README.zh-CN.md)
 
-## Available benchmarks
+This directory contains benchmark entrypoints, benchmark-specific dependencies, and
+benchmark documentation. Benchmark dependencies are intentionally isolated from the
+root project dependency graph so they do not affect package releases.
 
-- `smiles_xyz_benchmark`: compares molecule reconstruction methods from XYZ-like inputs.
-- `molfile_xyz_benchmark`: compares the same reconstruction methods using `.mol` / `.molfile` / `.sdf` inputs converted to XYZ cases.
+## Available Benchmarks
 
-Methods currently wired in `smiles_xyz_benchmark`:
+- `smiles_xyz_benchmark`: builds XYZ cases from SMILES inputs and compares reconstruction methods.
+- `molfile_xyz_benchmark`: loads `.mol`, `.molfile`, and `.sdf` inputs, converts them to XYZ cases,
+  and runs the same method registry.
+
+Both benchmarks currently use the same methods:
 
 - `rdkit_determine_bonds`
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
+- `molgr_cpp`
 - `xyzgraph_cheminf_full`
 
-`molfile_xyz_benchmark` currently reuses the same method registry and result format as `smiles_xyz_benchmark`, but loads cases from molfile/SDF inputs through `scripts/molgr_cases_molfile.py`. The recommended fixture root is `tests/data/sdf/`, which can contain nested category directories such as cations, anions, or metal complexes.
+`cell2mol_v2` and `xyzgraph_cheminf_full` are competitor baselines. `molgr_fallback`
+uses the Python reference backend, and `molgr_cpp` uses the default C++ backend.
 
-## Requirements
+## Environment
 
 - Project runtime: Python `>=3.8`
-- Benchmark runtime: Python `>=3.10` (for `xyzgraph_cheminf_full`)
-- Recommended: `uv`
+- Benchmark runtime: Python `>=3.10,<3.12`
+- Recommended package manager: `uv`
+- Benchmark dependency file: [`pyproject.toml`](pyproject.toml)
+- Benchmark lock file: [`uv.lock`](uv.lock)
+- Default benchmark virtualenv: `.venv-benchmark`
+- Default benchmark Python executable: `python3.10`
 
-## Quickstart (benchmark env)
+The benchmark runtime is narrower than the package runtime because optional comparison
+stacks such as `xyzgraph`, `cell2mol`, and `cosymlib` have older dependency constraints.
+The benchmark dependency set also keeps `numpy<2` for compatibility with those stacks.
 
-From repo root:
+## Quickstart
+
+Create or refresh the dedicated benchmark environment from the repository root:
 
 ```bash
 bash scripts/benchmark_env.sh create
+```
+
+Run a small SMILES/XYZ benchmark:
+
+```bash
 bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py \
   --input tests/test_cases.csv \
   --limit 10 \
-  --out benchmarks/_runs/demo
+  --out benchmarks/_runs/smiles-demo
 ```
 
-Molfile / SDF benchmark example:
+Run a small Molfile/SDF benchmark:
 
 ```bash
 bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py \
@@ -44,56 +64,93 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --out benchmarks/_runs/molfile-demo
 ```
 
-Optional shell switch for repeated benchmark commands:
+For repeated commands, switch the current shell to the benchmark project:
 
 ```bash
 eval "$(bash scripts/benchmark_env.sh env)"
 ```
 
-Expected output directory:
-
-- `benchmarks/_runs/demo`
-
-## Run commands
-
-Run the benchmark with the dedicated env script:
+Then use normal `uv run` commands:
 
 ```bash
-bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+uv run python benchmarks/smiles_xyz_benchmark/run.py \
+  --input tests/test_cases.csv \
+  --limit 10 \
+  --out benchmarks/_runs/smiles-demo
 ```
 
-Run the molfile / SDF benchmark with the same environment:
+Switch back to the default project environment:
 
 ```bash
-bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py --input tests/data/sdf/MoNNMo.sdf --out benchmarks/_runs/molfile-run1
+unset UV_PROJECT UV_PROJECT_ENVIRONMENT UV_PYTHON
 ```
 
-Useful flags:
+## Inputs
 
-- `--input`: input cases file or molfile/SDF fixture directory
-- `--limit`: cap number of cases for quick checks
-- `--out`: output run directory
+SMILES/XYZ benchmark:
+
+- `--input` points to a text or CSV-style file containing SMILES.
+- Header rows named `smiles`, `canonicalsmiles`, or `canonicalsmi` are accepted.
+- Each SMILES is embedded with RDKit, optimized with UFF, converted to XYZ, and compared
+  against the original RDKit molecule.
+
+Molfile/SDF benchmark:
+
+- `--input` accepts one `.mol`, `.molfile`, or `.sdf` file, or a directory scanned recursively.
+- Recommended fixture root: [`../tests/data/sdf/`](../tests/data/sdf/).
+- Nested fixture categories under [`../tests/data/sdf/`](../tests/data/sdf/) are supported.
+- Each input structure is loaded with RDKit, converted to an XYZ case, and compared against
+  the source molecule.
+
+Shared flags:
+
+- `--limit`: cap the number of cases for quick checks.
+- `--out`: output run directory.
 
 ## Outputs
 
-Each run writes two main files under your `--out` directory:
+Each run writes two main files under the `--out` directory:
 
-- `results.csv`: one row per `(case, method)` attempt with status, prediction, equivalence result, and timing fields.
-- `summary.csv`: aggregated metrics by method (counts and latency stats like average, p50, p95).
+- `results.csv`: one row per `(case, method)` attempt with status, prediction,
+  equivalence result, and timing fields.
+- `summary.csv`: aggregated metrics by method, including counts and latency statistics.
 
-Timing columns in `results.csv` are flattened; `timing_ms_breakdown_json` preserves the full timing breakdown dict.
+The important `results.csv` columns are:
 
-How to interpret quickly:
+- `case_idx`
+- `method_id`
+- `input_smiles`
+- `ground_truth_smiles`
+- `status`
+- `error`
+- `predicted_smiles`
+- `equivalent`
+- `equivalence_method`
+- `timing_ms_total`
+- `method_ms`
+- `equivalence_ms`
+- `timing_ms_breakdown_json`
 
-- `results.csv`: use for per-case debugging and failure analysis.
-- `summary.csv`: use for method-level comparisons across success/failure rates and runtime.
+Timing columns are flattened when present. `timing_ms_breakdown_json` preserves the full
+method-specific timing dictionary for profiling.
 
-## Optional `cell2mol_v2` setup and GPL note
+## Interpreting Results
 
-`cell2mol_v2` is optional. Benchmarks still run without vendoring `cell2mol`.
+- Use `summary.csv` for method-level comparison.
+- Use `results.csv` for per-case debugging and failure analysis.
+- A row is counted as successful when equivalence is `True`.
+- A row is counted as failed when the method errors or equivalence is `False`.
+- A row is counted as skipped when the input case could not be prepared.
 
-We pin `numpy<2` in the benchmark dependency set for compatibility with optional `cell2mol`/`cosymlib` stacks.
+## Optional `cell2mol_v2` Note
 
-If you enable `cell2mol_v2`, install/configure it separately in your environment and ensure your usage/redistribution complies with its license terms, including GPL obligations where applicable.
+`cell2mol_v2` is optional as a benchmark baseline. The benchmark dependency file points
+to the upstream `cell2mol` `v2` Git revision. If you enable or redistribute this baseline,
+ensure your usage complies with its license terms, including GPL obligations where applicable.
 
-See benchmark-specific details in `benchmarks/smiles_xyz_benchmark/README.md`.
+## Benchmark-Specific Docs
+
+- [`smiles_xyz_benchmark/README.md`](smiles_xyz_benchmark/README.md)
+- [`smiles_xyz_benchmark/README.zh-CN.md`](smiles_xyz_benchmark/README.zh-CN.md)
+- [`molfile_xyz_benchmark/README.md`](molfile_xyz_benchmark/README.md)
+- [`molfile_xyz_benchmark/README.zh-CN.md`](molfile_xyz_benchmark/README.zh-CN.md)

@@ -187,6 +187,13 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# act local workflow simulation
+.act/
+.act-*.json
+.act-*.yaml
+.act-*.yml
+act-artifacts/
+
 # PyPI configuration file
 .pypirc
 
@@ -437,3 +444,4 @@ AGENTS.md
 
 .clangd
 compile_commands.json
+.omm

@@ -1,5 +1,7 @@
 # 开发与发布指南
 
+[English](DEVELOPMENT_RELEASE_GUIDE.md) | [中文](DEVELOPMENT_RELEASE_GUIDE.zh-CN.md)
+
 本项目采用三通道发布模型：
 
 1. `develop` 分支提交，自动发布内网测试包（Gitea）。
@@ -14,7 +16,7 @@ flowchart TD
     B --> C{触发类型}
 
     C -->|push develop| D[Gitea CI: 编译/测试 + 发布内网测试包]
-    C -->|main 上 rc/.dev 标签| E[Gitea CI: 编译/测试 + 发布内网预发布包]
+    C -->|可从 main 到达的 rc/.dev 标签| E[Gitea CI: 编译/测试 + 发布内网预发布包]
     C -->|push/PR main| F[Gitea CI: 仅编译/测试]
 
     D --> G[镜像到 GitHub]
@@ -32,21 +34,31 @@ flowchart TD
 
 ### Gitea 工作流
 
-文件：`.gitea/workflows/ci.yaml`
+文件： [`.gitea/workflows/ci.yaml`](../../.gitea/workflows/ci.yaml)
 
 - Linux 矩阵编译/测试，覆盖 Python `3.8` 到 `3.14`。
-- 依赖源使用内网镜像：`https://mirrors.zju.edu.cn/pypi/web/simple`。
+- 依赖源使用内网镜像：
+  [`https://mirrors.zju.edu.cn/pypi/web/simple`](https://mirrors.zju.edu.cn/pypi/web/simple)。
+- 内网 wheel 发布使用与 GitHub 相同的 Linux `cibuildwheel` 分层：
+  - `cp38`-`cp312`：`manylinux2014` / glibc `>=2.17`，覆盖 `x86_64` 和 `aarch64`。
+  - `cp313`-`cp314`：`manylinux_2_28`，覆盖 `x86_64` 和 `aarch64`。
 - 仓库发布基地址来自仓库变量 `SERVER_URL`。
 - 满足以下任一条件时发布内网仓：
   - `push` 到 `develop`（测试包通道）；
-  - `main` 上 `v*` 标签且包含 `rc` 或 `.dev`（预发布通道）。
+  - `v*` 标签包含 `rc` 或 `.dev`，且校验为可从 `main` 到达（预发布通道）。
 
 ### GitHub 工作流
 
-文件：`.github/workflows/ci.yaml`
+文件： [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
 
 - `build-and-test` 提供跨平台（Linux/macOS/Windows）验证，覆盖 `3.8` 到 `3.14`。
-- 正式发布 wheel 使用 `cibuildwheel`，Linux 采用 manylinux（`manylinux_2_28`）。
+- Benchmark 依赖位于 [`benchmarks/pyproject.toml`](../../benchmarks/pyproject.toml)，故意不纳入根项目包元数据和正式发布依赖解析。
+- 正式发布 wheel 使用 `cibuildwheel`，按平台分组构建：
+  - Linux `cp38`-`cp312`：`manylinux2014` / glibc `>=2.17`，覆盖 `x86_64` 和 `aarch64`。
+  - Linux `cp313`-`cp314`：`manylinux_2_28` / glibc `>=2.28`，覆盖 `x86_64` 和 `aarch64`。
+  - Windows：AMD64。
+  - macOS：`macos-13` 原生 `x86_64`，`macos-14` 原生 `arm64`。
+- 运行时依赖中保持 `rdkit>=2023.9.6` 不锁死版本，让新系统可安装更新的 RDKit wheel，低 glibc 系统则由 pip 选择当前 Python/平台上最新的兼容 RDKit wheel。根目录 [`uv.lock`](../../uv.lock) 只是本地开发解析，可能在部分 Python 分支选择旧版 RDKit；它不是发布 wheel 的版本上限。
 - 仅在以下条件全部满足时发布 PyPI：
   - `release.published`
   - `prerelease == false`
@@ -61,7 +73,7 @@ flowchart TD
 ## 必要变量与 Runner 配置
 
 - 仓库变量：`SERVER_URL`
-  - 示例：`https://gitea.example.com:13000`
+  - 示例：[`https://gitea.example.com:13000`](https://gitea.example.com:13000)
   - 用于拼接内网包仓发布/检查 URL。
 - 可选代理变量（用于内网出网控制）：
   - `HTTP_PROXY`
@@ -71,14 +83,17 @@ flowchart TD
 - 仓库密钥：
   - `OWNER`
   - `PASSWORD`
-- Runner 的 action 解析配置：
-- 工作流使用 `actions/checkout@v6` 以及标准 `uses:` action 引用。
-- 需在 Gitea 服务端配置 action 来源（`DEFAULT_ACTIONS_URL=self` + 镜像 actions，或 `github` + 可出网）。
+Runner/action 解析配置：
+
+- 当前 Gitea 工作流使用配置好的内网 action URL 上的 `checkout@v6`。
+- 需在 Gitea 服务端配置 action 来源，例如 `DEFAULT_ACTIONS_URL=self` + 镜像 actions，
+  或 `github` + 可出网。
 - action 下载发生在 job step 执行前，因此下载代理必须配置在 runner/服务进程环境层。
 
-- 若为单向镜像 `Gitea -> GitHub`：
-  - 本地/Gitea 创建的标签会同步到 GitHub；
-  - 仅在 GitHub 创建的标签不会自动回流到 Gitea。
+若为单向镜像 `Gitea -> GitHub`：
+
+- 本地/Gitea 创建的标签会同步到 GitHub；
+- 仅在 GitHub 创建的标签不会自动回流到 Gitea。
 
 推荐操作：
 

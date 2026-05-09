@@ -77,7 +77,9 @@ def _recover_resonance_candidates(
 
     for resonance_index, resonance in enumerate(resonance_iterable):
         candidate_machine = base_machine.branch("branch_resonance_candidate", omol=resonance)
-        candidate_machine.run_omol_charge_stage("process_resonance", resonance_utils.process_resonance)
+        candidate_machine.run_omol_charge_stage(
+            "process_resonance", resonance_utils.process_resonance
+        )
         processed_state_key = candidate_machine.get_cached_omol_value(
             "resonance_state_key",
             resonance_utils.build_processed_resonance_key,

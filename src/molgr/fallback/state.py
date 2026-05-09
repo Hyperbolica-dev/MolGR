@@ -131,12 +131,14 @@ class ReconstructionState:
         """Score the metal-free reconstruction with the fixed organic force-field policy."""
 
         from molgr.config import force_field_config_cache_key
+
         current_force_field_config_key = force_field_config_cache_key(config)
 
         from molgr.fallback.utils.force_field import (
             OmolForceFieldContext,
             organic_force_field_evaluation,
         )
+
         score_key = self.force_field_score_key()
         if config is None:
             evaluation = organic_force_field_evaluation(
@@ -161,6 +163,7 @@ class ReconstructionState:
         """Score the complete no-metal reconstruction state."""
 
         from molgr.config import force_field_config_cache_key
+
         current_force_field_config_key = force_field_config_cache_key(config)
 
         if config is None:
@@ -442,6 +445,7 @@ class MetalCandidateState:
         """Score the candidate using only the shared organic force-field energy."""
 
         from molgr.config import force_field_config_cache_key
+
         no_metal_state = self.no_metal_state
         if no_metal_state is None:
             raise ValueError("MetalCandidateState requires no_metal_state before scoring")

@@ -1,0 +1,32 @@
+[project]
+name = "molgr-benchmarks"
+version = "0.0.0"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "ase",
+    "cell2mol",
+    "cosymlib>=0.11.1",
+    "huckelpy>=0.2.3",
+    "networkx>=3.1",
+    "numpy>=1.26,<2",
+    "pandarallel",
+    "pandas",
+    "pyyaml>=6.0.3",
+    "rdkit-dof",
+    "scipy>=1.10.1",
+    "tqdm",
+    "xyzgraph>=1.6.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.extra-build-dependencies]
+huckelpy = ["numpy<2"]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://mirrors.zju.edu.cn/pypi/web/simple"
+
+[tool.uv.sources]
+cell2mol = { git = "https://github.com/lcmd-epfl/cell2mol.git", rev = "v2" }

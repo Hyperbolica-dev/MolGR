@@ -410,10 +410,7 @@ def _build_reference_organic_with_molgr_coords(
     if reference_heavy.GetNumAtoms() != molgr_heavy.GetNumAtoms():
         raise OrganicCoordinateMappingError(
             "heavy_atom_count_mismatch",
-            (
-                f"reference={reference_heavy.GetNumAtoms()} "
-                f"molgr={molgr_heavy.GetNumAtoms()}"
-            ),
+            (f"reference={reference_heavy.GetNumAtoms()} molgr={molgr_heavy.GetNumAtoms()}"),
         )
 
     simplified_reference_heavy = _simplify_connectivity(reference_heavy)
@@ -431,10 +428,7 @@ def _build_reference_organic_with_molgr_coords(
     if len(reference_hydrogen_indices) != len(molgr_hydrogen_indices):
         raise OrganicCoordinateMappingError(
             "hydrogen_atom_count_mismatch",
-            (
-                f"reference={len(reference_hydrogen_indices)} "
-                f"molgr={len(molgr_hydrogen_indices)}"
-            ),
+            (f"reference={len(reference_hydrogen_indices)} molgr={len(molgr_hydrogen_indices)}"),
         )
 
     molgr_conformer = molgr_organic.GetConformer()
@@ -669,9 +663,8 @@ def _process_row(
                 reference_counts,
             )
             formula_proves_reference_wrong = True
-            formula_wrong_reason = (
-                "Reference formula does not conserve XYZ atom counts: "
-                + str(result["reference_formula_mismatch_detail"])
+            formula_wrong_reason = "Reference formula does not conserve XYZ atom counts: " + str(
+                result["reference_formula_mismatch_detail"]
             )
 
     try:
@@ -805,13 +798,9 @@ def _process_row(
         if not result["error"]:
             result["error"] = str(exc)
 
-    if (
-        result["molgr_organic_uff_kj_mol"] != ""
-        and result["reference_organic_uff_kj_mol"] != ""
-    ):
-        result["organic_uff_delta_kj_mol"] = (
-            float(result["molgr_organic_uff_kj_mol"])
-            - float(result["reference_organic_uff_kj_mol"])
+    if result["molgr_organic_uff_kj_mol"] != "" and result["reference_organic_uff_kj_mol"] != "":
+        result["organic_uff_delta_kj_mol"] = float(result["molgr_organic_uff_kj_mol"]) - float(
+            result["reference_organic_uff_kj_mol"]
         )
 
     result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
@@ -879,8 +868,12 @@ def main() -> int:
             )
             molgr_status_counter.update([result["molgr_status"] or "missing"])
             molgr_uff_status_counter.update([result["molgr_organic_uff_status"] or "missing"])
-            reference_mapping_counter.update([result["reference_organic_mapping_status"] or "missing"])
-            reference_uff_status_counter.update([result["reference_organic_uff_status"] or "missing"])
+            reference_mapping_counter.update(
+                [result["reference_organic_mapping_status"] or "missing"]
+            )
+            reference_uff_status_counter.update(
+                [result["reference_organic_uff_status"] or "missing"]
+            )
             if result["strict_equivalent"] is True:
                 equivalent_count += 1
             if result["effective_equivalent"] is True:
@@ -953,8 +946,7 @@ def main() -> int:
         fh.write("\n")
 
     print(
-        f"Wrote {processed} tmQMg regression rows to {args.out} "
-        f"and summary to {summary_out}",
+        f"Wrote {processed} tmQMg regression rows to {args.out} and summary to {summary_out}",
         file=sys.stderr,
     )
     return 0

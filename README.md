@@ -1,87 +1,258 @@
 # MolGR
 
-## Environment
+[English](README.md) | [中文](README.zh-CN.md)
 
-- Python: `>=3.8`
-- Package manager: `uv`
-- Core runtime dependencies are declared in [pyproject.toml](/home/tmj/proj/MolGR/pyproject.toml)
+MolGR stands for Moleculer Graph Reconstructer.
 
-## Development Setup
+MolGR is a Python package for reconstructing molecular graphs from XYZ coordinates.
+It accepts an XYZ block, total charge, and spin multiplicity, and returns an
+`rdkit.Chem.Mol` with bond orders, a 3D conformer, optional dative bonds, and optional
+stereochemistry.
 
-Create the default development environment:
+MolGR currently provides two switchable reconstruction backends:
 
-```bash
-uv sync --dev
+- `cpp`: the default backend, exposed through `molgr._core`, for regular use and
+  performance-sensitive workflows.
+- `python`: the Python reference implementation in [`src/molgr/fallback/`](src/molgr/fallback/),
+  used for semantic alignment, debugging, and regression tests.
+
+## Quick Usage
+
+The main entrypoint is `molgr.interface.xyz_to_rdmol`:
+
+```python
+from molgr.interface import xyz_to_rdmol
+
+xyz = """3
+water
+O 0.000000 0.000000 0.000000
+H 0.758602 0.000000 0.504284
+H -0.758602 0.000000 0.504284
+"""
+
+mol = xyz_to_rdmol(
+    xyz,
+    total_charge=0,
+    spin_multiplicity=1,
+    backend="cpp",  # "python" is also available
+)
 ```
 
-Install the package in editable mode and build the C++ extension:
+`spin_multiplicity` is normalized at the API boundary as
+`total_radical_electrons = spin_multiplicity - 1`. By default, MolGR also completes
+possible dative bonds and stereochemistry. Pass `make_dative_bonds=False` or
+`make_stereochemistry=False` to disable those post-processing steps.
+
+## Installation
+
+MolGR requires Python `>=3.8`. Runtime and build dependencies are declared in
+[`pyproject.toml`](pyproject.toml). The default development workflow uses `uv`.
+
+### C++ Build Requirements
+
+Building from source compiles the `molgr._core` extension. The local build environment
+must provide:
+
+- CMake `>=3.15`.
+- A C++17-capable compiler:
+  - Linux: GCC 9+ or Clang 10+.
+  - macOS: Apple Clang from a current Xcode Command Line Tools installation.
+  - Windows: MSVC Build Tools 2019+ with the C++ workload.
+- Python development headers for the active Python interpreter. In virtual environments
+  created by `uv`, this is usually provided by the selected Python installation.
+- Python build packages from [`pyproject.toml`](pyproject.toml): `scikit-build-core`,
+  `pybind11`, `setuptools-scm`, and `openbabel-wheel`.
+- A working OpenBabel wheel for the target platform. The CMake build locates OpenBabel
+  headers and libraries from the installed `openbabel-wheel` package.
+
+Install from source and build the C++ extension:
 
 ```bash
+cd MolGR
+uv sync --dev
 uv pip install -e . -v --no-build-isolation
 ```
 
-If you only need to rebuild the extension after C++ changes:
+Editable installation builds the C++ extension through `scikit-build-core`, `pybind11`,
+and the OpenBabel package available in the current Python environment. After changing C++
+code or pybind11 bindings, rebuild before running affected tests:
 
 ```bash
 make cpp-build
 ```
 
-## Verification
+To mimic CI-style dependency resolution against PyPI instead of the local mirror configured in
+[`pyproject.toml`](pyproject.toml), pass explicit indexes:
 
-Lint:
+```bash
+uv sync --dev --index https://pypi.org/simple --default-index https://pypi.org/simple
+uv pip install -e . -v --no-build-isolation \
+  --index https://pypi.org/simple \
+  --default-index https://pypi.org/simple
+```
+
+## Project Layout
+
+- [`src/molgr/interface.py`](src/molgr/interface.py): public API, config resolution,
+  backend routing, and RDKit post-processing.
+- [`src/molgr/fallback/`](src/molgr/fallback/): Python reference implementation.
+- [`src/cpp/`](src/cpp/): C++ reconstruction implementation.
+- [`src/bindings/`](src/bindings/): pybind11 bindings for `molgr._core`.
+- [`src/molgr/utils/`](src/molgr/utils/): conversion, equivalence, and RDKit post-processing utilities.
+- [`tests/`](tests/): public behavior tests, fallback tests, converter tests, and C++ parity tests.
+- [`benchmarks/`](benchmarks/): benchmark entrypoints, dedicated dependencies, and benchmark docs.
+- [`docs/`](docs/): architecture and release documentation.
+
+## Algorithm Overview
+
+MolGR treats the Python fallback as the semantic reference and the C++ backend as the accelerated
+path. Both backends follow the same high-level reconstruction flow:
+
+1. Parse the XYZ input and determine reconstruction targets from total charge,
+   spin multiplicity, and runtime config.
+2. Route to `backend="cpp"` or `backend="python"`.
+3. For metal-free structures, reconstruct the organic graph directly; if the direct candidate is
+   invalid, enter resonance recovery.
+4. For metal-containing structures, temporarily strip metals from the organic core, enumerate
+   possible metal states, and group those states by the induced organic charge/radical target.
+5. Reconstruct each organic target bucket once, then reuse it across corresponding metal candidates.
+6. Score organic candidates or combined metal-organic candidates and select the best state.
+7. Convert backend output to an RDKit molecule and optionally complete dative bonds and stereochemistry.
+
+See [`docs/architecture/ALGORITHM_ARCHITECTURE.md`](docs/architecture/ALGORITHM_ARCHITECTURE.md)
+for the full call graph, metal search, resonance recovery, and C++ optimization notes.
+
+## Development
+
+Create or refresh the development environment:
+
+```bash
+uv sync --dev
+```
+
+Build the extension in editable mode:
+
+```bash
+uv pip install -e . -v --no-build-isolation
+```
+
+Common checks:
 
 ```bash
 uv run ruff check .
-```
-
-Format check:
-
-```bash
 uv run ruff format --check .
-```
-
-Tests:
-
-```bash
+uv run mypy src
 uv run pytest
 ```
 
-Type check:
-
-```bash
-uv run mypy src
-```
-
-Build distributions:
+Build source and wheel distributions:
 
 ```bash
 uv build
 ```
 
-## Benchmark Environment
+The root [`makefile`](makefile) provides common development shortcuts:
 
-Benchmarks use a dedicated environment instead of the default `.venv`:
+- `make format`: run the Ruff formatter; modifies files.
+- `make lint`: run `ruff check . --fix`; modifies files.
+- `make test`: run pytest.
+- `make type-check`: run MyPy on `src`.
+- `make cpp-build`: rebuild the editable C++ extension and refresh C++ IDE config.
+- `make stubs`: regenerate type stubs for the compiled extension.
+
+Optional VSCode/clangd C++ configuration:
+
+```bash
+uv run python scripts/gen_vscode_config_with_ob.py --build-dir build
+```
+
+## Testing
+
+Run the full test suite:
+
+```bash
+uv run pytest
+```
+
+Useful focused tests during development:
+
+```bash
+uv run pytest tests/test_main.py
+uv run pytest tests/test_backend_reconstruction_regression.py
+uv run pytest tests/test_fallback_resonance.py
+uv run pytest tests/test_fallback_get_possible_metal_radicals.py
+```
+
+When changing C++, pybind11 bindings, or the `_core` public surface:
+
+1. Rebuild the extension with `make cpp-build`.
+2. Run affected C++/Python parity tests, for example
+   [`tests/test_backend_reconstruction_regression.py`](tests/test_backend_reconstruction_regression.py)
+   and [`tests/test_cpp_uff_atom_typing_cache.py`](tests/test_cpp_uff_atom_typing_cache.py).
+3. If binding interfaces changed, run `make stubs` and inspect the generated `.pyi` files.
+
+Some tests depend on OpenBabel. They may be skipped when the dependency is unavailable.
+
+## Benchmark
+
+Benchmark dependencies live in [`benchmarks/pyproject.toml`](benchmarks/pyproject.toml), separate
+from the release dependency graph and the root [`uv.lock`](uv.lock). Benchmarks use a dedicated environment:
+default path `.venv-benchmark`, default Python executable `python3.10`.
+
+Create or refresh the benchmark environment:
 
 ```bash
 bash scripts/benchmark_env.sh create
 ```
 
-Run a benchmark inside that environment:
+Run the SMILES/XYZ benchmark:
 
 ```bash
-bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --out benchmarks/_runs/run1
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py \
+  --input tests/test_cases.csv \
+  --limit 10 \
+  --out benchmarks/_runs/smiles-demo
 ```
 
-Optional shell switch for repeated benchmark commands:
+Run the Molfile/SDF benchmark:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py \
+  --input tests/data/sdf/MoNNMo.sdf \
+  --limit 1 \
+  --out benchmarks/_runs/molfile-demo
+```
+
+For repeated benchmark commands, switch the current shell environment:
 
 ```bash
 eval "$(bash scripts/benchmark_env.sh env)"
 ```
 
-## Optional IDE Setup
-
-Generate VSCode / clangd C++ config from the active environment:
+Restore the default project environment:
 
 ```bash
-uv run python scripts/gen_vscode_config_with_ob.py --build-dir build
+unset UV_PROJECT UV_PROJECT_ENVIRONMENT UV_PYTHON
 ```
+
+See [`benchmarks/README.md`](benchmarks/README.md) or
+[`benchmarks/README.zh-CN.md`](benchmarks/README.zh-CN.md) for details.
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md): English documentation index.
+- [`docs/README.zh-CN.md`](docs/README.zh-CN.md): Chinese documentation index.
+- [`docs/architecture/ALGORITHM_ARCHITECTURE.md`](docs/architecture/ALGORITHM_ARCHITECTURE.md):
+  English algorithm architecture.
+- [`docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md`](docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md):
+  Chinese algorithm architecture.
+- [`docs/release/DEVELOPMENT_RELEASE_GUIDE.md`](docs/release/DEVELOPMENT_RELEASE_GUIDE.md):
+  English development and release guide.
+- [`docs/release/DEVELOPMENT_RELEASE_GUIDE.zh-CN.md`](docs/release/DEVELOPMENT_RELEASE_GUIDE.zh-CN.md):
+  Chinese development and release guide.
+- [`benchmarks/README.md`](benchmarks/README.md): English benchmark environment, commands, and outputs.
+- [`benchmarks/README.zh-CN.md`](benchmarks/README.zh-CN.md): Chinese benchmark environment, commands, and outputs.
+
+## License
+
+MolGR is released under the GNU General Public License v2. See [`LICENSE`](LICENSE).

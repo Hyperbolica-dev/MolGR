@@ -211,8 +211,7 @@ def generate_config(build_dir: str):
         clangd_database_path = "."
     write_text(
         clangd_file,
-        "CompileFlags:\n"
-        f"  CompilationDatabase: {clangd_database_path}\n",
+        f"CompileFlags:\n  CompilationDatabase: {clangd_database_path}\n",
     )
 
     link_ok, link_message = ensure_compile_commands_link(workspace_dir, compile_commands_path)
@@ -249,9 +248,7 @@ def generate_config(build_dir: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate VSCode/clangd C++ IDE config for MolGR."
-    )
+    parser = argparse.ArgumentParser(description="Generate VSCode/clangd C++ IDE config for MolGR.")
     parser.add_argument(
         "--build-dir",
         default=DEFAULT_BUILD_DIR,

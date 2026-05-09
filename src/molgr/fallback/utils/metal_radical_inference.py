@@ -128,9 +128,7 @@ def _dot(lhs: Tuple[float, float, float], rhs: Tuple[float, float, float]) -> fl
     return lhs[0] * rhs[0] + lhs[1] * rhs[1] + lhs[2] * rhs[2]
 
 
-def _angle_degrees(
-    lhs: Tuple[float, float, float], rhs: Tuple[float, float, float]
-) -> float:
+def _angle_degrees(lhs: Tuple[float, float, float], rhs: Tuple[float, float, float]) -> float:
     lhs_norm = _vector_norm(lhs)
     rhs_norm = _vector_norm(rhs)
     if lhs_norm <= 1e-8 or rhs_norm <= 1e-8:
@@ -224,7 +222,10 @@ def _classify_geometry(
             return "trigonal_planar"
         return "trigonal_pyramidal"
     if coordination_number == 4:
-        if _planarity_distance(vectors) <= metal_radical_config.square_planar_planarity_tolerance_angstrom:
+        if (
+            _planarity_distance(vectors)
+            <= metal_radical_config.square_planar_planarity_tolerance_angstrom
+        ):
             return "square_planar"
         return "tetrahedral"
     return "octahedral_like"

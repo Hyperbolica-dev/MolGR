@@ -131,7 +131,9 @@ def prepare_metal_state(
     """Split the input into a no-metal XYZ block plus per-metal state options."""
 
     omol = pybel.readstring("xyz", xyz_block)
-    removable_metal_atoms = [cast(ob.OBAtom, atom.OBAtom) for atom in omol.atoms if atom.OBAtom.IsMetal()]
+    removable_metal_atoms = [
+        cast(ob.OBAtom, atom.OBAtom) for atom in omol.atoms if atom.OBAtom.IsMetal()
+    ]
     available_valence_radical_states = tuple(
         tuple(_build_metal_states(obatom, config=config)) for obatom in removable_metal_atoms
     )

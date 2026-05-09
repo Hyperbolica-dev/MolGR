@@ -286,8 +286,7 @@ def main() -> int:
         fh.write("\n")
 
     print(
-        f"Wrote {processed} tmQMg formula-check rows to {args.out} "
-        f"and summary to {summary_out}",
+        f"Wrote {processed} tmQMg formula-check rows to {args.out} and summary to {summary_out}",
         file=sys.stderr,
     )
     return 0

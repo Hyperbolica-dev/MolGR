@@ -49,7 +49,9 @@ def _naive_resonance_state_keys(seed: pybel.Molecule, max_depth: int = 2) -> set
             current_key,
             bond_index_map,
         ):
-            next_resonance = resonance_utils_module._materialize_one_step_resonance(current, move.idxs)
+            next_resonance = resonance_utils_module._materialize_one_step_resonance(
+                current, move.idxs
+            )
             next_key = move.next_state_key
             if next_key in seen:
                 continue
@@ -274,7 +276,9 @@ def test_get_radical_resonances_limited_discrepancy_policy_prefers_low_discrepan
         "_score_one_step_resonance_with_force_field",
         fake_force_field_score,
     )
-    monkeypatch.setattr(resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate)
+    monkeypatch.setattr(
+        resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate
+    )
     monkeypatch.setattr(resonance_utils_module, "_materialize_one_step_resonance", fake_materialize)
 
     resonances = get_radical_resonances(seed, max_depth=2, traversal_policy=policy)
@@ -378,7 +382,9 @@ def test_limited_discrepancy_search_prefers_lower_cost_duplicate_state(monkeypat
         "_score_one_step_resonance_with_force_field",
         fake_force_field_score,
     )
-    monkeypatch.setattr(resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate)
+    monkeypatch.setattr(
+        resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate
+    )
     monkeypatch.setattr(resonance_utils_module, "_materialize_one_step_resonance", fake_materialize)
 
     resonances = get_radical_resonances(seed, max_depth=2, traversal_policy=policy)
@@ -491,7 +497,9 @@ def test_recover_resonance_candidates_returns_valid_candidates() -> None:
     assert min(scores) == sorted(scores)[0]
 
 
-def test_recover_resonance_candidates_returns_candidates_without_legacy_shared_region_scoring() -> None:
+def test_recover_resonance_candidates_returns_candidates_without_legacy_shared_region_scoring() -> (
+    None
+):
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,

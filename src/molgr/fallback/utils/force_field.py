@@ -58,7 +58,9 @@ def _build_score_key(omol: pybel.Molecule) -> ForceFieldScoreKey:
         end_idx = int(cast(ob.OBAtom, obbond.GetEndAtom()).GetIdx())
         if begin_idx > end_idx:
             begin_idx, end_idx = end_idx, begin_idx
-        bond_keys.append((begin_idx, end_idx, int(obbond.GetBondOrder()), bool(obbond.IsAromatic())))
+        bond_keys.append(
+            (begin_idx, end_idx, int(obbond.GetBondOrder()), bool(obbond.IsAromatic()))
+        )
     return tuple(atom_keys), tuple(bond_keys)
 
 
@@ -408,7 +410,9 @@ def selection_force_field_evaluation(
         _resolve_force_field_config(config).selection_force_field
     )
     if context.contains_metals:
-        organic_context = OmolForceFieldContext(_strip_metal_atoms(context.omol), contains_metals=False)
+        organic_context = OmolForceFieldContext(
+            _strip_metal_atoms(context.omol), contains_metals=False
+        )
         return _force_field_evaluation_from_context(
             organic_context,
             requested_force_field,

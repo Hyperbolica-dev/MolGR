@@ -1,104 +1,108 @@
-<!--
- * @Author: TMJ
- * @Date: 2026-02-25 14:46:29
- * @LastEditors: TMJ
- * @LastEditTime: 2026-02-25 19:22:16
- * @Description: 请填写简介
--->
 # SMILES/XYZ Benchmark
 
-## What it does
+[English](README.md) | [中文](README.zh-CN.md)
 
-This benchmark compares molecule reconstruction approaches from XYZ-like inputs and reports per-case outputs plus aggregate metrics.
+This benchmark compares molecule reconstruction methods on XYZ cases generated from
+SMILES inputs. It is useful for quick regression checks because the input file is compact
+and RDKit can provide the reference molecule.
+
+## Case Preparation
+
+For each SMILES entry, [`../../scripts/molgr_cases_smiles_csv.py`](../../scripts/molgr_cases_smiles_csv.py):
+
+1. Parses the SMILES with RDKit.
+2. Generates the canonical reference SMILES.
+3. Adds hydrogens.
+4. Embeds a 3D conformer with RDKit.
+5. Optimizes the conformer with UFF.
+6. Computes total formal charge and radical electron count.
+7. Converts the molecule to an XYZ block.
+
+If case preparation fails, the benchmark records a skipped row for each method.
 
 ## Methods
+
+The benchmark uses the shared method registry from
+[`methods/__init__.py`](methods/__init__.py):
 
 - `rdkit_determine_bonds`
 - `openbabel_read_xyz`
 - `cell2mol_v2`
 - `molgr_fallback`
-- `molgr_fallback`
+- `molgr_cpp`
 - `xyzgraph_cheminf_full`
 
-## Run
+## Environment
 
-```bash
-uv run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --limit 10 --out benchmarks/_runs/demo
-```
+Use the dedicated benchmark environment documented in [`../README.md`](../README.md).
+The environment uses Python `>=3.10,<3.12` and keeps benchmark-only dependencies in
+[`../pyproject.toml`](../pyproject.toml).
 
-## Benchmark Environment (Python >=3.10)
-
-`xyzgraph` is used as a competitor baseline via `xyzgraph_cheminf_full`, so run this benchmark in the dedicated Python `>=3.10` env.
-
-We keep a dedicated benchmark env (separate from `.venv`) using uv's `UV_PROJECT_ENVIRONMENT` + `UV_PYTHON`.
-
-The benchmark dependency set keeps `numpy<2` for compatibility with optional `cell2mol`/`cosymlib` stacks.
-
-Create/update the benchmark env (and build the C++ extension). The script pins all `uv` steps to `BENCH_PYTHON` (default `python3.10`) and uses `uv pip` (not `python -m pip`):
+Create or refresh it from the repository root:
 
 ```bash
 bash scripts/benchmark_env.sh create
 ```
 
-Switch the current shell to use it (optional; affects subsequent `uv run` / `uv sync`):
+## Run
+
+Recommended direct run:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py \
+  --input tests/test_cases.csv \
+  --limit 10 \
+  --out benchmarks/_runs/smiles-demo
+```
+
+Optional shell switch for repeated benchmark commands:
 
 ```bash
 eval "$(bash scripts/benchmark_env.sh env)"
 ```
 
-Run the benchmark inside the benchmark env (recommended; does not require shell switching):
+Then run:
 
 ```bash
-bash scripts/benchmark_env.sh run python benchmarks/smiles_xyz_benchmark/run.py --input tests/test_cases.csv --limit 10 --out benchmarks/_runs/xyzgraph
+uv run python benchmarks/smiles_xyz_benchmark/run.py \
+  --input tests/test_cases.csv \
+  --limit 10 \
+  --out benchmarks/_runs/smiles-demo
 ```
 
-Switch back to the default project environment:
+Restore the normal project environment:
 
 ```bash
-unset UV_PROJECT_ENVIRONMENT UV_PYTHON
+unset UV_PROJECT UV_PROJECT_ENVIRONMENT UV_PYTHON
 ```
+
+## Inputs
+
+`--input` points to a text or CSV-style file containing SMILES. The loader accepts:
+
+- a plain file with one SMILES per non-empty line
+- a header named `smiles`
+- a header named `canonicalsmiles`
+- a header named `canonicalsmi`
+- a two-line `general` plus SMILES header layout
+
+`--limit` applies after header parsing and caps the number of SMILES entries used for the run.
 
 ## Outputs
 
-The run directory contains:
+The output directory contains:
 
-- `results.csv`: one row per test case and method.
-- `summary.csv`: aggregated metrics by method.
+- `results.csv`: one row per `(case, method)` run.
+- `summary.csv`: aggregate counts and latency statistics by method.
 
-Timing columns in `results.csv` are flattened; `timing_ms_breakdown_json` preserves the full timing breakdown dict.
-
-### `results.csv` columns
-
-- `case_idx`
-- `method_id`
-- `input_smiles`
-- `ground_truth_smiles`
-- `status`
-- `error`
-- `predicted_smiles`
-- `equivalent`
-- `equivalence_method`
-- `timing_ms_total`
-- `timing_ms_breakdown_json`
-
-### `summary.csv` columns
-
-- `method_id`
-- `count`
-- `success_count`
-- `fail_count`
-- `skip_count`
-- `avg_ms_total`
-- `p50_ms_total`
-- `p95_ms_total`
-
-## Licensing note (`cell2mol_v2`)
-
-`cell2mol_v2` is optional. If enabled, ensure your use and redistribution comply with its license terms (including GPL obligations where applicable).
+The CSV schema is shared with `molfile_xyz_benchmark`. Timing fields are flattened where
+available, and `timing_ms_breakdown_json` keeps the full timing dictionary.
 
 ## Reproducibility
 
-- Pin the environment and dependency versions (for example via `uv.lock`).
-- Run with the same input file and flags (`--input`, `--limit`, `--out`).
-- Keep method set fixed when comparing runs.
-- Record the commit hash and run timestamp with each benchmark output.
+For comparable runs:
+
+- keep the input file and `--limit` fixed
+- keep the method registry fixed
+- use the same [`../uv.lock`](../uv.lock)
+- record the Git commit and output directory name with each run
