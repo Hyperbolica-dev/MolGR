@@ -91,25 +91,16 @@ jobs:
       - name: Run tests
         run: $HOME/.local/bin/uv run --no-sync --python ${{ matrix.python-version }} pytest
 
-  build-internal-release-wheels:
-    name: Build internal release wheels (${{ matrix.target }})
+  build-internal-release-linux-manylinux2014-wheels:
+    name: Build internal Linux manylinux2014 wheel (${{ matrix.python_abi }} ${{ matrix.arch }})
     needs: [lint, build-test-linux-matrix]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-manylinux2014
-            build: "cp38-manylinux_* cp39-manylinux_* cp310-manylinux_* cp311-manylinux_* cp312-manylinux_*"
-            archs_linux: "x86_64 aarch64"
-            manylinux_x86_64_image: manylinux2014
-            manylinux_aarch64_image: manylinux2014
-          - target: linux-manylinux_2_28
-            build: "cp313-manylinux_* cp314-manylinux_*"
-            archs_linux: "x86_64 aarch64"
-            manylinux_x86_64_image: manylinux_2_28
-            manylinux_aarch64_image: manylinux_2_28
+        python_abi: ["cp38", "cp39", "cp310", "cp311", "cp312"]
+        arch: ["x86_64", "aarch64"]
 
     steps:
       - name: Checkout code
@@ -127,21 +118,23 @@ jobs:
           fi
 
       - name: Set up QEMU for Linux aarch64
+        if: matrix.arch == 'aarch64'
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64
 
       - name: Install build tools
         run: |
           python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/cibuildwheel" --version
-          "$HOME/.local/bin/uv" --version
+          USER_BIN="$(python3 -m site --user-base)/bin"
+          echo "$USER_BIN" >> "$GITHUB_PATH"
+          python3 -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          "$USER_BIN/uv" --version
 
       - name: Build wheels via cibuildwheel
         env:
-          CIBW_BUILD: ${{ matrix.build }}
-          CIBW_ARCHS_LINUX: ${{ matrix.archs_linux }}
-          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux_x86_64_image }}
-          CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.manylinux_aarch64_image }}
+          CIBW_BUILD: ${{ matrix.python_abi }}-manylinux_*
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
@@ -151,7 +144,8 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
-        run: $HOME/.local/bin/cibuildwheel
+        run: |
+          "$(python3 -m site --user-base)/bin/cibuildwheel" --platform linux
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -164,11 +158,143 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$HOME/.local/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+  build-internal-release-linux-manylinux-2-28-wheels:
+    name: Build internal Linux manylinux_2_28 wheel (${{ matrix.python_abi }} ${{ matrix.arch }})
+    needs: [lint, build-test-linux-matrix]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
+    strategy:
+      fail-fast: false
+      matrix:
+        python_abi: ["cp313", "cp314"]
+        arch: ["x86_64", "aarch64"]
+
+    steps:
+      - name: Checkout code
+        uses: http://10.72.201.58:13000/actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate prerelease tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin main:refs/remotes/origin/main --prune
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Prerelease tags must point to a commit reachable from origin/main."
+            exit 1
+          fi
+
+      - name: Set up QEMU for Linux aarch64
+        if: matrix.arch == 'aarch64'
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+      - name: Install build tools
+        run: |
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv
+          USER_BIN="$(python3 -m site --user-base)/bin"
+          echo "$USER_BIN" >> "$GITHUB_PATH"
+          python3 -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          "$USER_BIN/uv" --version
+
+      - name: Build wheels via cibuildwheel
+        env:
+          CIBW_BUILD: ${{ matrix.python_abi }}-manylinux_*
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          CIBW_ENVIRONMENT: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            HTTP_PROXY=http://10.72.200.48:7890
+            HTTPS_PROXY=http://10.72.200.48:7890
+          CIBW_BUILD_VERBOSITY: "1"
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
+            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+          CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
+        run: |
+          "$(python3 -m site --user-base)/bin/cibuildwheel" --platform linux
+
+      - name: Publish wheels to Gitea Registry
+        env:
+          UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          if [ -z "${SERVER_URL}" ]; then
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL, for example: https://gitea.example.com:13000."
+            exit 1
+          fi
+          PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+  build-internal-release-macos-arm64-wheels:
+    name: Build internal macOS arm64 wheel (${{ matrix.python_abi }})
+    needs: [lint, build-test-linux-matrix]
+    runs-on: macos-arm64
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
+    strategy:
+      fail-fast: false
+      matrix:
+        python_abi: ["cp38", "cp39", "cp310", "cp311", "cp312", "cp313", "cp314"]
+
+    steps:
+      - name: Checkout code
+        uses: http://10.72.201.58:13000/actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate prerelease tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin main:refs/remotes/origin/main --prune
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Prerelease tags must point to a commit reachable from origin/main."
+            exit 1
+          fi
+
+      - name: Install build tools
+        run: |
+          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" cibuildwheel==3.4.1 uv
+          USER_BIN="$(python3 -m site --user-base)/bin"
+          echo "$USER_BIN" >> "$GITHUB_PATH"
+          python3 -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          "$USER_BIN/uv" --version
+
+      - name: Build wheels via cibuildwheel
+        env:
+          CIBW_BUILD: ${{ matrix.python_abi }}-macosx_arm64
+          CIBW_ARCHS_MACOS: arm64
+          CIBW_ENVIRONMENT: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            HTTP_PROXY=http://10.72.200.48:7890
+            HTTPS_PROXY=http://10.72.200.48:7890
+          CIBW_BUILD_VERBOSITY: "1"
+          CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
+        run: |
+          "$(python3 -m site --user-base)/bin/cibuildwheel" --platform macos
+
+      - name: Publish wheels to Gitea Registry
+        env:
+          UV_PUBLISH_USERNAME: ${{ secrets.OWNER }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          if [ -z "${SERVER_URL}" ]; then
+            echo "SERVER_URL is empty. Set repository variable SERVER_URL, for example: https://gitea.example.com:13000."
+            exit 1
+          fi
+          PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
+          CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
+          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
 
   publish-internal-sdist:
     name: Publish internal sdist
-    needs: build-internal-release-wheels
+    needs:
+      - build-internal-release-linux-manylinux2014-wheels
+      - build-internal-release-linux-manylinux-2-28-wheels
+      - build-internal-release-macos-arm64-wheels
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || (startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, 'rc') || contains(github.ref_name, '.dev'))))
 

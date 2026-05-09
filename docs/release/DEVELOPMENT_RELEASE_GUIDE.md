@@ -39,9 +39,16 @@ File: [`.gitea/workflows/ci.yaml`](../../.gitea/workflows/ci.yaml)
 - Linux matrix compile/test for Python `3.8` to `3.14`.
 - Dependency index uses intranet mirror
   [`https://mirrors.zju.edu.cn/pypi/web/simple`](https://mirrors.zju.edu.cn/pypi/web/simple).
-- Internal wheel publishing uses the same Linux `cibuildwheel` split as GitHub:
-  - `cp38`-`cp312`: `manylinux2014` / glibc `>=2.17`, `x86_64` and `aarch64`.
-  - `cp313`-`cp314`: `manylinux_2_28`, `x86_64` and `aarch64`.
+- Internal wheel publishing uses fine-grained `cibuildwheel` jobs so Gitea can
+  schedule wheels across multiple runners:
+  - Linux wheels are split by CPython ABI and architecture.
+  - `cp38`-`cp312` use `manylinux2014` / glibc `>=2.17`.
+  - `cp313`-`cp314` use `manylinux_2_28`.
+  - macOS arm64 wheels are split by CPython ABI and run on `macos-arm64`
+    runners.
+- macOS arm64 runners must have official Python.org installs for the targeted
+  Python versions; `cibuildwheel` will not build macOS wheels with `brew` or
+  `uv` Python installations.
 - Registry base URL is read from repository variable `SERVER_URL`.
 - Publish to the internal registry when either condition is met:
   - `push` to `develop` (test packages), or
