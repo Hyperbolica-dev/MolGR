@@ -95,6 +95,10 @@ add_library(molgr STATIC
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_definitions(molgr PUBLIC _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
+endif()
+
 target_include_directories(molgr PUBLIC
     src/cpp/include
     ${OB_INCLUDE_DIR}
