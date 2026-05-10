@@ -95,6 +95,10 @@ add_library(molgr STATIC
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_definitions(molgr PUBLIC _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
+endif()
+
 target_include_directories(molgr PUBLIC
     src/cpp/include
     ${OB_INCLUDE_DIR}
@@ -115,7 +119,14 @@ pybind11_add_module(_core
 
 target_link_libraries(_core PRIVATE molgr)
 
-if(UNIX AND NOT APPLE)
+if(APPLE)
+    set_target_properties(_core PROPERTIES
+        MACOSX_RPATH ON
+        BUILD_WITH_INSTALL_RPATH ON
+        BUILD_RPATH "${OB_ROOT}/lib;${OB_ROOT}"
+        INSTALL_RPATH "@loader_path/../openbabel/lib;@loader_path/../openbabel"
+    )
+elseif(UNIX)
     set_target_properties(_core PROPERTIES BUILD_RPATH "${OB_ROOT}/lib:${OB_ROOT}")
     set_target_properties(_core PROPERTIES INSTALL_RPATH "$ORIGIN/../openbabel/lib:$ORIGIN/../openbabel")
 endif()

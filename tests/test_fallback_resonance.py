@@ -36,6 +36,28 @@ def _make_seed(smiles: str, radical_atom_indices: tuple[int, ...]) -> pybel.Mole
     return mol
 
 
+def test_default_resonance_traversal_score_names_uff_lite_gain() -> None:
+    config = make_default_config()
+
+    assert config.resonance.traversal_score == "uff_lite_gain"
+
+
+def test_no_metal_default_resonance_policy_accepts_uff_lite_gain() -> None:
+    base_config = make_default_config()
+    config = replace(
+        base_config,
+        resonance=replace(
+            base_config.resonance,
+            traversal_score="uff_lite_gain",
+        ),
+    )
+
+    policy = no_metal_resonance_module._default_resonance_traversal_policy(config)
+
+    assert type(policy).__name__ == "_LimitedDiscrepancyUffLiteGainTraversalPolicy"
+    assert policy.max_discrepancy == config.resonance.limited_discrepancy_max_discrepancy
+
+
 def _naive_resonance_state_keys(seed: pybel.Molecule, max_depth: int = 2) -> set[tuple]:
     root_key, bond_index_map = resonance_utils_module._build_resonance_search_context(seed)
     seen = {root_key}
@@ -233,7 +255,7 @@ def test_get_radical_resonances_limited_discrepancy_policy_prefers_low_discrepan
         idxs=(20, 21, 22),
         next_state_key=state_key_b1,
     )
-    policy = resonance_module.make_limited_discrepancy_force_field_traversal_policy(
+    policy = resonance_module.make_limited_discrepancy_uff_lite_gain_traversal_policy(
         max_discrepancy=1
     )
 
@@ -245,9 +267,11 @@ def test_get_radical_resonances_limited_discrepancy_policy_prefers_low_discrepan
         ("state-b", (20, 21, 22)): 1.0,
     }
 
-    def fake_force_field_score(omol, move_path, *, config=None):
+    def fake_order_uff_lite_gain_moves(omol, moves):
         label = "seed" if omol is seed else omol
-        return scores_by_state_and_move[(label, move_path)]
+        ordered_moves = [(move, scores_by_state_and_move[(label, move.path)]) for move in moves]
+        ordered_moves.sort(key=lambda item: (item[1], item[0].path))
+        return ordered_moves
 
     def fake_enumerate(omol, state_key, bond_index_map):
         if omol is seed:
@@ -273,8 +297,8 @@ def test_get_radical_resonances_limited_discrepancy_policy_prefers_low_discrepan
 
     monkeypatch.setattr(
         resonance_utils_module,
-        "_score_one_step_resonance_with_force_field",
-        fake_force_field_score,
+        "_order_uff_lite_gain_moves",
+        fake_order_uff_lite_gain_moves,
     )
     monkeypatch.setattr(
         resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate
@@ -287,7 +311,7 @@ def test_get_radical_resonances_limited_discrepancy_policy_prefers_low_discrepan
     assert resonances[1:] == ["state-a", "state-a1", "state-b", "state-b1"]
 
 
-def test_force_field_limited_discrepancy_prunes_high_rank_resonance_branch(
+def test_uff_lite_limited_discrepancy_prunes_high_rank_resonance_branch(
     monkeypatch,
 ) -> None:
     seed = _make_seed("C=CC=C", (2,))
@@ -306,18 +330,27 @@ def test_force_field_limited_discrepancy_prunes_high_rank_resonance_branch(
         idxs=(7, 8, 9),
         next_state_key=state_key_c,
     )
-    policy = resonance_module.make_limited_discrepancy_force_field_traversal_policy(
+    policy = resonance_module.make_limited_discrepancy_uff_lite_gain_traversal_policy(
         max_discrepancy=1
     )
 
     monkeypatch.setattr(
         resonance_utils_module,
-        "_score_one_step_resonance_with_force_field",
-        lambda omol, move_path, *, config=None: {
-            (1, 2, 3): 1.0,
-            (4, 5, 6): 2.0,
-            (7, 8, 9): 3.0,
-        }[move_path],
+        "_order_uff_lite_gain_moves",
+        lambda omol, moves: sorted(
+            [
+                (
+                    move,
+                    {
+                        (1, 2, 3): 1.0,
+                        (4, 5, 6): 2.0,
+                        (7, 8, 9): 3.0,
+                    }[move.path],
+                )
+                for move in moves
+            ],
+            key=lambda item: (item[1], item[0].path),
+        ),
     )
     monkeypatch.setattr(
         resonance_utils_module,
@@ -351,7 +384,7 @@ def test_limited_discrepancy_search_prefers_lower_cost_duplicate_state(monkeypat
         idxs=(10, 11, 12),
         next_state_key=shared_state_key,
     )
-    policy = resonance_module.make_limited_discrepancy_force_field_traversal_policy(
+    policy = resonance_module.make_limited_discrepancy_uff_lite_gain_traversal_policy(
         max_discrepancy=1
     )
 
@@ -361,9 +394,11 @@ def test_limited_discrepancy_search_prefers_lower_cost_duplicate_state(monkeypat
         ("state-a", (10, 11, 12)): 1.0,
     }
 
-    def fake_force_field_score(omol, move_path, *, config=None):
+    def fake_order_uff_lite_gain_moves(omol, moves):
         label = "seed" if omol is seed else omol
-        return scores_by_state_and_move[(label, move_path)]
+        ordered_moves = [(move, scores_by_state_and_move[(label, move.path)]) for move in moves]
+        ordered_moves.sort(key=lambda item: (item[1], item[0].path))
+        return ordered_moves
 
     def fake_enumerate(omol, state_key, bond_index_map):
         if omol is seed:
@@ -379,8 +414,8 @@ def test_limited_discrepancy_search_prefers_lower_cost_duplicate_state(monkeypat
 
     monkeypatch.setattr(
         resonance_utils_module,
-        "_score_one_step_resonance_with_force_field",
-        fake_force_field_score,
+        "_order_uff_lite_gain_moves",
+        fake_order_uff_lite_gain_moves,
     )
     monkeypatch.setattr(
         resonance_utils_module, "_enumerate_one_step_resonance_moves", fake_enumerate
@@ -400,52 +435,6 @@ def test_process_resonance_matches_equivalent_clone_states_without_cache() -> No
 
     assert first_charge == second_charge
     assert build_resonance_state_key(first_resonance) == build_resonance_state_key(second_resonance)
-
-
-def test_resonance_move_score_cache_uses_config_in_key_and_execution(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    resonance_utils_module.resonance_move_score_cache_clear()
-    seed = _make_seed("C=CC=C", (2,))
-    default_config = make_default_config()
-    config_a = replace(
-        default_config,
-        force_field=replace(default_config.force_field, selection_force_field="uff"),
-    )
-    config_b = replace(
-        default_config,
-        force_field=replace(default_config.force_field, selection_force_field="auto"),
-    )
-    seen_configs = []
-
-    def fake_selection_force_field_energy(omol, *, config=None):
-        seen_configs.append(config)
-        return 1.0
-
-    monkeypatch.setattr(
-        resonance_utils_module,
-        "selection_force_field_energy",
-        fake_selection_force_field_energy,
-    )
-
-    first = resonance_utils_module._score_one_step_resonance_with_force_field(
-        seed,
-        (2, 3, 4),
-        config=config_a,
-    )
-    second = resonance_utils_module._score_one_step_resonance_with_force_field(
-        seed,
-        (2, 3, 4),
-        config=config_a,
-    )
-    third = resonance_utils_module._score_one_step_resonance_with_force_field(
-        seed,
-        (2, 3, 4),
-        config=config_b,
-    )
-
-    assert first == second == third == 1.0
-    assert seen_configs == [config_a, config_b]
 
 
 def test_omol_state_machine_caches_resonance_key_until_omol_changes(

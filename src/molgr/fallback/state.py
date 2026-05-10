@@ -42,18 +42,12 @@ CombinedOmolBuilder = Callable[[pybel.Molecule, Sequence[MetalAtomPosition]], py
 _DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE = 4096
 _OMOL_DERIVED_METADATA_KEYS = (
     "force_field_energy",
-    "force_field_config_key",
-    "force_field_requested",
-    "force_field_resolved_force_field",
     "force_field_score_key",
     "organic_core_score",
     "score",
 )
 _CANDIDATE_DERIVED_METADATA_KEYS = (
     "force_field_energy",
-    "force_field_config_key",
-    "force_field_requested",
-    "force_field_resolved_force_field",
     "score",
 )
 
@@ -128,11 +122,7 @@ class ReconstructionState:
         return cast(Any, score_key)
 
     def organic_core_score(self, *, config: MolGRConfig | None = None) -> float:
-        """Score the metal-free reconstruction with the fixed organic force-field policy."""
-
-        from molgr.config import force_field_config_cache_key
-
-        current_force_field_config_key = force_field_config_cache_key(config)
+        """Score the metal-free reconstruction with fixed organic UFF scoring."""
 
         from molgr.fallback.utils.force_field import (
             OmolForceFieldContext,
@@ -140,20 +130,12 @@ class ReconstructionState:
         )
 
         score_key = self.force_field_score_key()
-        if config is None:
-            evaluation = organic_force_field_evaluation(
-                OmolForceFieldContext(self.omol, score_key=score_key)
-            )
-        else:
-            evaluation = organic_force_field_evaluation(
-                OmolForceFieldContext(self.omol, score_key=score_key),
-                config=config,
-            )
+        del config
+        evaluation = organic_force_field_evaluation(
+            OmolForceFieldContext(self.omol, score_key=score_key)
+        )
         score = evaluation.energy_kj_mol
         self.metadata["force_field_energy"] = score
-        self.metadata["force_field_config_key"] = current_force_field_config_key
-        self.metadata["force_field_requested"] = evaluation.requested_force_field
-        self.metadata["force_field_resolved_force_field"] = evaluation.resolved_force_field
         self.metadata["organic_core_score"] = score
         self.metadata["score"] = score
         self.metadata["force_field_score_key"] = score_key
@@ -162,15 +144,10 @@ class ReconstructionState:
     def full_score(self, *, config: MolGRConfig | None = None) -> float:
         """Score the complete no-metal reconstruction state."""
 
-        from molgr.config import force_field_config_cache_key
-
-        current_force_field_config_key = force_field_config_cache_key(config)
-
         if config is None:
             score = self.organic_core_score()
         else:
             score = self.organic_core_score(config=config)
-        self.metadata["force_field_config_key"] = current_force_field_config_key
         self.metadata["score"] = score
         return float(score)
 
@@ -444,16 +421,11 @@ class MetalCandidateState:
     def combined_score(self, *, config: MolGRConfig | None = None) -> float:
         """Score the candidate using only the shared organic force-field energy."""
 
-        from molgr.config import force_field_config_cache_key
-
         no_metal_state = self.no_metal_state
         if no_metal_state is None:
             raise ValueError("MetalCandidateState requires no_metal_state before scoring")
 
-        score_key = (
-            self.combined_score_key(),
-            force_field_config_cache_key(config),
-        )
+        score_key = self.combined_score_key()
         cached = self.key_cache.get("combined_score")
         if cached is not None:
             cached_key, cached_score = cast(Tuple[object, float], cached)
@@ -468,15 +440,6 @@ class MetalCandidateState:
             organic_score = no_metal_state.score("organic_core", config=config)
         score_value = organic_score
         self.metadata["force_field_energy"] = organic_score
-        self.metadata["force_field_config_key"] = force_field_config_cache_key(config)
-        self.metadata["force_field_requested"] = no_metal_state.metadata.get(
-            "force_field_requested",
-            "auto",
-        )
-        self.metadata["force_field_resolved_force_field"] = no_metal_state.metadata.get(
-            "force_field_resolved_force_field",
-            self.metadata["force_field_requested"],
-        )
         self.key_cache["combined_score"] = (score_key, score_value)
         self.metadata["score"] = score_value
         self.score = score_value

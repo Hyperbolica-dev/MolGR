@@ -16,9 +16,6 @@ namespace molgr
     {
         struct ForceFieldEvaluation
         {
-            std::string requested_force_field;
-            std::string resolved_force_field;
-            std::string selection_reason;
             double raw_energy = 0.0;
             std::string raw_unit;
             double energy_kj_mol = 0.0;
@@ -35,7 +32,6 @@ namespace molgr
 
         ForceFieldEvaluation EvaluateForceField(
             const OpenBabel::OBMol &mol,
-            const std::string &force_field,
             const molgr::config::MolGRConfig &config);
         std::tuple<std::size_t, std::size_t, std::size_t> ForceFieldEvaluationCacheInfo();
         void ForceFieldEvaluationCacheClear();

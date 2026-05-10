@@ -29,9 +29,6 @@ namespace molgr
         struct PreheatedNoMetalScoreBundle
         {
             std::string post_reinsertion_base_key;
-            std::string force_field_config_key;
-            std::string force_field_requested;
-            std::string force_field_resolved_force_field;
             double organic_core_score = 0.0;
             double base_symmetry_penalty = 0.0;
             molgr::ChargedAtomSnapshotList charged_atom_snapshots;

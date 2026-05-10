@@ -230,8 +230,6 @@ O 3.2 0.0 0.0
         total_radical_electrons=0,
         metadata={
             "force_field_energy": 1.0,
-            "force_field_requested": "auto",
-            "force_field_resolved_force_field": "uff",
             "force_field_score_key": "cached-key",
             "organic_core_score": 1.0,
             "score": 1.0,
@@ -245,8 +243,6 @@ O 3.2 0.0 0.0
 
     assert next_state.omol_revision == 1
     assert "force_field_energy" not in next_state.metadata
-    assert "force_field_requested" not in next_state.metadata
-    assert "force_field_resolved_force_field" not in next_state.metadata
     assert "force_field_score_key" not in next_state.metadata
     assert "organic_core_score" not in next_state.metadata
     assert "score" not in next_state.metadata

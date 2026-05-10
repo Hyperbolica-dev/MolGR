@@ -4,9 +4,6 @@
 #include "molgr/stages/eliminate.h"
 #include "molgr/state.h"
 #include "molgr/utils/consts.h"
-#include "molgr/utils/force_field.h"
-#include "molgr/utils/lru_cache.h"
-#include "molgr/utils/scoring.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
@@ -19,8 +16,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <exception>
-#include <limits>
 #include <memory>
 #include <set>
 #include <sstream>
@@ -28,7 +23,6 @@
 
 namespace
 {
-    constexpr std::size_t kDefaultResonanceMoveScoreCacheMaxSize = 4096;
     constexpr double kUffLiteBondStrainScoreWeight = 1.0;
     constexpr double kUffLiteAngleStrainScoreWeight = 0.35;
     constexpr double kUffLiteRadicalScoreWeight = 1.0;
@@ -361,7 +355,7 @@ namespace
 
         return static_cast<int>(visited_atoms.size());
     }
-    molgr::resonance::DirectGainMetrics ComputeDirectGainResonanceMetrics(
+    molgr::resonance::UffLiteGainMetrics ComputeUffLiteGainResonanceMetrics(
         const OpenBabel::OBMol &mol,
         const std::tuple<int, int, int> &move_path)
     {
@@ -433,16 +427,16 @@ namespace
         };
     }
 
-    bool HasPositiveDirectGain(const molgr::resonance::DirectGainMetrics &metrics)
+    bool HasPositiveUffLiteGain(const molgr::resonance::UffLiteGainMetrics &metrics)
     {
         return std::any_of(metrics.begin(), metrics.end(), [](double value) { return value > 0.0; });
     }
 
-    molgr::resonance::DirectGainMetrics AddDirectGainMetrics(
-        const molgr::resonance::DirectGainMetrics &left,
-        const molgr::resonance::DirectGainMetrics &right)
+    molgr::resonance::UffLiteGainMetrics AddUffLiteGainMetrics(
+        const molgr::resonance::UffLiteGainMetrics &left,
+        const molgr::resonance::UffLiteGainMetrics &right)
     {
-        molgr::resonance::DirectGainMetrics result{};
+        molgr::resonance::UffLiteGainMetrics result{};
         for (std::size_t idx = 0; idx < result.size(); ++idx)
         {
             result[idx] = left[idx] + right[idx];
@@ -450,11 +444,11 @@ namespace
         return result;
     }
 
-    molgr::resonance::DirectGainMetrics ComponentwiseMaxDirectGainMetrics(
-        const molgr::resonance::DirectGainMetrics &left,
-        const molgr::resonance::DirectGainMetrics &right)
+    molgr::resonance::UffLiteGainMetrics ComponentwiseMaxUffLiteGainMetrics(
+        const molgr::resonance::UffLiteGainMetrics &left,
+        const molgr::resonance::UffLiteGainMetrics &right)
     {
-        molgr::resonance::DirectGainMetrics result{};
+        molgr::resonance::UffLiteGainMetrics result{};
         for (std::size_t idx = 0; idx < result.size(); ++idx)
         {
             result[idx] = std::max(left[idx], right[idx]);
@@ -462,57 +456,57 @@ namespace
         return result;
     }
 
-    molgr::resonance::DirectGainMetrics ComputeNStepDirectGainUpperBound(
+    molgr::resonance::UffLiteGainMetrics ComputeNStepUffLiteGainUpperBound(
         const OpenBabel::OBMol &mol,
         const molgr::resonance::ResonanceStateKey &state_key,
         int remaining_steps,
-        molgr::resonance::DirectGainBoundCache &cache)
+        molgr::resonance::UffLiteGainBoundCache &cache)
     {
         if (remaining_steps <= 0)
         {
             return {0.0, 0.0, 0.0, 0.0};
         }
 
-        const molgr::resonance::DirectGainBoundCacheKey cache_key{state_key, remaining_steps};
+        const molgr::resonance::UffLiteGainBoundCacheKey cache_key{state_key, remaining_steps};
         const auto cache_it = cache.find(cache_key);
         if (cache_it != cache.end())
         {
             return cache_it->second;
         }
 
-        molgr::resonance::DirectGainMetrics upper_bound{0.0, 0.0, 0.0, 0.0};
+        molgr::resonance::UffLiteGainMetrics upper_bound{0.0, 0.0, 0.0, 0.0};
         const auto bond_index_map = molgr::resonance::BuildBondIndexMapFromStateKey(state_key);
         const auto moves =
             molgr::resonance::EnumerateOneStepResonanceMoves(mol, state_key, bond_index_map);
         for (const auto &move : moves)
         {
-            const auto direct_metrics = ComputeDirectGainResonanceMetrics(mol, move.idxs);
-            if (!HasPositiveDirectGain(direct_metrics))
+            const auto uff_lite_metrics = ComputeUffLiteGainResonanceMetrics(mol, move.idxs);
+            if (!HasPositiveUffLiteGain(uff_lite_metrics))
             {
                 continue;
             }
 
-            auto total_metrics = direct_metrics;
+            auto total_metrics = uff_lite_metrics;
             if (remaining_steps > 1)
             {
                 auto next_omol = molgr::resonance::MaterializeOneStepResonance(mol, move.idxs);
-                const auto future_upper_bound = ComputeNStepDirectGainUpperBound(
+                const auto future_upper_bound = ComputeNStepUffLiteGainUpperBound(
                     next_omol,
                     move.next_state_key,
                     remaining_steps - 1,
                     cache);
-                total_metrics = AddDirectGainMetrics(direct_metrics, future_upper_bound);
+                total_metrics = AddUffLiteGainMetrics(uff_lite_metrics, future_upper_bound);
             }
 
-            upper_bound = ComponentwiseMaxDirectGainMetrics(upper_bound, total_metrics);
+            upper_bound = ComponentwiseMaxUffLiteGainMetrics(upper_bound, total_metrics);
         }
 
         cache[cache_key] = upper_bound;
         return upper_bound;
     }
 
-    double EstimateDirectGainScoreImprovementUpperBound(
-        const molgr::resonance::DirectGainMetrics &metrics,
+    double EstimateUffLiteGainScoreImprovementUpperBound(
+        const molgr::resonance::UffLiteGainMetrics &metrics,
         int remaining_steps)
     {
         return std::max(
@@ -524,58 +518,13 @@ namespace
                 static_cast<double>(std::max(remaining_steps, 0)) * kUffLiteBranchBoundStepSlack);
     }
 
-    double DirectGainMoveScore(const molgr::resonance::DirectGainMetrics &metrics)
+    double UffLiteGainMoveScore(const molgr::resonance::UffLiteGainMetrics &metrics)
     {
         return -(
             metrics[0] * kUffLiteBondStrainScoreWeight +
             metrics[1] * kUffLiteAngleStrainScoreWeight +
             metrics[2] * kUffLiteRadicalScoreWeight +
             metrics[3] * kUffLiteConjugationScoreWeight);
-    }
-
-    void AppendStringVector(std::string &out, const std::vector<std::string> &values)
-    {
-        out.push_back('[');
-        for (std::size_t idx = 0; idx < values.size(); ++idx)
-        {
-            if (idx > 0)
-            {
-                out.push_back(',');
-            }
-            out += values[idx];
-        }
-        out.push_back(']');
-    }
-
-    std::string BuildSelectionForceFieldCacheConfigKey(
-        const molgr::config::MolGRConfig &config)
-    {
-        std::string key;
-        key.reserve(192);
-        key += "selection=";
-        key += config.force_field.selection_force_field;
-        key += ";auto_metal_free=";
-        AppendStringVector(key, config.force_field.auto_force_fields_metal_free);
-        key += ";auto_with_metals=";
-        AppendStringVector(key, config.force_field.auto_force_fields_with_metals);
-        return key;
-    }
-
-    std::string BuildResonanceMoveScoreCacheKey(
-        const OpenBabel::OBMol &mol,
-        const std::tuple<int, int, int> &idxs,
-        const molgr::config::MolGRConfig &config)
-    {
-        std::string key = molgr::scoring::BuildScoreKey(mol);
-        key += "|move=";
-        key += std::to_string(std::get<0>(idxs));
-        key.push_back(',');
-        key += std::to_string(std::get<1>(idxs));
-        key.push_back(',');
-        key += std::to_string(std::get<2>(idxs));
-        key.push_back('|');
-        key += BuildSelectionForceFieldCacheConfigKey(config);
-        return key;
     }
 
     std::string SerializeResonanceStateKey(
@@ -619,12 +568,6 @@ namespace
         return key;
     }
 
-    molgr::utils::StringLruCache<double> &ResonanceMoveScoreCache()
-    {
-        static molgr::utils::StringLruCache<double> cache(
-            kDefaultResonanceMoveScoreCacheMaxSize);
-        return cache;
-    }
 }
 
 namespace molgr
@@ -852,67 +795,7 @@ namespace molgr
             return result;
         }
 
-        double ScoreOneStepResonanceWithForceField(
-            const OpenBabel::OBMol &mol,
-            const std::tuple<int, int, int> &idxs,
-            const molgr::config::MolGRConfig &config)
-        {
-            const std::string cache_key = BuildResonanceMoveScoreCacheKey(mol, idxs, config);
-            double cached_score = 0.0;
-            if (ResonanceMoveScoreCache().Get(cache_key, cached_score))
-            {
-                return cached_score;
-            }
-
-            double score = std::numeric_limits<double>::infinity();
-            const OpenBabel::OBMol moved_mol = MaterializeOneStepResonance(mol, idxs);
-            try
-            {
-                score = molgr::scoring::SelectionForceFieldEnergy(moved_mol, config);
-            }
-            catch (const std::exception &)
-            {
-                score = std::numeric_limits<double>::infinity();
-            }
-            ResonanceMoveScoreCache().Put(cache_key, score);
-            return score;
-        }
-
-        std::tuple<std::size_t, std::size_t, std::size_t> ResonanceMoveScoreCacheInfo()
-        {
-            return ResonanceMoveScoreCache().Info();
-        }
-
-        void ResonanceMoveScoreCacheClear()
-        {
-            ResonanceMoveScoreCache().Clear();
-        }
-
-        std::vector<std::pair<IndexedResonanceTraversalMove, double>> OrderForceFieldMoves(
-            const OpenBabel::OBMol &mol,
-            const std::vector<IndexedResonanceTraversalMove> &moves,
-            const molgr::config::MolGRConfig &config)
-        {
-            std::vector<std::pair<IndexedResonanceTraversalMove, double>> ordered_moves;
-            ordered_moves.reserve(moves.size());
-            for (const auto &move : moves)
-            {
-                ordered_moves.emplace_back(
-                    move,
-                    ScoreOneStepResonanceWithForceField(mol, move.idxs, config));
-            }
-            std::sort(
-                ordered_moves.begin(),
-                ordered_moves.end(),
-                [](const auto &lhs, const auto &rhs)
-                {
-                    return std::tie(lhs.second, lhs.first.idxs) <
-                           std::tie(rhs.second, rhs.first.idxs);
-                });
-            return ordered_moves;
-        }
-
-        std::vector<std::pair<IndexedResonanceTraversalMove, double>> OrderDirectGainMoves(
+        std::vector<std::pair<IndexedResonanceTraversalMove, double>> OrderUffLiteGainMoves(
             const OpenBabel::OBMol &mol,
             const std::vector<IndexedResonanceTraversalMove> &moves)
         {
@@ -922,7 +805,7 @@ namespace molgr
             {
                 ordered_moves.emplace_back(
                     move,
-                    DirectGainMoveScore(ComputeDirectGainResonanceMetrics(mol, move.idxs)));
+                    UffLiteGainMoveScore(ComputeUffLiteGainResonanceMetrics(mol, move.idxs)));
             }
             std::sort(
                 ordered_moves.begin(),
@@ -948,19 +831,14 @@ namespace molgr
             }
 
             std::vector<std::pair<IndexedResonanceTraversalMove, double>> ordered_moves;
-            if (config.resonance.traversal_score == "direct_gain")
+            if (config.resonance.traversal_score == "uff_lite_gain")
             {
-                ordered_moves = OrderDirectGainMoves(mol, moves);
-            }
-            else if (config.resonance.traversal_score == "force_field")
-            {
-                ordered_moves = OrderForceFieldMoves(mol, moves, config);
+                ordered_moves = OrderUffLiteGainMoves(mol, moves);
             }
             else
             {
                 throw std::invalid_argument(
-                    "Unsupported resonance traversal_score. Expected 'force_field', "
-                    "'direct_gain', or 'input_order'.");
+                    "Unsupported resonance traversal_score. Expected 'uff_lite_gain' or 'input_order'.");
             }
 
             std::vector<IndexedResonanceTraversalMove> selected_moves;
@@ -976,18 +854,18 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const ResonanceStateKey &state_key,
             int remaining_steps,
-            DirectGainBoundCache *cache)
+            UffLiteGainBoundCache *cache)
         {
             if (remaining_steps <= 0)
             {
                 return 0.0;
             }
 
-            DirectGainBoundCache local_cache;
-            DirectGainBoundCache &cache_ref = cache == nullptr ? local_cache : *cache;
+            UffLiteGainBoundCache local_cache;
+            UffLiteGainBoundCache &cache_ref = cache == nullptr ? local_cache : *cache;
             const auto optimistic_metrics =
-                ComputeNStepDirectGainUpperBound(mol, state_key, remaining_steps, cache_ref);
-            return EstimateDirectGainScoreImprovementUpperBound(
+                ComputeNStepUffLiteGainUpperBound(mol, state_key, remaining_steps, cache_ref);
+            return EstimateUffLiteGainScoreImprovementUpperBound(
                 optimistic_metrics,
                 remaining_steps);
         }

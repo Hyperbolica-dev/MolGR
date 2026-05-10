@@ -64,7 +64,7 @@ MolGR 的统一算法可以按七层理解：
 - `ReconstructionState`：无金属重建状态，包含 `omol`、目标电荷、目标自由基数、阶段历史和评分缓存。
 - `MetalPreparationState`：金属剥离后的输入，包含 `no_metal_xyz_block` 和每个金属的候选电子态。
 - `MetalCandidateState`：一个金属电子态组合及其诱导的 no-metal 目标桶，可绑定共享的 `ReconstructionState`。
-- `MolGRConfig`：统一运行时配置，包含 force-field、resonance、metal scoring、metal radical inference 和 C++ 后端开关。
+- `MolGRConfig`：统一运行时配置，包含 resonance、metal scoring、metal radical inference 和 C++ 后端开关；force-field 评分固定使用 UFF。
 
 ## 调用图
 
@@ -208,8 +208,7 @@ sequenceDiagram
 - 构建 resonance state key 和 bond index map。
 - 枚举一步自由基共振迁移。
 - 使用配置选择 traversal policy：
-  - `direct_gain`
-  - `force_field`
+  - `uff_lite_gain`
   - `input_order`
 - 默认使用 limited-discrepancy traversal，限制偏离最高优先级迁移的总 discrepancy。
 - 对每个候选执行 `process_resonance`，再构建 processed resonance key 去重。
@@ -355,11 +354,11 @@ C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下�
      - force-field score key
      - 有机骨架 force-field 分数
      - post-reinsertion base components
-     - force-field 配置元数据
+     - 固定 UFF force-field 元数据
    - 金属桶内多个候选共享同一个 no-metal state 时，可以避免重复构建这些派生数据。
 
 7. 全局 force-field evaluation LRU
-   - `ForceFieldEvaluationCache` 使用线程安全 LRU，key 包含分子结构、请求的 force field 和 force-field 配置。
+   - `ForceFieldEvaluationCache` 使用线程安全 LRU，key 对应固定 UFF 结构评分。
    - 相同结构重复评分时可直接复用 `ForceFieldEvaluation`。
 
 8. UFF atom typing LRU

@@ -20,12 +20,9 @@ from molgr.fallback.utils.resonance import (
     ResonanceTraversalPolicy,
     build_processed_resonance_key,
     build_resonance_state_key,
-    make_limited_discrepancy_direct_gain_traversal_policy,
-    make_limited_discrepancy_force_field_traversal_policy,
     make_limited_discrepancy_input_order_traversal_policy,
+    make_limited_discrepancy_uff_lite_gain_traversal_policy,
     process_resonance,
-    resonance_move_score_cache_clear,
-    resonance_move_score_cache_info,
 )
 
 
@@ -214,11 +211,8 @@ __all__ = [
     "build_processed_resonance_key",
     "build_resonance_state_key",
     "get_radical_resonances",
-    "make_limited_discrepancy_direct_gain_traversal_policy",
-    "make_limited_discrepancy_force_field_traversal_policy",
     "make_limited_discrepancy_input_order_traversal_policy",
+    "make_limited_discrepancy_uff_lite_gain_traversal_policy",
     "process_resonance",
-    "resonance_move_score_cache_clear",
-    "resonance_move_score_cache_info",
     "walk_radical_resonances",
 ]

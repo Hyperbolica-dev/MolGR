@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from openbabel import pybel
 from rdkit import Chem
 
 from molgr.config import MolGRConfig, resolve_config
@@ -19,6 +20,32 @@ from molgr.utils.post_process import make_dative_bond
 from molgr.utils.post_process import make_stereochemistry as restore_stereochemistry
 
 from . import _core as core
+
+
+def _suspicious_rdmol_from_input_xyz(xyz_block: str) -> Chem.Mol:
+    """Build an untrusted RDKit molecule from OpenBabel's initial bond perception."""
+
+    omol = pybel.readstring("xyz", xyz_block)
+    omol.OBMol.ConnectTheDots()
+    omol.OBMol.PerceiveBondOrders()
+    rdmol = pybel_to_rdmol(omol, sanitize=False, kekulize=False)
+    rdmol.SetProp("_MolGRReconstructionStatus", "suspicious_fallback")
+    return rdmol
+
+
+def _should_return_suspicious_on_reconstruction_failure(config: MolGRConfig) -> bool:
+    policy = config.interface.reconstruction_failure_policy
+    if policy == "return_suspicious":
+        return True
+    if policy == "raise":
+        return False
+    raise ValueError(f"Unknown reconstruction failure policy: {policy!r}")
+
+
+def _handle_reconstruction_failure(xyz_block: str, *, config: MolGRConfig) -> Chem.Mol:
+    if _should_return_suspicious_on_reconstruction_failure(config):
+        return _suspicious_rdmol_from_input_xyz(xyz_block)
+    raise ValueError("xyz2omol failed")
 
 
 def xyz_to_rdmol(
@@ -37,24 +64,34 @@ def xyz_to_rdmol(
     resolved_config = resolve_config(config)
     total_radical_electrons = spin_multiplicity - 1
     if backend == "cpp":
-        moldata = core.pipeline.reconstruct_with_metals.xyz2omol(
-            xyz_block,
-            total_charge,
-            total_radical_electrons,
-            config=resolved_config,
-        )
+        try:
+            moldata = core.pipeline.reconstruct_with_metals.xyz2omol(
+                xyz_block,
+                total_charge,
+                total_radical_electrons,
+                config=resolved_config,
+            )
+        except Exception:
+            if _should_return_suspicious_on_reconstruction_failure(resolved_config):
+                return _suspicious_rdmol_from_input_xyz(xyz_block)
+            raise
         if moldata is None:
-            raise ValueError("xyz2omol failed")
+            return _handle_reconstruction_failure(xyz_block, config=resolved_config)
         rdmol = mol_data_to_rdkit(moldata)
     elif backend == "python":
-        omol = xyz2omol(
-            xyz_block,
-            total_charge,
-            total_radical_electrons,
-            config=config,
-        )
+        try:
+            omol = xyz2omol(
+                xyz_block,
+                total_charge,
+                total_radical_electrons,
+                config=config,
+            )
+        except Exception:
+            if _should_return_suspicious_on_reconstruction_failure(resolved_config):
+                return _suspicious_rdmol_from_input_xyz(xyz_block)
+            raise
         if omol is None:
-            raise ValueError("xyz2omol failed")
+            return _handle_reconstruction_failure(xyz_block, config=resolved_config)
         rdmol = pybel_to_rdmol(omol)
     else:
         raise ValueError(f"Unknown backend: {backend}")

@@ -70,7 +70,7 @@ Key state objects:
 - `ReconstructionState`: metal-free reconstruction state with molecule, targets, phase history, and score caches
 - `MetalPreparationState`: stripped-metal input plus per-metal electronic-state options
 - `MetalCandidateState`: one metal assignment and its induced no-metal target bucket, optionally bound to a shared `ReconstructionState`
-- `MolGRConfig`: unified runtime config for force field, resonance, metal scoring, metal radical inference, and C++ backend switches
+- `MolGRConfig`: unified runtime config for resonance, metal scoring, metal radical inference, and C++ backend switches; force-field scoring is fixed to UFF
 
 ## Call Graph
 
@@ -219,8 +219,7 @@ Current behavior:
 - build a resonance state key and bond index map
 - enumerate one-step radical resonance moves
 - choose traversal ordering from config:
-  - `direct_gain`
-  - `force_field`
+  - `uff_lite_gain`
   - `input_order`
 - by default, use limited-discrepancy traversal
 - run `process_resonance` on each candidate and deduplicate by processed key
@@ -444,12 +443,12 @@ of the Python fallback:
      - force-field score key
      - organic-core force-field score
      - post-reinsertion base components
-     - force-field metadata
+     - fixed UFF force-field metadata
    - bucket-shared no-metal states can reuse this bundle across many candidates
 
 7. Global force-field evaluation LRU
    - `ForceFieldEvaluationCache` is a thread-safe LRU keyed by structure,
-     requested force field, and force-field config
+     for fixed UFF scoring
 
 8. UFF atom typing LRU
    - the C++ fork of `MolgrForceFieldUFF` supports cached atom typing

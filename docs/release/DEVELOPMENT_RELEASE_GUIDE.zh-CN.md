@@ -39,9 +39,14 @@ flowchart TD
 - Linux 矩阵编译/测试，覆盖 Python `3.8` 到 `3.14`。
 - 依赖源使用内网镜像：
   [`https://mirrors.zju.edu.cn/pypi/web/simple`](https://mirrors.zju.edu.cn/pypi/web/simple)。
-- 内网 wheel 发布使用与 GitHub 相同的 Linux `cibuildwheel` 分层：
-  - `cp38`-`cp312`：`manylinux2014` / glibc `>=2.17`，覆盖 `x86_64` 和 `aarch64`。
-  - `cp313`-`cp314`：`manylinux_2_28`，覆盖 `x86_64` 和 `aarch64`。
+- 内网 wheel 发布使用细粒度 `cibuildwheel` job，方便 Gitea 把 wheel 构建分发到多个 runner：
+  - Linux x86_64 wheel 运行在 `ubuntu-latest` runner。
+  - Linux aarch64 wheel 运行在原生 `ubuntu-24.04-arm64` runner。
+  - `cp38`-`cp312` 使用 `manylinux2014` / glibc `>=2.17`。
+  - `cp313`-`cp314` 使用 `manylinux_2_28`。
+  - macOS arm64 wheel 按 CPython ABI 拆分，并运行在 `macos-arm64` runner。
+- macOS arm64 runner 需要预装目标版本的 Python.org 官方 Python；`cibuildwheel`
+  不会使用 `brew` 或 `uv` 安装的 Python 来构建 macOS wheel。
 - 仓库发布基地址来自仓库变量 `SERVER_URL`。
 - 满足以下任一条件时发布内网仓：
   - `push` 到 `develop`（测试包通道）；

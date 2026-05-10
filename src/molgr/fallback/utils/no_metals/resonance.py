@@ -19,13 +19,8 @@ def _default_resonance_traversal_policy(
     resolved_config = resolve_config(config)
     max_discrepancy = max(0, int(resolved_config.resonance.limited_discrepancy_max_discrepancy))
     traversal_score = resolved_config.resonance.traversal_score
-    if traversal_score == "force_field":
-        return resonance_utils.make_limited_discrepancy_force_field_traversal_policy(
-            max_discrepancy=max_discrepancy,
-            config=resolved_config,
-        )
-    if traversal_score == "direct_gain":
-        return resonance_utils.make_limited_discrepancy_direct_gain_traversal_policy(
+    if traversal_score == "uff_lite_gain":
+        return resonance_utils.make_limited_discrepancy_uff_lite_gain_traversal_policy(
             max_discrepancy=max_discrepancy,
         )
     if traversal_score == "input_order":
@@ -33,8 +28,7 @@ def _default_resonance_traversal_policy(
             max_discrepancy=max_discrepancy,
         )
     raise ValueError(
-        "Unsupported resonance traversal_score. Expected 'force_field', "
-        "'direct_gain', or 'input_order'."
+        "Unsupported resonance traversal_score. Expected 'uff_lite_gain' or 'input_order'."
     )
 
 

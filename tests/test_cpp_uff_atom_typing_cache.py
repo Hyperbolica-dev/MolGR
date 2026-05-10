@@ -55,13 +55,54 @@ def _cpp_config(*, enable_uff_atom_typing_cache: bool):
     )
 
 
-def test_cpp_config_bridge_requires_current_config_shape() -> None:
-    incomplete_config = SimpleNamespace(
-        force_field=make_default_config().force_field,
+def _cpp_resonance_config(*, traversal_score: str):
+    config = make_default_config()
+    return replace(
+        config,
+        resonance=replace(
+            config.resonance,
+            traversal_score=traversal_score,
+        ),
     )
 
-    with pytest.raises(AttributeError, match="missing required attribute 'resonance'"):
+
+def test_cpp_config_bridge_requires_current_config_shape() -> None:
+    incomplete_config = SimpleNamespace(
+        resonance=make_default_config().resonance,
+    )
+
+    with pytest.raises(AttributeError, match="missing required attribute 'cpp_backend'"):
         _core.set_default_config(incomplete_config)
+
+
+def test_cpp_resonance_traversal_score_accepts_uff_lite_gain() -> None:
+    xyz_block, total_charge, total_radical_electrons = _load_csv_case(_RESONANCE_CASE_INDEX)
+
+    uff_lite_summaries = list(
+        _core.dev.pipeline.reconstruct_without_metals.debug_resonance_candidate_summaries(
+            xyz_block,
+            total_charge,
+            total_radical_electrons,
+            config=_cpp_resonance_config(traversal_score="uff_lite_gain"),
+        )
+    )
+
+    assert uff_lite_summaries
+
+
+def test_cpp_resonance_traversal_score_accepts_input_order() -> None:
+    xyz_block, total_charge, total_radical_electrons = _load_csv_case(_RESONANCE_CASE_INDEX)
+
+    input_order_summaries = list(
+        _core.dev.pipeline.reconstruct_without_metals.debug_resonance_candidate_summaries(
+            xyz_block,
+            total_charge,
+            total_radical_electrons,
+            config=_cpp_resonance_config(traversal_score="input_order"),
+        )
+    )
+
+    assert input_order_summaries
 
 
 def test_cpp_config_bridge_reads_current_nested_fields() -> None:
@@ -97,7 +138,6 @@ def test_cpp_config_bridge_reads_current_nested_fields() -> None:
 
 def _clear_cpp_scoring_caches(*, clear_uff_atom_typing_cache: bool) -> None:
     _core.dev.pipeline.clear_force_field_evaluation_cache()
-    _core.dev.pipeline.clear_resonance_move_score_cache()
     if clear_uff_atom_typing_cache:
         _core.dev.pipeline.clear_uff_atom_typing_cache()
 

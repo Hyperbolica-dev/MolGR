@@ -9,21 +9,15 @@
 
 namespace
 {
-    constexpr std::array<const char *, 7> kOmolDerivedMetadataKeys = {
+    constexpr std::array<const char *, 4> kOmolDerivedMetadataKeys = {
         "force_field_energy",
-        "force_field_config_key",
-        "force_field_requested",
-        "force_field_resolved_force_field",
         "force_field_score_key",
         "organic_core_score",
         "score",
     };
 
-    constexpr std::array<const char *, 5> kCandidateDerivedMetadataKeys = {
+    constexpr std::array<const char *, 2> kCandidateDerivedMetadataKeys = {
         "force_field_energy",
-        "force_field_config_key",
-        "force_field_requested",
-        "force_field_resolved_force_field",
         "score",
     };
 
@@ -43,47 +37,12 @@ namespace
         }
     }
 
-    std::string JoinStrings(const std::vector<std::string> &values)
-    {
-        std::string out;
-        for (std::size_t i = 0; i < values.size(); ++i)
-        {
-            if (i > 0)
-            {
-                out += ",";
-            }
-            out += values[i];
-        }
-        return out;
-    }
-
-    std::string ForceFieldConfigKey(const molgr::config::MolGRConfig &config)
-    {
-        return "ForceFieldConfig(auto_force_fields_metal_free=(" +
-               JoinStrings(config.force_field.auto_force_fields_metal_free) +
-               "), auto_force_fields_with_metals=(" +
-               JoinStrings(config.force_field.auto_force_fields_with_metals) +
-               "), organic_force_field=" +
-               config.force_field.organic_force_field +
-               ", selection_force_field=" +
-               config.force_field.selection_force_field +
-               ", combined_force_field=" +
-               config.force_field.combined_force_field +
-               ")";
-    }
-
     void StoreNoMetalForceFieldMetadata(
         molgr::state::MetadataMap &metadata,
         const std::string &score_key,
-        const std::string &config_key,
-        const std::string &requested_force_field,
-        const std::string &resolved_force_field,
         double score)
     {
         metadata["force_field_energy"] = score;
-        metadata["force_field_config_key"] = config_key;
-        metadata["force_field_requested"] = requested_force_field;
-        metadata["force_field_resolved_force_field"] = resolved_force_field;
         metadata["force_field_score_key"] = score_key;
         metadata["organic_core_score"] = score;
         metadata["score"] = score;
@@ -147,10 +106,7 @@ namespace molgr
         {
             PreheatedNoMetalScoreBundle bundle;
             bundle.post_reinsertion_base_key = molgr::scoring::BuildScoreKey(Mol());
-            bundle.force_field_config_key = ForceFieldConfigKey(config);
             const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
-            bundle.force_field_requested = evaluation.requested_force_field;
-            bundle.force_field_resolved_force_field = evaluation.resolved_force_field;
             bundle.organic_core_score = evaluation.energy_kj_mol;
             const auto base_components = molgr::scoring::BuildPostReinsertionBaseComponents(Mol());
             bundle.base_symmetry_penalty = base_components.first;
@@ -165,9 +121,6 @@ namespace molgr
             StoreNoMetalForceFieldMetadata(
                 metadata,
                 bundle->post_reinsertion_base_key,
-                bundle->force_field_config_key,
-                bundle->force_field_requested,
-                bundle->force_field_resolved_force_field,
                 bundle->organic_core_score);
             preheated_score_bundle = std::move(bundle);
         }
@@ -199,9 +152,6 @@ namespace molgr
                 StoreNoMetalForceFieldMetadata(
                     metadata,
                     preheated_score_bundle->post_reinsertion_base_key,
-                    preheated_score_bundle->force_field_config_key,
-                    preheated_score_bundle->force_field_requested,
-                    preheated_score_bundle->force_field_resolved_force_field,
                     preheated_score_bundle->organic_core_score);
                 return preheated_score_bundle->organic_core_score;
             }
@@ -212,16 +162,12 @@ namespace molgr
                 return organic_core_score_cache->second;
             }
             const std::string score_key = PostReinsertionBaseKey();
-            const std::string config_key = ForceFieldConfigKey(config);
             const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
             const double score = evaluation.energy_kj_mol;
             organic_core_score_cache = std::make_pair(omol_revision, score);
             StoreNoMetalForceFieldMetadata(
                 metadata,
                 score_key,
-                config_key,
-                evaluation.requested_force_field,
-                evaluation.resolved_force_field,
                 score);
             return score;
         }
@@ -460,8 +406,7 @@ namespace molgr
                 throw std::runtime_error("MetalCandidateState requires a no-metal state before scoring");
             }
             const auto combined_key = CombinedScoreKey();
-            const std::string cache_key = combined_key.first + "\n--metal--\n" + combined_key.second +
-                                          "\n--config--\n" + ForceFieldConfigKey(config);
+            const std::string cache_key = combined_key.first + "\n--metal--\n" + combined_key.second;
             if (combined_score_cache.has_value() && combined_score_cache->first == cache_key)
             {
                 metadata["score"] = combined_score_cache->second;
@@ -478,14 +423,6 @@ namespace molgr
             const double score_value = bundle->organic_core_score;
             combined_score_cache = std::make_pair(cache_key, score_value);
             metadata["force_field_energy"] = score_value;
-            metadata["force_field_config_key"] = bundle->force_field_config_key;
-            metadata["force_field_requested"] = bundle->force_field_requested.empty()
-                                                    ? std::string("auto")
-                                                    : bundle->force_field_requested;
-            metadata["force_field_resolved_force_field"] =
-                bundle->force_field_resolved_force_field.empty()
-                    ? std::get<std::string>(metadata["force_field_requested"])
-                    : bundle->force_field_resolved_force_field;
             metadata["score"] = score_value;
             score = score_value;
             return score_value;

@@ -64,8 +64,6 @@ def test_reconstruction_state_uses_organic_force_field_policy() -> None:
     assert state.score("full") == pytest.approx(evaluation.energy_kj_mol)
     assert state.metadata["organic_core_score"] == pytest.approx(evaluation.energy_kj_mol)
     assert state.metadata["score"] == pytest.approx(evaluation.energy_kj_mol)
-    assert state.metadata["force_field_requested"] == "auto"
-    assert state.metadata["force_field_resolved_force_field"] == "uff"
     assert isinstance(state.metadata["force_field_score_key"], tuple)
 
 
@@ -165,8 +163,6 @@ def test_metal_candidate_uses_organic_force_field_only() -> None:
     assert score == pytest.approx(organic_score)
     assert candidate.metadata["force_field_energy"] == pytest.approx(organic_score)
     assert candidate.metadata["score"] == pytest.approx(organic_score)
-    assert candidate.metadata["force_field_requested"] == "auto"
-    assert candidate.metadata["force_field_resolved_force_field"] == "uff"
     assert "selection_score_profile" not in candidate.metadata
     assert "force_field_base_energy" not in candidate.metadata
     assert "force_field_electrostatic_energy" not in candidate.metadata
