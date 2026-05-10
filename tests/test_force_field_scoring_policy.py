@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 from openbabel import pybel
 
-from molgr.config import get_config, make_default_config, set_config
 from molgr.fallback.utils import force_field as force_field_module
 from molgr.fallback.utils.force_field import ForceFieldEvaluation
 
 
-def _dummy_evaluation(requested: str, resolved: str) -> ForceFieldEvaluation:
+def _dummy_evaluation() -> ForceFieldEvaluation:
     return ForceFieldEvaluation(
-        requested_force_field=requested,
-        resolved_force_field=resolved,
-        selection_reason="test",
         raw_energy=1.0,
         raw_unit="kj/mol",
         energy_kj_mol=1.0,
@@ -24,24 +18,24 @@ def _dummy_evaluation(requested: str, resolved: str) -> ForceFieldEvaluation:
     )
 
 
-def test_organic_force_field_evaluation_uses_auto_request(monkeypatch) -> None:
-    calls: list[str] = []
+def test_organic_force_field_evaluation_uses_fixed_uff_request(monkeypatch) -> None:
+    calls = 0
 
-    def fake_cached(context, requested_force_field, config):
-        calls.append(requested_force_field)
-        return _dummy_evaluation(requested_force_field, "uff")
+    def fake_cached(context):
+        nonlocal calls
+        calls += 1
+        return _dummy_evaluation()
 
     monkeypatch.setattr(force_field_module, "_contains_metal_atoms", lambda omol: False)
     monkeypatch.setattr(force_field_module, "_force_field_evaluation_cached", fake_cached)
 
     evaluation = force_field_module.organic_force_field_evaluation(pybel.readstring("smi", "CO"))
 
-    assert evaluation.requested_force_field == "auto"
-    assert evaluation.resolved_force_field == "uff"
-    assert calls == ["auto"]
+    assert evaluation.energy_kj_mol == pytest.approx(1.0)
+    assert calls == 1
 
 
-def test_auto_force_field_uses_uff_for_organic_input(monkeypatch) -> None:
+def test_force_field_evaluation_uses_fixed_uff_for_organic_input(monkeypatch) -> None:
     setup_attempts: list[str] = []
 
     class FakeForceField:
@@ -68,9 +62,7 @@ def test_auto_force_field_uses_uff_for_organic_input(monkeypatch) -> None:
     evaluation = force_field_module.force_field_evaluation(pybel.readstring("smi", "CO"))
 
     assert setup_attempts == ["uff"]
-    assert evaluation.requested_force_field == "auto"
-    assert evaluation.resolved_force_field == "uff"
-    assert evaluation.selection_reason == "auto_prefer_uff"
+    assert evaluation.energy_kj_mol == pytest.approx(2.0)
 
 
 def test_organic_force_field_evaluation_rejects_metals(monkeypatch) -> None:
@@ -81,19 +73,19 @@ def test_organic_force_field_evaluation_rejects_metals(monkeypatch) -> None:
 
 
 def test_combined_force_field_evaluation_uses_uff_request(monkeypatch) -> None:
-    calls: list[str] = []
+    calls = 0
 
-    def fake_force_field_evaluation(omol_or_state, *, force_field="auto", config=None):
-        calls.append(force_field)
-        return _dummy_evaluation(force_field, "uff")
+    def fake_force_field_evaluation(omol_or_state):
+        nonlocal calls
+        calls += 1
+        return _dummy_evaluation()
 
     monkeypatch.setattr(force_field_module, "force_field_evaluation", fake_force_field_evaluation)
 
     evaluation = force_field_module.combined_force_field_evaluation(pybel.readstring("smi", "CO"))
 
-    assert evaluation.requested_force_field == "uff"
-    assert evaluation.resolved_force_field == "uff"
-    assert calls == ["uff"]
+    assert evaluation.energy_kj_mol == pytest.approx(1.0)
+    assert calls == 1
 
 
 def test_force_field_evaluation_uses_raw_uff_for_metal_input(
@@ -115,10 +107,7 @@ O 2.0 0.0 0.0
     monkeypatch.setattr(
         force_field_module,
         "_force_field_evaluation_cached",
-        lambda context, requested_force_field, config: ForceFieldEvaluation(
-            requested_force_field=requested_force_field,
-            resolved_force_field="uff",
-            selection_reason="test",
+        lambda context: ForceFieldEvaluation(
             raw_energy=10.0,
             raw_unit="kj/mol",
             energy_kj_mol=10.0,
@@ -128,37 +117,37 @@ O 2.0 0.0 0.0
         ),
     )
 
-    evaluation = force_field_module.force_field_evaluation(omol, force_field="uff")
+    evaluation = force_field_module.force_field_evaluation(omol)
 
-    assert evaluation.requested_force_field == "uff"
-    assert evaluation.resolved_force_field == "uff"
     assert evaluation.energy_kj_mol == pytest.approx(10.0)
 
 
-def test_selection_force_field_evaluation_uses_auto_for_metal_free_input(monkeypatch) -> None:
-    calls: list[str] = []
+def test_selection_force_field_evaluation_uses_fixed_uff_for_metal_free_input(monkeypatch) -> None:
+    calls = 0
 
-    def fake_cached(context, requested_force_field, config):
-        calls.append(requested_force_field)
-        return _dummy_evaluation(requested_force_field, "uff")
+    def fake_cached(context):
+        nonlocal calls
+        calls += 1
+        return _dummy_evaluation()
 
     monkeypatch.setattr(force_field_module, "_contains_metal_atoms", lambda omol: False)
     monkeypatch.setattr(force_field_module, "_force_field_evaluation_cached", fake_cached)
 
     evaluation = force_field_module.selection_force_field_evaluation(pybel.readstring("smi", "CO"))
 
-    assert evaluation.requested_force_field == "auto"
-    assert calls == ["auto"]
+    assert evaluation.energy_kj_mol == pytest.approx(1.0)
+    assert calls == 1
 
 
-def test_selection_force_field_evaluation_uses_auto_on_stripped_organic_part_for_metal_input(
+def test_selection_force_field_evaluation_uses_fixed_uff_on_stripped_organic_part_for_metal_input(
     monkeypatch,
 ) -> None:
-    calls: list[str] = []
+    calls = 0
 
-    def fake_cached(context, requested_force_field, config):
-        calls.append(requested_force_field)
-        return _dummy_evaluation(requested_force_field, "uff")
+    def fake_cached(context):
+        nonlocal calls
+        calls += 1
+        return _dummy_evaluation()
 
     monkeypatch.setattr(force_field_module, "_contains_metal_atoms", lambda omol: True)
     monkeypatch.setattr(
@@ -170,66 +159,36 @@ def test_selection_force_field_evaluation_uses_auto_on_stripped_organic_part_for
 
     evaluation = force_field_module.selection_force_field_evaluation(pybel.readstring("smi", "CO"))
 
-    assert evaluation.requested_force_field == "auto"
-    assert evaluation.resolved_force_field == "uff"
-    assert calls == ["auto"]
+    assert evaluation.energy_kj_mol == pytest.approx(1.0)
+    assert calls == 1
 
 
-def test_force_field_config_rejects_mmff94_candidate_order() -> None:
-    original_config = get_config()
-    base_config = make_default_config()
-    invalid_config = replace(
-        base_config,
-        force_field=replace(
-            base_config.force_field,
-            auto_force_fields_metal_free=("mmff94",),
-        ),
-    )
-
-    try:
-        set_config(invalid_config)
-        with pytest.raises(ValueError, match="Expected one of 'auto' or 'uff'"):
-            force_field_module.force_field_evaluation(pybel.readstring("smi", "CO"))
-    finally:
-        set_config(original_config)
-
-
-def test_force_field_cache_uses_config_in_key_and_execution(monkeypatch) -> None:
-    base_config = make_default_config()
-    config_a = replace(
-        base_config,
-        force_field=replace(
-            base_config.force_field,
-            auto_force_fields_metal_free=("uff",),
-        ),
-    )
-    config_b = replace(
-        base_config,
-        force_field=replace(
-            base_config.force_field,
-            auto_force_fields_metal_free=("uff", "uff"),
-        ),
-    )
-    seen_configs = []
-
-    def fake_resolve_force_field_config(config=None):
-        seen_configs.append(config)
-        assert config is not None
-        return config.force_field
-
+def test_force_field_evaluation_cache_is_independent_of_config(monkeypatch) -> None:
     force_field_module.force_field_evaluation_cache_clear()
+    setup_attempts = 0
+
+    class FakeForceField:
+        def Setup(self, _obmol) -> bool:
+            nonlocal setup_attempts
+            setup_attempts += 1
+            return True
+
+        def Energy(self) -> float:
+            return 2.0
+
+        def GetUnit(self) -> str:
+            return "kj/mol"
+
+    monkeypatch.setattr(force_field_module, "_contains_metal_atoms", lambda omol: False)
     monkeypatch.setattr(
-        force_field_module,
-        "_resolve_force_field_config",
-        fake_resolve_force_field_config,
+        force_field_module.ob.OBForceField,
+        "FindForceField",
+        lambda name: FakeForceField(),
     )
 
     omol = pybel.readstring("smi", "CO")
-    first = force_field_module.force_field_evaluation(omol, config=config_a)
-    second = force_field_module.force_field_evaluation(omol, config=config_a)
-    third = force_field_module.force_field_evaluation(omol, config=config_b)
+    first = force_field_module.selection_force_field_energy(omol)
+    second = force_field_module.selection_force_field_energy(omol)
 
-    assert first.energy_kj_mol == second.energy_kj_mol
-    assert first.resolved_force_field == second.resolved_force_field
-    assert third.resolved_force_field == "uff"
-    assert seen_configs == [config_a, config_b]
+    assert first == second == pytest.approx(2.0)
+    assert setup_attempts == 1

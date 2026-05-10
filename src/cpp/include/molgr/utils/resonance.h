@@ -20,7 +20,7 @@ namespace molgr
         using ResonanceAtomKey = std::tuple<int, int, int, bool>;
         using ResonanceBondKey = std::tuple<int, int, int, bool>;
         using ResonanceBondIndexMap = std::map<std::pair<int, int>, std::size_t>;
-        using DirectGainMetrics = std::array<double, 4>;
+        using UffLiteGainMetrics = std::array<double, 4>;
 
         struct ResonanceStateKey
         {
@@ -52,8 +52,8 @@ namespace molgr
             ResonanceStateKey next_state_key;
         };
 
-        using DirectGainBoundCacheKey = std::pair<ResonanceStateKey, int>;
-        using DirectGainBoundCache = std::map<DirectGainBoundCacheKey, DirectGainMetrics>;
+        using UffLiteGainBoundCacheKey = std::pair<ResonanceStateKey, int>;
+        using UffLiteGainBoundCache = std::map<UffLiteGainBoundCacheKey, UffLiteGainMetrics>;
 
         struct LimitedDiscrepancyTraversalConfig
         {
@@ -85,16 +85,6 @@ namespace molgr
             const std::tuple<int, int, int> &idxs);
         std::vector<OpenBabel::OBMol> GetOneStepResonance(const OpenBabel::OBMol &mol);
 
-        double ScoreOneStepResonanceWithForceField(
-            const OpenBabel::OBMol &mol,
-            const std::tuple<int, int, int> &idxs,
-            const molgr::config::MolGRConfig &config);
-        std::tuple<std::size_t, std::size_t, std::size_t> ResonanceMoveScoreCacheInfo();
-        void ResonanceMoveScoreCacheClear();
-        std::vector<std::pair<IndexedResonanceTraversalMove, double>> OrderForceFieldMoves(
-            const OpenBabel::OBMol &mol,
-            const std::vector<IndexedResonanceTraversalMove> &moves,
-            const molgr::config::MolGRConfig &config);
         std::vector<IndexedResonanceTraversalMove> SelectLimitedDiscrepancyMoves(
             const OpenBabel::OBMol &mol,
             const std::vector<IndexedResonanceTraversalMove> &moves,
@@ -105,7 +95,7 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const ResonanceStateKey &state_key,
             int remaining_steps,
-            DirectGainBoundCache *cache = nullptr);
+            UffLiteGainBoundCache *cache = nullptr);
 
         std::tuple<OpenBabel::OBMol, int, bool> ProcessResonanceDetailed(
             const OpenBabel::OBMol &mol,

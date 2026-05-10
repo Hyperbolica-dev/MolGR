@@ -4,7 +4,7 @@ The production path is:
 1. Strip metals and enumerate a small set of metal valence/radical assignments.
 2. Group assignments by the no-metal target they induce via meet-in-the-middle DP.
 3. Reconstruct each no-metal target once, reuse that state across the bucket, and
-   score the organic core with the shared force-field policy.
+   score the organic core with fixed UFF scoring.
 4. Across no-metal charge states, prefer candidates that preserve aromaticity,
    conjugation, and charge localization on chemically plausible sites.
 5. Within that organic electronic-state preference, prefer metal assignments whose

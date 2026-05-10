@@ -16,9 +16,6 @@ namespace molgr
         using molgr::resonance::BuildProcessedResonanceKey;
         using molgr::resonance::BuildResonanceSearchContext;
         using molgr::resonance::BuildResonanceStateKey;
-        using molgr::resonance::DirectGainBoundCache;
-        using molgr::resonance::DirectGainBoundCacheKey;
-        using molgr::resonance::DirectGainMetrics;
         using molgr::resonance::EnumerateOneStepResonanceMoves;
         using molgr::resonance::EstimateRemainingResonanceScoreImprovementUpperBound;
         using molgr::resonance::GetOneStepResonance;
@@ -27,7 +24,6 @@ namespace molgr
         using molgr::resonance::LimitedDiscrepancyTraversalConfig;
         using molgr::resonance::MaterializeOneStepResonance;
         using molgr::resonance::MaterializeOneStepResonancePtr;
-        using molgr::resonance::OrderForceFieldMoves;
         using molgr::resonance::ProcessedResonanceKey;
         using molgr::resonance::ProcessResonance;
         using molgr::resonance::ProcessResonanceDetailed;
@@ -37,9 +33,11 @@ namespace molgr
         using molgr::resonance::ResonanceSearchNode;
         using molgr::resonance::ResonanceStateKey;
         using molgr::resonance::ResonanceTraversalMove;
-        using molgr::resonance::ScoreOneStepResonanceWithForceField;
         using molgr::resonance::SelectLimitedDiscrepancyMoves;
         using molgr::resonance::SmilesFirstToken;
+        using molgr::resonance::UffLiteGainBoundCache;
+        using molgr::resonance::UffLiteGainBoundCacheKey;
+        using molgr::resonance::UffLiteGainMetrics;
 
         using ResonanceVisitCallback = std::function<bool(const ResonanceSearchNode &)>;
 

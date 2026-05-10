@@ -2,24 +2,14 @@
 
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace molgr::config
 {
-    struct ForceFieldConfig
-    {
-        std::vector<std::string> auto_force_fields_metal_free{"uff"};
-        std::vector<std::string> auto_force_fields_with_metals{"uff"};
-        std::string organic_force_field = "auto";
-        std::string selection_force_field = "auto";
-        std::string combined_force_field = "uff";
-    };
-
     struct ResonanceConfig
     {
         int max_depth = 2;
         int limited_discrepancy_max_discrepancy = 1;
-        std::string traversal_score = "direct_gain";
+        std::string traversal_score = "uff_lite_gain";
     };
 
     struct CppBackendConfig
@@ -56,7 +46,6 @@ namespace molgr::config
 
     struct MolGRConfig
     {
-        ForceFieldConfig force_field;
         ResonanceConfig resonance;
         CppBackendConfig cpp_backend;
         MetalScoringConfig metal_scoring;

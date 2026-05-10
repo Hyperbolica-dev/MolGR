@@ -54,11 +54,6 @@ namespace molgr::config
             return value.cast<int>();
         }
 
-        std::vector<std::string> CastRequiredStringVectorAttr(py::handle object, const char *name)
-        {
-            return RequiredAttr(object, name).cast<std::vector<std::string>>();
-        }
-
         py::object ResolvePythonConfig(py::handle config)
         {
             if (!config.is_none())
@@ -86,23 +81,6 @@ namespace molgr::config
     {
         py::object resolved = ResolvePythonConfig(config);
         MolGRConfig out;
-
-        py::object force_field = RequiredAttr(resolved, "force_field");
-        out.force_field.auto_force_fields_metal_free = CastRequiredStringVectorAttr(
-            force_field,
-            "auto_force_fields_metal_free");
-        out.force_field.auto_force_fields_with_metals = CastRequiredStringVectorAttr(
-            force_field,
-            "auto_force_fields_with_metals");
-        out.force_field.organic_force_field = CastRequiredAttr<std::string>(
-            force_field,
-            "organic_force_field");
-        out.force_field.selection_force_field = CastRequiredAttr<std::string>(
-            force_field,
-            "selection_force_field");
-        out.force_field.combined_force_field = CastRequiredAttr<std::string>(
-            force_field,
-            "combined_force_field");
 
         py::object resonance = RequiredAttr(resolved, "resonance");
         out.resonance.max_depth = CastRequiredAttr<int>(resonance, "max_depth");

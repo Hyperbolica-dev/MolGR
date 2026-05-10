@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import ForceFieldConfig, MolGRConfig, resolve_config
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
 from molgr.fallback.utils.tools import typed_lru_cache
 
@@ -15,13 +14,13 @@ if TYPE_CHECKING:
     from molgr.fallback.state import ReconstructionState
 
 
-ForceFieldChoice = Literal["auto", "uff"]
 ForceFieldAtomKey = Tuple[int, int, int, int, int, int, bool]
 ForceFieldBondKey = Tuple[int, int, int, bool]
 ForceFieldScoreKey = Tuple[Tuple[ForceFieldAtomKey, ...], Tuple[ForceFieldBondKey, ...]]
 MetalStateKey = Tuple[Tuple[int, int, int, int, int, int, int], ...]
 BondOrderOverrides = Mapping[Tuple[int, int], int]
 ForceFieldInput = Union[pybel.Molecule, "ReconstructionState", "OmolForceFieldContext"]
+_FIXED_FORCE_FIELD = "uff"
 _DEFAULT_FORCE_FIELD_CACHE_MAXSIZE = 4096
 _COORDINATE_SCALE = 1_000_000
 _FORCE_FIELD_UNIT_TO_KJ_MOL = {
@@ -141,9 +140,6 @@ class OmolForceFieldContext:
 
 @dataclass(frozen=True)
 class ForceFieldEvaluation:
-    requested_force_field: str
-    resolved_force_field: str
-    selection_reason: str
     raw_energy: float
     raw_unit: str
     energy_kj_mol: float
@@ -181,29 +177,6 @@ def _count_heavy_atoms(obmol: ob.OBMol) -> int:
     return sum(1 for atom in ob.OBMolAtomIter(obmol) if cast(ob.OBAtom, atom).GetAtomicNum() != 1)
 
 
-def _resolve_force_field_config(config: MolGRConfig | None = None) -> ForceFieldConfig:
-    return resolve_config(config).force_field
-
-
-def _normalized_force_field_order(force_fields: Sequence[str]) -> Tuple[ForceFieldChoice, ...]:
-    normalized_order: list[ForceFieldChoice] = []
-    for force_field in force_fields:
-        normalized_force_field = _normalize_force_field_choice(force_field)
-        if normalized_force_field in normalized_order:
-            continue
-        normalized_order.append(normalized_force_field)
-    if not normalized_order:
-        raise ValueError("Auto force-field candidate order cannot be empty.")
-    return tuple(normalized_order)
-
-
-def _normalize_force_field_choice(force_field: str) -> ForceFieldChoice:
-    normalized = force_field.strip().lower()
-    if normalized not in {"auto", "uff"}:
-        raise ValueError("Unsupported force field choice. Expected one of 'auto' or 'uff'.")
-    return cast(ForceFieldChoice, normalized)
-
-
 def _force_field_energy_to_kj_mol(raw_energy: float, raw_unit: str) -> float:
     normalized_unit = raw_unit.strip().lower()
     factor = _FORCE_FIELD_UNIT_TO_KJ_MOL.get(normalized_unit)
@@ -212,82 +185,36 @@ def _force_field_energy_to_kj_mol(raw_energy: float, raw_unit: str) -> float:
     return raw_energy * factor
 
 
-def _build_force_field_evaluation(
-    context: OmolForceFieldContext,
-    requested_force_field: str,
-    *,
-    auto_force_fields_metal_free: Sequence[str],
-    auto_force_fields_with_metals: Sequence[str],
-) -> ForceFieldEvaluation:
-    normalized_force_field = _normalize_force_field_choice(requested_force_field)
+def _build_force_field_evaluation(context: OmolForceFieldContext) -> ForceFieldEvaluation:
     contains_metals = context.contains_metals
     working_obmol = ob.OBMol(cast(ob.OBMol, context.omol.OBMol))
     working_obmol.SetAromaticPerceived(False)
     atom_count = int(working_obmol.NumAtoms())
     heavy_atom_count = _count_heavy_atoms(working_obmol)
 
-    candidates: list[Tuple[str, str]] = []
-    if normalized_force_field == "auto":
-        auto_force_fields = (
-            _normalized_force_field_order(auto_force_fields_with_metals)
-            if contains_metals
-            else _normalized_force_field_order(auto_force_fields_metal_free)
-        )
-        for idx, candidate_name in enumerate(auto_force_fields):
-            if idx == 0:
-                selection_reason = f"auto_prefer_{candidate_name}"
-            else:
-                selection_reason = f"auto_fallback_to_{candidate_name}"
-            candidates.append((candidate_name, selection_reason))
-    else:
-        candidates.append((normalized_force_field, "explicit_request"))
-
-    failures: list[str] = []
-    for candidate_force_field_name, selection_reason in candidates:
-        force_field = ob.OBForceField.FindForceField(candidate_force_field_name)
-        if not force_field:
-            failures.append(f"{candidate_force_field_name}: unavailable")
-            continue
-        candidate_obmol = ob.OBMol(working_obmol)
-        if not bool(force_field.Setup(candidate_obmol)):
-            failures.append(f"{candidate_force_field_name}: setup_failed")
-            continue
-        raw_energy = float(force_field.Energy())
-        raw_unit = str(force_field.GetUnit())
-        energy_kj_mol = _force_field_energy_to_kj_mol(raw_energy, raw_unit)
-        return ForceFieldEvaluation(
-            requested_force_field=normalized_force_field,
-            resolved_force_field=candidate_force_field_name,
-            selection_reason=selection_reason,
-            raw_energy=raw_energy,
-            raw_unit=raw_unit,
-            energy_kj_mol=energy_kj_mol,
-            atom_count=atom_count,
-            heavy_atom_count=heavy_atom_count,
-            contains_metals=contains_metals,
-        )
-
-    raise ValueError(
-        f"Could not evaluate force-field energy with {normalized_force_field!r}: {failures!r}"
+    force_field = ob.OBForceField.FindForceField(_FIXED_FORCE_FIELD)
+    if not force_field:
+        raise ValueError("Could not evaluate force-field energy with fixed 'uff': unavailable")
+    candidate_obmol = ob.OBMol(working_obmol)
+    if not bool(force_field.Setup(candidate_obmol)):
+        raise ValueError("Could not evaluate force-field energy with fixed 'uff': setup_failed")
+    raw_energy = float(force_field.Energy())
+    raw_unit = str(force_field.GetUnit())
+    energy_kj_mol = _force_field_energy_to_kj_mol(raw_energy, raw_unit)
+    return ForceFieldEvaluation(
+        raw_energy=raw_energy,
+        raw_unit=raw_unit,
+        energy_kj_mol=energy_kj_mol,
+        atom_count=atom_count,
+        heavy_atom_count=heavy_atom_count,
+        contains_metals=contains_metals,
     )
 
 
 def _build_force_field_evaluation_cached_impl(
     context: OmolForceFieldContext,
-    requested_force_field: ForceFieldChoice,
-    config: MolGRConfig,
 ) -> ForceFieldEvaluation:
-    force_field_config = _resolve_force_field_config(config)
-    return _build_force_field_evaluation(
-        context,
-        requested_force_field,
-        auto_force_fields_metal_free=_normalized_force_field_order(
-            force_field_config.auto_force_fields_metal_free
-        ),
-        auto_force_fields_with_metals=_normalized_force_field_order(
-            force_field_config.auto_force_fields_with_metals
-        ),
-    )
+    return _build_force_field_evaluation(context)
 
 
 _force_field_evaluation_cached = typed_lru_cache(
@@ -307,51 +234,20 @@ def force_field_evaluation_cache_clear() -> None:
 
 def _force_field_evaluation_from_context(
     context: OmolForceFieldContext,
-    requested_force_field: ForceFieldChoice,
-    *,
-    config: MolGRConfig | None = None,
 ) -> ForceFieldEvaluation:
-    resolved_config = resolve_config(config)
-    return _force_field_evaluation_cached(
-        context,
-        requested_force_field,
-        resolved_config,
-    )
+    return _force_field_evaluation_cached(context)
 
 
-def force_field_evaluation(
-    omol_or_state: ForceFieldInput,
-    *,
-    force_field: ForceFieldChoice = "auto",
-    config: MolGRConfig | None = None,
-) -> ForceFieldEvaluation:
+def force_field_evaluation(omol_or_state: ForceFieldInput) -> ForceFieldEvaluation:
     context = OmolForceFieldContext.from_input(omol_or_state)
-    requested_force_field = _normalize_force_field_choice(force_field)
-    return _force_field_evaluation_from_context(
-        context,
-        requested_force_field,
-        config=config,
-    )
+    return _force_field_evaluation_from_context(context)
 
 
-def force_field_energy(
-    omol_or_state: ForceFieldInput,
-    *,
-    force_field: ForceFieldChoice = "auto",
-    config: MolGRConfig | None = None,
-) -> float:
-    return force_field_evaluation(
-        omol_or_state,
-        force_field=force_field,
-        config=config,
-    ).energy_kj_mol
+def force_field_energy(omol_or_state: ForceFieldInput) -> float:
+    return force_field_evaluation(omol_or_state).energy_kj_mol
 
 
-def organic_force_field_evaluation(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> ForceFieldEvaluation:
+def organic_force_field_evaluation(omol_or_state: ForceFieldInput) -> ForceFieldEvaluation:
     context = OmolForceFieldContext.from_input(omol_or_state)
     if context.contains_metals:
         raise ValueError(
@@ -359,83 +255,37 @@ def organic_force_field_evaluation(
             "use selection_force_field_evaluation(...) for the default metal-aware policy or "
             "combined_force_field_evaluation(...) for raw full-molecule UFF diagnostics."
         )
-    requested_force_field = _normalize_force_field_choice(
-        _resolve_force_field_config(config).organic_force_field
-    )
-    return _force_field_evaluation_from_context(
-        context,
-        requested_force_field,
-        config=config,
-    )
+    return _force_field_evaluation_from_context(context)
 
 
-def organic_force_field_energy(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> float:
-    return organic_force_field_evaluation(omol_or_state, config=config).energy_kj_mol
+def organic_force_field_energy(omol_or_state: ForceFieldInput) -> float:
+    return organic_force_field_evaluation(omol_or_state).energy_kj_mol
 
 
-def combined_force_field_evaluation(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> ForceFieldEvaluation:
-    requested_force_field = _normalize_force_field_choice(
-        _resolve_force_field_config(config).combined_force_field
-    )
-    return force_field_evaluation(
-        omol_or_state,
-        force_field=requested_force_field,
-        config=config,
-    )
+def combined_force_field_evaluation(omol_or_state: ForceFieldInput) -> ForceFieldEvaluation:
+    return force_field_evaluation(omol_or_state)
 
 
-def combined_force_field_energy(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> float:
-    return combined_force_field_evaluation(omol_or_state, config=config).energy_kj_mol
+def combined_force_field_energy(omol_or_state: ForceFieldInput) -> float:
+    return combined_force_field_evaluation(omol_or_state).energy_kj_mol
 
 
-def selection_force_field_evaluation(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> ForceFieldEvaluation:
+def selection_force_field_evaluation(omol_or_state: ForceFieldInput) -> ForceFieldEvaluation:
     context = OmolForceFieldContext.from_input(omol_or_state)
-    requested_force_field = _normalize_force_field_choice(
-        _resolve_force_field_config(config).selection_force_field
-    )
     if context.contains_metals:
         organic_context = OmolForceFieldContext(
             _strip_metal_atoms(context.omol), contains_metals=False
         )
-        return _force_field_evaluation_from_context(
-            organic_context,
-            requested_force_field,
-            config=config,
-        )
-    return _force_field_evaluation_from_context(
-        context,
-        requested_force_field,
-        config=config,
-    )
+        return _force_field_evaluation_from_context(organic_context)
+    return _force_field_evaluation_from_context(context)
 
 
-def selection_force_field_energy(
-    omol_or_state: ForceFieldInput,
-    *,
-    config: MolGRConfig | None = None,
-) -> float:
-    return selection_force_field_evaluation(omol_or_state, config=config).energy_kj_mol
+def selection_force_field_energy(omol_or_state: ForceFieldInput) -> float:
+    return selection_force_field_evaluation(omol_or_state).energy_kj_mol
 
 
 __all__ = [
     "BondOrderOverrides",
-    "ForceFieldChoice",
     "ForceFieldEvaluation",
     "ForceFieldInput",
     "ForceFieldScoreKey",

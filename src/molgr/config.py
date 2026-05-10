@@ -2,26 +2,24 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Literal, Optional
 
 
-ForceFieldChoiceConfig = Tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ForceFieldConfig:
-    auto_force_fields_metal_free: ForceFieldChoiceConfig = ("uff",)
-    auto_force_fields_with_metals: ForceFieldChoiceConfig = ("uff",)
-    organic_force_field: str = "auto"
-    selection_force_field: str = "auto"
-    combined_force_field: str = "uff"
+ResonanceTraversalScore = Literal[
+    "uff_lite_gain",
+    "input_order",
+]
+ReconstructionFailurePolicy = Literal[
+    "raise",
+    "return_suspicious",
+]
 
 
 @dataclass(frozen=True)
 class ResonanceConfig:
     max_depth: int = 2
     limited_discrepancy_max_discrepancy: int = 1
-    traversal_score: str = "direct_gain"
+    traversal_score: ResonanceTraversalScore = "uff_lite_gain"
 
 
 @dataclass(frozen=True)
@@ -57,14 +55,19 @@ class MetalRadicalInferenceConfig:
 
 
 @dataclass(frozen=True)
+class PythonInterfaceConfig:
+    reconstruction_failure_policy: ReconstructionFailurePolicy = "raise"
+
+
+@dataclass(frozen=True)
 class MolGRConfig:
-    force_field: ForceFieldConfig = field(default_factory=ForceFieldConfig)
     resonance: ResonanceConfig = field(default_factory=ResonanceConfig)
     cpp_backend: CppBackendConfig = field(default_factory=CppBackendConfig)
     metal_scoring: MetalScoringConfig = field(default_factory=MetalScoringConfig)
     metal_radical_inference: MetalRadicalInferenceConfig = field(
         default_factory=MetalRadicalInferenceConfig
     )
+    interface: PythonInterfaceConfig = field(default_factory=PythonInterfaceConfig)
 
 
 def make_default_config() -> MolGRConfig:
@@ -113,20 +116,16 @@ def is_default_config(config: Optional[MolGRConfig] = None) -> bool:
     return resolve_config(config) == make_default_config()
 
 
-def force_field_config_cache_key(config: Optional[MolGRConfig] = None) -> str:
-    return repr(resolve_config(config).force_field)
-
-
 __all__ = [
     "DEFAULT_MOLGR_CONFIG",
     "CppBackendConfig",
-    "ForceFieldChoiceConfig",
-    "ForceFieldConfig",
     "MetalRadicalInferenceConfig",
     "MetalScoringConfig",
     "MolGRConfig",
+    "PythonInterfaceConfig",
+    "ReconstructionFailurePolicy",
     "ResonanceConfig",
-    "force_field_config_cache_key",
+    "ResonanceTraversalScore",
     "get_config",
     "is_default_config",
     "make_default_config",

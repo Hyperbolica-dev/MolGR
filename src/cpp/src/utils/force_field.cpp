@@ -86,36 +86,6 @@ namespace
         return std::string(begin, end);
     }
 
-    std::string NormalizeForceFieldChoice(const std::string &force_field)
-    {
-        const std::string normalized = Lowercase(Trim(force_field));
-        if (normalized == "auto" || normalized == "uff")
-        {
-            return normalized;
-        }
-        throw std::invalid_argument(
-            "Unsupported force field choice. Expected one of 'auto' or 'uff'.");
-    }
-
-    std::vector<std::string> NormalizedForceFieldOrder(const std::vector<std::string> &force_fields)
-    {
-        std::vector<std::string> normalized_order;
-        for (const auto &force_field : force_fields)
-        {
-            const std::string normalized = NormalizeForceFieldChoice(force_field);
-            if (std::find(normalized_order.begin(), normalized_order.end(), normalized) ==
-                normalized_order.end())
-            {
-                normalized_order.push_back(normalized);
-            }
-        }
-        if (normalized_order.empty())
-        {
-            throw std::invalid_argument("Auto force-field candidate order cannot be empty.");
-        }
-        return normalized_order;
-    }
-
     double ForceFieldEnergyToKjMol(double raw_energy, const std::string &raw_unit)
     {
         const std::string unit = Lowercase(Trim(raw_unit));
@@ -320,48 +290,10 @@ namespace
         out.push_back(value ? '1' : '0');
     }
 
-    void AppendStringVector(std::string &out, const std::vector<std::string> &values)
-    {
-        out.push_back('[');
-        for (std::size_t idx = 0; idx < values.size(); ++idx)
-        {
-            if (idx > 0)
-            {
-                out.push_back(',');
-            }
-            out += values[idx];
-        }
-        out.push_back(']');
-    }
-
-    std::string BuildForceFieldConfigCacheKey(const molgr::config::MolGRConfig &config)
-    {
-        std::string key;
-        key.reserve(192);
-        key += "ffcfg:";
-        key += "metal_free=";
-        AppendStringVector(key, config.force_field.auto_force_fields_metal_free);
-        key += ";with_metals=";
-        AppendStringVector(key, config.force_field.auto_force_fields_with_metals);
-        key += ";organic=";
-        key += config.force_field.organic_force_field;
-        key += ";selection=";
-        key += config.force_field.selection_force_field;
-        key += ";combined=";
-        key += config.force_field.combined_force_field;
-        return key;
-    }
-
-    std::string BuildForceFieldEvaluationCacheKey(
-        const OpenBabel::OBMol &mol,
-        const std::string &normalized_force_field,
-        const molgr::config::MolGRConfig &config)
+    std::string BuildForceFieldEvaluationCacheKey(const OpenBabel::OBMol &mol)
     {
         std::string key = molgr::scoring::BuildScoreKey(mol);
-        key += "|requested=";
-        key += normalized_force_field;
-        key.push_back('|');
-        key += BuildForceFieldConfigCacheKey(config);
+        key += "|uff";
         return key;
     }
 
@@ -375,7 +307,6 @@ namespace
 
     molgr::scoring::ForceFieldEvaluation EvaluateForceFieldUncached(
         const OpenBabel::OBMol &mol,
-        const std::string &normalized_force_field,
         const molgr::config::MolGRConfig &config)
     {
         auto *timing_reducer = molgr::pipeline::perf::GetActiveRunTimingReducer();
@@ -402,106 +333,58 @@ namespace
                 std::chrono::duration<double, std::milli>(Clock::now() - setup_key_started).count());
         }
 
-        std::vector<std::pair<std::string, std::string>> candidates;
-        if (normalized_force_field == "auto")
+        const std::string candidate_force_field_name = "uff";
+        ReusableForceField &reusable_force_field = ThreadLocalForceField(candidate_force_field_name);
+        PrepareReusableForceFieldForSetup(
+            reusable_force_field,
+            exact_setup_key,
+            openbabel_setup_key);
+
+        OpenBabel::MolgrForceFieldUFF *force_field_ptr = reusable_force_field.instance.get();
+        if (force_field_ptr == nullptr)
         {
-            const auto auto_force_fields = NormalizedForceFieldOrder(
-                contains_metals
-                    ? config.force_field.auto_force_fields_with_metals
-                    : config.force_field.auto_force_fields_metal_free);
-            for (std::size_t idx = 0; idx < auto_force_fields.size(); ++idx)
-            {
-                const auto &candidate_name = auto_force_fields[idx];
-                std::string selection_reason;
-                if (idx == 0)
-                {
-                    selection_reason = "auto_prefer_" + candidate_name;
-                }
-                else
-                {
-                    selection_reason = "auto_fallback_to_" + candidate_name;
-                }
-                candidates.emplace_back(candidate_name, selection_reason);
-            }
+            throw std::runtime_error("Could not evaluate fixed UFF force-field energy: unavailable");
         }
-        else
+        force_field_ptr->SetLogLevel(OBFF_LOGLVL_NONE);
+        force_field_ptr->ConfigureAtomTypingCache(
+            config.cpp_backend.enable_uff_atom_typing_cache,
+            exact_setup_key);
+        const auto setup_started = Clock::now();
+        const bool setup_ok = force_field_ptr->Setup(working_mol);
+        if (timing_reducer != nullptr)
         {
-            candidates.emplace_back(normalized_force_field, "explicit_request");
+            timing_reducer->AddForceFieldSetupMs(
+                std::chrono::duration<double, std::milli>(Clock::now() - setup_started).count());
         }
-
-        std::vector<std::string> failures;
-        for (const auto &[candidate_force_field_name, selection_reason] : candidates)
+        if (reusable_force_field.instance != nullptr)
         {
-            ReusableForceField &reusable_force_field = ThreadLocalForceField(candidate_force_field_name);
-            PrepareReusableForceFieldForSetup(
-                reusable_force_field,
-                exact_setup_key,
-                openbabel_setup_key);
-
-            OpenBabel::MolgrForceFieldUFF *force_field_ptr = reusable_force_field.instance.get();
-            if (force_field_ptr == nullptr)
-            {
-                failures.push_back(candidate_force_field_name + ": unavailable");
-                continue;
-            }
-            force_field_ptr->SetLogLevel(OBFF_LOGLVL_NONE);
-            force_field_ptr->ConfigureAtomTypingCache(
-                config.cpp_backend.enable_uff_atom_typing_cache,
-                exact_setup_key);
-            const auto setup_started = Clock::now();
-            const bool setup_ok = force_field_ptr->Setup(working_mol);
-            if (timing_reducer != nullptr)
-            {
-                timing_reducer->AddForceFieldSetupMs(
-                    std::chrono::duration<double, std::milli>(Clock::now() - setup_started).count());
-            }
-            if (reusable_force_field.instance != nullptr)
-            {
-                reusable_force_field.last_exact_setup_key = exact_setup_key;
-                reusable_force_field.last_openbabel_setup_key = openbabel_setup_key;
-            }
-            if (!setup_ok)
-            {
-                failures.push_back(candidate_force_field_name + ": setup_failed");
-                continue;
-            }
-
-            const auto energy_started = Clock::now();
-            const double raw_energy = force_field_ptr->Energy();
-            if (timing_reducer != nullptr)
-            {
-                timing_reducer->AddForceFieldEnergyMs(
-                    std::chrono::duration<double, std::milli>(Clock::now() - energy_started).count());
-                timing_reducer->AddForceFieldCalls(1.0);
-                timing_reducer->AddForceFieldTotalMs(
-                    std::chrono::duration<double, std::milli>(Clock::now() - total_started).count());
-            }
-            const std::string raw_unit = force_field_ptr->GetUnit();
-            return molgr::scoring::ForceFieldEvaluation{
-                normalized_force_field,
-                candidate_force_field_name,
-                selection_reason,
-                raw_energy,
-                raw_unit,
-                ForceFieldEnergyToKjMol(raw_energy, raw_unit),
-                atom_count,
-                heavy_atom_count,
-                contains_metals,
-            };
+            reusable_force_field.last_exact_setup_key = exact_setup_key;
+            reusable_force_field.last_openbabel_setup_key = openbabel_setup_key;
+        }
+        if (!setup_ok)
+        {
+            throw std::runtime_error("Could not evaluate fixed UFF force-field energy: setup_failed");
         }
 
-        std::ostringstream oss;
-        oss << "Could not evaluate force-field energy with '" << normalized_force_field << "': [";
-        for (std::size_t i = 0; i < failures.size(); ++i)
+        const auto energy_started = Clock::now();
+        const double raw_energy = force_field_ptr->Energy();
+        if (timing_reducer != nullptr)
         {
-            if (i > 0)
-            {
-                oss << ", ";
-            }
-            oss << failures[i];
+            timing_reducer->AddForceFieldEnergyMs(
+                std::chrono::duration<double, std::milli>(Clock::now() - energy_started).count());
+            timing_reducer->AddForceFieldCalls(1.0);
+            timing_reducer->AddForceFieldTotalMs(
+                std::chrono::duration<double, std::milli>(Clock::now() - total_started).count());
         }
-        oss << "]";
-        throw std::runtime_error(oss.str());
+        const std::string raw_unit = force_field_ptr->GetUnit();
+        return molgr::scoring::ForceFieldEvaluation{
+            raw_energy,
+            raw_unit,
+            ForceFieldEnergyToKjMol(raw_energy, raw_unit),
+            atom_count,
+            heavy_atom_count,
+            contains_metals,
+        };
     }
 }
 
@@ -636,14 +519,12 @@ namespace molgr
 
         ForceFieldEvaluation EvaluateForceField(
             const OpenBabel::OBMol &mol,
-            const std::string &force_field,
             const molgr::config::MolGRConfig &config)
         {
-            const std::string normalized_force_field = NormalizeForceFieldChoice(force_field);
             auto *timing_reducer = molgr::pipeline::perf::GetActiveRunTimingReducer();
             const auto cache_key_started = Clock::now();
             const std::string cache_key =
-                BuildForceFieldEvaluationCacheKey(mol, normalized_force_field, config);
+                BuildForceFieldEvaluationCacheKey(mol);
             if (timing_reducer != nullptr)
             {
                 timing_reducer->AddForceFieldCacheKeyMs(
@@ -655,7 +536,7 @@ namespace molgr
                 return cached;
             }
             const ForceFieldEvaluation evaluation =
-                EvaluateForceFieldUncached(mol, normalized_force_field, config);
+                EvaluateForceFieldUncached(mol, config);
             ForceFieldEvaluationCache().Put(cache_key, evaluation);
             return evaluation;
         }
@@ -679,14 +560,14 @@ namespace molgr
                 throw std::runtime_error(
                     "Organic force-field evaluation only supports metal-free molecules.");
             }
-            return EvaluateForceField(mol, config.force_field.organic_force_field, config);
+            return EvaluateForceField(mol, config);
         }
 
         ForceFieldEvaluation CombinedForceFieldEvaluation(
             const OpenBabel::OBMol &mol,
             const molgr::config::MolGRConfig &config)
         {
-            return EvaluateForceField(mol, config.force_field.combined_force_field, config);
+            return EvaluateForceField(mol, config);
         }
 
         ForceFieldEvaluation SelectionForceFieldEvaluation(
@@ -696,9 +577,9 @@ namespace molgr
             if (ContainsMetalAtoms(mol))
             {
                 const OpenBabel::OBMol stripped = StripMetalAtoms(mol);
-                return EvaluateForceField(stripped, config.force_field.selection_force_field, config);
+                return EvaluateForceField(stripped, config);
             }
-            return EvaluateForceField(mol, config.force_field.selection_force_field, config);
+            return EvaluateForceField(mol, config);
         }
 
         double OrganicForceFieldEnergy(

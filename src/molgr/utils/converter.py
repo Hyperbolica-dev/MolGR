@@ -34,7 +34,11 @@ def mol_data_to_pybel(mol_data: core.utils.MoleculeData) -> pybel.Molecule:
     return pybel.Molecule(obmol)
 
 
-def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) -> Chem.Mol:
+def mol_data_to_rdkit(
+    mol_data: core.utils.MoleculeData,
+    sanitize: bool = True,
+    kekulize: bool = True,
+) -> Chem.Mol:
     """
     Convert MoleculeData to RDKit Mol.
     """
@@ -59,11 +63,16 @@ def mol_data_to_rdkit(mol_data: core.utils.MoleculeData, sanitize: bool = True) 
 
     if sanitize:
         Chem.SanitizeMol(rdmol)
-    Chem.Kekulize(rdmol)
+    if kekulize:
+        Chem.Kekulize(rdmol)
     return rdmol
 
 
-def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
+def pybel_to_rdmol(
+    omol: pybel.Molecule,
+    sanitize: bool = True,
+    kekulize: bool = True,
+) -> Chem.Mol:
     """
     Convert Pybel Molecule to RDKit Mol.
     """
@@ -95,5 +104,6 @@ def pybel_to_rdmol(omol: pybel.Molecule, sanitize: bool = True) -> Chem.Mol:
     rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
         Chem.SanitizeMol(rdmol)
-    Chem.Kekulize(rdmol)
+    if kekulize:
+        Chem.Kekulize(rdmol)
     return rdmol

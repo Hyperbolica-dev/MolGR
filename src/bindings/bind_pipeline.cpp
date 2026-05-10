@@ -711,13 +711,6 @@ namespace molgr
                 },
                 "Clear the C++ force-field evaluation cache.");
             m.def(
-                "clear_resonance_move_score_cache",
-                []()
-                {
-                    molgr::resonance::ResonanceMoveScoreCacheClear();
-                },
-                "Clear the C++ resonance move score cache.");
-            m.def(
                 "clear_uff_atom_typing_cache",
                 []()
                 {

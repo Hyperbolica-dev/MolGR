@@ -48,8 +48,8 @@ jobs:
 
       - name: Lint and format check
         run: |
-          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff check .
-          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff format --check .
+          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff check src
+          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff format --check src
 
   build-test-linux-matrix:
     name: Build/Test ubuntu-latest Py${{ matrix.python-version }}

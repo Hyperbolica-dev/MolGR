@@ -559,10 +559,7 @@ def _rdkit_to_pybel_with_coords(mol: Chem.Mol) -> pybel.Molecule:
 
 
 def _organic_uff_energy_kj_mol(mol: Chem.Mol) -> float:
-    return force_field_evaluation(
-        _rdkit_to_pybel_with_coords(mol),
-        force_field="uff",
-    ).energy_kj_mol
+    return force_field_evaluation(_rdkit_to_pybel_with_coords(mol)).energy_kj_mol
 
 
 def _reference_total_radical_electrons(reference_mol: Chem.Mol) -> int:

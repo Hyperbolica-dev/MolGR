@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Protocol, Sequence, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import MolGRConfig, resolve_config
 from molgr.fallback.stages.clean import clean_neighbor_radicals, clean_resonances
 from molgr.fallback.stages.eliminate import (
     eliminate_1_3_dipole,
@@ -18,8 +17,6 @@ from molgr.fallback.stages.eliminate import (
 )
 from molgr.fallback.state import OmolStateMachine
 from molgr.fallback.utils import consts
-from molgr.fallback.utils.force_field import OmolForceFieldContext, selection_force_field_energy
-from molgr.fallback.utils.tools import typed_lru_cache
 
 from . import smarts
 
@@ -29,7 +26,6 @@ ResonanceBondKey = Tuple[int, int, int, bool]
 ResonanceStateKey = Tuple[Tuple[ResonanceAtomKey, ...], Tuple[ResonanceBondKey, ...]]
 ProcessedResonanceKey = str
 ResonanceBondIndexMap = Dict[Tuple[int, int], int]
-_DEFAULT_RESONANCE_MOVE_SCORE_CACHE_MAXSIZE = 4096
 _UFF_LITE_BOND_STRAIN_SCORE_WEIGHT = 1.0
 _UFF_LITE_ANGLE_STRAIN_SCORE_WEIGHT = 0.35
 _UFF_LITE_RADICAL_SCORE_WEIGHT = 1.0
@@ -37,7 +33,7 @@ _UFF_LITE_CONJUGATION_SCORE_WEIGHT = 0.25
 _KCAL_TO_KJ = 4.184
 
 _BondOrderOverrides = Dict[Tuple[int, int], int]
-_DirectGainMetrics = Tuple[float, float, float, float]
+_UffLiteGainMetrics = Tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -87,25 +83,7 @@ class LimitedDiscrepancyResonanceTraversalPolicy(ResonanceTraversalPolicy, Proto
 
 
 @dataclass(frozen=True)
-class _LimitedDiscrepancyForceFieldTraversalPolicy:
-    max_discrepancy: int
-    config: MolGRConfig | None = None
-
-    def __call__(
-        self,
-        context: ResonanceTraversalContext,
-        moves: Sequence[ResonanceTraversalMove],
-    ) -> Optional[Sequence[ResonanceTraversalMove]]:
-        ordered_moves = _order_force_field_moves(
-            context.current_omol,
-            moves,
-            config=self.config,
-        )
-        return [move for move, _score in ordered_moves]
-
-
-@dataclass(frozen=True)
-class _LimitedDiscrepancyDirectGainTraversalPolicy:
+class _LimitedDiscrepancyUffLiteGainTraversalPolicy:
     max_discrepancy: int
 
     def __call__(
@@ -113,7 +91,7 @@ class _LimitedDiscrepancyDirectGainTraversalPolicy:
         context: ResonanceTraversalContext,
         moves: Sequence[ResonanceTraversalMove],
     ) -> Optional[Sequence[ResonanceTraversalMove]]:
-        ordered_moves = _order_direct_gain_moves(context.current_omol, moves)
+        ordered_moves = _order_uff_lite_gain_moves(context.current_omol, moves)
         return [move for move, _score in ordered_moves]
 
 
@@ -130,8 +108,7 @@ class _LimitedDiscrepancyInputOrderTraversalPolicy:
 
 
 _LIMITED_DISCREPANCY_POLICY_TYPES = (
-    _LimitedDiscrepancyForceFieldTraversalPolicy,
-    _LimitedDiscrepancyDirectGainTraversalPolicy,
+    _LimitedDiscrepancyUffLiteGainTraversalPolicy,
     _LimitedDiscrepancyInputOrderTraversalPolicy,
 )
 
@@ -283,32 +260,6 @@ def _materialize_one_step_resonance(
     atom1_clone.SetSpinMultiplicity(atom1_clone.GetSpinMultiplicity() - 1)
     atom3_clone.SetSpinMultiplicity(atom3_clone.GetSpinMultiplicity() + 1)
     return new_omol
-
-
-@typed_lru_cache(maxsize=_DEFAULT_RESONANCE_MOVE_SCORE_CACHE_MAXSIZE, typed=True)
-def _score_one_step_resonance_with_force_field_cached(
-    context: OmolForceFieldContext,
-    move_path: Tuple[int, int, int],
-    config: MolGRConfig,
-) -> float:
-    moved_omol = _materialize_one_step_resonance(context.omol, move_path)
-    try:
-        return selection_force_field_energy(moved_omol, config=config)
-    except ValueError:
-        return float("inf")
-
-
-def _score_one_step_resonance_with_force_field(
-    omol: pybel.Molecule,
-    move_path: Tuple[int, int, int],
-    *,
-    config: MolGRConfig | None = None,
-) -> float:
-    return _score_one_step_resonance_with_force_field_cached(
-        OmolForceFieldContext(omol),
-        move_path,
-        resolve_config(config),
-    )
 
 
 def _bond_pair(atom_idx_a: int, atom_idx_b: int) -> Tuple[int, int]:
@@ -567,10 +518,10 @@ def _estimate_radical_conjugation_size(
     return len(visited_atoms)
 
 
-def _compute_direct_gain_resonance_metrics(
+def _compute_uff_lite_gain_resonance_metrics(
     omol: pybel.Molecule,
     move_path: Tuple[int, int, int],
-) -> _DirectGainMetrics:
+) -> _UffLiteGainMetrics:
     obmol = cast(ob.OBMol, omol.OBMol)
     old_radical_idx, center_idx, new_radical_idx = move_path
 
@@ -632,7 +583,7 @@ def _compute_direct_gain_resonance_metrics(
     )
 
 
-def _direct_gain_move_score(metrics: _DirectGainMetrics) -> float:
+def _uff_lite_gain_move_score(metrics: _UffLiteGainMetrics) -> float:
     return -(
         metrics[0] * _UFF_LITE_BOND_STRAIN_SCORE_WEIGHT
         + metrics[1] * _UFF_LITE_ANGLE_STRAIN_SCORE_WEIGHT
@@ -641,30 +592,17 @@ def _direct_gain_move_score(metrics: _DirectGainMetrics) -> float:
     )
 
 
-def resonance_move_score_cache_info() -> Tuple[int, int, int]:
-    info = _score_one_step_resonance_with_force_field_cached.cache_info()
-    return info.hits, info.misses, info.currsize
-
-
-def resonance_move_score_cache_clear() -> None:
-    _score_one_step_resonance_with_force_field_cached.cache_clear()
-
-
-def _order_force_field_moves(
+def _order_uff_lite_gain_moves(
     omol: pybel.Molecule,
     moves: Sequence[ResonanceTraversalMove],
-    *,
-    config: MolGRConfig | None = None,
 ) -> List[Tuple[ResonanceTraversalMove, float]]:
     ordered_moves: List[Tuple[ResonanceTraversalMove, float]] = []
     for move in moves:
         ordered_moves.append(
             (
                 move,
-                _score_one_step_resonance_with_force_field(
-                    omol,
-                    move.path,
-                    config=config,
+                _uff_lite_gain_move_score(
+                    _compute_uff_lite_gain_resonance_metrics(omol, move.path)
                 ),
             )
         )
@@ -672,39 +610,13 @@ def _order_force_field_moves(
     return ordered_moves
 
 
-def _order_direct_gain_moves(
-    omol: pybel.Molecule,
-    moves: Sequence[ResonanceTraversalMove],
-) -> List[Tuple[ResonanceTraversalMove, float]]:
-    ordered_moves: List[Tuple[ResonanceTraversalMove, float]] = []
-    for move in moves:
-        ordered_moves.append(
-            (move, _direct_gain_move_score(_compute_direct_gain_resonance_metrics(omol, move.path)))
-        )
-    ordered_moves.sort(key=lambda item: (item[1], item[0].path))
-    return ordered_moves
-
-
-def make_limited_discrepancy_force_field_traversal_policy(
-    *,
-    max_discrepancy: int = 2,
-    config: MolGRConfig | None = None,
-) -> ResonanceTraversalPolicy:
-    """Prefer lower one-step force-field-energy moves, with bounded discrepancy search."""
-
-    return _LimitedDiscrepancyForceFieldTraversalPolicy(
-        max_discrepancy=max(0, max_discrepancy),
-        config=config,
-    )
-
-
-def make_limited_discrepancy_direct_gain_traversal_policy(
+def make_limited_discrepancy_uff_lite_gain_traversal_policy(
     *,
     max_discrepancy: int = 2,
 ) -> ResonanceTraversalPolicy:
-    """Prefer larger direct-gain improvements, with bounded discrepancy search."""
+    """Prefer larger UFF-lite improvements, with bounded discrepancy search."""
 
-    return _LimitedDiscrepancyDirectGainTraversalPolicy(
+    return _LimitedDiscrepancyUffLiteGainTraversalPolicy(
         max_discrepancy=max(0, max_discrepancy),
     )
 
@@ -767,10 +679,7 @@ __all__ = [
     "LimitedDiscrepancyResonanceTraversalPolicy",
     "build_processed_resonance_key",
     "build_resonance_state_key",
-    "make_limited_discrepancy_direct_gain_traversal_policy",
-    "make_limited_discrepancy_force_field_traversal_policy",
     "make_limited_discrepancy_input_order_traversal_policy",
+    "make_limited_discrepancy_uff_lite_gain_traversal_policy",
     "process_resonance",
-    "resonance_move_score_cache_clear",
-    "resonance_move_score_cache_info",
 ]
