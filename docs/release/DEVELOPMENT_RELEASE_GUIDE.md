@@ -41,7 +41,8 @@ File: [`.gitea/workflows/ci.yaml`](../../.gitea/workflows/ci.yaml)
   [`https://mirrors.zju.edu.cn/pypi/web/simple`](https://mirrors.zju.edu.cn/pypi/web/simple).
 - Internal wheel publishing uses fine-grained `cibuildwheel` jobs so Gitea can
   schedule wheels across multiple runners:
-  - Linux wheels are split by CPython ABI and architecture.
+  - Linux x86_64 wheels run on `ubuntu-latest` runners.
+  - Linux aarch64 wheels run on the native `ubuntu-24.04-arm64` runner.
   - `cp38`-`cp312` use `manylinux2014` / glibc `>=2.17`.
   - `cp313`-`cp314` use `manylinux_2_28`.
   - macOS arm64 wheels are split by CPython ABI and run on `macos-arm64`

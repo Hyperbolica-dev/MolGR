@@ -40,7 +40,8 @@ flowchart TD
 - 依赖源使用内网镜像：
   [`https://mirrors.zju.edu.cn/pypi/web/simple`](https://mirrors.zju.edu.cn/pypi/web/simple)。
 - 内网 wheel 发布使用细粒度 `cibuildwheel` job，方便 Gitea 把 wheel 构建分发到多个 runner：
-  - Linux wheel 按 CPython ABI 和架构拆分。
+  - Linux x86_64 wheel 运行在 `ubuntu-latest` runner。
+  - Linux aarch64 wheel 运行在原生 `ubuntu-24.04-arm64` runner。
   - `cp38`-`cp312` 使用 `manylinux2014` / glibc `>=2.17`。
   - `cp313`-`cp314` 使用 `manylinux_2_28`。
   - macOS arm64 wheel 按 CPython ABI 拆分，并运行在 `macos-arm64` runner。
