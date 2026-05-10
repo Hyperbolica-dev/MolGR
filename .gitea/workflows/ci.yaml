@@ -391,6 +391,8 @@ jobs:
             HTTP_PROXY=http://10.72.200.48:7890
             HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
+          CIBW_BEFORE_BUILD_MACOS: >
+            python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
             DYLD_LIBRARY_PATH="$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), 'lib'))")"
             delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}

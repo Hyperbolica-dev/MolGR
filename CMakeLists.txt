@@ -122,6 +122,7 @@ target_link_libraries(_core PRIVATE molgr)
 if(APPLE)
     set_target_properties(_core PROPERTIES
         MACOSX_RPATH ON
+        BUILD_WITH_INSTALL_RPATH ON
         BUILD_RPATH "${OB_ROOT}/lib;${OB_ROOT}"
         INSTALL_RPATH "@loader_path/../openbabel/lib;@loader_path/../openbabel"
     )
