@@ -84,11 +84,11 @@ Mirror is managed by Gitea project settings.
 - Repository variable: `SERVER_URL`
   - Example: [`https://gitea.example.com:13000`](https://gitea.example.com:13000)
   - Used to compose publish/check URLs for internal registry upload.
-- Optional proxy variables (for intranet egress control):
-  - `HTTP_PROXY`
-  - `HTTPS_PROXY`
-  - `NO_PROXY`
-  - set these on runner/service environment (recommended) instead of repository vars.
+- Package install steps explicitly clear proxy variables before running `pip`
+  or `uv`.
+- There is no hard-coded proxy fallback in the workflow. If action download
+  needs a proxy, configure it on the runner/service environment because action
+  download happens before job steps.
 - Repository secrets:
   - `OWNER`
   - `PASSWORD`
@@ -97,8 +97,7 @@ Runner/action resolution:
 - The current Gitea workflow uses `checkout@v6` from the configured internal action URL.
 - Configure action source at Gitea server level, for example
   `DEFAULT_ACTIONS_URL=self` with mirrored actions, or `github` with outbound network.
-- Action download happens before job steps, so proxy for action fetch must be configured on
-  the runner/service environment.
+- Workflow steps do not configure package-install proxies.
 
 With one-way mirror `Gitea -> GitHub`:
 

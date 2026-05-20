@@ -24,6 +24,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
         uses: astral-sh/setup-uv@v5
@@ -32,10 +35,9 @@ jobs:
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
-        run: |
-          python3 -m pip install --user --break-system-packages uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        env:
+          PYPI_INDEX_URL: https://pypi.org/simple
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -56,6 +58,8 @@ jobs:
       pkg_name: ${{ steps.package_name.outputs.value }}
     steps:
       - uses: actions/checkout@v5
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
       - name: Extract package name
         id: package_name
         run: |
@@ -80,6 +84,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
         uses: astral-sh/setup-uv@v5
@@ -88,10 +95,9 @@ jobs:
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
-        run: |
-          python3 -m pip install --user --break-system-packages uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        env:
+          PYPI_INDEX_URL: https://pypi.org/simple
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
@@ -161,6 +167,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Set up QEMU for Linux aarch64
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
@@ -212,14 +221,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.70.233.226:7890
-            HTTPS_PROXY=http://10.70.233.226:7890
           CIBW_ENVIRONMENT_MACOS: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
-            HTTP_PROXY=http://10.70.233.226:7890
-            HTTPS_PROXY=http://10.70.233.226:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
@@ -230,9 +235,8 @@ jobs:
             delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          python3 -m pip install --user --break-system-packages -i https://mirrors.zju.edu.cn/pypi/web/simple cibuildwheel==3.4.1
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/cibuildwheel"
+          python3 -m pip install --user -i https://mirrors.zju.edu.cn/pypi/web/simple cibuildwheel==3.4.1
+          "$(python3 -m site --user-base)/bin/cibuildwheel"
 
       - name: Upload release wheel artifacts
         uses: actions/upload-artifact@v4
@@ -262,6 +266,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

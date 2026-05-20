@@ -80,11 +80,9 @@ flowchart TD
 - 仓库变量：`SERVER_URL`
   - 示例：[`https://gitea.example.com:13000`](https://gitea.example.com:13000)
   - 用于拼接内网包仓发布/检查 URL。
-- 可选代理变量（用于内网出网控制）：
-  - `HTTP_PROXY`
-  - `HTTPS_PROXY`
-  - `NO_PROXY`
-  - 建议在 runner/服务进程环境中设置，而不是仓库变量。
+- 包安装步骤会在运行 `pip` 或 `uv` 前显式清空代理变量。
+- workflow 中没有硬编码代理兜底值；如果下载 action 本身需要代理，需要配置在
+  runner/服务进程环境中，因为 action 下载发生在 job step 执行前。
 - 仓库密钥：
   - `OWNER`
   - `PASSWORD`
@@ -93,7 +91,7 @@ Runner/action 解析配置：
 - 当前 Gitea 工作流使用配置好的内网 action URL 上的 `checkout@v6`。
 - 需在 Gitea 服务端配置 action 来源，例如 `DEFAULT_ACTIONS_URL=self` + 镜像 actions，
   或 `github` + 可出网。
-- action 下载发生在 job step 执行前，因此下载代理必须配置在 runner/服务进程环境层。
+- workflow 步骤不会为包安装配置代理。
 
 若为单向镜像 `Gitea -> GitHub`：
 
