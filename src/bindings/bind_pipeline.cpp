@@ -248,6 +248,8 @@ namespace molgr
                                 molgr::metal::scoring::MetadataInt(candidate, "organic_aromatic_atom_count");
                             item["organic_aromatic_ring_count"] =
                                 molgr::metal::scoring::MetadataInt(candidate, "organic_aromatic_ring_count");
+                            item["organic_aromatic_stability_score"] =
+                                molgr::metal::scoring::MetadataDouble(candidate, "organic_aromatic_stability_score");
                             item["organic_conjugated_atom_count"] =
                                 molgr::metal::scoring::MetadataInt(candidate, "organic_conjugated_atom_count");
                             item["organic_max_conjugated_component_size"] =
@@ -452,6 +454,7 @@ namespace molgr
                             item["smiles"] = summary.smiles;
                             item["resonance_index"] = summary.resonance_index;
                             item["score"] = summary.score;
+                            item["aromatic_stability_score"] = summary.aromatic_stability_score;
                             item["aromatic_atom_count"] = summary.aromatic_atom_count;
                             item["max_conjugated_component_size"] =
                                 summary.max_conjugated_component_size;

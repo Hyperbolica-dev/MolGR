@@ -78,14 +78,15 @@ def eliminate_carbene_neighbor_heteroatom(
     omol: pybel.Molecule, given_charge: int
 ) -> tuple[pybel.Molecule, int, bool]:
     """Push carbene radical density onto a neighboring heteroatom when possible."""
-
     hit = False
     for atom in omol.atoms:
         obatom = cast(ob.OBAtom, atom.OBAtom)
         if obatom.GetSpinMultiplicity() == 2:
-            for neighbor in ob.OBAtomAtomIter(obatom):
-                if cast(ob.OBAtom, neighbor).GetSpinMultiplicity():
-                    return omol, given_charge, hit
+            if any(
+                cast(ob.OBAtom, neighbor).GetSpinMultiplicity()
+                for neighbor in ob.OBAtomAtomIter(obatom)
+            ):
+                continue
             for neighbor in ob.OBAtomAtomIter(obatom):
                 if (
                     cast(ob.OBAtom, neighbor).GetAtomicNum() in consts.HETEROATOM
@@ -158,7 +159,9 @@ def eliminate_charge_spliting(
         >= 2
     ):
         radical_atoms: List[ob.OBAtom] = [
-            atom for atom in ob.OBMolAtomIter(obmol) if cast(ob.OBAtom, atom).GetSpinMultiplicity()
+            atom
+            for atom in ob.OBMolAtomIter(obmol)
+            if cast(ob.OBAtom, atom).GetSpinMultiplicity() == 1
         ]
         total_radicals = sum(cast(ob.OBAtom, atom).GetSpinMultiplicity() for atom in radical_atoms)
         while total_radicals > abs(given_charge):
@@ -316,9 +319,19 @@ def eliminate_negative_charges(
         if to_add > 0:
             hit = True
 
+    while given_charge <= 0 and (res := smarts.ELIM_NEGATIVE_CP.findall(omol)):
+        idxs = cast(Tuple[int, int, int, int, int], res.pop(0))
+        obatom5 = cast(ob.OBAtom, obmol.GetAtom(idxs[4]))
+        to_add = obatom5.GetSpinMultiplicity()
+        obatom5.SetSpinMultiplicity(obatom5.GetSpinMultiplicity() - to_add)
+        obatom5.SetFormalCharge(-to_add)
+        given_charge += to_add
+        if to_add > 0:
+            hit = True
+
     while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_V3.findall(omol)):
-        idxs = cast(Tuple[int], res.pop(0))
-        obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        c_v3_idxs = cast(Tuple[int], res.pop(0))
+        obatom1 = cast(ob.OBAtom, obmol.GetAtom(c_v3_idxs[0]))
         to_add = min(obatom1.GetSpinMultiplicity(), abs(given_charge))
         obatom1.SetSpinMultiplicity(obatom1.GetSpinMultiplicity() - to_add)
         obatom1.SetFormalCharge(-to_add)
@@ -327,8 +340,8 @@ def eliminate_negative_charges(
             hit = True
 
     while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_H.findall(omol)):
-        idxs = cast(Tuple[int], res.pop(0))
-        obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        h_idxs = cast(Tuple[int], res.pop(0))
+        obatom2 = cast(ob.OBAtom, obmol.GetAtom(h_idxs[0]))
         to_add = min(obatom2.GetSpinMultiplicity(), abs(given_charge))
         obatom2.SetSpinMultiplicity(obatom2.GetSpinMultiplicity() - to_add)
         obatom2.SetFormalCharge(-to_add)
@@ -337,8 +350,8 @@ def eliminate_negative_charges(
             hit = True
 
     while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_LOW.findall(omol)):
-        idxs = cast(Tuple[int], res.pop(0))
-        obatom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        c_low_idxs = cast(Tuple[int], res.pop(0))
+        obatom3 = cast(ob.OBAtom, obmol.GetAtom(c_low_idxs[0]))
         to_add = min(obatom3.GetSpinMultiplicity(), abs(given_charge))
         obatom3.SetSpinMultiplicity(obatom3.GetSpinMultiplicity() - to_add)
         obatom3.SetFormalCharge(-to_add)

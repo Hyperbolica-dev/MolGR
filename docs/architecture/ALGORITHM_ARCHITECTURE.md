@@ -313,16 +313,22 @@ Typical discordance structures to record:
 
 1. Inner-sphere visible diradical atom
    - the atom is inside the metal coordination radius, defined as
-     `metal covalent radius + atom covalent radius + metal_coordination_extra_tolerance_angstrom`;
-     the default extra tolerance is `0.35 Å`.
+     `metal_access_radius_scale * (metal covalent radius + atom covalent radius) + metal_coordination_extra_tolerance_angstrom`;
+     defaults are `metal_access_radius_scale=1.0` and extra tolerance `0.35 Å`.
    - RDKit post-processing dative-bond completion uses the same
-     `metal_coordination_extra_tolerance_angstrom` setting, keeping
-     inner-/outer-sphere classification and final dative-bond completion on the
-     same distance criterion.
+     radius-scale and `metal_coordination_extra_tolerance_angstrom` distance
+     criterion as the inner-sphere check.
+   - π dative-bond completion additionally requires the two ligand atoms to have
+     similar metal distances; the absolute distance difference is limited by
+     `pi_dative_distance_difference_tolerance_angstrom`, default `0.10 Å`.
    - the coordination path from the metal center to the atom is visible and not
-     blocked by other atoms; visibility is a second dimension separate from the
-     inner/outer distance test
-   - the atom appears as a diradical in the current candidate
+     blocked by other atoms; blocker radii are
+     `metal_access_radius_scale * blocker covalent radius + metal_access_clearance_angstrom`,
+     and visibility is a second dimension separate from the inner/outer distance
+     test
+   - the atom appears as a diradical in the current candidate; diradical markers
+     on `P/S/Cl/Br/I` are exempt because intermediate valence states for these
+     elements often represent lone pairs instead
    - an isolated oxygen atom is the typical example
    - chemical meaning: this is usually not a plausible neutral diradical ligand,
      but an unrecognized inner-sphere `O^2-`-like coordination structure under
@@ -363,6 +369,9 @@ Typical discordance structures to record:
    - when the metal formal valence in the current candidate is zero, a positive
      formal charge on the visible inner-sphere atom also counts as this
      discordance feature
+   - local charge-cancellation exemption: if the atom formal charge plus the
+     formal-charge sum over adjacent non-metal atoms is zero, this feature does
+     not count as discordant
    - chemical meaning: a visible inner-sphere coordination site should provide
      electrostatic or donor support compatible with the metal valence; same-sign
      formal charge repels a nonzero metal-valence candidate, while a positive
@@ -377,15 +386,37 @@ Typical discordance structures to record:
      candidate receives one discordance count
    - the positive atom does not need to be inner-sphere or visible; this is a
      candidate-level global criterion
+   - zwitterionic forms are exempt: if the organic part has total formal charge
+     zero, or if the organic cation is unsaturated and its charge plus the
+     formal-charge sum over its adjacent non-metal atoms is zero, this feature
+     does not count as discordant
    - chemical meaning: when all metals are assigned zero valence, a remaining
      organic cation usually indicates that the candidate lacks a plausible
      metal-ligand charge-assignment source
    - selection role: mark global charge-assignment discordance between an
      all-zero-valence metal combination and an organic cation state
 
-5. Negative-valence metal without an explicit charge-balance source
-   - a negative formal valence on any metal in the current candidate is
-     discordant by default
+5. Unsaturated organic cation under a nonnegative metal assignment
+   - if any metal in the current candidate has formal valence zero or positive,
+     and the no-metal organic part contains an unsaturated positively charged
+     non-metal atom, the candidate receives one discordance count
+   - an unsaturated organic cation is a positively charged atom whose bonded
+     atom count is smaller than its total valence, or whose total valence is
+     smaller than OpenBabel's `GetTypicalValence(atomic_num, total_valence,
+     formal_charge)` result; this includes under-valent onium-like cations
+   - zwitterionic forms are exempt: if the organic part has total formal charge
+     zero, or if the unsaturated cation's charge plus the formal-charge sum over
+     its adjacent non-metal atoms is zero, this feature does not count as
+     discordant
+   - chemical meaning: when the metal assignment is zero or positive, an
+     under-saturated organic cation usually means the metal valence has been
+     underestimated and electron demand was left on the organic fragment
+   - selection role: mark global charge-assignment discordance suggesting that
+     a higher metal valence candidate is more plausible
+
+6. Negative-valence metal without an explicit charge-balance source
+   - each negative formal valence metal in the current candidate contributes
+     `0.5` discordance by default
    - exception one: the no-metal structure contains an outer-sphere `H+`,
      meaning the positively charged hydrogen atom is outside the inner-sphere
      coordination radius of every current metal candidate; other outer-sphere
@@ -404,7 +435,7 @@ Final selection now keeps only discordance and the organic score:
 - first attach the shared no-metal state to every metal candidate and compute
   the organic-core force-field score plus `metal_discordance_count`
 - compare `metal_discordance_count` first and keep only candidates with the
-  lowest discordance count
+  lowest discordance score
 - if multiple candidates tie at the lowest discordance count, compare the
   organic-core force-field score directly
 - if the organic score is still tied, use `combination_index` as a stable

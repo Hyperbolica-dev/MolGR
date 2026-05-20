@@ -386,6 +386,50 @@ def clean_resonances_13(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     return omol, hit
 
 
+def clean_resonances_14(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    obmol = cast(ob.OBMol, omol.OBMol)
+    res: List[Tuple[int, int]] = list(smarts.CLEAN_RESONANCE_14.findall(omol))
+    hit = False
+    while len(res):
+        idxs = res.pop(0)
+        obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+        obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        if (
+            obatom1.GetFormalCharge() == -1
+            and obatom2.GetFormalCharge() == 1
+            and obbond1.GetBondOrder() == 3
+        ):
+            obbond1.SetBondOrder(obbond1.GetBondOrder() - 1)
+            obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
+            obatom2.SetFormalCharge(obatom2.GetFormalCharge() - 1)
+            hit = True
+    return omol, hit
+
+
+def clean_resonances_15(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    obmol = cast(ob.OBMol, omol.OBMol)
+    res: List[Tuple[int, int]] = list(smarts.CLEAN_RESONANCE_15.findall(omol))
+    hit = False
+    while len(res):
+        idxs = res.pop(0)
+        obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        obatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+        obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        if (
+            obatom1.GetFormalCharge() == 0
+            and obatom1.GetSpinMultiplicity() == 2
+            and obatom2.GetFormalCharge() == 0
+            and obbond1.GetBondOrder() == 2
+        ):
+            obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
+            obatom1.SetFormalCharge(obatom1.GetFormalCharge() - 1)
+            obatom2.SetFormalCharge(obatom2.GetFormalCharge() + 1)
+            obatom1.SetSpinMultiplicity(0)
+            hit = True
+    return omol, hit
+
+
 def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     """Run the ordered resonance normalization rule set after candidate generation."""
 
@@ -419,6 +463,10 @@ def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     omol, stage_hit = clean_resonances_12(omol)
     hit = stage_hit or hit
     omol, stage_hit = clean_resonances_13(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_14(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_15(omol)
     hit = stage_hit or hit
     return omol, hit
 

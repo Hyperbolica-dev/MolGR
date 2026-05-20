@@ -50,7 +50,7 @@ def _run_no_metal_pipeline_from_state(
             selection._score_reconstruction_candidate(result, config=config)
         except ValueError:
             return None
-        selection._annotate_no_metal_candidate_topology(result)
+        selection._annotate_no_metal_candidate_topology(result, config=config)
         return result
 
     resonance_candidates = no_metal_resonance._recover_resonance_candidates(
@@ -62,10 +62,10 @@ def _run_no_metal_pipeline_from_state(
         return None
 
     best_candidate: Optional[ReconstructionState] = None
-    best_selection_key: Optional[tuple[int, int, int, int, float]] = None
+    best_selection_key: Optional[tuple[float, int, int, int, int, float]] = None
     for candidate in resonance_candidates:
         selection._score_reconstruction_candidate(candidate, config=config)
-        selection_key = selection._no_metal_candidate_selection_key(candidate)
+        selection_key = selection._no_metal_candidate_selection_key(candidate, config=config)
         if best_selection_key is not None and selection_key >= best_selection_key:
             continue
         best_selection_key = selection_key

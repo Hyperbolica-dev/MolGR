@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Set, Tuple, cast
+from typing import Dict, Iterable, Set, Tuple, cast
 
 from openbabel import openbabel as ob
 from openbabel import pybel
+
+from molgr.config import OrganicTopologyConfig, resolve_config
 
 
 _AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD = 4
@@ -14,6 +16,7 @@ _AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD = 4
 class OrganicTopologyMetrics:
     aromatic_atom_count: int
     aromatic_ring_count: int
+    aromatic_stability_score: float
     conjugated_atom_count: int
     conjugated_bond_count: int
     max_conjugated_component_size: int
@@ -49,6 +52,51 @@ def _is_charge_accepted_aromatic_ring(obmol: ob.OBMol, ring: ob.OBRing) -> bool:
     return (
         abs(_ring_formal_charge_sum(obmol, ring))
         < _AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD
+    )
+
+
+def _aromatic_ring_stability_weight(
+    obmol: ob.OBMol,
+    ring_atom_indices: Iterable[int],
+    config: OrganicTopologyConfig,
+) -> float:
+    atoms = [obmol.GetAtom(atom_idx) for atom_idx in ring_atom_indices]
+    heavy_atoms = [atom for atom in atoms if atom is not None and atom.GetAtomicNum() != 1]
+    if not heavy_atoms:
+        return 0.0
+
+    ring_size = len(heavy_atoms)
+    hetero_count = sum(1 for atom in heavy_atoms if int(atom.GetAtomicNum()) != 6)
+    charge_count = sum(1 for atom in heavy_atoms if int(atom.GetFormalCharge()) != 0)
+    radical_count = sum(1 for atom in heavy_atoms if _atom_has_odd_spin(atom))
+
+    if ring_size == 6 and hetero_count == 0 and charge_count == 0 and radical_count == 0:
+        return config.aromatic_stability_benzene_score
+
+    size_factor = (
+        config.aromatic_stability_ring_size_6_factor
+        if ring_size == 6
+        else (
+            config.aromatic_stability_ring_size_5_factor
+            if ring_size == 5
+            else config.aromatic_stability_other_ring_size_factor
+        )
+    )
+    hetero_factor = max(
+        config.aromatic_stability_min_hetero_factor,
+        1.0 - config.aromatic_stability_hetero_atom_penalty * hetero_count,
+    )
+    charge_factor = max(
+        config.aromatic_stability_min_charge_factor,
+        1.0 - config.aromatic_stability_formal_charge_penalty * charge_count,
+    )
+    radical_factor = max(
+        config.aromatic_stability_min_radical_factor,
+        1.0 - config.aromatic_stability_radical_penalty * radical_count,
+    )
+    return min(
+        config.aromatic_stability_other_ring_max_score,
+        size_factor * hetero_factor * charge_factor * radical_factor,
     )
 
 
@@ -105,19 +153,28 @@ def is_conjugated_bond(bond: ob.OBBond) -> bool:
 
 def compute_organic_topology_metrics(
     omol: pybel.Molecule,
+    config: OrganicTopologyConfig | None = None,
 ) -> OrganicTopologyMetrics:
     try:
+        topology_config = resolve_config().organic_topology if config is None else config
         working_omol = _prepare_topology_working_molecule(omol)
         obmol = cast(ob.OBMol, working_omol.OBMol)
 
         aromatic_ring_count = 0
+        aromatic_stability_score = 0.0
         aromatic_atom_indices: Set[int] = set()
         for ring_iter in ob.OBMolRingIter(obmol):
             ring = cast(ob.OBRing, ring_iter)
             if not _is_charge_accepted_aromatic_ring(obmol, ring):
                 continue
             aromatic_ring_count += 1
-            for atom_idx in _ring_atom_indices(ring):
+            ring_atom_indices = _ring_atom_indices(ring)
+            aromatic_stability_score += _aromatic_ring_stability_weight(
+                obmol,
+                ring_atom_indices,
+                topology_config,
+            )
+            for atom_idx in ring_atom_indices:
                 atom = obmol.GetAtom(atom_idx)
                 if atom is None or atom.GetAtomicNum() == 1:
                     continue
@@ -165,6 +222,7 @@ def compute_organic_topology_metrics(
         return OrganicTopologyMetrics(
             aromatic_atom_count=aromatic_atom_count,
             aromatic_ring_count=aromatic_ring_count,
+            aromatic_stability_score=aromatic_stability_score,
             conjugated_atom_count=len(conjugated_atom_indices),
             conjugated_bond_count=len(conjugated_bond_indices),
             max_conjugated_component_size=max_conjugated_component_size,
@@ -174,6 +232,7 @@ def compute_organic_topology_metrics(
         return OrganicTopologyMetrics(
             aromatic_atom_count=0,
             aromatic_ring_count=0,
+            aromatic_stability_score=0.0,
             conjugated_atom_count=0,
             conjugated_bond_count=0,
             max_conjugated_component_size=0,

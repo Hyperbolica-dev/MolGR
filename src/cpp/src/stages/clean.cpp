@@ -549,6 +549,68 @@ namespace molgr
                 }
                 return hit;
             }
+
+            bool CleanResonances14(OBMol &mol)
+            {
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_14);
+                while (!matches.empty())
+                {
+                    auto idxs = matches.front();
+                    matches.erase(matches.begin());
+
+                    OBAtom *atom1 = mol.GetAtom(idxs[0]);
+                    OBAtom *atom2 = mol.GetAtom(idxs[1]);
+                    OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
+                    if (!atom1 || !atom2 || !bond)
+                    {
+                        continue;
+                    }
+
+                    if (atom1->GetFormalCharge() == -1 &&
+                        atom2->GetFormalCharge() == 1 &&
+                        bond->GetBondOrder() == 3)
+                    {
+                        bond->SetBondOrder(bond->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
+                        atom2->SetFormalCharge(atom2->GetFormalCharge() - 1);
+                        hit = true;
+                    }
+                }
+                return hit;
+            }
+
+            bool CleanResonances15(OBMol &mol)
+            {
+                bool hit = false;
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_15);
+                while (!matches.empty())
+                {
+                    auto idxs = matches.front();
+                    matches.erase(matches.begin());
+
+                    OBAtom *atom1 = mol.GetAtom(idxs[0]);
+                    OBAtom *atom2 = mol.GetAtom(idxs[1]);
+                    OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
+                    if (!atom1 || !atom2 || !bond)
+                    {
+                        continue;
+                    }
+
+                    if (atom1->GetFormalCharge() == 0 &&
+                        atom1->GetSpinMultiplicity() == 2 &&
+                        atom2->GetFormalCharge() == 0 &&
+                        bond->GetBondOrder() == 2)
+                    {
+                        bond->SetBondOrder(bond->GetBondOrder() + 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
+                        atom2->SetFormalCharge(atom2->GetFormalCharge() + 1);
+                        atom1->SetSpinMultiplicity(0);
+                        hit = true;
+                    }
+                }
+                return hit;
+            }
         }
 
         bool CleanResonances(OBMol &mol)
@@ -569,6 +631,8 @@ namespace molgr
             hit = CleanResonances10(mol) || hit;
             hit = CleanResonances12(mol) || hit;
             hit = CleanResonances13(mol) || hit;
+            hit = CleanResonances14(mol) || hit;
+            hit = CleanResonances15(mol) || hit;
             return hit;
         }
     }

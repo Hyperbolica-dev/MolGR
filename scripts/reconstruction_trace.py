@@ -84,8 +84,16 @@ _SCORE_DETAIL_KEYS = {
 _IMPORTANT_SCORE_KEYS = (
     "metal_discordance_count",
     "metal_discordance_structural_count",
+    "metal_discordance_aromatic_stability_deficit",
+    "metal_discordance_max_aromatic_stability_score",
     "metal_discordance_aromatic_ring_deficit_count",
     "metal_discordance_max_aromatic_ring_count",
+    "organic_aromatic_stability_score",
+    "organic_aromatic_ring_count",
+    "organic_aromatic_atom_count",
+    "organic_conjugated_atom_count",
+    "organic_conjugated_bond_count",
+    "organic_max_conjugated_component_size",
     "metal_discordance_inner_visible_diradical_count",
     "metal_discordance_outer_or_invisible_adjacent_double_charge_count",
     "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count",
@@ -95,19 +103,18 @@ _IMPORTANT_SCORE_KEYS = (
     "metal_discordance_inner_visible_conjugated_carbanion_pair_count",
     "metal_discordance_inner_visible_same_sign_charge_count",
     "metal_discordance_negative_metal_count",
+    "metal_discordance_negative_metal_penalty",
     "metal_discordance_zero_valent_metals_with_organic_cation_count",
+    "metal_discordance_nonnegative_metal_unsaturated_organic_cation_count",
     "metal_discordance_negative_metal_outer_sphere_cation_exception",
     "metal_discordance_negative_metal_positive_metal_counterion_exception",
     "passes_metal_discordance_filter",
     "score",
     "force_field_energy",
-    "organic_aromatic_ring_loss",
-    "organic_max_conjugated_component_loss",
     "organic_charge_localization_penalty",
-    "organic_aromatic_atom_loss",
-    "organic_conjugated_atom_loss",
     "organic_radical_localization_penalty",
     "selection_key",
+    "analysis_selection_key_all_candidates",
 )
 
 
@@ -461,8 +468,8 @@ def _jsonable(value: Any) -> Any:
         return "Infinity" if value > 0.0 else "-Infinity"
     if isinstance(value, Path):
         return str(value)
-    if dataclasses.is_dataclass(value):
-        return _jsonable(dataclasses.asdict(value))
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _jsonable(dataclasses.asdict(cast(Any, value)))
     if isinstance(value, dict):
         return {str(_jsonable(key)): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -933,6 +940,7 @@ def _render_candidate_overview(case: dict[str, Any]) -> str:
                     cast(List[Dict[str, Any]], raw_candidate.get("metal_states", []))
                 ),
                 organic_part.get("canonical_smiles", organic_part.get("smiles", "")),
+                raw_candidate.get("candidate_total_charge", ""),
                 target.get("no_metal_charge", ""),
                 target.get("no_metal_radical_electrons", ""),
                 _score_detail_value(raw_candidate, "metal_discordance_count", ""),
@@ -943,7 +951,22 @@ def _render_candidate_overview(case: dict[str, Any]) -> str:
                 ),
                 _score_detail_value(
                     raw_candidate,
-                    "metal_discordance_aromatic_ring_deficit_count",
+                    "metal_discordance_aromatic_stability_deficit",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
+                    "organic_aromatic_stability_score",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
+                    "metal_discordance_max_aromatic_stability_score",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
+                    "organic_aromatic_ring_count",
                     "",
                 ),
                 _score_detail_value(
@@ -968,6 +991,11 @@ def _render_candidate_overview(case: dict[str, Any]) -> str:
                 ),
                 _score_detail_value(
                     raw_candidate,
+                    "metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
                     "metal_discordance_inner_visible_adjacent_carbanion_pair_count",
                     "",
                 ),
@@ -988,7 +1016,17 @@ def _render_candidate_overview(case: dict[str, Any]) -> str:
                 ),
                 _score_detail_value(
                     raw_candidate,
+                    "metal_discordance_negative_metal_penalty",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
                     "metal_discordance_zero_valent_metals_with_organic_cation_count",
+                    "",
+                ),
+                _score_detail_value(
+                    raw_candidate,
+                    "metal_discordance_nonnegative_metal_unsaturated_organic_cation_count",
                     "",
                 ),
                 _score_detail_value(
@@ -1012,20 +1050,27 @@ def _render_candidate_overview(case: dict[str, Any]) -> str:
             "生产层",
             "金属状态",
             "有机 canonical SMILES",
+            "候选总电荷",
             "有机电荷",
             "有机自由基",
             "失谐",
             "结构失谐",
-            "芳环损失",
-            "内圈可见双自由基",
+            "芳香稳定性缺口",
+            "有机芳香稳定性",
+            "本层最高芳香稳定性",
+            "有机芳环数",
+            "内圈可见双自由基(不计S/P/Cl/Br/I)",
             "外圈/不可见邻位双电荷",
             "外圈/不可见相对金属同号双电荷",
             "外圈/不可见相对金属异号双电荷",
+            "外圈/不可见金属符号未知双电荷",
             "内圈可见相邻同号碳离子",
             "内圈可见共轭同号碳离子",
-            "内圈可见同号电荷",
-            "负价金属",
-            "零价金属有机阳离子",
+            "内圈可见同号电荷(局部两性豁免)",
+            "负价金属强度(|价态|和)",
+            "负价金属惩罚",
+            "零价金属有机阳离子(全局正电/局部两性豁免)",
+            "非负价金属不饱和有机阳离子(局部两性豁免)",
             "负价金属外圈H+例外",
             "负价金属阳离子金属例外",
             "有机分",
@@ -1367,8 +1412,13 @@ def _run_no_metal_linear_trace(
     return machine.freeze_like(seed_state), steps
 
 
-def _no_metal_candidate_trace(candidate: ReconstructionState, *, selected: bool) -> dict[str, Any]:
-    selection_key = no_metal_selection._no_metal_candidate_selection_key(candidate)
+def _no_metal_candidate_trace(
+    candidate: ReconstructionState,
+    *,
+    selected: bool,
+    config: MolGRConfig | None = None,
+) -> dict[str, Any]:
+    selection_key = no_metal_selection._no_metal_candidate_selection_key(candidate, config=config)
     return {
         "selected": selected,
         "phase_history": list(candidate.phase_history),
@@ -1437,13 +1487,18 @@ def _trace_no_metal_reconstruction(
         }
         try:
             no_metal_selection._score_reconstruction_candidate(direct_candidate, config=config)
-            no_metal_selection._annotate_no_metal_candidate_topology(direct_candidate)
+            no_metal_selection._annotate_no_metal_candidate_topology(
+                direct_candidate,
+                config=config,
+            )
         except ValueError as exc:
             direct_trace["score_error"] = str(exc)
             trace["status"] = "direct_score_error"
             trace["direct_candidate"] = direct_trace
             return trace
-        direct_trace.update(_no_metal_candidate_trace(direct_candidate, selected=True))
+        direct_trace.update(
+            _no_metal_candidate_trace(direct_candidate, selected=True, config=config)
+        )
         trace["status"] = "direct_valid"
         trace["direct_candidate"] = direct_trace
         trace["selected_candidate"] = direct_trace
@@ -1506,10 +1561,10 @@ def _trace_no_metal_reconstruction(
             else:
                 candidate.score("organic_core", config=config)
             no_metal_selection._score_reconstruction_candidate(candidate, config=config)
-            no_metal_selection._annotate_no_metal_candidate_topology(candidate)
+            no_metal_selection._annotate_no_metal_candidate_topology(candidate, config=config)
             report["score"] = candidate.metadata.get("score")
             report["organic_topology_selection_key"] = (
-                no_metal_selection._no_metal_candidate_selection_key(candidate)
+                no_metal_selection._no_metal_candidate_selection_key(candidate, config=config)
             )
             report["phase_history"] = list(candidate.phase_history)
             report["metadata"] = _jsonable(candidate.metadata)
@@ -1530,9 +1585,12 @@ def _trace_no_metal_reconstruction(
         return trace
 
     best_candidate: Optional[ReconstructionState] = None
-    best_selection_key: Optional[tuple[int, int, int, int, float]] = None
+    best_selection_key: Optional[tuple[float, int, int, int, int, float]] = None
     for candidate in resonance_candidates:
-        selection_key = no_metal_selection._no_metal_candidate_selection_key(candidate)
+        selection_key = no_metal_selection._no_metal_candidate_selection_key(
+            candidate,
+            config=config,
+        )
         if best_selection_key is not None and selection_key >= best_selection_key:
             continue
         best_selection_key = selection_key
@@ -1546,7 +1604,11 @@ def _trace_no_metal_reconstruction(
     result_machine.annotate("select_best_resonance_candidate")
     selected = result_machine.freeze_like(best_candidate)
     trace["status"] = "resonance_selected"
-    trace["selected_candidate"] = _no_metal_candidate_trace(selected, selected=True)
+    trace["selected_candidate"] = _no_metal_candidate_trace(
+        selected,
+        selected=True,
+        config=config,
+    )
     return trace
 
 
@@ -1558,7 +1620,7 @@ def _annotate_analysis_scores_for_all_candidates(
     if not candidates:
         return {}
 
-    scoring._annotate_candidate_set_discordance_features(candidates)
+    scoring._annotate_candidate_set_discordance_features(candidates, config=config)
     for candidate in candidates:
         scoring._annotate_selected_candidate_metrics(candidate, config=config)
 
@@ -1600,6 +1662,11 @@ def _candidate_report(
 
     metadata = candidate.metadata
     production_metadata = production_metadata_by_identity.get(candidate_identity, {})
+    metal_valence_sum = sum(int(metal_state.valence) for metal_state in candidate.metal_states)
+    no_metal_total_charge = int(no_metal_state.total_charge) if no_metal_state is not None else None
+    candidate_total_charge = (
+        no_metal_total_charge + metal_valence_sum if no_metal_total_charge is not None else None
+    )
     return {
         "candidate_index": candidate_index,
         "candidate_identity": {
@@ -1610,6 +1677,8 @@ def _candidate_report(
         "combination_index": combination_index,
         "selected": selected_candidate_identity == candidate_identity,
         "in_production_selection_layer": bool(production_metadata),
+        "candidate_total_charge": candidate_total_charge,
+        "metal_valence_sum": metal_valence_sum,
         "target": {
             "no_metal_charge": int(candidate.no_metal_charge_target),
             "no_metal_radical_electrons": int(candidate.no_metal_radical_target),

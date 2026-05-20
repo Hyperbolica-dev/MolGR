@@ -881,6 +881,7 @@ namespace molgr
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::Eliminate13Dipole) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateNegativeCharges) || hit;
+            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanNeighborRadicals) || hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanResonances) || hit;
             return std::make_tuple(OpenBabel::OBMol(*machine.omol), machine.given_charge, hit);

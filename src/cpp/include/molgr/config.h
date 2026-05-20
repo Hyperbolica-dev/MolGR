@@ -21,6 +21,21 @@ namespace molgr::config
         int candidate_score_parallel_threshold = 32;
     };
 
+    struct OrganicTopologyConfig
+    {
+        double aromatic_stability_benzene_score = 1.0;
+        double aromatic_stability_other_ring_max_score = 0.99;
+        double aromatic_stability_ring_size_6_factor = 0.92;
+        double aromatic_stability_ring_size_5_factor = 0.84;
+        double aromatic_stability_other_ring_size_factor = 0.76;
+        double aromatic_stability_hetero_atom_penalty = 0.10;
+        double aromatic_stability_min_hetero_factor = 0.62;
+        double aromatic_stability_formal_charge_penalty = 0.16;
+        double aromatic_stability_min_charge_factor = 0.50;
+        double aromatic_stability_radical_penalty = 0.20;
+        double aromatic_stability_min_radical_factor = 0.50;
+    };
+
     struct MetalScoringConfig
     {
         double open_shell_multimetal_state_penalty_window = 10.0;
@@ -29,6 +44,7 @@ namespace molgr::config
         std::optional<int> max_mixed_valence_spread = 3;
         int max_assignments_per_target = 64;
         double metal_coordination_extra_tolerance_angstrom = 0.35;
+        double pi_dative_distance_difference_tolerance_angstrom = 0.10;
         double metal_access_radius_scale = 1.0;
         double metal_access_clearance_angstrom = 0.0;
     };
@@ -48,6 +64,7 @@ namespace molgr::config
     {
         ResonanceConfig resonance;
         CppBackendConfig cpp_backend;
+        OrganicTopologyConfig organic_topology;
         MetalScoringConfig metal_scoring;
         MetalRadicalInferenceConfig metal_radical_inference;
     };

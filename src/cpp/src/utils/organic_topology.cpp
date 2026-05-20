@@ -46,6 +46,74 @@ namespace
         return atom.GetSpinMultiplicity() % 2 == 1;
     }
 
+    double AromaticRingStabilityWeight(
+        OpenBabel::OBMol &mol,
+        const OpenBabel::OBRing &ring,
+        const molgr::config::OrganicTopologyConfig &config)
+    {
+        std::vector<const OpenBabel::OBAtom *> heavy_atoms;
+        for (int atom_idx : ring._path)
+        {
+            const OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            if (atom == nullptr || atom->GetAtomicNum() == 1)
+            {
+                continue;
+            }
+            heavy_atoms.push_back(atom);
+        }
+        if (heavy_atoms.empty())
+        {
+            return 0.0;
+        }
+
+        const int ring_size = static_cast<int>(heavy_atoms.size());
+        int hetero_count = 0;
+        int charge_count = 0;
+        int radical_count = 0;
+        for (const OpenBabel::OBAtom *atom : heavy_atoms)
+        {
+            if (atom->GetAtomicNum() != 6)
+            {
+                ++hetero_count;
+            }
+            if (atom->GetFormalCharge() != 0)
+            {
+                ++charge_count;
+            }
+            if (AtomHasOddSpin(*atom))
+            {
+                ++radical_count;
+            }
+        }
+
+        if (ring_size == 6 && hetero_count == 0 && charge_count == 0 && radical_count == 0)
+        {
+            return config.aromatic_stability_benzene_score;
+        }
+
+        const double size_factor =
+            ring_size == 6
+                ? config.aromatic_stability_ring_size_6_factor
+                : (ring_size == 5
+                       ? config.aromatic_stability_ring_size_5_factor
+                       : config.aromatic_stability_other_ring_size_factor);
+        const double hetero_factor = std::max(
+            config.aromatic_stability_min_hetero_factor,
+            1.0 - config.aromatic_stability_hetero_atom_penalty *
+                      static_cast<double>(hetero_count));
+        const double charge_factor = std::max(
+            config.aromatic_stability_min_charge_factor,
+            1.0 - config.aromatic_stability_formal_charge_penalty *
+                      static_cast<double>(charge_count));
+        const double radical_factor = std::max(
+            config.aromatic_stability_min_radical_factor,
+            1.0 - config.aromatic_stability_radical_penalty *
+                      static_cast<double>(radical_count));
+        return std::min(
+            config.aromatic_stability_other_ring_max_score,
+            size_factor * hetero_factor * charge_factor * radical_factor);
+    }
+
     bool AtomHasPiFeature(const OpenBabel::OBAtom &atom, int excluded_bond_idx = -1)
     {
         if (atom.IsAromatic() || atom.GetFormalCharge() != 0 || AtomHasOddSpin(atom))
@@ -131,7 +199,9 @@ namespace molgr
                    AtomHasPiFeature(*end_atom, static_cast<int>(bond.GetIdx()));
         }
 
-        OrganicTopologyMetrics ComputeOrganicTopologyMetrics(const OpenBabel::OBMol &mol)
+        OrganicTopologyMetrics ComputeOrganicTopologyMetrics(
+            const OpenBabel::OBMol &mol,
+            const molgr::config::OrganicTopologyConfig &config)
         {
             OpenBabel::OBMol working(mol);
             working.FindRingAtomsAndBonds();
@@ -147,6 +217,10 @@ namespace molgr
                     continue;
                 }
                 ++metrics.aromatic_ring_count;
+                metrics.aromatic_stability_score += AromaticRingStabilityWeight(
+                    working,
+                    *ring,
+                    config);
                 for (int atom_idx : ring->_path)
                 {
                     const OpenBabel::OBAtom *atom = working.GetAtom(atom_idx);

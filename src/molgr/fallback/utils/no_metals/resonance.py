@@ -97,7 +97,7 @@ def _recover_resonance_candidates(
             _score_reconstruction_candidate(candidate, config=config)
         except ValueError:
             continue
-        _annotate_no_metal_candidate_topology(candidate)
+        _annotate_no_metal_candidate_topology(candidate, config=config)
         candidates.append(candidate)
 
     return candidates

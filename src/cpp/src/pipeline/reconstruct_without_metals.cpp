@@ -88,7 +88,9 @@ namespace molgr
                     result_machine.Annotate("validate_direct_candidate");
                     result_machine.RunOmolStage("clean_resonances", reconstruct::CleanResonances);
                     auto result_state = result_machine.FreezeLike(state);
-                    molgr::no_metals::selection::AnnotateNoMetalCandidateTopology(result_state);
+                    molgr::no_metals::selection::AnnotateNoMetalCandidateTopology(
+                        result_state,
+                        config);
                     if (preheat_score_bundle)
                     {
                         result_state.PreheatScoreBundle(config);
@@ -116,7 +118,8 @@ namespace molgr
                 {
                     const auto topology_key =
                         molgr::no_metals::selection::NoMetalCandidateTopologySelectionKey(
-                            recovered_resonances[i]);
+                            recovered_resonances[i],
+                            config);
                     if (!best_topology_key.has_value() || topology_key < *best_topology_key)
                     {
                         best_topology_key = topology_key;
@@ -250,6 +253,7 @@ namespace molgr
                         reconstruct::SmilesFirstToken(candidate.Mol()),
                         get_int("resonance_index", -1),
                         get_double("score"),
+                        get_double("organic_aromatic_stability_score"),
                         get_int("organic_aromatic_atom_count"),
                         get_int("organic_max_conjugated_component_size"),
                         get_int("organic_conjugated_atom_count"),

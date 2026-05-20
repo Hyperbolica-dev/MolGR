@@ -9,11 +9,15 @@ namespace molgr
         namespace selection
         {
             molgr::organic_topology::OrganicTopologyMetrics AnnotateNoMetalCandidateTopology(
-                molgr::state::ReconstructionState &candidate)
+                molgr::state::ReconstructionState &candidate,
+                const molgr::config::MolGRConfig &config)
             {
-                const auto metrics = molgr::organic_topology::ComputeOrganicTopologyMetrics(candidate.Mol());
+                const auto metrics = molgr::organic_topology::ComputeOrganicTopologyMetrics(
+                    candidate.Mol(),
+                    config.organic_topology);
                 candidate.metadata["organic_aromatic_atom_count"] = metrics.aromatic_atom_count;
                 candidate.metadata["organic_aromatic_ring_count"] = metrics.aromatic_ring_count;
+                candidate.metadata["organic_aromatic_stability_score"] = metrics.aromatic_stability_score;
                 candidate.metadata["organic_conjugated_atom_count"] = metrics.conjugated_atom_count;
                 candidate.metadata["organic_conjugated_bond_count"] = metrics.conjugated_bond_count;
                 candidate.metadata["organic_max_conjugated_component_size"] =
@@ -31,10 +35,12 @@ namespace molgr
             }
 
             NoMetalTopologySelectionKey NoMetalCandidateTopologySelectionKey(
-                molgr::state::ReconstructionState &candidate)
+                molgr::state::ReconstructionState &candidate,
+                const molgr::config::MolGRConfig &config)
             {
-                const auto metrics = AnnotateNoMetalCandidateTopology(candidate);
+                const auto metrics = AnnotateNoMetalCandidateTopology(candidate, config);
                 return {
+                    -metrics.aromatic_stability_score,
                     -metrics.aromatic_atom_count,
                     -metrics.max_conjugated_component_size,
                     -metrics.conjugated_atom_count,
@@ -42,17 +48,18 @@ namespace molgr
                 };
             }
 
-            std::tuple<int, int, int, int, double> NoMetalCandidateSelectionKey(
+            std::tuple<double, int, int, int, int, double> NoMetalCandidateSelectionKey(
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config)
             {
-                const auto topology_key = NoMetalCandidateTopologySelectionKey(candidate);
+                const auto topology_key = NoMetalCandidateTopologySelectionKey(candidate, config);
                 const double score = ScoreReconstructionCandidate(candidate, config);
                 return {
                     std::get<0>(topology_key),
                     std::get<1>(topology_key),
                     std::get<2>(topology_key),
                     std::get<3>(topology_key),
+                    std::get<4>(topology_key),
                     score,
                 };
             }

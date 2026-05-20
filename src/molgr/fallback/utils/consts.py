@@ -55,7 +55,7 @@ METAL_VALENCE_AVAILABLE_MINOR: Dict[str, List[int]] = {
     "Cu": [4, 0],
     "Ag": [2, 4, 3, 0],
     "Au": [5, 2, -1, 0],
-    "Zn": [1, 0],
+    "Zn": [1, 4, 0],
     "Cd": [1, 0],
     "Hg": [0],
     "Al": [0],

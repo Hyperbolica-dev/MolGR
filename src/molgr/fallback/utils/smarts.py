@@ -27,6 +27,7 @@ ELIM_POSITIVE_C_H = _smarts("[#6v3+0,#6v2+0,#1v0+0]")
 ELIM_NEGATIVE_C_V3 = _smarts("[#6v3+0]")
 ELIM_NEGATIVE_H = _smarts("[#1v0+0]")
 ELIM_NEGATIVE_C_LOW = _smarts("[#6v2+0,#6v1+0,#6v0+0]")
+ELIM_NEGATIVE_CP = _smarts("[C+0]1=[C+0]-[C+0]=[C+0]-[C+0]-1")
 
 CLEAN_CARBENE_NEIGHBOR_UNSAT = _smarts("[*]-[*]=[*]")
 CLEAN_RESONANCE_0 = _smarts("[*-]-[*]=[*]~[*+]")
@@ -43,6 +44,9 @@ CLEAN_RESONANCE_10 = _smarts("[*]-[*]=,#[*]-[*]")
 CLEAN_RESONANCE_11 = _smarts("[#7v3+0,#8v2+0,#16v2+0]-,=,:[*+1]")
 CLEAN_RESONANCE_12 = _smarts("[#7v3+0,#8v2+0,#16v2+0]-,:[*]=,:[*]-,:[*+1]")
 CLEAN_RESONANCE_13 = _smarts("[*-]:[*]=[#7+0,#8+0]")
+CLEAN_RESONANCE_14 = _smarts("[#15-,#16-,#17-,#35-,#53-]#[#7+1,#8+1,#16+1]")
+CLEAN_RESONANCE_15 = _smarts("[Cv2+0]=[Ov2+0]")
+
 
 BREAK_DEFORMED_ENE_A = _smarts("[*]~[*+0]=,:[*+0]~[*]")
 BREAK_DEFORMED_ENE_B = _smarts("[*]~[*+0](=,:[*+0])~[*]")

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from molgr.config import make_default_config
 from molgr.fallback.utils.organic_topology import compute_organic_topology_metrics
 
 
@@ -20,12 +23,14 @@ def test_continuous_conjugation_metrics_count_only_three_bond_alternation() -> N
 
     assert benzene_metrics.aromatic_atom_count == 6
     assert benzene_metrics.aromatic_ring_count == 1
+    assert benzene_metrics.aromatic_stability_score == pytest.approx(1.0)
     assert benzene_metrics.conjugated_atom_count == 6
     assert benzene_metrics.conjugated_bond_count == 6
     assert benzene_metrics.max_conjugated_component_size == 6
 
     assert diene_metrics.aromatic_atom_count == 0
     assert diene_metrics.aromatic_ring_count == 0
+    assert diene_metrics.aromatic_stability_score == pytest.approx(0.0)
     assert diene_metrics.conjugated_atom_count == 4
     assert diene_metrics.conjugated_bond_count == 3
     assert diene_metrics.max_conjugated_component_size == 4
@@ -43,6 +48,38 @@ def test_high_absolute_formal_charge_sum_rejects_ring_aromaticity() -> None:
     assert tolerated_metrics.aromatic_ring_count == 1
     assert rejected_metrics.aromatic_atom_count == 0
     assert rejected_metrics.aromatic_ring_count == 0
+
+
+def test_aromatic_stability_scores_benzene_above_heteroaromatics() -> None:
+    pybel = _require_pybel()
+    benzene = pybel.readstring("smi", "c1ccccc1")
+    pyridine = pybel.readstring("smi", "n1ccccc1")
+    pyrrole = pybel.readstring("smi", "c1cc[nH]c1")
+    thiophene = pybel.readstring("smi", "c1ccsc1")
+
+    benzene_metrics = compute_organic_topology_metrics(benzene)
+    hetero_scores = [
+        compute_organic_topology_metrics(mol).aromatic_stability_score
+        for mol in (pyridine, pyrrole, thiophene)
+    ]
+
+    assert benzene_metrics.aromatic_stability_score == pytest.approx(1.0)
+    assert all(0.0 < score < 1.0 for score in hetero_scores)
+
+
+def test_aromatic_stability_uses_configured_scale_factors() -> None:
+    pybel = _require_pybel()
+    pyridine = pybel.readstring("smi", "n1ccccc1")
+    config = replace(
+        make_default_config().organic_topology,
+        aromatic_stability_ring_size_6_factor=0.50,
+        aromatic_stability_hetero_atom_penalty=0.25,
+        aromatic_stability_other_ring_max_score=0.99,
+    )
+
+    metrics = compute_organic_topology_metrics(pyridine, config=config)
+
+    assert metrics.aromatic_stability_score == pytest.approx(0.50 * 0.75)
 
 
 def test_abated_like_quad_anionic_ring_is_not_counted_as_aromatic() -> None:

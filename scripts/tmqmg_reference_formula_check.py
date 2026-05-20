@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Validate tmQMg reference graphs against XYZ element counts.
 
 This script checks whether the dataset reference SMILES can reproduce the
@@ -23,7 +24,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 if __package__ in (None, ""):
@@ -247,7 +248,7 @@ def main() -> int:
                 break
 
             result = _process_row(row_index, row, xyz_dir=args.xyz_dir)
-            writer.writerow(result)
+            writer.writerow(cast(Any, result))
             processed += 1
 
             parse_status_counter.update([result["reference_parse_status"] or "missing"])

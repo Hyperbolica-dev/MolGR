@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Trace tmQMg reconstruction by dataset id.
 
 This is a tmQMg input adapter around scripts/reconstruction_trace.py. The

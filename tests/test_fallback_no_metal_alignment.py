@@ -22,9 +22,12 @@ from molgr.fallback.pipeline.reconstruct_without_metals import (
     xyz_to_omol_no_metal,
     xyz_to_omol_no_metal_state,
 )
+from molgr.fallback.stages.clean import clean_resonances
 from molgr.fallback.stages.eliminate import (
+    eliminate_carbene_neighbor_heteroatom,
     eliminate_charge_spliting,
     eliminate_CN_in_doubt,
+    eliminate_negative_charges,
     eliminate_NNN,
 )
 from molgr.fallback.stages.fresh import fresh_omol_charge_radical
@@ -193,8 +196,170 @@ def test_eliminate_cn_in_doubt_requires_disjoint_pairs_for_python_and_cpp() -> N
     assert _pybel_stage_signature(cpp_omol) == before
 
 
+def test_eliminate_negative_charges_converts_cyclopentadienyl_radical_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(5):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(6)
+            atom.SetFormalCharge(0)
+            atom.SetSpinMultiplicity(0)
+        obmol.GetAtom(5).SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 2)
+        obmol.AddBond(2, 3, 1)
+        obmol.AddBond(3, 4, 2)
+        obmol.AddBond(4, 5, 1)
+        obmol.AddBond(5, 1, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+
+    assert hit
+    assert given_charge == 1
+    assert _pybel_stage_signature(omol) == (
+        ((1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0), (5, -1, 0)),
+        ((1, 2, 2), (2, 3, 1), (3, 4, 2), (4, 5, 1), (5, 1, 1)),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+    if not cpp_hit:
+        pytest.skip("loaded C++ extension does not include ELIM_NEGATIVE_CP; rebuild _core")
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_clean_resonances_14_matches_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        phosphorus = obmol.NewAtom()
+        phosphorus.SetAtomicNum(15)
+        phosphorus.SetFormalCharge(-1)
+        nitrogen = obmol.NewAtom()
+        nitrogen.SetAtomicNum(7)
+        nitrogen.SetFormalCharge(1)
+        obmol.AddBond(1, 2, 3)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, hit = clean_resonances(omol)
+
+    assert hit
+    assert _pybel_stage_signature(omol) == (
+        ((1, 0, 0), (2, 0, 0)),
+        ((1, 2, 2),),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_hit = _core.dev.stages.clean.clean_resonances_ptr(_get_ptr(cpp_omol.OBMol))
+
+    assert cpp_hit
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_clean_resonances_15_matches_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        carbon = obmol.NewAtom()
+        carbon.SetAtomicNum(6)
+        carbon.SetFormalCharge(0)
+        carbon.SetSpinMultiplicity(2)
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetFormalCharge(0)
+        oxygen.SetSpinMultiplicity(0)
+        obmol.AddBond(1, 2, 2)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, hit = clean_resonances(omol)
+
+    assert hit
+    assert _pybel_stage_signature(omol) == (
+        ((1, -1, 0), (2, 1, 0)),
+        ((1, 2, 3),),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_hit = _core.dev.stages.clean.clean_resonances_ptr(_get_ptr(cpp_omol.OBMol))
+
+    assert cpp_hit
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_carbene_neighbor_heteroatom_skips_radical_neighbors_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        blocked_carbon = obmol.NewAtom()
+        blocked_carbon.SetAtomicNum(6)
+        blocked_carbon.SetFormalCharge(0)
+        blocked_carbon.SetSpinMultiplicity(2)
+        radical_neighbor = obmol.NewAtom()
+        radical_neighbor.SetAtomicNum(6)
+        radical_neighbor.SetFormalCharge(0)
+        radical_neighbor.SetSpinMultiplicity(1)
+        blocked_oxygen = obmol.NewAtom()
+        blocked_oxygen.SetAtomicNum(8)
+        blocked_oxygen.SetFormalCharge(0)
+        blocked_oxygen.SetSpinMultiplicity(0)
+        carbonyl_carbon = obmol.NewAtom()
+        carbonyl_carbon.SetAtomicNum(6)
+        carbonyl_carbon.SetFormalCharge(0)
+        carbonyl_carbon.SetSpinMultiplicity(2)
+        carbonyl_oxygen = obmol.NewAtom()
+        carbonyl_oxygen.SetAtomicNum(8)
+        carbonyl_oxygen.SetFormalCharge(0)
+        carbonyl_oxygen.SetSpinMultiplicity(0)
+        obmol.AddBond(1, 2, 1)
+        obmol.AddBond(1, 3, 1)
+        obmol.AddBond(4, 5, 2)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_carbene_neighbor_heteroatom(omol, 0)
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol) == (
+        ((1, 0, 2), (2, 0, 1), (3, 0, 0), (4, -1, 0), (5, 1, 0)),
+        ((1, 2, 1), (1, 3, 1), (4, 5, 3)),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    given_charge, hit = _core.dev.stages.eliminate.eliminate_carbene_neighbor_heteroatom_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
 @pytest.mark.parametrize("atomic_num", [8, 16, 7])
-def test_eliminate_charge_spliting_consumes_full_atom_radicals_for_python_and_cpp(
+def test_eliminate_charge_spliting_ignores_spin2_radical_candidates_for_python_and_cpp(
     atomic_num: int,
 ) -> None:
     def make_omol() -> pybel.Molecule:
@@ -216,11 +381,11 @@ def test_eliminate_charge_spliting_consumes_full_atom_radicals_for_python_and_cp
     omol, given_charge, hit = eliminate_charge_spliting(omol, 0)
 
     assert hit
-    assert given_charge == 2
+    assert given_charge == 1
     assert [
         (atom.atomicnum, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
         for atom in omol
-    ] == [(atomic_num, -2, 0), (6, 0, 1)]
+    ] == [(atomic_num, 0, 2), (6, -1, 0)]
 
     from molgr import _core  # type: ignore
 
@@ -232,11 +397,11 @@ def test_eliminate_charge_spliting_consumes_full_atom_radicals_for_python_and_cp
     )
 
     assert hit
-    assert given_charge == 2
+    assert given_charge == 1
     assert [
         (atom.atomicnum, atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity())
         for atom in cpp_omol
-    ] == [(atomic_num, -2, 0), (6, 0, 1)]
+    ] == [(atomic_num, 0, 2), (6, -1, 0)]
 
 
 def test_run_linear_pipeline_passes_current_charge_into_break_stages(
@@ -432,7 +597,8 @@ def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_fie
     assert result is not None
     assert result.omol.write("can").strip() == aromatic_candidate.omol.write("can").strip()
     assert result.metadata["organic_aromatic_atom_count"] == 6
-    assert result.metadata["organic_topology_selection_key"][:4] == (-6, -6, -6, -6)
+    assert result.metadata["organic_aromatic_stability_score"] == pytest.approx(1.0)
+    assert result.metadata["organic_topology_selection_key"][:5] == (-1.0, -6, -6, -6, -6)
     assert result.phase_history[-1] == "select_best_resonance_candidate"
 
 

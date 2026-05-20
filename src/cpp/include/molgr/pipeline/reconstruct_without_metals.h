@@ -20,6 +20,7 @@ namespace molgr
                 std::string smiles;
                 int resonance_index = -1;
                 double score = 0.0;
+                double aromatic_stability_score = 0.0;
                 int aromatic_atom_count = 0;
                 int max_conjugated_component_size = 0;
                 int conjugated_atom_count = 0;

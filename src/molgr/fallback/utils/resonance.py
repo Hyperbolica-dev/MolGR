@@ -123,6 +123,7 @@ def process_resonance(
     hit = machine.run_omol_charge_stage(None, eliminate_1_3_dipole)
     hit = machine.run_omol_charge_stage(None, eliminate_positive_charges) or hit
     hit = machine.run_omol_charge_stage(None, eliminate_negative_charges) or hit
+    hit = machine.run_omol_charge_stage(None, eliminate_positive_charges) or hit
     hit = machine.run_omol_stage(None, clean_neighbor_radicals) or hit
     hit = machine.run_omol_stage(None, clean_resonances) or hit
     return machine.omol, machine.given_charge, hit

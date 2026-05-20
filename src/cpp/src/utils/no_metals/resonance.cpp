@@ -46,6 +46,9 @@ namespace
         branched_machine.RunOmolChargeStage(
             std::nullopt,
             molgr::reconstruct::EliminateNegativeCharges);
+        branched_machine.RunOmolChargeStage(
+            std::nullopt,
+            molgr::reconstruct::EliminatePositiveCharges);
         branched_machine.RunOmolStage(
             std::nullopt,
             molgr::reconstruct::CleanNeighborRadicals);
@@ -73,9 +76,10 @@ namespace
     }
 
     void AnnotatePreparedCandidateTopology(
-        molgr::state::ReconstructionState &candidate)
+        molgr::state::ReconstructionState &candidate,
+        const molgr::config::MolGRConfig &config)
     {
-        molgr::no_metals::selection::AnnotateNoMetalCandidateTopology(candidate);
+        molgr::no_metals::selection::AnnotateNoMetalCandidateTopology(candidate, config);
     }
 }
 
@@ -149,7 +153,7 @@ namespace molgr
 
                 for (auto &candidate : candidates)
                 {
-                    AnnotatePreparedCandidateTopology(candidate);
+                    AnnotatePreparedCandidateTopology(candidate, config);
                 }
 
                 return candidates;

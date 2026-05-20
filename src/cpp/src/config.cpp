@@ -108,6 +108,41 @@ namespace molgr::config
             cpp_backend,
             "candidate_score_parallel_threshold");
 
+        py::object organic_topology = RequiredAttr(resolved, "organic_topology");
+        out.organic_topology.aromatic_stability_benzene_score = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_benzene_score");
+        out.organic_topology.aromatic_stability_other_ring_max_score = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_other_ring_max_score");
+        out.organic_topology.aromatic_stability_ring_size_6_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_ring_size_6_factor");
+        out.organic_topology.aromatic_stability_ring_size_5_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_ring_size_5_factor");
+        out.organic_topology.aromatic_stability_other_ring_size_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_other_ring_size_factor");
+        out.organic_topology.aromatic_stability_hetero_atom_penalty = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_hetero_atom_penalty");
+        out.organic_topology.aromatic_stability_min_hetero_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_min_hetero_factor");
+        out.organic_topology.aromatic_stability_formal_charge_penalty = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_formal_charge_penalty");
+        out.organic_topology.aromatic_stability_min_charge_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_min_charge_factor");
+        out.organic_topology.aromatic_stability_radical_penalty = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_radical_penalty");
+        out.organic_topology.aromatic_stability_min_radical_factor = CastRequiredAttr<double>(
+            organic_topology,
+            "aromatic_stability_min_radical_factor");
+
         py::object metal_scoring = RequiredAttr(resolved, "metal_scoring");
         out.metal_scoring.open_shell_multimetal_state_penalty_window = CastRequiredAttr<double>(
             metal_scoring,
@@ -127,6 +162,10 @@ namespace molgr::config
         out.metal_scoring.metal_coordination_extra_tolerance_angstrom = CastRequiredAttr<double>(
             metal_scoring,
             "metal_coordination_extra_tolerance_angstrom");
+        out.metal_scoring.pi_dative_distance_difference_tolerance_angstrom =
+            CastRequiredAttr<double>(
+                metal_scoring,
+                "pi_dative_distance_difference_tolerance_angstrom");
         out.metal_scoring.metal_access_radius_scale = CastRequiredAttr<double>(
             metal_scoring,
             "metal_access_radius_scale");
@@ -178,12 +217,36 @@ namespace molgr::config
                                  ? py::cast(*config.cpp_backend.max_threads)
                                  : py::none();
         out["enable_uff_atom_typing_cache"] = config.cpp_backend.enable_uff_atom_typing_cache;
+        out["aromatic_stability_benzene_score"] =
+            config.organic_topology.aromatic_stability_benzene_score;
+        out["aromatic_stability_other_ring_max_score"] =
+            config.organic_topology.aromatic_stability_other_ring_max_score;
+        out["aromatic_stability_ring_size_6_factor"] =
+            config.organic_topology.aromatic_stability_ring_size_6_factor;
+        out["aromatic_stability_ring_size_5_factor"] =
+            config.organic_topology.aromatic_stability_ring_size_5_factor;
+        out["aromatic_stability_other_ring_size_factor"] =
+            config.organic_topology.aromatic_stability_other_ring_size_factor;
+        out["aromatic_stability_hetero_atom_penalty"] =
+            config.organic_topology.aromatic_stability_hetero_atom_penalty;
+        out["aromatic_stability_min_hetero_factor"] =
+            config.organic_topology.aromatic_stability_min_hetero_factor;
+        out["aromatic_stability_formal_charge_penalty"] =
+            config.organic_topology.aromatic_stability_formal_charge_penalty;
+        out["aromatic_stability_min_charge_factor"] =
+            config.organic_topology.aromatic_stability_min_charge_factor;
+        out["aromatic_stability_radical_penalty"] =
+            config.organic_topology.aromatic_stability_radical_penalty;
+        out["aromatic_stability_min_radical_factor"] =
+            config.organic_topology.aromatic_stability_min_radical_factor;
         out["max_mixed_valence_spread"] = config.metal_scoring.max_mixed_valence_spread.has_value()
                                               ? py::cast(*config.metal_scoring.max_mixed_valence_spread)
                                               : py::none();
         out["max_assignments_per_target"] = config.metal_scoring.max_assignments_per_target;
         out["metal_coordination_extra_tolerance_angstrom"] =
             config.metal_scoring.metal_coordination_extra_tolerance_angstrom;
+        out["pi_dative_distance_difference_tolerance_angstrom"] =
+            config.metal_scoring.pi_dative_distance_difference_tolerance_angstrom;
         out["metal_access_radius_scale"] = config.metal_scoring.metal_access_radius_scale;
         out["metal_access_clearance_angstrom"] =
             config.metal_scoring.metal_access_clearance_angstrom;

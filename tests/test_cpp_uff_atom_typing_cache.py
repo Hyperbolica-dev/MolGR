@@ -109,10 +109,25 @@ def test_cpp_config_bridge_reads_current_nested_fields() -> None:
     base_config = make_default_config()
     config = replace(
         base_config,
+        organic_topology=replace(
+            base_config.organic_topology,
+            aromatic_stability_benzene_score=1.25,
+            aromatic_stability_other_ring_max_score=0.88,
+            aromatic_stability_ring_size_6_factor=0.77,
+            aromatic_stability_ring_size_5_factor=0.66,
+            aromatic_stability_other_ring_size_factor=0.55,
+            aromatic_stability_hetero_atom_penalty=0.11,
+            aromatic_stability_min_hetero_factor=0.44,
+            aromatic_stability_formal_charge_penalty=0.22,
+            aromatic_stability_min_charge_factor=0.33,
+            aromatic_stability_radical_penalty=0.31,
+            aromatic_stability_min_radical_factor=0.32,
+        ),
         metal_scoring=replace(
             base_config.metal_scoring,
             metal_access_radius_scale=1.75,
             metal_access_clearance_angstrom=0.42,
+            pi_dative_distance_difference_tolerance_angstrom=0.17,
         ),
         metal_radical_inference=replace(
             base_config.metal_radical_inference,
@@ -125,8 +140,20 @@ def test_cpp_config_bridge_reads_current_nested_fields() -> None:
     _core.set_default_config(config)
     summary = _core.get_default_config()
 
+    assert summary["aromatic_stability_benzene_score"] == pytest.approx(1.25)
+    assert summary["aromatic_stability_other_ring_max_score"] == pytest.approx(0.88)
+    assert summary["aromatic_stability_ring_size_6_factor"] == pytest.approx(0.77)
+    assert summary["aromatic_stability_ring_size_5_factor"] == pytest.approx(0.66)
+    assert summary["aromatic_stability_other_ring_size_factor"] == pytest.approx(0.55)
+    assert summary["aromatic_stability_hetero_atom_penalty"] == pytest.approx(0.11)
+    assert summary["aromatic_stability_min_hetero_factor"] == pytest.approx(0.44)
+    assert summary["aromatic_stability_formal_charge_penalty"] == pytest.approx(0.22)
+    assert summary["aromatic_stability_min_charge_factor"] == pytest.approx(0.33)
+    assert summary["aromatic_stability_radical_penalty"] == pytest.approx(0.31)
+    assert summary["aromatic_stability_min_radical_factor"] == pytest.approx(0.32)
     assert summary["metal_access_radius_scale"] == pytest.approx(1.75)
     assert summary["metal_access_clearance_angstrom"] == pytest.approx(0.42)
+    assert summary["pi_dative_distance_difference_tolerance_angstrom"] == pytest.approx(0.17)
     assert summary["metal_radical_square_planar_planarity_tolerance_angstrom"] == pytest.approx(
         0.12
     )

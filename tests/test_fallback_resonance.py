@@ -183,7 +183,7 @@ def test_get_radical_resonances_accepts_traversal_policy_to_prune_directions() -
 
 
 def test_clean_resonances_returns_false_when_no_rule_hits(monkeypatch) -> None:
-    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13)
+    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15)
     calls = []
 
     def make_stage(rule_id):
@@ -205,7 +205,7 @@ def test_clean_resonances_returns_false_when_no_rule_hits(monkeypatch) -> None:
 
 
 def test_clean_resonances_accumulates_stage_hits_without_global_signature(monkeypatch) -> None:
-    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13)
+    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15)
     calls = []
 
     def make_stage(rule_id):

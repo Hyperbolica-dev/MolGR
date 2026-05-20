@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Run tmQMg regression and report organic-only UFF diagnostics.
 
 The tmQMg CSV provides one reference SMILES per entry, while the XYZ atom order
@@ -21,12 +22,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import multiprocessing as mp
+import os
 import sys
 import time
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator, cast
+
+from typing_extensions import Literal
 
 
 if __package__ in (None, ""):
@@ -45,6 +51,13 @@ from molgr.utils.equivalence import check_equivalence
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
 
 NON_METAL_ATOMIC_NUMBERS = frozenset(NON_METAL_DICT)
+_DEFAULT_MAX_AUTO_JOBS = 8
+_WORKER_XYZ_DIR: Path | None = None
+BackendName = Literal["cpp", "python"]
+_WORKER_BACKEND: BackendName | None = None
+_WORKER_SPIN_SOURCE: str | None = None
+_WORKER_MANUAL_WHITELIST: dict[str, dict[str, str]] | None = None
+
 RESULT_FIELDNAMES = (
     "row_index",
     "id",
@@ -175,6 +188,22 @@ def _parse_args() -> argparse.Namespace:
         default=10,
         help="Print one stderr progress line every N processed entries. Use 0 to silence.",
     )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=0,
+        help=(
+            "Number of worker processes for row reconstruction. Use 1 for serial execution. "
+            f"Default 0 auto-selects up to {_DEFAULT_MAX_AUTO_JOBS} processes."
+        ),
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=1,
+        help="Process-pool map chunksize. Larger values reduce overhead for many small rows.",
+    )
     args = parser.parse_args()
     if args.start_row < 1:
         parser.error("--start-row must be >= 1")
@@ -182,6 +211,12 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--end-row must be >= --start-row")
     if args.limit < 1:
         parser.error("--limit must be >= 1")
+    if args.jobs < 0:
+        parser.error("--jobs must be >= 0")
+    if args.jobs == 0:
+        args.jobs = max(1, min(args.limit, os.cpu_count() or 1, _DEFAULT_MAX_AUTO_JOBS))
+    if args.chunksize < 1:
+        parser.error("--chunksize must be >= 1")
     return args
 
 
@@ -571,7 +606,7 @@ def _process_row(
     row: dict[str, str],
     *,
     xyz_dir: Path,
-    backend: str,
+    backend: BackendName,
     spin_source: str,
     manual_whitelist: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
@@ -697,13 +732,14 @@ def _process_row(
             result["equivalence_reason"] = f"equivalence_failed: {type(exc).__name__}: {exc}"
 
     whitelist_entry = manual_whitelist.get(result["id"])
-    whitelist_applied = whitelist_entry is not None and result["strict_equivalent"] is not True
+    whitelist_applied = False
     if formula_proves_reference_wrong:
         result["reference_answer_wrong"] = True
         result["reference_answer_status"] = "formula_mismatch"
         result["reference_answer_reason"] = formula_wrong_reason
         result["equivalent"] = "formula_mismatch"
-    elif whitelist_applied:
+    elif whitelist_entry is not None and result["strict_equivalent"] is not True:
+        whitelist_applied = True
         whitelist_status = whitelist_entry["status"]
         result["equivalent"] = whitelist_status
         result["reference_answer_reason"] = whitelist_entry["reason"]
@@ -719,7 +755,7 @@ def _process_row(
     else:
         result["reference_answer_wrong"] = False
         result["reference_answer_status"] = "not_flagged"
-    if whitelist_applied:
+    if whitelist_applied and whitelist_entry is not None:
         result["manual_whitelist_status"] = whitelist_entry["status"]
         result["manual_whitelist_reason"] = whitelist_entry["reason"]
     result["effective_equivalent"] = bool(
@@ -804,12 +840,167 @@ def _process_row(
     return result
 
 
+def _select_input_rows(
+    reader: csv.DictReader,
+    *,
+    start_row: int,
+    end_row: int | None,
+    limit: int,
+) -> list[tuple[int, dict[str, str]]]:
+    selected_rows: list[tuple[int, dict[str, str]]] = []
+    for row_index, row in enumerate(reader, start=1):
+        if row_index < start_row:
+            continue
+        if end_row is not None and row_index > end_row:
+            break
+        if len(selected_rows) >= limit:
+            break
+        selected_rows.append((row_index, dict(row)))
+    return selected_rows
+
+
+def _worker_init(
+    xyz_dir: str,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> None:
+    global _WORKER_XYZ_DIR
+    global _WORKER_BACKEND
+    global _WORKER_SPIN_SOURCE
+    global _WORKER_MANUAL_WHITELIST
+
+    _WORKER_XYZ_DIR = Path(xyz_dir)
+    _WORKER_BACKEND = backend
+    _WORKER_SPIN_SOURCE = spin_source
+    _WORKER_MANUAL_WHITELIST = manual_whitelist
+    RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
+
+
+def _unexpected_row_error_result(
+    row_index: int,
+    row: dict[str, str],
+    *,
+    xyz_dir: Path,
+    spin_source: str,
+    started_at: float,
+    exc: Exception,
+) -> dict[str, Any]:
+    xyz_path = xyz_dir / f"{row.get('id', '')}.xyz"
+    result = _empty_result(row_index, row, xyz_path)
+    result["spin_source"] = spin_source
+    result["molgr_status"] = f"failed:{type(exc).__name__}"
+    result["molgr_organic_uff_status"] = "skipped_worker_error"
+    result["reference_organic_mapping_status"] = "skipped_worker_error"
+    result["reference_organic_uff_status"] = "skipped_worker_error"
+    result["error"] = str(exc)
+    result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
+    return result
+
+
+def _process_row_task(task: tuple[int, dict[str, str]]) -> dict[str, Any]:
+    row_index, row = task
+    started_at = time.perf_counter()
+    if (
+        _WORKER_XYZ_DIR is None
+        or _WORKER_BACKEND is None
+        or _WORKER_SPIN_SOURCE is None
+        or _WORKER_MANUAL_WHITELIST is None
+    ):
+        raise RuntimeError("tmQMg regression worker was not initialized")
+    try:
+        return _process_row(
+            row_index,
+            row,
+            xyz_dir=_WORKER_XYZ_DIR,
+            backend=_WORKER_BACKEND,
+            spin_source=_WORKER_SPIN_SOURCE,
+            manual_whitelist=_WORKER_MANUAL_WHITELIST,
+        )
+    except Exception as exc:
+        return _unexpected_row_error_result(
+            row_index,
+            row,
+            xyz_dir=_WORKER_XYZ_DIR,
+            spin_source=_WORKER_SPIN_SOURCE,
+            started_at=started_at,
+            exc=exc,
+        )
+
+
+def _process_row_serial_task(
+    task: tuple[int, dict[str, str]],
+    *,
+    xyz_dir: Path,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    row_index, row = task
+    started_at = time.perf_counter()
+    try:
+        return _process_row(
+            row_index,
+            row,
+            xyz_dir=xyz_dir,
+            backend=backend,
+            spin_source=spin_source,
+            manual_whitelist=manual_whitelist,
+        )
+    except Exception as exc:
+        return _unexpected_row_error_result(
+            row_index,
+            row,
+            xyz_dir=xyz_dir,
+            spin_source=spin_source,
+            started_at=started_at,
+            exc=exc,
+        )
+
+
+def _iter_processed_rows(
+    row_tasks: list[tuple[int, dict[str, str]]],
+    *,
+    jobs: int,
+    chunksize: int,
+    xyz_dir: Path,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> Iterator[dict[str, Any]]:
+    if jobs <= 1 or len(row_tasks) <= 1:
+        for task in row_tasks:
+            yield _process_row_serial_task(
+                task,
+                xyz_dir=xyz_dir,
+                backend=backend,
+                spin_source=spin_source,
+                manual_whitelist=manual_whitelist,
+            )
+        return
+
+    with ProcessPoolExecutor(
+        max_workers=jobs,
+        mp_context=mp.get_context("spawn"),
+        initializer=_worker_init,
+        initargs=(str(xyz_dir), backend, spin_source, manual_whitelist),
+    ) as executor:
+        yield from executor.map(_process_row_task, row_tasks, chunksize=chunksize)
+
+
+def _normalize_backend(backend: str) -> BackendName:
+    if backend not in ("cpp", "python"):
+        raise ValueError(f"Unsupported backend: {backend}")
+    return cast(BackendName, backend)
+
+
 def _counter_to_dict(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
 def main() -> int:
     args = _parse_args()
+    backend = _normalize_backend(args.backend)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     summary_out = args.summary_out or _summary_path_from_output(args.out)
     summary_out.parent.mkdir(parents=True, exist_ok=True)
@@ -835,28 +1026,29 @@ def main() -> int:
     organic_uff_abs_delta_sum = 0.0
     started_at = time.perf_counter()
 
-    with args.csv.open(newline="") as input_fh, args.out.open("w", newline="") as output_fh:
+    with args.csv.open(newline="") as input_fh:
         reader = csv.DictReader(input_fh)
+        row_tasks = _select_input_rows(
+            reader,
+            start_row=args.start_row,
+            end_row=args.end_row,
+            limit=args.limit,
+        )
+
+    with args.out.open("w", newline="") as output_fh:
         writer = csv.DictWriter(output_fh, fieldnames=RESULT_FIELDNAMES)
         writer.writeheader()
 
-        for row_index, row in enumerate(reader, start=1):
-            if row_index < args.start_row:
-                continue
-            if args.end_row is not None and row_index > args.end_row:
-                break
-            if processed >= args.limit:
-                break
-
-            result = _process_row(
-                row_index,
-                row,
-                xyz_dir=args.xyz_dir,
-                backend=args.backend,
-                spin_source=args.spin_source,
-                manual_whitelist=manual_whitelist,
-            )
-            writer.writerow(result)
+        for result in _iter_processed_rows(
+            row_tasks,
+            jobs=args.jobs,
+            chunksize=args.chunksize,
+            xyz_dir=args.xyz_dir,
+            backend=backend,
+            spin_source=args.spin_source,
+            manual_whitelist=manual_whitelist,
+        ):
+            writer.writerow(cast(Any, result))
             processed += 1
 
             reference_parse_counter.update([result["reference_parse_status"] or "missing"])
@@ -893,8 +1085,8 @@ def main() -> int:
 
             if args.progress_every > 0 and processed % args.progress_every == 0:
                 print(
-                    f"[tmQMg] processed {processed} rows; latest id={result['id']} "
-                    f"molgr_status={result['molgr_status']}",
+                    f"[tmQMg] processed {processed}/{len(row_tasks)} rows; "
+                    f"latest id={result['id']} molgr_status={result['molgr_status']}",
                     file=sys.stderr,
                 )
 
@@ -902,11 +1094,14 @@ def main() -> int:
     summary = {
         "input_csv": str(args.csv),
         "xyz_dir": str(args.xyz_dir),
-        "backend": args.backend,
+        "backend": backend,
         "spin_source": args.spin_source,
+        "jobs": args.jobs,
+        "chunksize": args.chunksize,
         "limit": args.limit,
         "start_row": args.start_row,
         "end_row": args.end_row,
+        "selected_row_count": len(row_tasks),
         "processed": processed,
         "equivalent_count": equivalent_count,
         "equivalent_fraction": (equivalent_count / processed) if processed else 0.0,

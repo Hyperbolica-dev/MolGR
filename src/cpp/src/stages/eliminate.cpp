@@ -193,7 +193,7 @@ namespace molgr
                     }
                     if (neighbor_radical)
                     {
-                        return hit;
+                        continue;
                     }
 
                     FOR_NB_OF_ATOM(nbr, atom)
@@ -231,13 +231,20 @@ namespace molgr
                 if (a->GetSpinMultiplicity() > 0)
                 {
                     sum_radicals += (&*a)->GetSpinMultiplicity();
-                    radical_atoms.push_back(&(*a));
+                    if (a->GetSpinMultiplicity() == 1)
+                    {
+                        radical_atoms.push_back(&(*a));
+                    }
                 }
             }
 
             if (all_neutral && sum_radicals >= 2)
             {
-                int total_radicals = sum_radicals;
+                int total_radicals = 0;
+                for (OBAtom *atom : radical_atoms)
+                {
+                    total_radicals += atom->GetSpinMultiplicity();
+                }
                 auto process = [&](int atomic_num, bool check_hetero_neighbor)
                 {
                     while (total_radicals > std::abs(charge))
@@ -469,6 +476,39 @@ namespace molgr
                 if (to_add > 0)
                 {
                     hit = true;
+                }
+            }
+
+            while (charge <= 0)
+            {
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
+                if (matches.empty())
+                {
+                    break;
+                }
+
+                auto idxs = matches.front();
+                if (idxs.size() < 5)
+                {
+                    break;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[4]);
+                if (!atom)
+                {
+                    break;
+                }
+
+                const int to_add = atom->GetSpinMultiplicity();
+                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
+                atom->SetFormalCharge(-to_add);
+                charge += to_add;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
+                else
+                {
+                    break;
                 }
             }
 
