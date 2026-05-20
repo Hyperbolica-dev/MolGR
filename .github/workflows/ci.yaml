@@ -212,14 +212,14 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_ENVIRONMENT_MACOS: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}

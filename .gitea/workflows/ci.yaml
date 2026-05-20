@@ -19,8 +19,8 @@ env:
   PIP_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
   PIP_DEFAULT_TIMEOUT: "120"
   SERVER_URL: ${{ vars.SERVER_URL }}
-  HTTP_PROXY: http://10.72.200.48:7890
-  HTTPS_PROXY: http://10.72.200.48:7890
+  HTTP_PROXY: http://pc.gentlet.xyz:7890
+  HTTPS_PROXY: http://pc.gentlet.xyz:7890
 
 jobs:
   lint:
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -103,7 +103,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -133,8 +133,8 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
@@ -167,7 +167,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -197,8 +197,8 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
@@ -231,7 +231,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -261,8 +261,8 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
@@ -295,7 +295,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -325,8 +325,8 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
@@ -359,7 +359,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -389,8 +389,8 @@ jobs:
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=14.0
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
+            HTTP_PROXY=http://pc.gentlet.xyz:7890
+            HTTPS_PROXY=http://pc.gentlet.xyz:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_BEFORE_BUILD_MACOS: >
             python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
@@ -427,7 +427,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
