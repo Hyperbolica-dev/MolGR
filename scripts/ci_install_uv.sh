@@ -3,7 +3,7 @@ set -eu
 
 : "${PYPI_INDEX_URL:?PYPI_INDEX_URL is required}"
 
-USER_BIN="$(python3 -m site --user-base)/bin"
+USER_BIN="$(python3 -c 'import site; print(site.getuserbase())')/bin"
 PIP_BREAK_SYSTEM_PACKAGES=""
 
 if python3 -m pip install --help | grep -q -- '--break-system-packages'; then

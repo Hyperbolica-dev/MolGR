@@ -19,6 +19,7 @@ env:
   PIP_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
   PIP_DEFAULT_TIMEOUT: "120"
   SERVER_URL: ${{ vars.SERVER_URL }}
+  CIBW_CACHE_PATH: ${{ vars.CIBW_CACHE_PATH }}
 
 jobs:
   lint:
@@ -148,7 +149,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -c 'import site; print(site.getuserbase())')/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-aarch64-manylinux2014-wheels:
     name: Build internal Linux aarch64 manylinux2014 wheel (${{ matrix.python_abi }})
@@ -209,7 +214,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -c 'import site; print(site.getuserbase())')/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-x86_64-manylinux-2-28-wheels:
     name: Build internal Linux x86_64 manylinux_2_28 wheel (${{ matrix.python_abi }})
@@ -270,7 +279,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -c 'import site; print(site.getuserbase())')/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-aarch64-manylinux-2-28-wheels:
     name: Build internal Linux aarch64 manylinux_2_28 wheel (${{ matrix.python_abi }})
@@ -331,7 +344,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -c 'import site; print(site.getuserbase())')/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-macos-arm64-wheels:
     name: Build internal macOS arm64 wheel (${{ matrix.python_abi }})
@@ -395,7 +412,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$(python3 -c 'import site; print(site.getuserbase())')/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   publish-internal-sdist:
     name: Publish internal sdist

@@ -235,6 +235,7 @@ jobs:
             delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
+          trap 'sh scripts/ci_cleanup_cibuildwheel.sh' EXIT
           PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple sh scripts/ci_install_uv.sh
           PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple . scripts/ci_install_cibuildwheel.sh
           "$CIBUILDWHEEL"
