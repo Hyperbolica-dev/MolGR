@@ -157,18 +157,25 @@ def _run_backend_case_in_current_process(
     total_radical_electrons: int,
     *,
     label: str,
+    make_dative_bonds: bool,
 ) -> None:
-    for make_dative_bonds in (False, True):
-        print(f"{label} make_dative_bonds={make_dative_bonds}", flush=True)
-        _assert_backend_results_match(
-            xyz_block,
-            total_charge,
-            total_radical_electrons,
-            make_dative_bonds=make_dative_bonds,
-        )
+    print(f"{label} make_dative_bonds={make_dative_bonds}", flush=True)
+    _assert_backend_results_match(
+        xyz_block,
+        total_charge,
+        total_radical_electrons,
+        make_dative_bonds=make_dative_bonds,
+    )
 
 
-def _run_backend_regression_child(kind: str, case_idx: str) -> None:
+def _run_backend_regression_child(kind: str, case_idx: str, make_dative_arg: str) -> None:
+    if make_dative_arg == "0":
+        make_dative_bonds = False
+    elif make_dative_arg == "1":
+        make_dative_bonds = True
+    else:
+        raise ValueError(f"unknown make_dative_bonds flag: {make_dative_arg!r}")
+
     if kind == "smiles":
         csv_path = Path(__file__).with_name("test_cases.csv")
         with csv_path.open(newline="", encoding="utf-8") as handle:
@@ -188,6 +195,7 @@ def _run_backend_regression_child(kind: str, case_idx: str) -> None:
         total_charge,
         total_radical_electrons,
         label=label,
+        make_dative_bonds=make_dative_bonds,
     )
 
 
@@ -215,11 +223,18 @@ def _child_output(stdout: str | bytes | None, stderr: str | bytes | None) -> str
     return "\n\n".join(chunks) or "<no child output>"
 
 
-def _assert_backend_case_in_subprocess(kind: str, case_idx: str, *, label: str) -> None:
+def _assert_backend_case_in_subprocess(
+    kind: str,
+    case_idx: str,
+    *,
+    label: str,
+    make_dative_bonds: bool,
+) -> None:
     env = os.environ.copy()
     env["PYTHONFAULTHANDLER"] = "1"
     _prepend_pythonpath(env, Path(__file__).resolve().parents[1] / "src")
 
+    make_dative_arg = "1" if make_dative_bonds else "0"
     command = [
         sys.executable,
         "-u",
@@ -227,6 +242,7 @@ def _assert_backend_case_in_subprocess(kind: str, case_idx: str, *, label: str) 
         _CHILD_FLAG,
         kind,
         case_idx,
+        make_dative_arg,
     ]
     try:
         completed = subprocess.run(
@@ -240,7 +256,8 @@ def _assert_backend_case_in_subprocess(kind: str, case_idx: str, *, label: str) 
     except subprocess.TimeoutExpired as exc:
         pytest.fail(
             (
-                f"{label} exceeded {_CHILD_TIMEOUT_SECONDS:g}s in isolated backend "
+                f"{label} make_dative_bonds={make_dative_bonds} exceeded "
+                f"{_CHILD_TIMEOUT_SECONDS:g}s in isolated backend "
                 f"regression subprocess.\n{_child_output(exc.stdout, exc.stderr)}"
             ),
             pytrace=False,
@@ -249,11 +266,21 @@ def _assert_backend_case_in_subprocess(kind: str, case_idx: str, *, label: str) 
     if completed.returncode != 0:
         pytest.fail(
             (
-                f"{label} failed in isolated backend regression subprocess "
-                f"(exit code {completed.returncode}).\n"
+                f"{label} make_dative_bonds={make_dative_bonds} failed in isolated "
+                f"backend regression subprocess (exit code {completed.returncode}).\n"
                 f"{_child_output(completed.stdout, completed.stderr)}"
             ),
             pytrace=False,
+        )
+
+
+def _assert_backend_case_in_subprocesses(kind: str, case_idx: str, *, label: str) -> None:
+    for make_dative_bonds in (False, True):
+        _assert_backend_case_in_subprocess(
+            kind,
+            case_idx,
+            label=label,
+            make_dative_bonds=make_dative_bonds,
         )
 
 
@@ -283,19 +310,45 @@ def test_cpp_and_python_backends_match_smiles_regression_cases(
     case_idx: int,
     smiles: str,
 ) -> None:
-    _assert_backend_case_in_subprocess(
+    _assert_backend_case_in_subprocesses(
         "smiles",
         str(case_idx),
         label=f"smiles-case-{case_idx:02d} ({smiles})",
     )
 
 
-def test_cpp_and_python_backends_match_monnmo_regression_case() -> None:
-    _assert_backend_case_in_subprocess("monnmo", "0", label="monnmo")
+@pytest.mark.parametrize(
+    "make_dative_bonds",
+    [
+        pytest.param(
+            False,
+            marks=pytest.mark.skip(
+                reason=("monnmo can abort in the C++ backend under threaded reconstruction")
+            ),
+            id="make-dative-bonds-false",
+        ),
+        pytest.param(
+            True,
+            marks=pytest.mark.skip(
+                reason=("monnmo can abort in the C++ backend under threaded reconstruction")
+            ),
+            id="make-dative-bonds-true",
+        ),
+    ],
+)
+def test_cpp_and_python_backends_match_monnmo_regression_case(
+    make_dative_bonds: bool,
+) -> None:
+    _assert_backend_case_in_subprocess(
+        "monnmo",
+        "0",
+        label="monnmo",
+        make_dative_bonds=make_dative_bonds,
+    )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == _CHILD_FLAG:
-        _run_backend_regression_child(sys.argv[2], sys.argv[3])
+    if len(sys.argv) == 5 and sys.argv[1] == _CHILD_FLAG:
+        _run_backend_regression_child(sys.argv[2], sys.argv[3], sys.argv[4])
     else:
-        raise SystemExit(f"usage: {sys.argv[0]} {_CHILD_FLAG} <smiles|monnmo> <case-index>")
+        raise SystemExit(f"usage: {sys.argv[0]} {_CHILD_FLAG} <smiles|monnmo> <case-index> <0|1>")

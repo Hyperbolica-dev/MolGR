@@ -235,8 +235,9 @@ jobs:
             delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          python3 -m pip install --user -i https://mirrors.zju.edu.cn/pypi/web/simple cibuildwheel==3.4.1
-          "$(python3 -m site --user-base)/bin/cibuildwheel"
+          PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple sh scripts/ci_install_uv.sh
+          PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple . scripts/ci_install_cibuildwheel.sh
+          "$CIBUILDWHEEL"
 
       - name: Upload release wheel artifacts
         uses: actions/upload-artifact@v4
