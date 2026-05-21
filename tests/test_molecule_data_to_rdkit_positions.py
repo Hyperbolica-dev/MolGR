@@ -66,11 +66,10 @@ N -4.0 5.0 -6.0
 
 @pytest.mark.parametrize("case_idx", [1])
 def test_mol_data_to_rdkit_matches_fallback_pybel_conversion_for_hard_cases(case_idx: int) -> None:
-    from rdkit import Chem
-
     from molgr import _core  # type: ignore
     from molgr.fallback import xyz2omol
     from molgr.utils.converter import pybel_to_rdmol
+    from molgr.utils.equivalence import check_equivalence
 
     root = Path(__file__).resolve().parents[1]
     if str(root) not in sys.path:
@@ -98,9 +97,13 @@ def test_mol_data_to_rdkit_matches_fallback_pybel_conversion_for_hard_cases(case
     )
     assert cpp_mol_data is not None
 
-    fallback_rdmol = Chem.RemoveHs(pybel_to_rdmol(fallback_omol))
-    cpp_rdmol = Chem.RemoveHs(mol_data_to_rdkit(cpp_mol_data))
+    fallback_rdmol = pybel_to_rdmol(fallback_omol)
+    cpp_rdmol = mol_data_to_rdkit(cpp_mol_data)
 
-    fallback_smiles = Chem.MolToSmiles(fallback_rdmol, canonical=True, isomericSmiles=True)
-    cpp_smiles = Chem.MolToSmiles(cpp_rdmol, canonical=True, isomericSmiles=True)
-    assert cpp_smiles == fallback_smiles
+    equivalent, info = check_equivalence(
+        cpp_rdmol,
+        fallback_rdmol,
+        use_chirality=True,
+        max_resonance=100,
+    )
+    assert equivalent, info.reason

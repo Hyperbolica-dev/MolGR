@@ -27,6 +27,47 @@ def test_equivalence_fallback_uses_inchi_connectivity_when_primary_path_raises(m
     assert "fallback matched" in info.reason
 
 
+def test_equivalence_uses_inchi_connectivity_after_primary_checks_do_not_match() -> None:
+    reference_mol = Chem.MolFromSmiles("Cc1[n-]c(OC=[N])n[nH+]1")
+    predicted_mol = Chem.MolFromSmiles("CC1=[NH+]N=C(OC=[N-])[N]1")
+
+    assert reference_mol is not None
+    assert predicted_mol is not None
+
+    equivalent, info = equivalence.check_equivalence(
+        reference_mol,
+        predicted_mol,
+        use_chirality=True,
+        max_resonance=100,
+    )
+
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.INCHI_CONNECTIVITY
+
+
+def test_equivalence_uses_rdkit_molhash_for_mesomeric_aromatic_radical_forms() -> None:
+    reference_mol = Chem.MolFromSmiles("[NH3+]CC1=N[N-][N]C1=CO")
+    predicted_mol = Chem.MolFromSmiles("[NH3+]Cc1[n-]nnc1[CH]O")
+
+    assert reference_mol is not None
+    assert predicted_mol is not None
+
+    equivalent, info = equivalence.check_equivalence(
+        reference_mol,
+        predicted_mol,
+        use_chirality=True,
+        max_resonance=100,
+    )
+
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.MOLHASH
+    assert info.molhash is not None
+    assert (
+        info.molhash.mol1_arthor_substructure_order == info.molhash.mol2_arthor_substructure_order
+    )
+    assert info.molhash.mol1_mesomer == info.molhash.mol2_mesomer
+
+
 def test_equivalence_accepts_nhc_carbene_and_zwitterion_forms() -> None:
     dataset_mol = Chem.MolFromSmiles("C=CCN1C=CN(C)[C]1->[Pt+2](<-[I-])(<-[I-])<-n1ccccc1")
     molgr_mol = Chem.MolFromSmiles("C=CCn1cc[n+](C)[c-]1->[Pt@SP3+2](<-[I-])(<-[I-])<-n1ccccc1")

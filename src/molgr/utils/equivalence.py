@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Optional, Tuple
 
 from rdkit import Chem
-from rdkit.Chem import ResonanceMolSupplier, inchi
+from rdkit.Chem import ResonanceMolSupplier, inchi, rdMolHash
 
 
 pt = Chem.GetPeriodicTable()
@@ -36,6 +36,7 @@ class EquivalenceMethod(str, Enum):
     COORDINATION_STRIPPED = "coordination_stripped"
     RESONANCE = "resonance"
     INCHI_CONNECTIVITY = "inchi_connectivity"
+    MOLHASH = "molhash"
 
 
 # ================================
@@ -109,6 +110,14 @@ class CoordinationStrippedDetail:
 
 
 @dataclass
+class MolHashDetail:
+    mol1_arthor_substructure_order: str
+    mol2_arthor_substructure_order: str
+    mol1_mesomer: str
+    mol2_mesomer: str
+
+
+@dataclass
 class EquivalenceChecks:
     formal_charge: PropertyCheck
     radical_electrons: PropertyCheck
@@ -130,6 +139,7 @@ class EquivalenceInfo:
     metal_carbene_valence: Optional[MetalCarbeneValenceDetail] = None
     coordination_stripped: Optional[CoordinationStrippedDetail] = None
     resonance: Optional[ResonanceDetail] = None
+    molhash: Optional[MolHashDetail] = None
 
 
 _NON_METAL_ATOMIC_NUMBERS = frozenset(
@@ -1018,6 +1028,69 @@ def _apply_exception_fallback(
     return False, info
 
 
+def _check_inchi_connectivity_equivalence(
+    info: EquivalenceInfo,
+    m1: Chem.Mol,
+    m2: Chem.Mol,
+    *,
+    reason: str,
+) -> Tuple[bool, EquivalenceInfo]:
+    inchi_key1 = _inchi_connectivity_key(m1)
+    inchi_key2 = _inchi_connectivity_key(m2)
+
+    if inchi_key1 is not None and inchi_key1 == inchi_key2:
+        info.equivalent = True
+        info.method = EquivalenceMethod.INCHI_CONNECTIVITY
+        info.reason = reason
+        return True, info
+
+    return False, info
+
+
+def _molhash(mol: Chem.Mol, hash_function: rdMolHash.HashFunction) -> str | None:
+    try:
+        return rdMolHash.MolHash(mol, hash_function)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _check_molhash_equivalence(
+    info: EquivalenceInfo,
+    m1: Chem.Mol,
+    m2: Chem.Mol,
+) -> Tuple[bool, EquivalenceInfo]:
+    if _has_metal_atom(m1) or _has_metal_atom(m2):
+        return False, info
+    if not _has_same_simplified_topology(m1, m2):
+        return False, info
+
+    arthor_1 = _molhash(m1, rdMolHash.HashFunction.ArthorSubstructureOrder)
+    arthor_2 = _molhash(m2, rdMolHash.HashFunction.ArthorSubstructureOrder)
+    mesomer_1 = _molhash(m1, rdMolHash.HashFunction.Mesomer)
+    mesomer_2 = _molhash(m2, rdMolHash.HashFunction.Mesomer)
+
+    if arthor_1 is None or arthor_2 is None or mesomer_1 is None or mesomer_2 is None:
+        return False, info
+
+    info.molhash = MolHashDetail(
+        mol1_arthor_substructure_order=arthor_1,
+        mol2_arthor_substructure_order=arthor_2,
+        mol1_mesomer=mesomer_1,
+        mol2_mesomer=mesomer_2,
+    )
+
+    if arthor_1 == arthor_2 and mesomer_1 == mesomer_2:
+        info.equivalent = True
+        info.method = EquivalenceMethod.MOLHASH
+        info.reason = (
+            "Equivalent: RDKit MolHash ArthorSubstructureOrder and Mesomer hashes match "
+            "for molecules with the same simplified topology."
+        )
+        return True, info
+
+    return False, info
+
+
 def _check_mapped_resonance_equivalence(
     info: EquivalenceInfo,
     m1: Chem.Mol,
@@ -1422,6 +1495,22 @@ def check_equivalence(
 
     if phase_errors:
         return _apply_exception_fallback(info, m1, m2, phase_errors)
+
+    inchi_equivalent, info = _check_inchi_connectivity_equivalence(
+        info,
+        m1,
+        m2,
+        reason=(
+            "Equivalent: InChI connectivity key matches despite different canonical SMILES, "
+            "isomorphism, or resonance representation."
+        ),
+    )
+    if inchi_equivalent:
+        return True, info
+
+    molhash_equivalent, info = _check_molhash_equivalence(info, m1, m2)
+    if molhash_equivalent:
+        return True, info
 
     info.reason = "Not equivalent: none of ideal, isomorphic, or resonance checks matched."
     return False, info
