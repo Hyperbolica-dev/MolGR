@@ -50,6 +50,7 @@ dev = [
     "setuptools-scm>=9.2.2",
     "jinja2",
     "pybind11-stubgen>=2.5.5",
+    "rdkit-dof>=0.2.0",
 ]
 
 [tool.ruff]

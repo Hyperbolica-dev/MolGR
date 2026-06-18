@@ -1511,6 +1511,7 @@ dev = [
     { name = "pytest", version = "9.0.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-cov", version = "5.0.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest-cov", version = "7.0.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "rdkit-dof" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scikit-build-core" },
@@ -1544,6 +1545,7 @@ dev = [
     { name = "pybind11-stubgen", specifier = ">=2.5.5" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "rdkit-dof", specifier = ">=0.2.0" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scikit-build-core", specifier = ">=0.11.6" },
@@ -2940,6 +2942,22 @@ wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/53/47/0c0395cae6789c90bb781b92f08f4cbc857adf767f27cb935397bd892779/rdkit-2025.9.5-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:53325659acca69827f42f93cfdb056286cafb824fa6f7a94ea07628f35777c98" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/65/c6/c1a4796ac4b428829c8a388f8e4096adfb0963226b2b45eeb2676b92b7e5/rdkit-2025.9.5-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:94b6173fb9c7701d2479018a69c057429f2507a4cfe5ee1f2e430b0f8b0d7afc" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/02/22537010d4959a3706ccf2ea8413be6b45fca684b3c3628924b05dc46e8f/rdkit-2025.9.5-cp314-cp314-win_amd64.whl", hash = "sha256:945d2bc7b1677d2a138a4c65eb42370ab20ac4db0f969d64c0176683371251e9" },
+]
+
+[[package]]
+name = "rdkit-dof"
+version = "0.2.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "pillow", version = "10.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "rdkit", version = "2023.9.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/bc/dfbd8b6bf934ded085d41c216d031b22742f2f964fb65553b4a8df3091da/rdkit_dof-0.2.0.tar.gz", hash = "sha256:d19fdd06eb3fcc87859514dd248e42cc799c2c6364989221acefb35c9d2d9f65" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ec/5c/cea0d945eb7011bfc2606e2ebd7766e1d84abe8bd5451eeb840fe4fb46ac/rdkit_dof-0.2.0-py3-none-any.whl", hash = "sha256:6a2c74422a2c80a5ffbce5e2063465811cfb3d2415a27c928eb5e2cf453f4191" },
 ]
 
 [[package]]

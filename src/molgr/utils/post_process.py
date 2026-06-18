@@ -2,7 +2,7 @@
 Author: TMJ
 Date: 2026-02-27 23:35:43
 LastEditors: TMJ
-LastEditTime: 2026-05-17 16:30:51
+LastEditTime: 2026-06-18 19:53:00
 Description: 请填写简介
 """
 
@@ -213,7 +213,6 @@ def make_stereochemistry(rdmol: Chem.Mol) -> Chem.Mol:
     Chem.SetBondStereoFromDirections(rdmol)
     Chem.AssignAtomChiralTagsFromStructure(rdmol)
     Chem.AssignStereochemistryFrom3D(rdmol)
-    Chem.AssignCIPLabels(rdmol)
     for bond_idx in range(rdmol.GetNumBonds()):
         rd_bond = rdmol.GetBondWithIdx(bond_idx)
         if rd_bond.GetStereo() == Chem.BondStereo.STEREONONE:
