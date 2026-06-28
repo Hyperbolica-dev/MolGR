@@ -138,9 +138,8 @@ def _is_direct_metal_hydride(
     donor_atom: ob.OBAtom,
     distance: float,
 ) -> bool:
-    return (
-        donor_atom.GetAtomicNum() == 1
-        and distance <= _metal_hydride_cutoff_angstrom(metal_atom.GetAtomicNum())
+    return donor_atom.GetAtomicNum() == 1 and distance <= _metal_hydride_cutoff_angstrom(
+        metal_atom.GetAtomicNum()
     )
 
 

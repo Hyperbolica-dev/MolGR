@@ -21,7 +21,6 @@ O=C1CC[C-](OO)NC1
 [C]#Cc1nnc(C#C)o1
 C1=N[CH]n2ncnc2N=1
 C[C@@]1(c2nc[n-]n2)CN1
-Cc1[n-]c(OC=[N])n[nH+]1
 CC1=NN=C([NH+]=[C-]N)[N]1
 C[C@H]1C[C@H]1n1[c]ncn1
 C[C@H]1C[C]2C(=N)N=NN21
@@ -34,8 +33,6 @@ C=[NH+][CH]Nc1cn[n-]n1
 C=[NH+][CH]Nc1c[n-]nn1
 N#C[C]1N=NN=C1C#N
 N=c1n[c]nnn1C=O
-N#[N+]C(=O)C(N)=C([O])[O-]
-N#[N+]C(=N)C(N)=C([O])[O-]
 [NH3+][C]1C=Cc2n[n-]nc21
 [NH3+]C1=c2[n-]nnc2=C[CH]1
 [NH3+]C1=c2nn[n-]c2=C[CH]1

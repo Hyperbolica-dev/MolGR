@@ -29,12 +29,12 @@ from molgr.config import MolGRConfig
 from scripts.reconstruction_trace import (
     DofRenderContext,
     TraceInputCase,
-    dof_rendering_summary,
     _jsonable,
     _make_dof_render_context,
     _parse_size,
     _render_html_browser_report,
     _resolve_output_format,
+    dof_rendering_summary,
     split_repeated_values,
     trace_reconstruction_case,
 )

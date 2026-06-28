@@ -621,10 +621,6 @@ def _render_dof_animation(
         render_context.image_count -= 1
         return None
 
-    file_stem = (
-        f"{_safe_filename_part(case_id)}__{slot:04d}__anim__{_safe_filename_part(kind)}"
-        f"__{_safe_filename_part(label)}"
-    )
     try:
         from rdkit_dof import MolsToDofSvgAnimation
 

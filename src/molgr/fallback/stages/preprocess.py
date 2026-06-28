@@ -60,11 +60,15 @@ def make_connections(
                 donate_atom = cast(ob.OBAtom, obmol.GetAtom(pair_1))
                 accept_atom = cast(ob.OBAtom, obmol.GetAtom(pair_2))
                 distance = cast(float, donate_atom.GetDistance(accept_atom))
-                if distance >= cast(
-                    float,
-                    ob.GetCovalentRad(donate_atom.GetAtomicNum())
-                    + ob.GetCovalentRad(accept_atom.GetAtomicNum()),
-                ) + extra_tolerance_angstrom:
+                if (
+                    distance
+                    >= cast(
+                        float,
+                        ob.GetCovalentRad(donate_atom.GetAtomicNum())
+                        + ob.GetCovalentRad(accept_atom.GetAtomicNum()),
+                    )
+                    + extra_tolerance_angstrom
+                ):
                     continue
 
                 bond = cast(Optional[ob.OBBond], obmol.GetBond(pair_1, pair_2))
