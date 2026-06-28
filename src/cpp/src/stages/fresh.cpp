@@ -6,7 +6,7 @@
 
 #include <openbabel/atom.h>
 #include <openbabel/obfunctions.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
 

@@ -8,7 +8,7 @@
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/kekulize.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <openbabel/obconversion.h>
 #include <algorithm>

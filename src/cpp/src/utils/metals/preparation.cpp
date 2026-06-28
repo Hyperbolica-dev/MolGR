@@ -7,7 +7,7 @@
 
 #include <openbabel/elements.h>
 #include <openbabel/obconversion.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <set>
 

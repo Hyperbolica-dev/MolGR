@@ -7,7 +7,7 @@
 #include "molgr/stages/preprocess.h"
 #include "molgr/utils/xyz.h"
 
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <memory>
 

@@ -9,7 +9,7 @@
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
 #include <vector>

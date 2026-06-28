@@ -22,7 +22,7 @@ GNU General Public License for more details.
 #include <openbabel/locale.h>
 #include <openbabel/elements.h>
 #include <openbabel/atom.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 #include <openbabel/generic.h>
 #include <openbabel/bond.h>
 #include <openbabel/parsmart.h>

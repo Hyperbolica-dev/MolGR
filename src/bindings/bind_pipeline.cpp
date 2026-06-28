@@ -18,7 +18,7 @@
 #include "molgr/vendor/forcefielduff.h"
 
 #include <openbabel/obconversion.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <cstdint>
 #include <memory>

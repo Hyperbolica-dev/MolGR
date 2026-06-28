@@ -2,7 +2,7 @@
 
 #include "molgr/utils/organic_topology.h"
 
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <cmath>
 
