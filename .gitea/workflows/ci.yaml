@@ -139,7 +139,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            auditwheel repair
+            --exclude libopenbabel.so.
+            -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -204,7 +206,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            auditwheel repair
+            --exclude libopenbabel.so.
+            -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -269,7 +273,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            auditwheel repair
+            --exclude libopenbabel.so.
+            -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -334,7 +340,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            auditwheel repair
+            --exclude libopenbabel.so.
+            -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -399,10 +407,14 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=14.0
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_BEFORE_BUILD_MACOS: >
-            python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
+            python -m pip install -i "$PIP_INDEX_URL"
+            "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
             DYLD_LIBRARY_PATH="$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), 'lib'))")"
-            delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+            delocate-wheel
+            --exclude libopenbabel.
+            --require-archs {delocate_archs}
+            -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform macos
