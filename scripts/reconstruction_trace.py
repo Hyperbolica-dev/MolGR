@@ -11,13 +11,15 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import hashlib
+import html
 import json
 import math
+import re
 import sys
 import time
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, cast
+from typing import Any, Dict, Iterable, List, Optional, Sequence, cast
 
 
 if __package__ in (None, ""):
@@ -52,6 +54,7 @@ from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
 from molgr.fallback.utils.no_metals import resonance as no_metal_resonance
 from molgr.fallback.utils.no_metals import selection as no_metal_selection
+from molgr.utils.converter import pybel_to_rdmol
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
@@ -67,6 +70,27 @@ class TraceInputCase:
     total_radical_electrons: int
     xyz_path: Path | None = None
     xyz_source: str = ""
+
+
+@dataclasses.dataclass
+class DofRenderContext:
+    """Runtime state for optional rdkit-dof image rendering."""
+
+    image_dir: Path
+    display_base_dir: Path | None
+    image_format: str = "svg"
+    max_images: int = 120
+    image_size: tuple[int, int] = (360, 300)
+    grid_sub_img_size: tuple[int, int] = (320, 260)
+    grid_mols_per_row: int = 3
+    grid_max_mols: int = 24
+    image_count: int = 0
+    skipped_count: int = 0
+    errors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+
+    @property
+    def use_svg(self) -> bool:
+        return self.image_format == "svg"
 
 
 _SCORE_DETAIL_PREFIXES = (
@@ -189,11 +213,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--format",
-        choices=("auto", "markdown", "json"),
+        choices=("auto", "json", "html"),
         default="auto",
         help=(
             "Output format. In auto mode, .json writes JSON; every other output path and stdout "
-            "write a Markdown report."
+            "write an HTML report."
         ),
     )
     parser.add_argument(
@@ -210,12 +234,84 @@ def _parse_args() -> argparse.Namespace:
             "discordance. Production metadata is still reported."
         ),
     )
+    parser.add_argument(
+        "--render-dof-images",
+        action="store_true",
+        help=(
+            "Render reconstructed molecule graphs with rdkit-dof. SVG output is embedded in "
+            "the report data; non-SVG output is written as image files."
+        ),
+    )
+    parser.add_argument(
+        "--dof-image-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for rdkit-dof images. Defaults to <report>.dof-images for --out, or "
+            "molgr_trace_dof_images when writing to stdout."
+        ),
+    )
+    parser.add_argument(
+        "--dof-image-format",
+        choices=("svg", "png"),
+        default="svg",
+        help="rdkit-dof image format. Default: svg.",
+    )
+    parser.add_argument(
+        "--dof-max-images",
+        type=int,
+        default=120,
+        help="Maximum number of individual rdkit-dof images to write. Default: 120.",
+    )
+    parser.add_argument(
+        "--dof-image-size",
+        default="360x300",
+        help="Single-molecule rdkit-dof image size as WIDTHxHEIGHT. Default: 360x300.",
+    )
+    parser.add_argument(
+        "--dof-grid-max-mols",
+        type=int,
+        default=24,
+        help="Maximum molecules per comparison grid image. Default: 24.",
+    )
+    parser.add_argument(
+        "--dof-grid-mols-per-row",
+        type=int,
+        default=3,
+        help="Molecules per row for rdkit-dof comparison grids. Default: 3.",
+    )
+    parser.add_argument(
+        "--dof-grid-sub-img-size",
+        default="320x260",
+        help="Grid sub-image size as WIDTHxHEIGHT. Default: 320x260.",
+    )
     args = parser.parse_args()
     if args.total_radical_electrons is not None and args.total_radical_electrons < 0:
         parser.error("--total-radical-electrons must be >= 0")
     if args.spin_multiplicity is not None and args.spin_multiplicity < 1:
         parser.error("--spin-multiplicity must be >= 1")
+    if args.dof_max_images < 0:
+        parser.error("--dof-max-images must be >= 0")
+    if args.dof_grid_max_mols < 0:
+        parser.error("--dof-grid-max-mols must be >= 0")
+    if args.dof_grid_mols_per_row < 1:
+        parser.error("--dof-grid-mols-per-row must be >= 1")
+    try:
+        args.dof_image_size = _parse_size(args.dof_image_size)
+        args.dof_grid_sub_img_size = _parse_size(args.dof_grid_sub_img_size)
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
+
+
+def _parse_size(raw_size: str) -> tuple[int, int]:
+    match = re.fullmatch(r"\s*(\d+)\s*[xX,]\s*(\d+)\s*", raw_size)
+    if match is None:
+        raise ValueError(f"invalid size {raw_size!r}; expected WIDTHxHEIGHT")
+    width, height = int(match.group(1)), int(match.group(2))
+    if width <= 0 or height <= 0:
+        raise ValueError("image dimensions must be positive")
+    return width, height
 
 
 def split_repeated_values(raw_values: Sequence[str]) -> list[str]:
@@ -237,6 +333,331 @@ def _direct_total_radicals(args: argparse.Namespace) -> int:
     if args.spin_multiplicity is not None:
         return _radicals_from_spin_multiplicity(int(args.spin_multiplicity))
     return 0
+
+
+def _default_dof_image_dir(args: argparse.Namespace) -> Path:
+    if args.dof_image_dir is not None:
+        return args.dof_image_dir
+    if args.out is not None:
+        return args.out.with_suffix(args.out.suffix + ".dof-images")
+    return Path("molgr_trace_dof_images")
+
+
+def _make_dof_render_context(args: argparse.Namespace) -> DofRenderContext | None:
+    if not args.render_dof_images and _resolve_output_format(args) != "html":
+        return None
+    if _resolve_output_format(args) == "html":
+        args.dof_image_format = "svg"
+    return DofRenderContext(
+        image_dir=_default_dof_image_dir(args),
+        display_base_dir=args.out.parent if args.out is not None else None,
+        image_format=args.dof_image_format,
+        max_images=int(args.dof_max_images),
+        image_size=args.dof_image_size,
+        grid_sub_img_size=args.dof_grid_sub_img_size,
+        grid_mols_per_row=int(args.dof_grid_mols_per_row),
+        grid_max_mols=int(args.dof_grid_max_mols),
+    )
+
+
+def dof_rendering_summary(render_context: DofRenderContext) -> dict[str, Any]:
+    storage = "embedded" if render_context.use_svg else "files"
+    return {
+        "image_dir": "" if render_context.use_svg else str(render_context.image_dir),
+        "storage": storage,
+        "format": render_context.image_format,
+        "image_count": render_context.image_count,
+        "skipped_count": render_context.skipped_count,
+        "max_images": render_context.max_images,
+        "errors": render_context.errors,
+    }
+
+
+def _safe_filename_part(value: Any) -> str:
+    text = str(value).strip().replace("/", "_")
+    text = re.sub(r"[^A-Za-z0-9_.+-]+", "_", text)
+    text = text.strip("._")
+    return text or "item"
+
+
+def _display_image_path(path: Path, render_context: DofRenderContext) -> str:
+    if render_context.display_base_dir is None:
+        return str(path)
+    try:
+        return str(path.relative_to(render_context.display_base_dir))
+    except ValueError:
+        return str(path)
+
+
+def _dof_image_record(
+    path: Path,
+    *,
+    render_context: DofRenderContext,
+    label: str,
+    kind: str,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "label": label,
+        "path": str(path),
+        "display_path": _display_image_path(path, render_context),
+        "format": render_context.image_format,
+    }
+
+
+def _inline_dof_svg_record(
+    svg_fragment: str,
+    *,
+    render_context: DofRenderContext,
+    label: str,
+    kind: str,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "label": label,
+        "format": render_context.image_format,
+        "svg_fragment": svg_fragment,
+    }
+
+
+def _svg_fragment_from_dof_image(image: Any) -> str:
+    if isinstance(image, str):
+        svg_text = image
+    elif hasattr(image, "data"):
+        svg_text = str(image.data)
+    elif hasattr(image, "_repr_svg_"):
+        svg_text = str(image._repr_svg_())
+    else:
+        svg_text = str(image)
+    svg_start = svg_text.find("<svg")
+    if svg_start >= 0:
+        svg_text = svg_text[svg_start:]
+    return svg_text
+
+
+def _reserve_dof_render_slot(
+    *,
+    render_context: DofRenderContext,
+    label: str,
+    kind: str,
+    animation: bool = False,
+) -> int | dict[str, Any]:
+    if render_context.image_count < render_context.max_images:
+        index = render_context.image_count
+        render_context.image_count += 1
+        return index
+    render_context.skipped_count += 1
+    skipped = {
+        "kind": kind,
+        "label": label,
+        "status": "skipped_limit",
+        "max_images": render_context.max_images,
+    }
+    if animation:
+        skipped["animation"] = True
+    return skipped
+
+
+def _render_dof_molecule(
+    omol: pybel.Molecule,
+    *,
+    render_context: DofRenderContext | None,
+    case_id: str,
+    label: str,
+    kind: str,
+) -> dict[str, Any] | None:
+    if render_context is None:
+        return None
+    slot = _reserve_dof_render_slot(render_context=render_context, label=label, kind=kind)
+    if isinstance(slot, dict):
+        return slot
+
+    file_stem = (
+        f"{_safe_filename_part(case_id)}__{slot:04d}"
+        f"__{_safe_filename_part(kind)}__{_safe_filename_part(label)}"
+    )
+    try:
+        from rdkit_dof import MolToDofImage
+
+        rdmol = pybel_to_rdmol(omol, sanitize=False, kekulize=False)
+        if render_context.use_svg:
+            image = MolToDofImage(
+                rdmol,
+                size=render_context.image_size,
+                legend=label,
+                use_svg=True,
+                return_image=True,
+            )
+            return _inline_dof_svg_record(
+                _svg_fragment_from_dof_image(image),
+                render_context=render_context,
+                label=label,
+                kind=kind,
+            )
+        path = render_context.image_dir / f"{file_stem}.{render_context.image_format}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        MolToDofImage(
+            rdmol,
+            size=render_context.image_size,
+            legend=label,
+            use_svg=False,
+            return_image=False,
+            filename=str(path),
+        )
+        return _dof_image_record(
+            path,
+            render_context=render_context,
+            label=label,
+            kind=kind,
+        )
+    except Exception as exc:
+        error = {
+            "kind": kind,
+            "label": label,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        render_context.errors.append(error)
+        return error
+
+
+def _render_dof_grid(
+    items: Iterable[tuple[pybel.Molecule, str]],
+    *,
+    render_context: DofRenderContext | None,
+    case_id: str,
+    label: str,
+    kind: str,
+) -> dict[str, Any] | None:
+    if render_context is None or render_context.grid_max_mols == 0:
+        return None
+    slot = _reserve_dof_render_slot(render_context=render_context, label=label, kind=kind)
+    if isinstance(slot, dict):
+        return slot
+    selected_items = list(items)[: render_context.grid_max_mols]
+    if not selected_items:
+        render_context.image_count -= 1
+        return None
+
+    file_stem = (
+        f"{_safe_filename_part(case_id)}__{slot:04d}__grid__{_safe_filename_part(kind)}"
+        f"__{_safe_filename_part(label)}"
+    )
+    try:
+        from rdkit_dof import MolsToGridDofImage
+
+        mols = [
+            pybel_to_rdmol(omol, sanitize=False, kekulize=False) for omol, _legend in selected_items
+        ]
+        legends = [legend for _omol, legend in selected_items]
+        if render_context.use_svg:
+            image = MolsToGridDofImage(
+                mols,
+                molsPerRow=render_context.grid_mols_per_row,
+                subImgSize=render_context.grid_sub_img_size,
+                legends=legends,
+                use_svg=True,
+                return_image=True,
+            )
+            return _inline_dof_svg_record(
+                _svg_fragment_from_dof_image(image),
+                render_context=render_context,
+                label=label,
+                kind=kind,
+            )
+        path = render_context.image_dir / f"{file_stem}.{render_context.image_format}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        MolsToGridDofImage(
+            mols,
+            molsPerRow=render_context.grid_mols_per_row,
+            subImgSize=render_context.grid_sub_img_size,
+            legends=legends,
+            use_svg=False,
+            return_image=False,
+            filename=str(path),
+        )
+        return _dof_image_record(
+            path,
+            render_context=render_context,
+            label=label,
+            kind=kind,
+        )
+    except Exception as exc:
+        error = {
+            "kind": kind,
+            "label": label,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        render_context.errors.append(error)
+        return error
+
+
+def _copy_omol(omol: pybel.Molecule) -> pybel.Molecule:
+    return pybel.Molecule(ob.OBMol(cast(ob.OBMol, omol.OBMol)))
+
+
+def _render_dof_animation(
+    items: Iterable[tuple[pybel.Molecule, str]],
+    *,
+    render_context: DofRenderContext | None,
+    case_id: str,
+    label: str,
+    kind: str,
+    duration: int = 650,
+) -> dict[str, Any] | None:
+    if render_context is None:
+        return None
+    slot = _reserve_dof_render_slot(
+        render_context=render_context,
+        label=label,
+        kind=kind,
+        animation=True,
+    )
+    if isinstance(slot, dict):
+        return slot
+    selected_items = list(items)
+    if not selected_items:
+        render_context.image_count -= 1
+        return None
+
+    file_stem = (
+        f"{_safe_filename_part(case_id)}__{slot:04d}__anim__{_safe_filename_part(kind)}"
+        f"__{_safe_filename_part(label)}"
+    )
+    try:
+        from rdkit_dof import MolsToDofSvgAnimation
+
+        mols = [
+            pybel_to_rdmol(omol, sanitize=False, kekulize=False) for omol, _legend in selected_items
+        ]
+        legends = [legend for _omol, legend in selected_items]
+        image = MolsToDofSvgAnimation(
+            mols,
+            size=render_context.image_size,
+            legends=legends,
+            duration=duration,
+            loop=0,
+            return_image=True,
+        )
+        record = _inline_dof_svg_record(
+            _svg_fragment_from_dof_image(image),
+            render_context=render_context,
+            label=label,
+            kind=kind,
+        )
+        record.update({"animation": True, "frame_count": len(selected_items)})
+        return record
+    except Exception as exc:
+        error = {
+            "kind": kind,
+            "label": label,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+            "animation": True,
+        }
+        render_context.errors.append(error)
+        return error
 
 
 def _require_int_field(
@@ -508,27 +929,20 @@ def _format_value(value: Any) -> str:
     return str(value)
 
 
-def _markdown_cell(value: Any) -> str:
-    text = _format_value(value)
-    if text == "":
+def _is_rendered_dof_image(image: Any) -> bool:
+    return (
+        isinstance(image, dict)
+        and not image.get("status")
+        and bool(image.get("svg_fragment") or image.get("display_path") or image.get("path"))
+    )
+
+
+def _dof_image_path_text(image: Any) -> str:
+    if not isinstance(image, dict):
         return ""
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
-
-
-def _markdown_table(headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> str:
-    if not rows:
-        return "_无_"
-    lines = [
-        "| " + " | ".join(_markdown_cell(header) for header in headers) + " |",
-        "| " + " | ".join("---" for _ in headers) + " |",
-    ]
-    for row in rows:
-        lines.append("| " + " | ".join(_markdown_cell(cell) for cell in row) + " |")
-    return "\n".join(lines)
-
-
-def _markdown_kv_table(items: Sequence[tuple[str, Any]]) -> str:
-    return _markdown_table(("字段", "值"), items)
+    if image.get("svg_fragment"):
+        return "embedded svg"
+    return image.get("display_path") or image.get("path") or image.get("status", "")
 
 
 def _resolve_output_format(args: argparse.Namespace) -> str:
@@ -536,7 +950,7 @@ def _resolve_output_format(args: argparse.Namespace) -> str:
         return cast(str, args.format)
     if args.out is not None and args.out.suffix.lower() == ".json":
         return "json"
-    return "markdown"
+    return "html"
 
 
 def _score_detail_value(candidate: dict[str, Any], key: str, default: Any = "") -> Any:
@@ -561,283 +975,275 @@ def _metal_state_label(metal_state: dict[str, Any]) -> str:
 
 
 def _metal_states_label(metal_states: Sequence[dict[str, Any]]) -> str:
-    return "<br>".join(_metal_state_label(metal_state) for metal_state in metal_states)
+    return "; ".join(_metal_state_label(metal_state) for metal_state in metal_states)
 
 
-def _candidate_short_label(candidate: dict[str, Any]) -> str:
-    layer_index = candidate.get("search_layer_index", "")
-    combination_index = candidate.get("combination_index", "")
-    selected = "选中, " if candidate.get("selected") else ""
-    return f"{selected}L{layer_index}/C{combination_index}"
+def _html_escape(value: Any) -> str:
+    return html.escape(_format_value(value), quote=True)
 
 
-def _candidate_score_rows(candidate: dict[str, Any]) -> list[tuple[str, Any]]:
-    details = cast(Dict[str, Any], candidate.get("score_details", {}))
-    keys: list[str] = [key for key in _IMPORTANT_SCORE_KEYS if key in details]
-    keys.extend(sorted(key for key in details if key not in set(keys)))
-    return [(key, details[key]) for key in keys]
+def _html_json(value: Any) -> str:
+    return html.escape(
+        json.dumps(_jsonable(value), ensure_ascii=False, allow_nan=False), quote=False
+    )
 
 
-def _render_case_summary(case: dict[str, Any]) -> str:
-    selected = case.get("selected_candidate")
-    selected_label = ""
-    if case.get("trace_kind") == "no_metal":
+def _html_script_json(value: Any) -> str:
+    return (
+        json.dumps(_jsonable(value), ensure_ascii=False, allow_nan=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+
+
+def _read_svg_fragment(image: Any) -> str:
+    if not _is_rendered_dof_image(image):
+        return ""
+    if isinstance(image.get("svg_fragment"), str):
+        return cast(str, image["svg_fragment"])
+    path = Path(str(image.get("path") or image.get("display_path")))
+    try:
+        svg_text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        svg_text = path.read_text(encoding="iso-8859-1")
+    except OSError:
+        return ""
+    svg_start = svg_text.find("<svg")
+    if svg_start >= 0:
+        svg_text = svg_text[svg_start:]
+    return svg_text
+
+
+def _with_inline_dof_svgs(value: Any) -> Any:
+    if isinstance(value, dict):
+        copied = {key: _with_inline_dof_svgs(item) for key, item in value.items()}
+        if _is_rendered_dof_image(copied) and "svg_fragment" not in copied:
+            svg_fragment = _read_svg_fragment(copied)
+            if svg_fragment:
+                copied["svg_fragment"] = svg_fragment
+        return copied
+    if isinstance(value, list):
+        return [_with_inline_dof_svgs(item) for item in value]
+    return value
+
+
+def _html_metric_grid(items: Sequence[tuple[str, Any]]) -> str:
+    cells = []
+    for label, value in items:
+        if value in ("", None, [], {}):
+            continue
+        cells.append(
+            '<div class="metric">'
+            f'<span class="metric-label">{_html_escape(label)}</span>'
+            f'<span class="metric-value">{_html_escape(value)}</span>'
+            "</div>"
+        )
+    return '<div class="metrics">' + "".join(cells) + "</div>" if cells else ""
+
+
+def _html_table(
+    headers: Sequence[str], rows: Sequence[Sequence[Any]], *, class_name: str = ""
+) -> str:
+    if not rows:
+        return '<p class="empty-inline">无</p>'
+    class_attr = f' class="{html.escape(class_name)}"' if class_name else ""
+    head = "".join(f"<th>{_html_escape(header)}</th>" for header in headers)
+    body_rows = []
+    for row in rows:
+        body_rows.append(
+            "<tr>" + "".join(f"<td>{_html_escape(cell)}</td>" for cell in row) + "</tr>"
+        )
+    return f"<table{class_attr}><thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>"
+
+
+def _html_kv_table(items: Sequence[tuple[str, Any]], *, class_name: str = "") -> str:
+    rows = [(key, value) for key, value in items if value not in ("", None, [], {})]
+    return _html_table(("字段", "值"), rows, class_name=class_name)
+
+
+def _html_details(title: str, body: str, *, open_: bool = False, class_name: str = "") -> str:
+    class_attr = f' class="{html.escape(class_name)}"' if class_name else ""
+    open_attr = " open" if open_ else ""
+    return (
+        f"<details{class_attr}{open_attr}><summary>{_html_escape(title)}</summary>{body}</details>"
+    )
+
+
+def _html_json_block(value: Any, *, class_name: str = "json-block") -> str:
+    return f'<pre class="{html.escape(class_name)}">{_html_json(value)}</pre>'
+
+
+def _html_score_table(mapping: Any) -> str:
+    if not isinstance(mapping, dict) or not mapping:
+        return '<p class="empty-inline">无</p>'
+    keys = [key for key in _IMPORTANT_SCORE_KEYS if key in mapping]
+    keys.extend(sorted(key for key in mapping if key not in set(keys)))
+    return _html_table(
+        ("分数项", "值"), [(key, mapping[key]) for key in keys], class_name="score-table"
+    )
+
+
+def _candidate_title(candidate: dict[str, Any]) -> str:
+    if candidate.get("trace_item_title"):
+        return str(candidate["trace_item_title"])
+    if "search_layer_index" in candidate or "combination_index" in candidate:
+        selected = "selected " if candidate.get("selected") else ""
+        return (
+            f"{selected}L{candidate.get('search_layer_index', '')}/"
+            f"C{candidate.get('combination_index', '')}"
+        ).strip()
+    if "resonance_index" in candidate:
+        return f"resonance {candidate.get('resonance_index', '')}"
+    return str(candidate.get("label") or candidate.get("kind") or "item")
+
+
+def _collect_html_image_items(output: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+
+    def add_item(
+        *,
+        case: dict[str, Any],
+        title: str,
+        image: Any,
+        group: str,
+        selected: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(image, dict):
+            return
+        svg = _read_svg_fragment(image)
+        if not svg:
+            return
+        item_metadata = {} if metadata is None else metadata
+        items.append(
+            {
+                "id": f"item-{len(items)}",
+                "case_id": case.get("id", ""),
+                "title": title,
+                "group": group,
+                "selected": selected,
+                "svg": svg,
+                "image": image,
+                "metadata": _jsonable(item_metadata),
+                "score": item_metadata.get("score", ""),
+                "layer": item_metadata.get("search_layer_index", ""),
+                "combination": item_metadata.get("combination_index", ""),
+                "smiles": item_metadata.get("canonical_smiles")
+                or item_metadata.get("smiles")
+                or item_metadata.get("organic_smiles", ""),
+            }
+        )
+
+    for raw_case in cast(List[Any], output.get("cases", [])):
+        if not isinstance(raw_case, dict):
+            continue
+        case = raw_case
         no_metal_trace = cast(Dict[str, Any], case.get("no_metal_trace", {}))
-        if no_metal_trace.get("status") == "direct_valid":
-            selected_label = "direct"
-        elif no_metal_trace.get("selected_candidate"):
-            selected_label = "resonance"
-    elif isinstance(selected, dict):
-        selected_label = (
-            f"L{selected.get('score_details', {}).get('search_layer_index', case.get('search', {}).get('selected_layer_index', ''))}"
-            f"/C{selected.get('combination_index', '')}"
+        selected = cast(Dict[str, Any], no_metal_trace.get("selected_candidate", {}))
+        selected_state = cast(Dict[str, Any], selected.get("state", {}))
+        add_item(
+            case=case,
+            title="selected no-metal candidate",
+            image=selected_state.get("dof_image"),
+            group="selected",
+            selected=True,
+            metadata=selected,
         )
-    rows: list[tuple[str, Any]] = [
-        ("id", case.get("id", "")),
-        ("状态", case.get("status", "")),
-        ("重建类型", case.get("trace_kind", "")),
-    ]
-    if case.get("row_index", "") != "":
-        rows.append(("CSV 行号", case.get("row_index", "")))
-    rows.extend(
-        [
-            ("总电荷", case.get("charge", "")),
-            ("总自由基电子数", case.get("total_radical_electrons", "")),
-            ("自旋多重度", case.get("spin_multiplicity", "")),
-        ]
-    )
-    if case.get("spin_source", "") != "":
-        rows.append(("自旋来源", case.get("spin_source", "")))
-    rows.extend(
-        [
-            ("XYZ 路径", case.get("xyz_path", "")),
-            ("XYZ 来源", case.get("xyz_source", "")),
-        ]
-    )
-    if case.get("reference_smiles", "") != "":
-        rows.append(("参考 SMILES", case.get("reference_smiles", "")))
-    rows.extend(
-        [
-            (
-                "金属原子数",
-                cast(Dict[str, Any], case.get("base_state", {})).get("metal_atom_count", ""),
-            ),
-            (
-                "生产选择层",
-                cast(Dict[str, Any], case.get("search", {})).get("selected_layer_index", ""),
-            ),
-            ("生产候选数", case.get("production_candidate_count", "")),
-            ("全部已评分候选数", case.get("candidate_count", "")),
-            ("选中候选", selected_label),
-            ("耗时秒", case.get("elapsed_seconds", "")),
-        ]
-    )
-    return _markdown_kv_table(rows)
-
-
-def _render_available_metal_states(case: dict[str, Any]) -> str:
-    base_state = cast(Dict[str, Any], case.get("base_state", {}))
-    state_groups = cast(List[Any], base_state.get("available_metal_states_by_site", []))
-    rows: list[list[Any]] = []
-    for site_index, state_options in enumerate(state_groups):
-        if not isinstance(state_options, list):
-            continue
-        for option_index, metal_state in enumerate(state_options):
-            if not isinstance(metal_state, dict):
+        for step in cast(List[Any], no_metal_trace.get("linear_steps", [])):
+            if not isinstance(step, dict):
                 continue
-            rows.append(
-                [
-                    site_index,
-                    option_index,
-                    metal_state.get("idx", ""),
-                    metal_state.get("symbol", ""),
-                    metal_state.get("valence", ""),
-                    metal_state.get("radical_num", ""),
-                    _format_value(metal_state.get("position", [])),
-                ]
+            state = cast(Dict[str, Any], step.get("state", {}))
+            add_item(
+                case=case,
+                title=f"step {step.get('step_index', '')}: {step.get('phase', '')}",
+                image=state.get("dof_image"),
+                group="step",
+                metadata=step,
             )
-    return _markdown_table(
-        ("位点", "选项", "原子序号", "元素", "价态", "自由基数", "坐标"),
-        rows,
-    )
-
-
-def _render_layer_table(case: dict[str, Any]) -> str:
-    search_summary = cast(Dict[str, Any], case.get("search", {}))
-    layer_summaries = cast(List[Any], search_summary.get("layer_summaries", []))
-    rows: list[list[Any]] = []
-    for layer in layer_summaries:
-        if not isinstance(layer, dict):
-            continue
-        rows.append(
-            [
-                layer.get("layer_index", ""),
-                layer.get("status", ""),
-                layer.get("production_selected_layer", ""),
-                layer.get("state_group_count", ""),
-                layer.get("state_options_per_group", ""),
-                layer.get("target_bucket_count", ""),
-                layer.get("candidate_count", ""),
-                layer.get("prepared_candidate_count", ""),
-            ]
+        direct = cast(Dict[str, Any], no_metal_trace.get("direct_candidate", {}))
+        direct_state = cast(Dict[str, Any], direct.get("state", {}))
+        add_item(
+            case=case,
+            title="direct candidate",
+            image=direct_state.get("dof_image"),
+            group="candidate",
+            selected=bool(direct.get("selected")),
+            metadata=direct,
         )
-    return _markdown_table(
-        (
-            "层",
-            "状态",
-            "生产选择层",
-            "金属组数",
-            "每组候选数",
-            "目标桶数",
-            "枚举候选数",
-            "已评分候选数",
-        ),
-        rows,
-    )
-
-
-def _render_target_bucket_table(case: dict[str, Any]) -> str:
-    search_summary = cast(Dict[str, Any], case.get("search", {}))
-    layer_summaries = cast(List[Any], search_summary.get("layer_summaries", []))
-    rows: list[list[Any]] = []
-    for layer in layer_summaries:
-        if not isinstance(layer, dict):
-            continue
-        for target_bucket in cast(List[Any], layer.get("target_buckets", [])):
-            if not isinstance(target_bucket, dict):
+        resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
+        add_item(
+            case=case,
+            title="resonance candidate grid",
+            image=resonance.get("dof_grid_image"),
+            group="grid",
+            metadata=resonance,
+        )
+        for candidate in cast(List[Any], resonance.get("candidates", [])):
+            if not isinstance(candidate, dict):
                 continue
-            target = cast(Dict[str, Any], target_bucket.get("target", {}))
-            organic_part = cast(Dict[str, Any], target_bucket.get("organic_part", {}))
-            rows.append(
-                [
-                    layer.get("layer_index", ""),
-                    target.get("no_metal_charge", ""),
-                    target.get("no_metal_radical_electrons", ""),
-                    target_bucket.get("status", ""),
-                    target_bucket.get("candidate_count", ""),
-                    target_bucket.get("prepared_candidate_count", ""),
-                    organic_part.get("canonical_smiles", organic_part.get("smiles", "")),
-                    target_bucket.get("no_metal_score", ""),
-                ]
+            state = cast(Dict[str, Any], candidate.get("state", {}))
+            add_item(
+                case=case,
+                title=f"resonance {candidate.get('resonance_index', '')}",
+                image=candidate.get("dof_image"),
+                group="candidate",
+                selected=bool(candidate.get("selected")),
+                metadata=candidate,
             )
-    return _markdown_table(
-        (
-            "层",
-            "有机目标电荷",
-            "有机自由基电子",
-            "状态",
-            "候选数",
-            "已评分数",
-            "有机部分 canonical SMILES",
-            "有机力场分",
-        ),
-        rows,
-    )
 
-
-def _state_summary_cells(state: dict[str, Any]) -> list[Any]:
-    return [
-        state.get("canonical_smiles", state.get("smiles", "")),
-        state.get("formal_charge_sum", ""),
-        state.get("spin_multiplicity_sum", ""),
-        state.get("spin_multiplicity_singlet_sum", ""),
-        state.get("given_charge", ""),
-        state.get("valid_for_target", ""),
-        state.get("charged_atom_counts", ""),
-        state.get("radical_atom_counts", ""),
-    ]
-
-
-def _render_no_metal_linear_steps(no_metal_trace: dict[str, Any]) -> str:
-    rows: list[list[Any]] = []
-    for step in cast(List[Any], no_metal_trace.get("linear_steps", [])):
-        if not isinstance(step, dict):
-            continue
-        state = cast(Dict[str, Any], step.get("state", {}))
-        rows.append(
-            [
-                step.get("step_index", ""),
-                step.get("phase", ""),
-                step.get("kind", ""),
-                step.get("hit", ""),
-                step.get("omol_revision", ""),
-                *_state_summary_cells(state),
-            ]
+        add_item(
+            case=case,
+            title="metal candidate grid",
+            image=case.get("dof_candidate_grid"),
+            group="grid",
+            metadata={
+                "candidate_count": case.get("candidate_count", ""),
+                "production_candidate_count": case.get("production_candidate_count", ""),
+                "selected_candidate": case.get("selected_candidate"),
+            },
         )
-    return _markdown_table(
-        (
-            "步骤",
-            "阶段",
-            "类型",
-            "命中",
-            "修订",
-            "canonical SMILES",
-            "形式电荷",
-            "自由基和",
-            "自由基奇偶和",
-            "剩余电荷预算",
-            "匹配目标",
-            "带电原子",
-            "自由基原子",
-        ),
-        rows,
-    )
+        for candidate in cast(List[Any], case.get("candidates", [])):
+            if not isinstance(candidate, dict):
+                continue
+            add_item(
+                case=case,
+                title=_candidate_title(candidate),
+                image=candidate.get("dof_image"),
+                group="candidate",
+                selected=bool(candidate.get("selected")),
+                metadata=candidate,
+            )
+        search_summary = cast(Dict[str, Any], case.get("search", {}))
+        for layer in cast(List[Any], search_summary.get("layer_summaries", [])):
+            if not isinstance(layer, dict):
+                continue
+            for bucket in cast(List[Any], layer.get("target_buckets", [])):
+                if not isinstance(bucket, dict):
+                    continue
+                target = cast(Dict[str, Any], bucket.get("target", {}))
+                add_item(
+                    case=case,
+                    title=(
+                        f"organic target L{layer.get('layer_index', '')} "
+                        f"Q={target.get('no_metal_charge', '')} "
+                        f"R={target.get('no_metal_radical_electrons', '')}"
+                    ),
+                    image=bucket.get("dof_image"),
+                    group="organic",
+                    metadata=bucket,
+                )
+    return items
 
 
-def _render_no_metal_resonance_candidates(no_metal_trace: dict[str, Any]) -> str:
-    resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
-    rows: list[list[Any]] = []
-    for candidate in cast(List[Any], resonance.get("candidates", [])):
-        if not isinstance(candidate, dict):
-            continue
-        state = cast(Dict[str, Any], candidate.get("state", {}))
-        rows.append(
-            [
-                candidate.get("resonance_index", ""),
-                candidate.get("raw_state_key_hash", ""),
-                candidate.get("processed_state_key_hash", ""),
-                candidate.get("process_resonance_hit", ""),
-                candidate.get("duplicate_processed_state", ""),
-                candidate.get("valid_for_target", ""),
-                candidate.get("score", ""),
-                candidate.get("organic_topology_selection_key", ""),
-                state.get("canonical_smiles", state.get("smiles", "")),
-                state.get("formal_charge_sum", ""),
-                state.get("spin_multiplicity_sum", ""),
-                state.get("spin_multiplicity_singlet_sum", ""),
-                state.get("charged_atom_counts", ""),
-                state.get("radical_atom_counts", ""),
-                candidate.get("score_error", ""),
-            ]
-        )
-    return _markdown_table(
-        (
-            "共振序号",
-            "raw key",
-            "processed key",
-            "process 命中",
-            "重复",
-            "匹配目标",
-            "分数",
-            "选择键",
-            "canonical SMILES",
-            "形式电荷",
-            "自由基和",
-            "自由基奇偶和",
-            "带电原子",
-            "自由基原子",
-            "评分错误",
-        ),
-        rows,
-    )
-
-
-def _render_no_metal_trace(no_metal_trace: dict[str, Any]) -> str:
+def _html_no_metal_trace(no_metal_trace: dict[str, Any]) -> str:
+    if not no_metal_trace:
+        return '<p class="empty-inline">无</p>'
     target = cast(Dict[str, Any], no_metal_trace.get("target", {}))
     selected = cast(Dict[str, Any], no_metal_trace.get("selected_candidate", {}))
     selected_state = cast(Dict[str, Any], selected.get("state", {}))
-    lines = [
-        _markdown_kv_table(
+    sections = [
+        _html_kv_table(
             (
                 ("状态", no_metal_trace.get("status", "")),
                 ("目标电荷", target.get("total_charge", "")),
@@ -847,364 +1253,1286 @@ def _render_no_metal_trace(no_metal_trace: dict[str, Any]) -> str:
                 ("选中分数", selected.get("score", "")),
                 ("选中选择键", selected.get("organic_topology_selection_key", "")),
             )
-        ),
-        "",
-        "**线性阶段**",
-        _render_no_metal_linear_steps(no_metal_trace),
+        )
     ]
+    if selected:
+        sections.append(_html_details("选中候选完整 JSON", _html_json_block(selected)))
+    if no_metal_trace.get("linear_result"):
+        sections.append(
+            _html_details("线性阶段结果 JSON", _html_json_block(no_metal_trace["linear_result"]))
+        )
+    step_rows = []
+    for step in cast(List[Any], no_metal_trace.get("linear_steps", [])):
+        if not isinstance(step, dict):
+            continue
+        state = cast(Dict[str, Any], step.get("state", {}))
+        step_rows.append(
+            (
+                step.get("step_index", ""),
+                step.get("phase", ""),
+                step.get("kind", ""),
+                step.get("hit", ""),
+                step.get("omol_revision", ""),
+                state.get("canonical_smiles", state.get("smiles", "")),
+                state.get("formal_charge_sum", ""),
+                state.get("spin_multiplicity_sum", ""),
+                state.get("spin_multiplicity_singlet_sum", ""),
+                state.get("given_charge", ""),
+                state.get("valid_for_target", ""),
+                state.get("charged_atom_counts", ""),
+                state.get("radical_atom_counts", ""),
+                _dof_image_path_text(state.get("dof_image")),
+            )
+        )
+    sections.append(
+        _html_details(
+            f"线性阶段 ({len(step_rows)})",
+            _html_table(
+                (
+                    "步骤",
+                    "阶段",
+                    "类型",
+                    "命中",
+                    "修订",
+                    "canonical SMILES",
+                    "形式电荷",
+                    "自由基和",
+                    "自由基奇偶和",
+                    "剩余电荷预算",
+                    "匹配目标",
+                    "带电原子",
+                    "自由基原子",
+                    "DOF 图像",
+                ),
+                step_rows,
+            ),
+            open_=True,
+        )
+    )
+
     resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
     if resonance:
-        lines.extend(
-            [
-                "",
-                "**共振枚举**",
-                _markdown_kv_table(
+        resonance_rows = []
+        for candidate in cast(List[Any], resonance.get("candidates", [])):
+            if not isinstance(candidate, dict):
+                continue
+            state = cast(Dict[str, Any], candidate.get("state", {}))
+            resonance_rows.append(
+                (
+                    candidate.get("resonance_index", ""),
+                    candidate.get("raw_state_key_hash", ""),
+                    candidate.get("processed_state_key_hash", ""),
+                    candidate.get("process_resonance_hit", ""),
+                    candidate.get("duplicate_processed_state", ""),
+                    candidate.get("valid_for_target", ""),
+                    candidate.get("score", ""),
+                    candidate.get("organic_topology_selection_key", ""),
+                    state.get("canonical_smiles", state.get("smiles", "")),
+                    state.get("formal_charge_sum", ""),
+                    state.get("spin_multiplicity_sum", ""),
+                    state.get("charged_atom_counts", ""),
+                    state.get("radical_atom_counts", ""),
+                    candidate.get("score_error", ""),
+                    _dof_image_path_text(candidate.get("dof_image")),
+                )
+            )
+        sections.append(
+            _html_details(
+                f"共振枚举 ({resonance.get('candidate_count', len(resonance_rows))})",
+                _html_kv_table(
                     (
                         ("遍历策略", resonance.get("traversal_policy", "")),
                         ("最大深度", resonance.get("max_depth", "")),
                         ("候选数", resonance.get("candidate_count", "")),
                         ("有效去重候选数", resonance.get("valid_unique_candidate_count", "")),
+                        ("DOF grid", _dof_image_path_text(resonance.get("dof_grid_image"))),
                     )
+                )
+                + _html_table(
+                    (
+                        "共振序号",
+                        "raw key",
+                        "processed key",
+                        "process 命中",
+                        "重复",
+                        "匹配目标",
+                        "分数",
+                        "选择键",
+                        "canonical SMILES",
+                        "形式电荷",
+                        "自由基和",
+                        "带电原子",
+                        "自由基原子",
+                        "评分错误",
+                        "DOF 图像",
+                    ),
+                    resonance_rows,
                 ),
-                _render_no_metal_resonance_candidates(no_metal_trace),
-            ]
+            )
         )
+        sections.append(_html_details("共振完整 JSON", _html_json_block(resonance)))
     direct_candidate = cast(Dict[str, Any], no_metal_trace.get("direct_candidate", {}))
     if direct_candidate:
-        lines.extend(
-            [
-                "",
-                "**直接候选**",
-                _markdown_kv_table(
+        sections.append(
+            _html_details(
+                "直接候选",
+                _html_kv_table(
                     (
                         ("clean_resonances 命中", direct_candidate.get("clean_resonances_hit", "")),
                         ("评分错误", direct_candidate.get("score_error", "")),
                         ("分数", direct_candidate.get("score", "")),
                         ("选择键", direct_candidate.get("organic_topology_selection_key", "")),
                     )
-                ),
-            ]
-        )
-    return "\n".join(lines)
-
-
-def _render_no_metal_traces(case: dict[str, Any]) -> str:
-    search_summary = cast(Dict[str, Any], case.get("search", {}))
-    layer_summaries = cast(List[Any], search_summary.get("layer_summaries", []))
-    sections: list[str] = []
-    for layer in layer_summaries:
-        if not isinstance(layer, dict):
-            continue
-        for target_bucket in cast(List[Any], layer.get("target_buckets", [])):
-            if not isinstance(target_bucket, dict):
-                continue
-            no_metal_trace = target_bucket.get("no_metal_trace")
-            if not isinstance(no_metal_trace, dict):
-                continue
-            target = cast(Dict[str, Any], target_bucket.get("target", {}))
-            summary = (
-                f"L{layer.get('layer_index', '')} | "
-                f"Q={target.get('no_metal_charge', '')}, "
-                f"R={target.get('no_metal_radical_electrons', '')} | "
-                f"{no_metal_trace.get('status', '')}"
-            )
-            sections.append(
-                "\n".join(
-                    [
-                        f"<details><summary>{_markdown_cell(summary)}</summary>",
-                        "",
-                        _render_no_metal_trace(no_metal_trace),
-                        "",
-                        "</details>",
-                    ]
                 )
+                + _html_details(
+                    "直接候选完整 JSON",
+                    _html_json_block(direct_candidate),
+                ),
             )
-    return "\n\n".join(sections) if sections else "_无_"
-
-
-def _render_candidate_overview(case: dict[str, Any]) -> str:
-    candidates = cast(List[Any], case.get("candidates", []))
-    rows: list[list[Any]] = []
-    for raw_candidate in candidates:
-        if not isinstance(raw_candidate, dict):
-            continue
-        target = cast(Dict[str, Any], raw_candidate.get("target", {}))
-        organic_part = cast(Dict[str, Any], raw_candidate.get("organic_part", {}))
-        rows.append(
-            [
-                "是" if raw_candidate.get("selected") else "",
-                raw_candidate.get("search_layer_index", ""),
-                raw_candidate.get("combination_index", ""),
-                "是" if raw_candidate.get("in_production_selection_layer") else "",
-                _metal_states_label(
-                    cast(List[Dict[str, Any]], raw_candidate.get("metal_states", []))
-                ),
-                organic_part.get("canonical_smiles", organic_part.get("smiles", "")),
-                raw_candidate.get("candidate_total_charge", ""),
-                target.get("no_metal_charge", ""),
-                target.get("no_metal_radical_electrons", ""),
-                _score_detail_value(raw_candidate, "metal_discordance_count", ""),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_structural_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_aromatic_stability_deficit",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "organic_aromatic_stability_score",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_max_aromatic_stability_score",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "organic_aromatic_ring_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_inner_visible_diradical_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_outer_or_invisible_adjacent_double_charge_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_inner_visible_adjacent_carbanion_pair_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_inner_visible_conjugated_carbanion_pair_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_inner_visible_same_sign_charge_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_negative_metal_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_negative_metal_penalty",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_zero_valent_metals_with_organic_cation_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_nonnegative_metal_unsaturated_organic_cation_count",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_negative_metal_outer_sphere_cation_exception",
-                    "",
-                ),
-                _score_detail_value(
-                    raw_candidate,
-                    "metal_discordance_negative_metal_positive_metal_counterion_exception",
-                    "",
-                ),
-                _score_detail_value(raw_candidate, "score", ""),
-            ]
         )
-    return _markdown_table(
-        (
-            "选中",
-            "层",
-            "组合",
-            "生产层",
-            "金属状态",
-            "有机 canonical SMILES",
-            "候选总电荷",
-            "有机电荷",
-            "有机自由基",
-            "失谐",
-            "结构失谐",
-            "芳香稳定性缺口",
-            "有机芳香稳定性",
-            "本层最高芳香稳定性",
-            "有机芳环数",
-            "内圈可见双自由基(不计S/P/Cl/Br/I)",
-            "外圈/不可见邻位双电荷",
-            "外圈/不可见相对金属同号双电荷",
-            "外圈/不可见相对金属异号双电荷",
-            "外圈/不可见金属符号未知双电荷",
-            "内圈可见相邻同号碳离子",
-            "内圈可见共轭同号碳离子",
-            "内圈可见同号电荷(局部两性豁免)",
-            "负价金属强度(|价态|和)",
-            "负价金属惩罚",
-            "零价金属有机阳离子(全局正电/局部两性豁免)",
-            "非负价金属不饱和有机阳离子(局部两性豁免)",
-            "负价金属外圈H+例外",
-            "负价金属阳离子金属例外",
-            "有机分",
-        ),
-        rows,
-    )
+    sections.append(_html_details("完整 no-metal trace JSON", _html_json_block(no_metal_trace)))
+    return "".join(sections)
 
 
-def _render_candidate_details(case: dict[str, Any]) -> str:
-    candidates = cast(List[Any], case.get("candidates", []))
-    sections: list[str] = []
-    for raw_candidate in candidates:
-        if not isinstance(raw_candidate, dict):
-            continue
-        organic_part = cast(Dict[str, Any], raw_candidate.get("organic_part", {}))
-        summary = (
-            f"{_candidate_short_label(raw_candidate)} | "
-            f"失谐 {_format_value(_score_detail_value(raw_candidate, 'metal_discordance_count', ''))} | "
-            f"{organic_part.get('canonical_smiles', organic_part.get('smiles', ''))}"
-        )
-        lines = [f"<details><summary>{_markdown_cell(summary)}</summary>", ""]
-        lines.append("**金属状态**")
-        metal_rows = []
-        for metal_state in cast(List[Any], raw_candidate.get("metal_states", [])):
-            if not isinstance(metal_state, dict):
-                continue
+def _html_candidate_details(candidate: dict[str, Any]) -> str:
+    organic_part = cast(Dict[str, Any], candidate.get("organic_part", {}))
+    metal_rows = []
+    for metal_state in cast(List[Any], candidate.get("metal_states", [])):
+        if isinstance(metal_state, dict):
             metal_rows.append(
-                [
+                (
                     metal_state.get("idx", ""),
                     metal_state.get("symbol", ""),
                     metal_state.get("valence", ""),
                     metal_state.get("radical_num", ""),
                     metal_state.get("position", ""),
-                ]
+                )
             )
-        lines.append(_markdown_table(("原子序号", "元素", "价态", "自由基数", "坐标"), metal_rows))
-        lines.extend(["", "**分数明细**"])
-        lines.append(_markdown_table(("分数项", "值"), _candidate_score_rows(raw_candidate)))
-
-        production_metadata = cast(Dict[str, Any], raw_candidate.get("production_metadata", {}))
-        if production_metadata:
-            production_rows = [
-                (key, value)
-                for key, value in production_metadata.items()
-                if key in _IMPORTANT_SCORE_KEYS or key.startswith(("passes_", "selection_"))
-            ]
-            if production_rows:
-                lines.extend(["", "**生产选择元数据**"])
-                lines.append(_markdown_table(("字段", "值"), production_rows))
-
-        lines.extend(["", "</details>"])
-        sections.append("\n".join(lines))
-    return "\n\n".join(sections) if sections else "_无_"
-
-
-def _render_case_report(case: dict[str, Any]) -> str:
-    lines = [f"## {case.get('id', 'unknown')}", ""]
-    if case.get("status") == "error":
-        lines.append(_markdown_kv_table((("状态", "error"), ("错误", case.get("error", "")))))
-        return "\n".join(lines)
-    if case.get("status") == "missing_csv_row":
-        lines.append(_markdown_kv_table((("状态", "missing_csv_row"),)))
-        return "\n".join(lines)
-
-    if case.get("trace_kind") == "no_metal":
-        lines.extend(
-            [
-                "### 基本信息",
-                _render_case_summary(case),
-                "",
-                "### 无金属重建过程",
-                _render_no_metal_trace(cast(Dict[str, Any], case.get("no_metal_trace", {}))),
-            ]
+    body = _html_kv_table(
+        (
+            ("候选序号", candidate.get("candidate_index", "")),
+            ("候选 identity", candidate.get("candidate_identity", "")),
+            ("选中", candidate.get("selected", "")),
+            ("层", candidate.get("search_layer_index", "")),
+            ("组合", candidate.get("combination_index", "")),
+            ("生产层", candidate.get("in_production_selection_layer", "")),
+            ("候选总电荷", candidate.get("candidate_total_charge", "")),
+            ("目标", candidate.get("target", "")),
+            ("有机 canonical SMILES", organic_part.get("canonical_smiles", "")),
+            ("分数", candidate.get("score", "")),
+            ("DOF 图像", _dof_image_path_text(candidate.get("dof_image"))),
         )
-        return "\n".join(lines)
-
-    lines.extend(
-        [
-            "### 基本信息",
-            _render_case_summary(case),
-            "",
-            "### 金属位点候选",
-            _render_available_metal_states(case),
-            "",
-            "### 搜索层",
-            _render_layer_table(case),
-            "",
-            "### 有机目标桶",
-            _render_target_bucket_table(case),
-            "",
-            "### 无金属重建过程",
-            _render_no_metal_traces(case),
-            "",
-            "### 候选总览",
-            _render_candidate_overview(case),
-            "",
-            "### 候选分数明细",
-            _render_candidate_details(case),
-        ]
     )
-    return "\n".join(lines)
-
-
-def _render_markdown_report(output: dict[str, Any]) -> str:
-    input_summary = cast(Dict[str, Any], output.get("input", {}))
-    source = input_summary.get("source", "")
-    title = "# tmQMg 重建轨迹分析" if source == "tmQMg" else "# MolGR 重建轨迹分析"
-    input_rows: list[tuple[str, Any]] = [
-        ("来源", source),
-    ]
-    if input_summary.get("csv", "") != "":
-        input_rows.append(("CSV", input_summary.get("csv", "")))
-    if input_summary.get("xyz_dir", "") != "":
-        input_rows.append(("XYZ 目录", input_summary.get("xyz_dir", "")))
-    input_rows.extend(
-        [
-            ("id", input_summary.get("ids", [])),
-            ("默认总电荷", input_summary.get("total_charge", "")),
-            ("默认总自由基电子数", input_summary.get("total_radical_electrons", "")),
-        ]
+    body += "<h4>金属状态</h4>" + _html_table(
+        ("原子序号", "元素", "价态", "自由基数", "坐标"), metal_rows
     )
-    if input_summary.get("spin_source", "") != "":
-        input_rows.append(("自旋来源", input_summary.get("spin_source", "")))
-    input_rows.append(("样本数", output.get("case_count", "")))
-    lines = [
-        title,
-        "",
-        "## 输入",
-        _markdown_kv_table(input_rows),
+    body += "<h4>分数构成</h4>" + _html_score_table(candidate.get("score_details", {}))
+    production_metadata = cast(Dict[str, Any], candidate.get("production_metadata", {}))
+    if production_metadata:
+        body += _html_details(
+            "生产选择 metadata",
+            _html_score_table(production_metadata)
+            + _html_details("完整 production metadata JSON", _html_json_block(production_metadata)),
+        )
+    body += _html_details(
+        "score_details JSON", _html_json_block(candidate.get("score_details", {}))
+    )
+    body += _html_details("organic_part JSON", _html_json_block(candidate.get("organic_part", {})))
+    body += _html_details("target JSON", _html_json_block(candidate.get("target", {})))
+    body += _html_details(
+        "phase_history JSON", _html_json_block(candidate.get("phase_history", []))
+    )
+    body += _html_details(
+        "完整 candidate metadata", _html_json_block(candidate.get("metadata", {}))
+    )
+    body += _html_details(
+        "no_metal_state",
+        _html_json_block(candidate.get("no_metal_state", {})),
+    )
+    body += _html_details("完整 candidate JSON", _html_json_block(candidate))
+    return body
+
+
+def _html_case_trace(case: dict[str, Any]) -> str:
+    case_id = str(case.get("id", "unknown"))
+    if case.get("status") == "error":
+        return (
+            f'<section class="case-trace" id="case-{html.escape(_safe_filename_part(case_id))}">'
+            f"<h2>{_html_escape(case_id)}</h2>"
+            + _html_kv_table((("状态", "error"), ("错误", case.get("error", ""))))
+            + "</section>"
+        )
+    base_state = cast(Dict[str, Any], case.get("base_state", {}))
+    selected = cast(Dict[str, Any], case.get("selected_candidate", {}))
+    summary = _html_kv_table(
+        (
+            ("id", case.get("id", "")),
+            ("CSV 行号", case.get("row_index", "")),
+            ("状态", case.get("status", "")),
+            ("重建类型", case.get("trace_kind", "")),
+            ("总电荷", case.get("charge", "")),
+            ("总自由基电子数", case.get("total_radical_electrons", "")),
+            ("自旋多重度", case.get("spin_multiplicity", "")),
+            ("自旋来源", case.get("spin_source", "")),
+            ("XYZ 路径", case.get("xyz_path", "")),
+            ("XYZ 来源", case.get("xyz_source", "")),
+            ("参考 SMILES", case.get("reference_smiles", "")),
+            ("金属原子数", base_state.get("metal_atom_count", "")),
+            (
+                "生产选择层",
+                cast(Dict[str, Any], case.get("search", {})).get("selected_layer_index", ""),
+            ),
+            ("生产候选数", case.get("production_candidate_count", "")),
+            ("全部已评分候选数", case.get("candidate_count", "")),
+            ("选中候选", selected.get("combination_index", "")),
+            ("耗时秒", case.get("elapsed_seconds", "")),
+        )
+    )
+    sections = [
+        f'<section class="case-trace" id="case-{html.escape(_safe_filename_part(case_id))}">',
+        f"<h2>{_html_escape(case_id)}</h2>",
+        _html_details("基本信息", summary, open_=True),
+        _html_details("基础状态完整 JSON", _html_json_block(base_state)),
     ]
+    if case.get("trace_kind") == "no_metal":
+        sections.append(
+            _html_details(
+                "无金属重建过程",
+                _html_no_metal_trace(cast(Dict[str, Any], case.get("no_metal_trace", {}))),
+                open_=True,
+            )
+        )
+    else:
+        state_rows = []
+        for site_index, state_options in enumerate(
+            cast(List[Any], base_state.get("available_metal_states_by_site", []))
+        ):
+            if not isinstance(state_options, list):
+                continue
+            for option_index, metal_state in enumerate(state_options):
+                if isinstance(metal_state, dict):
+                    state_rows.append(
+                        (
+                            site_index,
+                            option_index,
+                            metal_state.get("idx", ""),
+                            metal_state.get("symbol", ""),
+                            metal_state.get("valence", ""),
+                            metal_state.get("radical_num", ""),
+                            metal_state.get("position", ""),
+                        )
+                    )
+        sections.append(
+            _html_details(
+                "金属位点候选",
+                _html_table(
+                    ("位点", "选项", "原子序号", "元素", "价态", "自由基数", "坐标"),
+                    state_rows,
+                ),
+            )
+        )
+        search_summary = cast(Dict[str, Any], case.get("search", {}))
+        layer_rows = []
+        layer_detail_blocks = []
+        target_rows = []
+        no_metal_sections = []
+        for layer in cast(List[Any], search_summary.get("layer_summaries", [])):
+            if not isinstance(layer, dict):
+                continue
+            layer_detail_blocks.append(
+                _html_details(
+                    f"Layer {layer.get('layer_index', '')} 完整 JSON",
+                    _html_json_block(layer),
+                )
+            )
+            layer_rows.append(
+                (
+                    layer.get("layer_index", ""),
+                    layer.get("status", ""),
+                    layer.get("production_selected_layer", ""),
+                    layer.get("state_group_count", ""),
+                    layer.get("state_options_per_group", ""),
+                    layer.get("target_bucket_count", ""),
+                    layer.get("candidate_count", ""),
+                    layer.get("prepared_candidate_count", ""),
+                    bool(layer.get("analysis_score_context")),
+                )
+            )
+            for bucket in cast(List[Any], layer.get("target_buckets", [])):
+                if not isinstance(bucket, dict):
+                    continue
+                target = cast(Dict[str, Any], bucket.get("target", {}))
+                organic_part = cast(Dict[str, Any], bucket.get("organic_part", {}))
+                target_rows.append(
+                    (
+                        layer.get("layer_index", ""),
+                        target.get("no_metal_charge", ""),
+                        target.get("no_metal_radical_electrons", ""),
+                        bucket.get("status", ""),
+                        bucket.get("candidate_count", ""),
+                        bucket.get("prepared_candidate_count", ""),
+                        organic_part.get("canonical_smiles", organic_part.get("smiles", "")),
+                        bucket.get("no_metal_score", ""),
+                        _dof_image_path_text(bucket.get("dof_image")),
+                    )
+                )
+                if isinstance(bucket.get("no_metal_trace"), dict):
+                    no_metal_sections.append(
+                        _html_details(
+                            (
+                                f"L{layer.get('layer_index', '')} "
+                                f"Q={target.get('no_metal_charge', '')} "
+                                f"R={target.get('no_metal_radical_electrons', '')}"
+                            ),
+                            _html_no_metal_trace(cast(Dict[str, Any], bucket["no_metal_trace"])),
+                        )
+                    )
+        sections.append(
+            _html_details(
+                "搜索层",
+                _html_table(
+                    (
+                        "层",
+                        "状态",
+                        "生产选择层",
+                        "金属组数",
+                        "每组候选数",
+                        "目标桶数",
+                        "枚举候选数",
+                        "已评分候选数",
+                        "analysis score context",
+                    ),
+                    layer_rows,
+                ),
+                open_=True,
+            )
+        )
+        if layer_detail_blocks:
+            sections.append(_html_details("搜索层完整 trace", "".join(layer_detail_blocks)))
+        sections.append(
+            _html_details(
+                "有机目标桶",
+                _html_table(
+                    (
+                        "层",
+                        "有机目标电荷",
+                        "有机自由基电子",
+                        "状态",
+                        "候选数",
+                        "已评分数",
+                        "有机部分 canonical SMILES",
+                        "有机力场分",
+                        "DOF 图像",
+                    ),
+                    target_rows,
+                ),
+                open_=True,
+            )
+        )
+        sections.append(
+            _html_details("分析和评分上下文", _html_json_block(case.get("analysis", {})))
+        )
+        if no_metal_sections:
+            sections.append(_html_details("无金属重建过程", "".join(no_metal_sections)))
+        candidate_rows = []
+        for candidate in cast(List[Any], case.get("candidates", [])):
+            if not isinstance(candidate, dict):
+                continue
+            organic_part = cast(Dict[str, Any], candidate.get("organic_part", {}))
+            candidate_rows.append(
+                (
+                    "是" if candidate.get("selected") else "",
+                    candidate.get("search_layer_index", ""),
+                    candidate.get("combination_index", ""),
+                    "是" if candidate.get("in_production_selection_layer") else "",
+                    _metal_states_label(
+                        cast(List[Dict[str, Any]], candidate.get("metal_states", []))
+                    ),
+                    organic_part.get("canonical_smiles", organic_part.get("smiles", "")),
+                    candidate.get("candidate_total_charge", ""),
+                    cast(Dict[str, Any], candidate.get("target", {})).get("no_metal_charge", ""),
+                    cast(Dict[str, Any], candidate.get("target", {})).get(
+                        "no_metal_radical_electrons", ""
+                    ),
+                    *[
+                        _score_detail_value(candidate, score_key, "")
+                        for score_key in _IMPORTANT_SCORE_KEYS
+                    ],
+                    _dof_image_path_text(candidate.get("dof_image")),
+                )
+            )
+        sections.append(
+            _html_details(
+                "候选总览",
+                _html_table(
+                    (
+                        "选中",
+                        "层",
+                        "组合",
+                        "生产层",
+                        "金属状态",
+                        "有机 canonical SMILES",
+                        "候选总电荷",
+                        "有机电荷",
+                        "有机自由基",
+                        *_IMPORTANT_SCORE_KEYS,
+                        "DOF 图像",
+                    ),
+                    candidate_rows,
+                    class_name="score-overview",
+                ),
+                open_=True,
+            )
+        )
+        detail_blocks = []
+        for candidate in cast(List[Any], case.get("candidates", [])):
+            if isinstance(candidate, dict):
+                detail_blocks.append(
+                    _html_details(_candidate_title(candidate), _html_candidate_details(candidate))
+                )
+        sections.append(_html_details("候选分数和 metadata", "".join(detail_blocks), open_=True))
+    sections.append(_html_details("完整 case JSON", _html_json_block(case)))
+    sections.append("</section>")
+    return "".join(sections)
+
+
+def _render_html_trace_sections(output: dict[str, Any]) -> str:
+    sections = []
     for case in cast(List[Any], output.get("cases", [])):
         if isinstance(case, dict):
-            lines.extend(["", _render_case_report(case)])
-    return "\n".join(lines).rstrip() + "\n"
+            sections.append(_html_case_trace(case))
+    return "".join(sections) if sections else '<div class="empty">No cases.</div>'
+
+
+def _render_html_report(output: dict[str, Any]) -> str:
+    items = _collect_html_image_items(output)
+    trace_sections = _render_html_trace_sections(output)
+    input_summary = cast(Dict[str, Any], output.get("input", {}))
+    dof_rendering = cast(Dict[str, Any], output.get("dof_rendering", {}))
+    metrics = _html_metric_grid(
+        (
+            ("source", input_summary.get("source", "")),
+            ("cases", output.get("case_count", "")),
+            ("ids", ", ".join(str(item) for item in cast(List[Any], input_summary.get("ids", [])))),
+            ("storage", dof_rendering.get("storage", "")),
+            ("images", dof_rendering.get("image_count", "")),
+            ("skipped", dof_rendering.get("skipped_count", "")),
+            ("errors", len(cast(List[Any], dof_rendering.get("errors", [])))),
+        )
+    )
+    case_options = sorted({str(item.get("case_id", "")) for item in items if item.get("case_id")})
+    group_options = sorted({str(item.get("group", "")) for item in items if item.get("group")})
+    nav_cards: list[str] = []
+    detail_cards: list[str] = []
+    for index, item in enumerate(items):
+        item_id = str(item["id"])
+        selected_class = " is-selected" if item.get("selected") else ""
+        active_class = " is-active" if index == 0 else ""
+        metadata_json = _html_json(item.get("metadata", {}))
+        nav_cards.append(
+            f'<button class="trace-card{selected_class}{active_class}" type="button" '
+            f'data-target="{html.escape(item_id)}" data-case="{_html_escape(item.get("case_id", ""))}" '
+            f'data-group="{_html_escape(item.get("group", ""))}" '
+            f'data-search="{_html_escape(" ".join(str(item.get(k, "")) for k in ("case_id", "title", "group", "smiles", "score")))}">'
+            f'<span class="card-title">{_html_escape(item.get("title", ""))}</span>'
+            f'<span class="card-meta">{_html_escape(item.get("case_id", ""))} · {_html_escape(item.get("group", ""))}</span>'
+            "</button>"
+        )
+        detail_cards.append(
+            f'<article id="{html.escape(item_id)}" class="detail-card{active_class}" '
+            f'data-case="{_html_escape(item.get("case_id", ""))}" data-group="{_html_escape(item.get("group", ""))}">'
+            '<div class="detail-head">'
+            f"<div><h2>{_html_escape(item.get('title', ''))}</h2>"
+            f"<p>{_html_escape(item.get('case_id', ''))} · {_html_escape(item.get('group', ''))}</p></div>"
+            f'<span class="badge{" selected" if item.get("selected") else ""}">'
+            f"{'selected' if item.get('selected') else _html_escape(item.get('group', ''))}</span>"
+            "</div>"
+            '<div class="svg-wrap">'
+            f"{item.get('svg', '')}"
+            "</div>"
+            f'<pre class="metadata">{metadata_json}</pre>'
+            "</article>"
+        )
+
+    cases_json = _html_json(output)
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MolGR Trace</title>
+  <style>
+    :root {{ color-scheme: light; --bg:#f6f7f9; --panel:#fff; --line:#d8dee8; --text:#172033; --muted:#667085; --accent:#2563eb; --selected:#b45309; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }}
+    header {{ padding:16px 20px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:10; }}
+    h1 {{ margin:0 0 10px; font-size:20px; }}
+    .metrics {{ display:flex; flex-wrap:wrap; gap:8px; }}
+    .metric {{ border:1px solid var(--line); border-radius:6px; background:#fafbfc; padding:6px 9px; min-width:96px; }}
+    .metric-label {{ display:block; font-size:11px; color:var(--muted); text-transform:uppercase; }}
+    .metric-value {{ display:block; font-size:13px; font-weight:700; overflow-wrap:anywhere; }}
+    main {{ display:grid; grid-template-columns:340px minmax(0,1fr); gap:14px; padding:14px; min-height:calc(100vh - 86px); }}
+    aside {{ min-width:0; border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:10px; align-self:start; position:sticky; top:94px; max-height:calc(100vh - 108px); display:flex; flex-direction:column; gap:10px; }}
+    .filters {{ display:grid; gap:8px; }}
+    .filters input, .filters select {{ width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }}
+    .toggle {{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }}
+    .list {{ overflow:auto; display:grid; gap:6px; padding-right:2px; }}
+    .trace-card {{ width:100%; border:1px solid var(--line); border-radius:7px; background:#fff; text-align:left; padding:8px; cursor:pointer; }}
+    .trace-card:hover, .trace-card.is-active {{ border-color:var(--accent); box-shadow:0 0 0 2px rgba(37,99,235,.14); }}
+    .trace-card.is-selected {{ border-color:var(--selected); background:#fff7ed; }}
+    .card-title {{ display:block; font-weight:800; font-size:13px; overflow-wrap:anywhere; }}
+    .card-meta {{ display:block; margin-top:3px; color:var(--muted); font-size:12px; }}
+    .content {{ min-width:0; display:grid; gap:14px; }}
+    .section-title {{ margin:4px 0 0; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }}
+    .detail-card {{ display:none; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:14px; min-width:0; }}
+    .detail-card.is-active {{ display:block; }}
+    .detail-head {{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:12px; }}
+    h2 {{ margin:0; font-size:18px; }}
+    .detail-head p {{ margin:4px 0 0; color:var(--muted); }}
+    .badge {{ border:1px solid var(--line); border-radius:999px; padding:4px 8px; font-size:12px; color:var(--muted); white-space:nowrap; }}
+    .badge.selected {{ color:#92400e; border-color:#f59e0b; background:#fffbeb; }}
+    .svg-wrap {{ width:100%; overflow:auto; border:1px solid var(--line); border-radius:8px; background:#fff; padding:10px; }}
+    .svg-wrap svg {{ display:block; max-width:100%; height:auto; margin:auto; }}
+    .metadata {{ margin:12px 0 0; padding:10px; border:1px solid var(--line); border-radius:8px; background:#0f172a; color:#e5e7eb; overflow:auto; max-height:300px; font-size:12px; }}
+    .trace-section-wrap {{ display:grid; gap:14px; }}
+    .case-trace {{ border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:14px; min-width:0; }}
+    .case-trace > h2 {{ margin-bottom:12px; }}
+    details {{ border:1px solid var(--line); border-radius:8px; background:#fff; margin:10px 0; padding:0; overflow:hidden; }}
+    details > summary {{ cursor:pointer; padding:9px 11px; font-weight:800; background:#f8fafc; border-bottom:1px solid var(--line); }}
+    details:not([open]) > summary {{ border-bottom:0; }}
+    details > *:not(summary) {{ margin:10px; max-width:calc(100% - 20px); overflow-x:auto; }}
+    h4 {{ margin:14px 10px 6px; font-size:13px; }}
+    table {{ width:100%; border-collapse:collapse; font-size:12px; margin:10px 0; }}
+    th, td {{ border-bottom:1px solid #e5e7eb; padding:6px 7px; text-align:left; vertical-align:top; overflow-wrap:anywhere; }}
+    th {{ color:#334155; background:#f8fafc; position:sticky; top:0; z-index:1; }}
+    .score-overview {{ min-width:2400px; }}
+    .json-block {{ margin:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#0f172a; color:#e5e7eb; overflow:auto; max-height:480px; font-size:12px; }}
+    .empty-inline {{ margin:10px; color:var(--muted); }}
+    .empty {{ border:1px dashed var(--line); border-radius:8px; padding:24px; text-align:center; color:var(--muted); background:#fff; }}
+    @media (max-width:900px) {{ main {{ grid-template-columns:1fr; }} aside {{ position:static; max-height:none; }} }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MolGR Trace</h1>
+    {metrics}
+  </header>
+  <main>
+    <aside>
+      <div class="filters">
+        <input id="search" type="search" placeholder="Filter case, title, group, score...">
+        <select id="case-filter"><option value="">All cases</option>{"".join(f'<option value="{html.escape(case_id)}">{html.escape(case_id)}</option>' for case_id in case_options)}</select>
+        <select id="group-filter"><option value="">All groups</option>{"".join(f'<option value="{html.escape(group)}">{html.escape(group)}</option>' for group in group_options)}</select>
+        <label class="toggle"><input id="selected-only" type="checkbox"> Selected only</label>
+      </div>
+      <div id="list" class="list">{"".join(nav_cards) if nav_cards else '<div class="empty">No DOF images were rendered.</div>'}</div>
+    </aside>
+    <section class="content">
+      <h2 class="section-title">DOF images</h2>
+      {"".join(detail_cards) if detail_cards else '<div class="empty">No DOF images were rendered. Increase --dof-max-images if needed.</div>'}
+      <h2 class="section-title">Full trace</h2>
+      <div class="trace-section-wrap">{trace_sections}</div>
+    </section>
+  </main>
+  <script id="trace-json" type="application/json">{cases_json}</script>
+  <script>
+    (() => {{
+      const cards = Array.from(document.querySelectorAll(".trace-card"));
+      const details = Array.from(document.querySelectorAll(".detail-card"));
+      const search = document.getElementById("search");
+      const caseFilter = document.getElementById("case-filter");
+      const groupFilter = document.getElementById("group-filter");
+      const selectedOnly = document.getElementById("selected-only");
+
+      function activate(id) {{
+        cards.forEach(card => card.classList.toggle("is-active", card.dataset.target === id));
+        details.forEach(detail => detail.classList.toggle("is-active", detail.id === id));
+      }}
+
+      function applyFilters() {{
+        const q = (search.value || "").toLowerCase();
+        const caseValue = caseFilter.value || "";
+        const groupValue = groupFilter.value || "";
+        let firstVisible = null;
+        cards.forEach(card => {{
+          const matchesSearch = !q || (card.dataset.search || "").toLowerCase().includes(q);
+          const matchesCase = !caseValue || card.dataset.case === caseValue;
+          const matchesGroup = !groupValue || card.dataset.group === groupValue;
+          const matchesSelected = !selectedOnly.checked || card.classList.contains("is-selected");
+          const visible = matchesSearch && matchesCase && matchesGroup && matchesSelected;
+          card.hidden = !visible;
+          if (visible && !firstVisible) firstVisible = card;
+        }});
+        if (firstVisible && !cards.some(card => !card.hidden && card.classList.contains("is-active"))) {{
+          activate(firstVisible.dataset.target);
+        }}
+      }}
+
+      cards.forEach(card => card.addEventListener("click", () => activate(card.dataset.target)));
+      [search, caseFilter, groupFilter, selectedOnly].forEach(el => el && el.addEventListener("input", applyFilters));
+      applyFilters();
+    }})();
+  </script>
+</body>
+</html>
+"""
+
+
+def _render_html_browser_report(output: dict[str, Any]) -> str:
+    inline_output = _with_inline_dof_svgs(output)
+    cases_json = _html_script_json(inline_output)
+    return (
+        """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MolGR Trace</title>
+  <style>
+    :root { color-scheme: light; --bg:#f6f7f9; --panel:#fff; --line:#d8dee8; --text:#172033; --muted:#667085; --accent:#2563eb; --selected:#b45309; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:20; }
+    h1 { margin:0; font-size:20px; }
+    h2 { margin:0 0 10px; font-size:15px; }
+    .global-info { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(220px,.65fr) minmax(420px,1.55fr); gap:12px; padding:12px; }
+    .global-card { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:12px; min-width:0; overflow:auto; }
+    main { display:grid; grid-template-columns:380px minmax(0,1fr); gap:12px; padding:0 12px 12px; min-height:calc(100vh - 250px); }
+    aside { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:10px; align-self:start; position:sticky; top:62px; max-height:calc(100vh - 76px); display:flex; flex-direction:column; gap:10px; min-width:0; }
+    #tree-search { width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }
+    .tree { overflow:auto; }
+    .tree ol { list-style:none; margin:0; padding-left:14px; border-left:1px solid #e5e7eb; }
+    .tree > ol { padding-left:0; border-left:0; }
+    .tree li { margin:4px 0; }
+    .tree-node { width:100%; border:1px solid transparent; border-radius:6px; background:transparent; padding:7px 8px; text-align:left; cursor:pointer; color:var(--text); }
+    .tree-node:hover, .tree-node.is-active { border-color:var(--accent); background:#eff6ff; }
+    .tree-node.is-selected { border-color:var(--selected); background:#fff7ed; }
+    .tree-label { display:block; font-weight:800; font-size:13px; overflow-wrap:anywhere; }
+    .tree-meta { display:block; margin-top:2px; color:var(--muted); font-size:11px; }
+    .node-panel { display:none; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:14px; min-width:0; }
+    .node-panel.is-active { display:block; }
+    .panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
+    .panel-head h2 { margin:0; font-size:18px; }
+    .panel-head p { margin:4px 0 0; color:var(--muted); }
+    .badge { border:1px solid var(--line); border-radius:999px; padding:4px 8px; font-size:12px; color:var(--muted); white-space:nowrap; }
+    .badge.selected { color:#92400e; border-color:#f59e0b; background:#fffbeb; }
+    .image-box { border:1px solid var(--line); border-radius:8px; background:#fff; padding:10px; overflow:auto; }
+    .image-box img { display:block; max-width:100%; height:auto; margin:auto; }
+    .image-box svg { display:block; max-width:100%; height:auto; margin:auto; }
+    .image-empty { border:1px dashed var(--line); border-radius:8px; padding:28px; text-align:center; color:var(--muted); background:#fff; }
+    .panel-info { margin-top:12px; display:grid; gap:10px; }
+    details { border:1px solid var(--line); border-radius:8px; background:#fff; margin:0; overflow:hidden; }
+    details > summary { cursor:pointer; padding:9px 11px; font-weight:800; background:#f8fafc; border-bottom:1px solid var(--line); }
+    details:not([open]) > summary { border-bottom:0; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin:10px; max-width:calc(100% - 20px); }
+    th, td { border-bottom:1px solid #e5e7eb; padding:6px 7px; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+    th { color:#334155; background:#f8fafc; }
+    pre { margin:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#0f172a; color:#e5e7eb; overflow:auto; max-height:520px; font-size:12px; }
+    .empty { border:1px dashed var(--line); border-radius:8px; padding:24px; text-align:center; color:var(--muted); background:#fff; }
+    @media (max-width:1100px) { .global-info, main { grid-template-columns:1fr; } aside { position:static; max-height:none; } }
+  </style>
+</head>
+<body>
+  <header><h1>MolGR Trace</h1></header>
+  <section id="global-info" class="global-info"></section>
+  <main>
+    <aside>
+      <input id="tree-search" type="search" placeholder="Filter trace nodes...">
+      <nav id="tree" class="tree"></nav>
+    </aside>
+    <section id="detail" class="content"></section>
+  </main>
+  <script id="trace-json" type="application/json">"""
+        + cases_json
+        + """</script>
+  <script>
+    (() => {
+      const trace = JSON.parse(document.getElementById("trace-json").textContent);
+      const scorePrefixes = ["analysis_", "force_field_", "metal_", "organic_", "passes_", "selection_"];
+      const scoreKeys = new Set(["combination_index", "score"]);
+      const nodes = [];
+      const roots = [];
+
+      function hasValue(value) {
+        return value !== undefined && value !== null && value !== "" &&
+          !(Array.isArray(value) && value.length === 0) &&
+          !(typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+      }
+
+      function fmt(value) {
+        if (value === undefined || value === null) return "";
+        if (typeof value === "boolean") return value ? "是" : "否";
+        if (typeof value === "number") return Number.isFinite(value) ? String(Number.parseFloat(value.toPrecision(6))) : String(value);
+        if (typeof value === "string") return value;
+        return JSON.stringify(value);
+      }
+
+      function imagePath(image) {
+        if (!image || typeof image !== "object" || image.status) return "";
+        return image.display_path || image.path || "";
+      }
+
+      function imageSvg(image) {
+        if (!image || typeof image !== "object" || image.status) return "";
+        return image.svg_fragment || "";
+      }
+
+      function stateImage(value) {
+        return value && value.state && value.state.dof_image ? value.state.dof_image : null;
+      }
+
+      function scoreDetails(metadata) {
+        if (!metadata || typeof metadata !== "object") return {};
+        if (metadata.score_details && typeof metadata.score_details === "object") return metadata.score_details;
+        const source = metadata.metadata && typeof metadata.metadata === "object" ? metadata.metadata : metadata;
+        const result = {};
+        Object.entries(source).forEach(([key, value]) => {
+          if (scoreKeys.has(key) || scorePrefixes.some(prefix => key.startsWith(prefix))) result[key] = value;
+        });
+        return result;
+      }
+
+      function makeNode({label, kind, caseId, summary = [], metadata = {}, image = null, selected = false, children = []}) {
+        const node = {
+          id: `node-${nodes.length}`,
+          label,
+          kind,
+          caseId,
+          summary,
+          metadata,
+          image,
+          selected,
+          children,
+          scoreDetails: scoreDetails(metadata),
+        };
+        node.search = [caseId, label, kind, fmt(summary), fmt(node.scoreDetails)].join(" ");
+        nodes.push(node);
+        return node;
+      }
+
+      function stateSummary(state) {
+        state = state || {};
+        return [
+          ["canonical SMILES", state.canonical_smiles || state.smiles],
+          ["形式电荷", state.formal_charge_sum],
+          ["自由基和", state.spin_multiplicity_sum],
+          ["自由基奇偶和", state.spin_multiplicity_singlet_sum],
+          ["剩余电荷预算", state.given_charge],
+          ["匹配目标", state.valid_for_target],
+          ["带电原子", state.charged_atom_counts],
+          ["自由基原子", state.radical_atom_counts],
+        ];
+      }
+
+      function metalStatesLabel(states) {
+        return (states || []).map(state => {
+          const valence = Number(state.valence || 0);
+          const sign = valence >= 0 ? `+${valence}` : String(valence);
+          return `#${state.idx || ""} ${state.symbol || ""}(${sign}, r${state.radical_num || 0})`;
+        }).join("; ");
+      }
+
+      function buildSelectedPathAnimation(caseId, traceData, selected, kind) {
+        const animation = traceData && traceData.selected_path_animation;
+        if (!animation) return null;
+        return makeNode({
+          label: "最终选中路径动画",
+          kind,
+          caseId,
+          summary: [
+            ["状态", animation.status || "rendered"],
+            ["帧数", animation.frame_count],
+            ["动画", animation.animation],
+            ["路径", animation.display_path || animation.path],
+            ["目标电荷", traceData.target && traceData.target.total_charge],
+            ["目标自由基电子", traceData.target && traceData.target.total_radical_electrons],
+            ["选中分数", selected && selected.score],
+            ["选中选择键", selected && selected.organic_topology_selection_key],
+          ],
+          metadata: animation,
+          image: animation,
+          selected: true,
+        });
+      }
+
+      function buildNoMetal(caseId, label, traceData) {
+        traceData = traceData || {};
+        const target = traceData.target || {};
+        const selected = traceData.selected_candidate || {};
+        const selectedState = selected.state || {};
+        const children = [];
+        const selectedPathAnimation = buildSelectedPathAnimation(caseId, traceData, selected, "无金属最终路径动画");
+        if (selectedPathAnimation) children.push(selectedPathAnimation);
+        (traceData.linear_steps || []).forEach(step => {
+          const state = step.state || {};
+          children.push(makeNode({
+            label: `${step.step_index}. ${step.phase}`,
+            kind: "无金属线性步骤",
+            caseId,
+            summary: [
+              ["阶段", step.phase],
+              ["类型", step.kind],
+              ["命中", step.hit],
+              ["修订", step.omol_revision],
+              ...stateSummary(state),
+            ],
+            metadata: step,
+            image: state.dof_image,
+          }));
+        });
+        const direct = traceData.direct_candidate || {};
+        if (Object.keys(direct).length) {
+          const state = direct.state || {};
+          children.push(makeNode({
+            label: "直接候选",
+            kind: "无金属候选",
+            caseId,
+            summary: [
+              ["clean_resonances 命中", direct.clean_resonances_hit],
+              ["评分错误", direct.score_error],
+              ["分数", direct.score],
+              ["选择键", direct.organic_topology_selection_key],
+              ...stateSummary(state),
+            ],
+            metadata: direct,
+            image: state.dof_image,
+            selected: Boolean(direct.selected),
+          }));
+        }
+        const resonance = traceData.resonance || {};
+        if (Object.keys(resonance).length) {
+          const resonanceChildren = [];
+          (resonance.candidates || []).forEach(candidate => {
+            const state = candidate.state || {};
+            resonanceChildren.push(makeNode({
+              label: `共振候选 ${candidate.resonance_index}`,
+              kind: "无金属共振候选",
+              caseId,
+              summary: [
+                ["共振序号", candidate.resonance_index],
+                ["raw key", candidate.raw_state_key_hash],
+                ["processed key", candidate.processed_state_key_hash],
+                ["process 命中", candidate.process_resonance_hit],
+                ["重复", candidate.duplicate_processed_state],
+                ["匹配目标", candidate.valid_for_target],
+                ["分数", candidate.score],
+                ["选择键", candidate.organic_topology_selection_key],
+                ["评分错误", candidate.score_error],
+                ...stateSummary(state),
+              ],
+              metadata: candidate,
+              image: candidate.dof_image,
+              selected: Boolean(candidate.selected),
+            }));
+          });
+          children.push(makeNode({
+            label: "共振枚举",
+            kind: "无金属共振",
+            caseId,
+            summary: [
+              ["遍历策略", resonance.traversal_policy],
+              ["最大深度", resonance.max_depth],
+              ["候选数", resonance.candidate_count],
+              ["有效去重候选数", resonance.valid_unique_candidate_count],
+            ],
+            metadata: resonance,
+            image: resonance.dof_grid_image,
+            children: resonanceChildren,
+          }));
+        }
+        return makeNode({
+          label,
+          kind: "无金属重建",
+          caseId,
+          summary: [
+            ["状态", traceData.status],
+            ["目标电荷", target.total_charge],
+            ["目标自由基电子", target.total_radical_electrons],
+            ["线性后直接有效", traceData.direct_validation],
+            ["选中 canonical SMILES", selectedState.canonical_smiles],
+            ["选中分数", selected.score],
+            ["选中选择键", selected.organic_topology_selection_key],
+          ],
+          metadata: traceData,
+          image: selectedState.dof_image || stateImage(direct),
+          children,
+        });
+      }
+
+      function buildTree() {
+        (trace.cases || []).forEach(item => {
+          const caseId = String(item.id || "unknown");
+          const base = item.base_state || {};
+          const selected = item.selected_candidate || {};
+          const children = [];
+          const caseNode = makeNode({
+            label: caseId,
+            kind: "case",
+            caseId,
+            summary: [
+              ["id", item.id],
+              ["CSV 行号", item.row_index],
+              ["状态", item.status],
+              ["重建类型", item.trace_kind],
+              ["总电荷", item.charge],
+              ["总自由基电子数", item.total_radical_electrons],
+              ["自旋多重度", item.spin_multiplicity],
+              ["自旋来源", item.spin_source],
+              ["XYZ 路径", item.xyz_path],
+              ["XYZ 来源", item.xyz_source],
+              ["参考 SMILES", item.reference_smiles],
+              ["金属原子数", base.metal_atom_count],
+              ["生产选择层", item.search && item.search.selected_layer_index],
+              ["生产候选数", item.production_candidate_count],
+              ["全部已评分候选数", item.candidate_count],
+              ["选中候选", selected.combination_index],
+              ["耗时秒", item.elapsed_seconds],
+            ],
+            metadata: item,
+            children,
+          });
+          roots.push(caseNode);
+          if (item.trace_kind === "no_metal") {
+            children.push(buildNoMetal(caseId, "无金属重建", item.no_metal_trace || {}));
+            return;
+          }
+          const selectedPathAnimation = buildSelectedPathAnimation(
+            caseId,
+            item,
+            selected,
+            "含金属最终路径动画",
+          );
+          if (selectedPathAnimation) children.push(selectedPathAnimation);
+          children.push(makeNode({
+            label: "基础状态",
+            kind: "含金属重建",
+            caseId,
+            summary: [
+              ["金属原子数", base.metal_atom_count],
+              ["金属位点数", (base.available_metal_states_by_site || []).length],
+              ["phase_history", base.phase_history],
+            ],
+            metadata: base,
+          }));
+          if (item.dof_candidate_grid) {
+            children.push(makeNode({
+              label: "金属候选对比",
+              kind: "含金属候选",
+              caseId,
+              summary: [
+                ["候选数", item.candidate_count],
+                ["生产候选数", item.production_candidate_count],
+              ],
+              metadata: {
+                candidate_count: item.candidate_count,
+                production_candidate_count: item.production_candidate_count,
+                selected_candidate: item.selected_candidate,
+              },
+              image: item.dof_candidate_grid,
+            }));
+          }
+          const candidates = (item.candidates || []).filter(candidate => candidate && typeof candidate === "object");
+          ((item.search && item.search.layer_summaries) || []).forEach(layer => {
+            const layerIndex = layer.layer_index;
+            const layerChildren = [];
+            (layer.target_buckets || []).forEach(bucket => {
+              const target = bucket.target || {};
+              const organic = bucket.organic_part || {};
+              const bucketChildren = [];
+              if (bucket.no_metal_trace) {
+                bucketChildren.push(buildNoMetal(caseId, "对应无金属重建", bucket.no_metal_trace));
+              }
+              layerChildren.push(makeNode({
+                label: `Target Q=${target.no_metal_charge} R=${target.no_metal_radical_electrons}`,
+                kind: "有机目标桶",
+                caseId,
+                summary: [
+                  ["层", layerIndex],
+                  ["有机目标电荷", target.no_metal_charge],
+                  ["有机自由基电子", target.no_metal_radical_electrons],
+                  ["状态", bucket.status],
+                  ["候选数", bucket.candidate_count],
+                  ["已评分数", bucket.prepared_candidate_count],
+                  ["有机 canonical SMILES", organic.canonical_smiles || organic.smiles],
+                  ["有机力场分", bucket.no_metal_score],
+                ],
+                metadata: bucket,
+                image: bucket.dof_image,
+                children: bucketChildren,
+              }));
+            });
+            candidates
+              .filter(candidate => String(candidate.search_layer_index) === String(layerIndex))
+              .forEach(candidate => {
+                const organic = candidate.organic_part || {};
+                const target = candidate.target || {};
+                const title = `${candidate.selected ? "selected " : ""}L${candidate.search_layer_index}/C${candidate.combination_index}`;
+                layerChildren.push(makeNode({
+                  label: title,
+                  kind: "金属候选",
+                  caseId,
+                  summary: [
+                    ["选中", candidate.selected],
+                    ["组合", candidate.combination_index],
+                    ["生产层", candidate.in_production_selection_layer],
+                    ["候选总电荷", candidate.candidate_total_charge],
+                    ["有机目标电荷", target.no_metal_charge],
+                    ["有机自由基电子", target.no_metal_radical_electrons],
+                    ["有机 canonical SMILES", organic.canonical_smiles || organic.smiles],
+                    ["分数", candidate.score],
+                    ["金属状态", metalStatesLabel(candidate.metal_states)],
+                  ],
+                  metadata: candidate,
+                  image: candidate.dof_image,
+                  selected: Boolean(candidate.selected),
+                }));
+              });
+            children.push(makeNode({
+              label: `Layer ${layerIndex}`,
+              kind: "金属搜索层",
+              caseId,
+              summary: [
+                ["状态", layer.status],
+                ["生产选择层", layer.production_selected_layer],
+                ["金属组数", layer.state_group_count],
+                ["每组候选数", layer.state_options_per_group],
+                ["目标桶数", layer.target_bucket_count],
+                ["枚举候选数", layer.candidate_count],
+                ["已评分候选数", layer.prepared_candidate_count],
+                ["analysis score context", Boolean(layer.analysis_score_context)],
+              ],
+              metadata: layer,
+              children: layerChildren,
+            }));
+          });
+          if (item.analysis) {
+            children.push(makeNode({
+              label: "分析和评分上下文",
+              kind: "analysis",
+              caseId,
+              summary: [
+                ["score_all_candidates", item.analysis.score_all_candidates],
+                ["note", item.analysis.note],
+              ],
+              metadata: item.analysis,
+            }));
+          }
+        });
+      }
+
+      function table(rows, headers = ["字段", "值"]) {
+        const tableEl = document.createElement("table");
+        const thead = tableEl.createTHead();
+        const headRow = thead.insertRow();
+        headers.forEach(header => {
+          const th = document.createElement("th");
+          th.textContent = header;
+          headRow.appendChild(th);
+        });
+        const tbody = tableEl.createTBody();
+        rows.filter(([_, value]) => hasValue(value)).forEach(row => {
+          const tr = tbody.insertRow();
+          row.forEach(cell => {
+            const td = tr.insertCell();
+            td.textContent = fmt(cell);
+          });
+        });
+        if (!tbody.rows.length) {
+          const tr = tbody.insertRow();
+          const td = tr.insertCell();
+          td.colSpan = headers.length;
+          td.textContent = "无";
+        }
+        return tableEl;
+      }
+
+      function details(title, content, open = false) {
+        const el = document.createElement("details");
+        if (open) el.open = true;
+        const summary = document.createElement("summary");
+        summary.textContent = title;
+        el.appendChild(summary);
+        el.appendChild(content);
+        return el;
+      }
+
+      function pre(value) {
+        const el = document.createElement("pre");
+        el.textContent = JSON.stringify(value || {}, null, 2);
+        return el;
+      }
+
+      function renderGlobal() {
+        const root = document.getElementById("global-info");
+        const input = trace.input || {};
+        const dof = trace.dof_rendering || {};
+        const inputCard = document.createElement("section");
+        inputCard.className = "global-card";
+        inputCard.innerHTML = "<h2>输入</h2>";
+        inputCard.appendChild(table([
+          ["来源", input.source],
+          ["CSV", input.csv],
+          ["XYZ 目录", input.xyz_dir],
+          ["id", input.ids],
+          ["默认总电荷", input.total_charge],
+          ["默认总自由基电子数", input.total_radical_electrons],
+          ["自旋来源", input.spin_source],
+          ["样本数", trace.case_count],
+        ]));
+        const dofCard = document.createElement("section");
+        dofCard.className = "global-card";
+        dofCard.innerHTML = "<h2>DOF 渲染</h2>";
+        dofCard.appendChild(table([
+          ["存储", dof.storage],
+          ["图片目录", dof.image_dir],
+          ["格式", dof.format],
+          ["图片数", dof.image_count],
+          ["跳过数", dof.skipped_count],
+          ["最大图片数", dof.max_images],
+          ["错误数", (dof.errors || []).length],
+        ]));
+        const caseCard = document.createElement("section");
+        caseCard.className = "global-card";
+        caseCard.innerHTML = "<h2>Cases</h2>";
+        const caseRows = (trace.cases || []).map(item => [
+          item.id,
+          item.status,
+          item.trace_kind,
+          item.charge,
+          item.total_radical_electrons,
+          item.base_state && item.base_state.metal_atom_count,
+          item.search && item.search.selected_layer_index,
+          item.production_candidate_count,
+          item.candidate_count,
+          item.elapsed_seconds,
+        ]);
+        caseCard.appendChild(table(caseRows.map(row => ["", row]), ["", ""]));
+        const caseTable = caseCard.querySelector("table");
+        caseTable.innerHTML = "";
+        const head = caseTable.createTHead().insertRow();
+        ["id", "状态", "类型", "电荷", "自由基", "金属数", "生产层", "生产候选", "全部候选", "耗时秒"].forEach(text => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          head.appendChild(th);
+        });
+        const body = caseTable.createTBody();
+        caseRows.forEach(row => {
+          const tr = body.insertRow();
+          row.forEach(cell => {
+            const td = tr.insertCell();
+            td.textContent = fmt(cell);
+          });
+        });
+        root.append(inputCard, dofCard, caseCard);
+      }
+
+      function renderTreeNode(node) {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `tree-node${node.selected ? " is-selected" : ""}`;
+        button.dataset.target = node.id;
+        button.dataset.search = node.search || "";
+        const label = document.createElement("span");
+        label.className = "tree-label";
+        label.textContent = node.label;
+        const meta = document.createElement("span");
+        meta.className = "tree-meta";
+        meta.textContent = node.kind;
+        button.append(label, meta);
+        button.addEventListener("click", () => activate(node.id));
+        li.appendChild(button);
+        if (node.children.length) {
+          const ol = document.createElement("ol");
+          node.children.forEach(child => ol.appendChild(renderTreeNode(child)));
+          li.appendChild(ol);
+        }
+        return li;
+      }
+
+      function renderPanel(node) {
+        const panel = document.createElement("article");
+        panel.id = node.id;
+        panel.className = "node-panel";
+        const head = document.createElement("div");
+        head.className = "panel-head";
+        const titleBox = document.createElement("div");
+        const title = document.createElement("h2");
+        title.textContent = node.label;
+        const meta = document.createElement("p");
+        meta.textContent = `${node.caseId} · ${node.kind}`;
+        titleBox.append(title, meta);
+        head.appendChild(titleBox);
+        if (node.selected) {
+          const badge = document.createElement("span");
+          badge.className = "badge selected";
+          badge.textContent = "selected";
+          head.appendChild(badge);
+        }
+        panel.appendChild(head);
+        const svg = imageSvg(node.image);
+        const imgPath = imagePath(node.image);
+        if (svg) {
+          const box = document.createElement("div");
+          box.className = "image-box";
+          box.innerHTML = svg;
+          panel.appendChild(box);
+        } else if (imgPath) {
+          const box = document.createElement("div");
+          box.className = "image-box";
+          const img = document.createElement("img");
+          img.src = imgPath;
+          img.alt = node.label;
+          box.appendChild(img);
+          panel.appendChild(box);
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "image-empty";
+          empty.textContent = "此节点没有可渲染的 DOF 图像";
+          panel.appendChild(empty);
+        }
+        const info = document.createElement("section");
+        info.className = "panel-info";
+        info.appendChild(details("摘要", table(node.summary), true));
+        if (Object.keys(node.scoreDetails || {}).length) {
+          info.appendChild(details("分数构成", table(Object.entries(node.scoreDetails)), true));
+        }
+        info.appendChild(details("完整 JSON", pre(node.metadata)));
+        panel.appendChild(info);
+        return panel;
+      }
+
+      function activate(id) {
+        document.querySelectorAll(".tree-node").forEach(button => {
+          button.classList.toggle("is-active", button.dataset.target === id);
+        });
+        document.querySelectorAll(".node-panel").forEach(panel => {
+          panel.classList.toggle("is-active", panel.id === id);
+        });
+      }
+
+      function applyFilter() {
+        const q = (document.getElementById("tree-search").value || "").toLowerCase();
+        document.querySelectorAll(".tree li").forEach(li => {
+          const buttons = Array.from(li.querySelectorAll(".tree-node"));
+          li.hidden = q && !buttons.some(button => (button.dataset.search || "").toLowerCase().includes(q));
+        });
+      }
+
+      buildTree();
+      renderGlobal();
+      const treeRoot = document.createElement("ol");
+      roots.forEach(root => treeRoot.appendChild(renderTreeNode(root)));
+      document.getElementById("tree").appendChild(treeRoot);
+      nodes.forEach(node => document.getElementById("detail").appendChild(renderPanel(node)));
+      if (nodes.length) activate(nodes[0].id);
+      document.getElementById("tree-search").addEventListener("input", applyFilter);
+    })();
+  </script>
+</body>
+</html>
+"""
+    )
 
 
 def _score_details(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1239,14 +2567,34 @@ def _copy_metadata_by_identity(
 
 def _record_no_metal_stage(
     steps: list[dict[str, Any]],
+    animation_items: list[tuple[pybel.Molecule, str]] | None,
     machine: OmolStateMachine,
     *,
     phase: str,
     hit: bool | None,
     target_charge: int,
     target_radical_electrons: int,
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
     kind: str = "stage",
 ) -> None:
+    state = _omol_state_snapshot(
+        machine.omol,
+        given_charge=machine.given_charge,
+        target_charge=target_charge,
+        target_radical_electrons=target_radical_electrons,
+    )
+    image = _render_dof_molecule(
+        machine.omol,
+        render_context=render_context,
+        case_id=case_id,
+        label=f"{len(steps):02d}_{phase}",
+        kind="no_metal_step",
+    )
+    if image is not None:
+        state["dof_image"] = image
+    if animation_items is not None:
+        animation_items.append((_copy_omol(machine.omol), f"{len(steps):02d} {phase}"))
     steps.append(
         {
             "step_index": len(steps),
@@ -1255,30 +2603,32 @@ def _record_no_metal_stage(
             "hit": hit,
             "omol_revision": int(machine.omol_revision),
             "phase_history_length": len(machine.phase_history),
-            "state": _omol_state_snapshot(
-                machine.omol,
-                given_charge=machine.given_charge,
-                target_charge=target_charge,
-                target_radical_electrons=target_radical_electrons,
-            ),
+            "state": state,
         }
     )
 
 
 def _run_no_metal_linear_trace(
     seed_state: ReconstructionState,
-) -> tuple[ReconstructionState, list[dict[str, Any]]]:
+    *,
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
+) -> tuple[ReconstructionState, list[dict[str, Any]], list[tuple[pybel.Molecule, str]]]:
     machine = OmolStateMachine.from_reconstruction_state(seed_state)
     steps: list[dict[str, Any]] = []
+    animation_items: list[tuple[pybel.Molecule, str]] = []
     target_charge = seed_state.total_charge
     target_radicals = seed_state.total_radical_electrons
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="read_xyz",
         hit=None,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
         kind="seed",
     )
 
@@ -1290,11 +2640,14 @@ def _run_no_metal_linear_trace(
         hit = machine.run_omol_stage(phase, stage, *args)
         _record_no_metal_stage(
             steps,
+            animation_items,
             machine,
             phase=phase,
             hit=hit,
             target_charge=target_charge,
             target_radical_electrons=target_radicals,
+            render_context=render_context,
+            case_id=case_id,
         )
 
     initial_given_charge = target_charge - sum(
@@ -1303,11 +2656,14 @@ def _run_no_metal_linear_trace(
     machine.set_given_charge("initialize_charge_budget", initial_given_charge)
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="initialize_charge_budget",
         hit=None,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
         kind="charge_budget",
     )
 
@@ -1322,11 +2678,14 @@ def _run_no_metal_linear_trace(
         hit = machine.run_omol_charge_stage(phase, stage, *args)
         _record_no_metal_stage(
             steps,
+            animation_items,
             machine,
             phase=phase,
             hit=hit,
             target_charge=target_charge,
             target_radical_electrons=target_radicals,
+            render_context=render_context,
+            case_id=case_id,
         )
 
     hit = machine.run_omol_stage(
@@ -1335,11 +2694,14 @@ def _run_no_metal_linear_trace(
     )
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="clean_carbene_neighbor_unsaturated_first",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
     hit = machine.run_omol_charge_stage(
         "eliminate_carbene_neighbor_heteroatom",
@@ -1347,11 +2709,14 @@ def _run_no_metal_linear_trace(
     )
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="eliminate_carbene_neighbor_heteroatom",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
     for phase, stage in (
         ("clean_neighbor_radicals", clean_neighbor_radicals),
@@ -1360,20 +2725,26 @@ def _run_no_metal_linear_trace(
         hit = machine.run_omol_stage(phase, stage)
         _record_no_metal_stage(
             steps,
+            animation_items,
             machine,
             phase=phase,
             hit=hit,
             target_charge=target_charge,
             target_radical_electrons=target_radicals,
+            render_context=render_context,
+            case_id=case_id,
         )
     hit = machine.run_omol_charge_stage("eliminate_charge_spliting", eliminate_charge_spliting)
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="eliminate_charge_spliting",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
     hit = machine.run_omol_stage(
         "break_deformed_ene",
@@ -1384,50 +2755,72 @@ def _run_no_metal_linear_trace(
     )
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="break_deformed_ene",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
     hit = machine.run_omol_charge_stage("break_one_bond", break_one_bond, target_radicals)
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="break_one_bond",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
     hit = machine.run_omol_stage("fresh_omol_charge_radical_final", fresh_omol_charge_radical)
     _record_no_metal_stage(
         steps,
+        animation_items,
         machine,
         phase="fresh_omol_charge_radical_final",
         hit=hit,
         target_charge=target_charge,
         target_radical_electrons=target_radicals,
+        render_context=render_context,
+        case_id=case_id,
     )
 
-    return machine.freeze_like(seed_state), steps
+    return machine.freeze_like(seed_state), steps, animation_items
 
 
 def _no_metal_candidate_trace(
     candidate: ReconstructionState,
     *,
     selected: bool,
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
+    image_label: str = "no_metal_candidate",
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
     selection_key = no_metal_selection._no_metal_candidate_selection_key(candidate, config=config)
+    state = _omol_state_snapshot(
+        candidate.omol,
+        given_charge=candidate.given_charge,
+        target_charge=candidate.total_charge,
+        target_radical_electrons=candidate.total_radical_electrons,
+    )
+    image = _render_dof_molecule(
+        candidate.omol,
+        render_context=render_context,
+        case_id=case_id,
+        label=image_label,
+        kind="no_metal_candidate",
+    )
+    if image is not None:
+        state["dof_image"] = image
     return {
         "selected": selected,
         "phase_history": list(candidate.phase_history),
-        "state": _omol_state_snapshot(
-            candidate.omol,
-            given_charge=candidate.given_charge,
-            target_charge=candidate.total_charge,
-            target_radical_electrons=candidate.total_radical_electrons,
-        ),
+        "state": state,
         "score": candidate.metadata.get("score"),
         "force_field_energy": candidate.metadata.get("force_field_energy"),
         "organic_topology_selection_key": selection_key,
@@ -1440,6 +2833,8 @@ def _trace_no_metal_reconstruction(
     total_charge: int,
     total_radical_electrons: int,
     *,
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
     seed_state = no_metal_preparation._seed_state(
@@ -1458,7 +2853,11 @@ def _trace_no_metal_reconstruction(
         trace["status"] = "invalid_negative_radicals"
         return trace
 
-    linear_state, linear_steps = _run_no_metal_linear_trace(seed_state)
+    linear_state, linear_steps, linear_animation_items = _run_no_metal_linear_trace(
+        seed_state,
+        render_context=render_context,
+        case_id=case_id,
+    )
     trace["linear_steps"] = linear_steps
     trace["linear_result"] = {
         "phase_history": list(linear_state.phase_history),
@@ -1497,8 +2896,27 @@ def _trace_no_metal_reconstruction(
             trace["direct_candidate"] = direct_trace
             return trace
         direct_trace.update(
-            _no_metal_candidate_trace(direct_candidate, selected=True, config=config)
+            _no_metal_candidate_trace(
+                direct_candidate,
+                selected=True,
+                render_context=render_context,
+                case_id=case_id,
+                image_label="direct_candidate",
+                config=config,
+            )
         )
+        animation = _render_dof_animation(
+            [
+                *linear_animation_items,
+                (_copy_omol(direct_candidate.omol), "selected direct candidate"),
+            ],
+            render_context=render_context,
+            case_id=case_id,
+            label="selected_no_metal_path",
+            kind="selected_path_animation",
+        )
+        if animation is not None:
+            trace["selected_path_animation"] = animation
         trace["status"] = "direct_valid"
         trace["direct_candidate"] = direct_trace
         trace["selected_candidate"] = direct_trace
@@ -1568,6 +2986,15 @@ def _trace_no_metal_reconstruction(
             )
             report["phase_history"] = list(candidate.phase_history)
             report["metadata"] = _jsonable(candidate.metadata)
+            image = _render_dof_molecule(
+                candidate.omol,
+                render_context=render_context,
+                case_id=case_id,
+                label=f"resonance_{resonance_index}",
+                kind="no_metal_resonance_candidate",
+            )
+            if image is not None:
+                report["dof_image"] = image
             resonance_candidates.append(candidate)
         except ValueError as exc:
             report["score_error"] = str(exc)
@@ -1580,6 +3007,18 @@ def _trace_no_metal_reconstruction(
         "valid_unique_candidate_count": len(resonance_candidates),
         "candidates": resonance_reports,
     }
+    resonance_grid = _render_dof_grid(
+        (
+            (candidate.omol, f"R{i} score={_format_value(candidate.metadata.get('score'))}")
+            for i, candidate in enumerate(resonance_candidates)
+        ),
+        render_context=render_context,
+        case_id=case_id,
+        label="resonance_candidates",
+        kind="no_metal_resonance_grid",
+    )
+    if resonance_grid is not None:
+        trace["resonance"]["dof_grid_image"] = resonance_grid
     if not resonance_candidates:
         trace["status"] = "no_valid_resonance_candidate"
         return trace
@@ -1607,9 +3046,67 @@ def _trace_no_metal_reconstruction(
     trace["selected_candidate"] = _no_metal_candidate_trace(
         selected,
         selected=True,
+        render_context=render_context,
+        case_id=case_id,
+        image_label="selected_resonance_candidate",
         config=config,
     )
+    animation = _render_dof_animation(
+        [
+            *linear_animation_items,
+            (_copy_omol(selected.omol), "selected resonance candidate"),
+        ],
+        render_context=render_context,
+        case_id=case_id,
+        label="selected_no_metal_path",
+        kind="selected_path_animation",
+    )
+    if animation is not None:
+        trace["selected_path_animation"] = animation
     return trace
+
+
+def _render_selected_metal_path_animation(
+    selected_candidate: MetalCandidateState | None,
+    *,
+    no_metal_xyz_block: str,
+    render_context: DofRenderContext | None,
+    case_id: str,
+) -> dict[str, Any] | None:
+    if selected_candidate is None or selected_candidate.no_metal_state is None:
+        return None
+    seed_state = no_metal_preparation._seed_state(
+        no_metal_xyz_block,
+        selected_candidate.no_metal_charge_target,
+        selected_candidate.no_metal_radical_target,
+    )
+    _linear_state, _linear_steps, animation_items = _run_no_metal_linear_trace(seed_state)
+    try:
+        combined_omol = selected_candidate.materialize_combined_omol(
+            preparation.combine_metal_with_omol
+        )
+    except Exception as exc:
+        error = {
+            "kind": "selected_metal_path_animation",
+            "label": "selected_metal_path",
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+            "animation": True,
+        }
+        if render_context is not None:
+            render_context.errors.append(error)
+        return error
+    return _render_dof_animation(
+        [
+            *animation_items,
+            (_copy_omol(selected_candidate.no_metal_state.omol), "selected organic part"),
+            (combined_omol, "selected metal candidate"),
+        ],
+        render_context=render_context,
+        case_id=case_id,
+        label="selected_metal_path",
+        kind="selected_metal_path_animation",
+    )
 
 
 def _annotate_analysis_scores_for_all_candidates(
@@ -1641,6 +3138,8 @@ def _candidate_report(
     candidate_index: int,
     selected_candidate_identity: Optional[tuple[int, int]],
     production_metadata_by_identity: dict[tuple[int, int], dict[str, Any]],
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
 ) -> dict[str, Any]:
     combination_index = int(candidate.metadata.get("combination_index", candidate_index))
     candidate_identity = _candidate_identity(
@@ -1667,7 +3166,7 @@ def _candidate_report(
     candidate_total_charge = (
         no_metal_total_charge + metal_valence_sum if no_metal_total_charge is not None else None
     )
-    return {
+    report = {
         "candidate_index": candidate_index,
         "candidate_identity": {
             "search_layer_index": candidate_identity[0],
@@ -1697,6 +3196,29 @@ def _candidate_report(
         "no_metal_state": no_metal,
         "phase_history": list(candidate.phase_history),
     }
+    if candidate.no_metal_state is not None:
+        image_label = f"L{candidate_identity[0]}_C{combination_index}"
+        try:
+            combined_omol = candidate.materialize_combined_omol(preparation.combine_metal_with_omol)
+            image = _render_dof_molecule(
+                combined_omol,
+                render_context=render_context,
+                case_id=case_id,
+                label=image_label,
+                kind="metal_candidate",
+            )
+        except Exception as exc:
+            image = {
+                "kind": "metal_candidate",
+                "label": image_label,
+                "status": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            if render_context is not None:
+                render_context.errors.append(image)
+        if image is not None:
+            report["dof_image"] = image
+    return report
 
 
 def _target_summary(
@@ -1720,6 +3242,8 @@ def _trace_candidates(
     total_charge: int,
     total_radical_electrons: int,
     score_all_candidates: bool,
+    render_context: DofRenderContext | None = None,
+    case_id: str = "",
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
     base_state = preparation.prepare_metal_state(
@@ -1782,6 +3306,11 @@ def _trace_candidates(
                     base_state.no_metal_xyz_block,
                     prototype.no_metal_charge_target,
                     prototype.no_metal_radical_target,
+                    render_context=render_context,
+                    case_id=(
+                        f"{case_id}_L{layer_index}_Q{prototype.no_metal_charge_target}"
+                        f"_R{prototype.no_metal_radical_target}"
+                    ),
                     config=config,
                 )
             except Exception as exc:
@@ -1810,6 +3339,18 @@ def _trace_candidates(
             target_summary["status"] = "prepared"
             target_summary["organic_part"] = _omol_smiles_detail(no_metal_state.omol)
             target_summary["no_metal_phase_history"] = list(no_metal_state.phase_history)
+            organic_image = _render_dof_molecule(
+                no_metal_state.omol,
+                render_context=render_context,
+                case_id=case_id,
+                label=(
+                    f"L{layer_index}_organic_Q{prototype.no_metal_charge_target}"
+                    f"_R{prototype.no_metal_radical_target}"
+                ),
+                kind="metal_target_organic_part",
+            )
+            if organic_image is not None:
+                target_summary["dof_image"] = organic_image
 
             for candidate in candidates:
                 try:
@@ -1897,9 +3438,39 @@ def _trace_candidates(
             candidate_index=candidate_index,
             selected_candidate_identity=selected_candidate_identity,
             production_metadata_by_identity=production_metadata_by_identity,
+            render_context=render_context,
+            case_id=case_id,
         )
         for candidate_index, candidate in enumerate(all_scored_candidates)
     ]
+    candidate_grid_items: list[tuple[pybel.Molecule, str]] = []
+    for candidate_index, candidate in enumerate(all_scored_candidates):
+        if candidate.no_metal_state is None:
+            continue
+        try:
+            candidate_identity = _candidate_identity(
+                candidate,
+                fallback_candidate_index=candidate_index,
+            )
+            candidate_grid_items.append(
+                (
+                    candidate.materialize_combined_omol(preparation.combine_metal_with_omol),
+                    (
+                        f"{'selected ' if selected_candidate_identity == candidate_identity else ''}"
+                        f"L{candidate_identity[0]}/C{candidate_identity[1]} "
+                        f"score={_format_value(candidate.score)}"
+                    ),
+                )
+            )
+        except Exception:
+            continue
+    candidate_grid = _render_dof_grid(
+        candidate_grid_items,
+        render_context=render_context,
+        case_id=case_id,
+        label="metal_candidates",
+        kind="metal_candidate_grid",
+    )
 
     selected_summary = None
     if selected_candidate_identity is not None:
@@ -1923,6 +3494,12 @@ def _trace_candidates(
             ),
             None,
         )
+    selected_path_animation = _render_selected_metal_path_animation(
+        selected_candidate,
+        no_metal_xyz_block=base_state.no_metal_xyz_block,
+        render_context=render_context,
+        case_id=case_id,
+    )
 
     return {
         "status": "ok" if production_scored_candidates else "no_scored_metal_candidates",
@@ -1953,7 +3530,9 @@ def _trace_candidates(
         "candidate_count": len(candidate_reports),
         "production_candidate_count": len(production_scored_candidates),
         "selected_candidate": selected_summary,
+        "selected_path_animation": selected_path_animation,
         "candidates": candidate_reports,
+        "dof_candidate_grid": candidate_grid,
     }
 
 
@@ -1966,6 +3545,7 @@ def trace_reconstruction_case(
     input_case: TraceInputCase,
     *,
     score_all_candidates: bool,
+    render_context: DofRenderContext | None = None,
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
@@ -1978,6 +3558,8 @@ def trace_reconstruction_case(
             input_case.xyz_block,
             total_charge,
             total_radicals,
+            render_context=render_context,
+            case_id=input_case.id,
             config=config,
         )
         trace = {
@@ -1998,6 +3580,8 @@ def trace_reconstruction_case(
             total_charge=total_charge,
             total_radical_electrons=total_radicals,
             score_all_candidates=score_all_candidates,
+            render_context=render_context,
+            case_id=input_case.id,
             config=config,
         )
         trace["trace_kind"] = "metal"
@@ -2020,6 +3604,7 @@ def trace_reconstruction_cases(
     input_cases: Sequence[TraceInputCase],
     *,
     score_all_candidates: bool = True,
+    render_context: DofRenderContext | None = None,
     config: MolGRConfig | None = None,
 ) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
@@ -2030,6 +3615,7 @@ def trace_reconstruction_cases(
                 trace_reconstruction_case(
                     input_case,
                     score_all_candidates=score_all_candidates,
+                    render_context=render_context,
                     config=config,
                 )
             )
@@ -2055,9 +3641,11 @@ def main() -> int:
     args = _parse_args()
     config: MolGRConfig | None = None
     input_cases = _collect_input_cases(args)
+    render_context = _make_dof_render_context(args)
     cases = trace_reconstruction_cases(
         input_cases,
         score_all_candidates=not args.no_score_all_candidates,
+        render_context=render_context,
         config=config,
     )
 
@@ -2071,6 +3659,8 @@ def main() -> int:
         "case_count": len(cases),
         "cases": cases,
     }
+    if render_context is not None:
+        output["dof_rendering"] = dof_rendering_summary(render_context)
     output_format = _resolve_output_format(args)
     if output_format == "json":
         output_text = json.dumps(
@@ -2080,7 +3670,7 @@ def main() -> int:
             allow_nan=False,
         )
     else:
-        output_text = _render_markdown_report(_jsonable(output))
+        output_text = _render_html_browser_report(_jsonable(output))
 
     if args.out is None:
         print(output_text, end="" if output_text.endswith("\n") else "\n")

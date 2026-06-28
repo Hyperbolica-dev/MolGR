@@ -12,6 +12,8 @@ from molgr.fallback.utils import consts
 
 def assign_radical_dots(atom: ob.OBAtom) -> int:
     """Estimate how many radical electrons are needed to satisfy the atom valence."""
+    if atom.GetSpinMultiplicity() != 0:
+        return atom.GetSpinMultiplicity()
 
     return max(
         0,

@@ -114,62 +114,104 @@ namespace
             size_factor * hetero_factor * charge_factor * radical_factor);
     }
 
-    bool AtomHasPiFeature(const OpenBabel::OBAtom &atom, int excluded_bond_idx = -1)
+    bool IsMultipleLikeBond(const OpenBabel::OBBond &bond)
     {
-        if (atom.IsAromatic() || atom.GetFormalCharge() != 0 || AtomHasOddSpin(atom))
-        {
-            return true;
-        }
-        FOR_BONDS_OF_ATOM(bond_iter, const_cast<OpenBabel::OBAtom *>(&atom))
-        {
-            OpenBabel::OBBond &bond = *bond_iter;
-            if (excluded_bond_idx >= 0 && static_cast<int>(bond.GetIdx()) == excluded_bond_idx)
-            {
-                continue;
-            }
-            const OpenBabel::OBAtom *other = bond.GetNbrAtom(const_cast<OpenBabel::OBAtom *>(&atom));
-            if (other == nullptr || other->GetAtomicNum() == 1)
-            {
-                continue;
-            }
-            if (bond.IsAromatic() || bond.GetBondOrder() >= 2)
-            {
-                return true;
-            }
-        }
-        return false;
+        return bond.IsAromatic() || bond.GetBondOrder() >= 2;
+    }
+
+    bool IsHeavyAtomBond(const OpenBabel::OBBond &bond)
+    {
+        const OpenBabel::OBAtom *begin_atom = bond.GetBeginAtom();
+        const OpenBabel::OBAtom *end_atom = bond.GetEndAtom();
+        return begin_atom != nullptr && end_atom != nullptr && begin_atom->GetAtomicNum() != 1 &&
+               end_atom->GetAtomicNum() != 1;
     }
 
     std::set<int> ValidatedConjugatedBondIndices(OpenBabel::OBMol &mol)
     {
-        std::set<int> conjugated_bond_indices;
+        std::vector<OpenBabel::OBBond *> heavy_bonds;
+        std::set<int> atom_has_adjacent_multiple_like_bond;
+        std::set<int> atom_has_adjacent_alternating_single_bond;
+        std::set<int> aromatic_bond_indices;
+        std::set<int> multiple_like_bond_indices;
+
         FOR_BONDS_OF_MOL(bond_iter, mol)
         {
             OpenBabel::OBBond &bond = *bond_iter;
+            if (!IsHeavyAtomBond(bond))
+            {
+                continue;
+            }
+            heavy_bonds.push_back(&bond);
+            if (!IsMultipleLikeBond(bond))
+            {
+                continue;
+            }
             OpenBabel::OBAtom *begin_atom = bond.GetBeginAtom();
             OpenBabel::OBAtom *end_atom = bond.GetEndAtom();
-            if (begin_atom == nullptr || end_atom == nullptr ||
-                begin_atom->GetAtomicNum() == 1 || end_atom->GetAtomicNum() == 1)
+            atom_has_adjacent_multiple_like_bond.insert(static_cast<int>(begin_atom->GetIdx()));
+            atom_has_adjacent_multiple_like_bond.insert(static_cast<int>(end_atom->GetIdx()));
+            if (bond.IsAromatic())
             {
-                continue;
+                aromatic_bond_indices.insert(static_cast<int>(bond.GetIdx()));
             }
+            else
+            {
+                multiple_like_bond_indices.insert(static_cast<int>(bond.GetIdx()));
+            }
+        }
 
-            const int bond_idx = static_cast<int>(bond.GetIdx());
-            const int bond_order = bond.GetBondOrder();
-            if (bond.IsAromatic() || bond_order >= 2)
-            {
-                conjugated_bond_indices.insert(bond_idx);
-                continue;
-            }
-            if (bond_order != 1)
+        std::set<int> conjugated_bond_indices;
+        std::set<int> alternating_single_bond_indices;
+        for (OpenBabel::OBBond *bond : heavy_bonds)
+        {
+            if (bond == nullptr || bond->IsAromatic() || bond->GetBondOrder() != 1)
             {
                 continue;
             }
-            if (!AtomHasPiFeature(*begin_atom, bond_idx) || !AtomHasPiFeature(*end_atom, bond_idx))
+            OpenBabel::OBAtom *begin_atom = bond->GetBeginAtom();
+            OpenBabel::OBAtom *end_atom = bond->GetEndAtom();
+            if (begin_atom == nullptr || end_atom == nullptr)
             {
                 continue;
             }
-            conjugated_bond_indices.insert(bond_idx);
+            if (atom_has_adjacent_multiple_like_bond.find(static_cast<int>(begin_atom->GetIdx())) ==
+                    atom_has_adjacent_multiple_like_bond.end() ||
+                atom_has_adjacent_multiple_like_bond.find(static_cast<int>(end_atom->GetIdx())) ==
+                    atom_has_adjacent_multiple_like_bond.end())
+            {
+                continue;
+            }
+            alternating_single_bond_indices.insert(static_cast<int>(bond->GetIdx()));
+            atom_has_adjacent_alternating_single_bond.insert(static_cast<int>(begin_atom->GetIdx()));
+            atom_has_adjacent_alternating_single_bond.insert(static_cast<int>(end_atom->GetIdx()));
+        }
+
+        conjugated_bond_indices.insert(aromatic_bond_indices.begin(), aromatic_bond_indices.end());
+        conjugated_bond_indices.insert(
+            alternating_single_bond_indices.begin(),
+            alternating_single_bond_indices.end());
+        for (OpenBabel::OBBond *bond : heavy_bonds)
+        {
+            if (bond == nullptr ||
+                multiple_like_bond_indices.find(static_cast<int>(bond->GetIdx())) ==
+                    multiple_like_bond_indices.end())
+            {
+                continue;
+            }
+            OpenBabel::OBAtom *begin_atom = bond->GetBeginAtom();
+            OpenBabel::OBAtom *end_atom = bond->GetEndAtom();
+            if (begin_atom == nullptr || end_atom == nullptr)
+            {
+                continue;
+            }
+            if (atom_has_adjacent_alternating_single_bond.find(static_cast<int>(begin_atom->GetIdx())) !=
+                    atom_has_adjacent_alternating_single_bond.end() ||
+                atom_has_adjacent_alternating_single_bond.find(static_cast<int>(end_atom->GetIdx())) !=
+                    atom_has_adjacent_alternating_single_bond.end())
+            {
+                conjugated_bond_indices.insert(static_cast<int>(bond->GetIdx()));
+            }
         }
         return conjugated_bond_indices;
     }
@@ -181,22 +223,18 @@ namespace molgr
     {
         bool IsConjugatedBond(const OpenBabel::OBBond &bond)
         {
-            if (bond.IsAromatic() || bond.GetBondOrder() >= 2)
-            {
-                return true;
-            }
-            if (bond.GetBondOrder() != 1)
+            const OpenBabel::OBMol *parent = const_cast<OpenBabel::OBBond &>(bond).GetParent();
+            if (parent == nullptr)
             {
                 return false;
             }
-            const OpenBabel::OBAtom *begin_atom = bond.GetBeginAtom();
-            const OpenBabel::OBAtom *end_atom = bond.GetEndAtom();
-            if (begin_atom == nullptr || end_atom == nullptr)
-            {
-                return false;
-            }
-            return AtomHasPiFeature(*begin_atom, static_cast<int>(bond.GetIdx())) &&
-                   AtomHasPiFeature(*end_atom, static_cast<int>(bond.GetIdx()));
+            OpenBabel::OBMol working(*parent);
+            working.FindRingAtomsAndBonds();
+            working.SetAromaticPerceived(false);
+            OpenBabel::OBAromaticTyper().AssignAromaticFlags(working);
+            const std::set<int> conjugated_bond_indices = ValidatedConjugatedBondIndices(working);
+            return conjugated_bond_indices.find(static_cast<int>(bond.GetIdx())) !=
+                   conjugated_bond_indices.end();
         }
 
         OrganicTopologyMetrics ComputeOrganicTopologyMetrics(

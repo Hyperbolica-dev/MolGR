@@ -299,12 +299,14 @@ def _load_manual_whitelist(path: Path) -> dict[str, dict[str, str]]:
 
 def _safe_canonical_smiles(mol: Chem.Mol) -> str:
     try:
-        return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol), sanitize=False), canonical=True)
+        heavy_only, _ = _copy_without_hydrogens_with_source_indices(mol)
+        return Chem.MolToSmiles(heavy_only, canonical=True)
     except Exception:  # noqa: BLE001
         try:
             clone = Chem.Mol(mol)
             Chem.SanitizeMol(clone)
-            return Chem.MolToSmiles(Chem.RemoveHs(clone, sanitize=False), canonical=True)
+            heavy_only, _ = _copy_without_hydrogens_with_source_indices(clone)
+            return Chem.MolToSmiles(heavy_only, canonical=True)
         except Exception:  # noqa: BLE001
             return ""
 
@@ -402,15 +404,67 @@ def _hydrogen_atom_indices(mol: Chem.Mol) -> list[int]:
     return [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 1]
 
 
-def _remove_hs_with_source_indices(mol: Chem.Mol) -> tuple[Chem.Mol, list[int]]:
-    tagged = Chem.Mol(mol)
-    for atom in tagged.GetAtoms():
-        atom.SetAtomMapNum(atom.GetIdx() + 1)
-    reduced = Chem.RemoveHs(tagged, sanitize=False)
-    source_indices = [atom.GetAtomMapNum() - 1 for atom in reduced.GetAtoms()]
-    for atom in reduced.GetAtoms():
-        atom.SetAtomMapNum(0)
-    return reduced, source_indices
+def _heavy_atom_count(mol: Chem.Mol) -> int:
+    return len(_heavy_atom_indices(mol))
+
+
+def _copy_without_hydrogens_with_source_indices(mol: Chem.Mol) -> tuple[Chem.Mol, list[int]]:
+    heavy_rw = Chem.RWMol()
+    source_indices: list[int] = []
+    atom_index_map: dict[int, int] = {}
+    deferred_bond_stereo: list[tuple[int, Chem.BondStereo, list[int]]] = []
+
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 1:
+            continue
+        source_indices.append(atom.GetIdx())
+        atom_index_map[atom.GetIdx()] = heavy_rw.AddAtom(Chem.Atom(atom))
+
+    for bond in mol.GetBonds():
+        begin_atom_idx = bond.GetBeginAtomIdx()
+        end_atom_idx = bond.GetEndAtomIdx()
+        new_begin_atom_idx = atom_index_map.get(begin_atom_idx)
+        new_end_atom_idx = atom_index_map.get(end_atom_idx)
+        if new_begin_atom_idx is None or new_end_atom_idx is None:
+            continue
+        heavy_rw.AddBond(new_begin_atom_idx, new_end_atom_idx, bond.GetBondType())
+        new_bond = heavy_rw.GetBondBetweenAtoms(new_begin_atom_idx, new_end_atom_idx)
+        if new_bond is None:
+            continue
+        new_bond.SetIsAromatic(bond.GetIsAromatic())
+        new_bond.SetBondDir(bond.GetBondDir())
+        stereo_atoms = [
+            atom_index_map[atom_idx]
+            for atom_idx in bond.GetStereoAtoms()
+            if atom_idx in atom_index_map
+        ]
+        deferred_bond_stereo.append((new_bond.GetIdx(), bond.GetStereo(), stereo_atoms))
+
+    heavy = heavy_rw.GetMol()
+    # RDKit requires the neighboring bonds referenced by stereo atoms to already
+    # exist on the owning molecule before SetStereoAtoms() is called.
+    for bond_idx, stereo, stereo_atoms in deferred_bond_stereo:
+        heavy_bond = heavy.GetBondWithIdx(bond_idx)
+        if len(stereo_atoms) == 2:
+            heavy_bond.SetStereoAtoms(*stereo_atoms)
+            heavy_bond.SetStereo(stereo)
+        else:
+            heavy_bond.SetStereo(Chem.BondStereo.STEREONONE)
+    if mol.GetNumConformers():
+        conformer = mol.GetConformer()
+        heavy_conformer = Chem.Conformer(heavy.GetNumAtoms())
+        for new_atom_idx, source_atom_idx in enumerate(source_indices):
+            heavy_conformer.SetAtomPosition(
+                new_atom_idx,
+                conformer.GetAtomPosition(source_atom_idx),
+            )
+        heavy.RemoveAllConformers()
+        heavy.AddConformer(heavy_conformer)
+
+    heavy.UpdatePropertyCache(strict=False)
+    with suppress(Exception):
+        Chem.SanitizeMol(heavy)
+    return heavy, source_indices
 
 
 def _build_reference_organic_with_molgr_coords(
@@ -438,10 +492,12 @@ def _build_reference_organic_with_molgr_coords(
             aligned_reference_organic.UpdatePropertyCache(strict=False)
             return aligned_reference_organic
 
-    reference_heavy, reference_reduced_source_indices = _remove_hs_with_source_indices(
+    reference_heavy, reference_reduced_source_indices = _copy_without_hydrogens_with_source_indices(
         reference_organic
     )
-    molgr_heavy, molgr_reduced_source_indices = _remove_hs_with_source_indices(molgr_organic)
+    molgr_heavy, molgr_reduced_source_indices = _copy_without_hydrogens_with_source_indices(
+        molgr_organic
+    )
     if reference_heavy.GetNumAtoms() != molgr_heavy.GetNumAtoms():
         raise OrganicCoordinateMappingError(
             "heavy_atom_count_mismatch",
@@ -766,10 +822,7 @@ def _process_row(
         molgr_organic = _copy_without_metals(molgr_mol)
         result["molgr_organic_smiles"] = _safe_canonical_smiles(molgr_organic)
         result["molgr_organic_atom_count"] = molgr_organic.GetNumAtoms()
-        result["molgr_organic_heavy_atom_count"] = Chem.RemoveHs(
-            molgr_organic,
-            sanitize=False,
-        ).GetNumAtoms()
+        result["molgr_organic_heavy_atom_count"] = _heavy_atom_count(molgr_organic)
         result["molgr_organic_uff_kj_mol"] = _organic_uff_energy_kj_mol(molgr_organic)
         result["molgr_organic_uff_status"] = "ok"
     except Exception as exc:  # noqa: BLE001
@@ -788,10 +841,7 @@ def _process_row(
         reference_organic = _copy_without_metals(reference_mol)
         result["reference_organic_smiles"] = _safe_canonical_smiles(reference_organic)
         result["reference_organic_atom_count"] = reference_organic.GetNumAtoms()
-        result["reference_organic_heavy_atom_count"] = Chem.RemoveHs(
-            reference_organic,
-            sanitize=False,
-        ).GetNumAtoms()
+        result["reference_organic_heavy_atom_count"] = _heavy_atom_count(reference_organic)
     except Exception as exc:  # noqa: BLE001
         result["reference_organic_mapping_status"] = f"failed:{type(exc).__name__}"
         result["reference_organic_uff_status"] = f"failed:{type(exc).__name__}"

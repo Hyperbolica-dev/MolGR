@@ -12,7 +12,7 @@ namespace molgr
     {
         namespace selection
         {
-            using NoMetalTopologySelectionKey = std::tuple<double, int, int, int, int>;
+            using NoMetalTopologySelectionKey = std::tuple<double, int, double, double, double>;
 
             molgr::organic_topology::OrganicTopologyMetrics AnnotateNoMetalCandidateTopology(
                 molgr::state::ReconstructionState &candidate,
@@ -26,7 +26,7 @@ namespace molgr
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig());
 
-            std::tuple<double, int, int, int, int, double> NoMetalCandidateSelectionKey(
+            std::tuple<double, int, double, double, double, double> NoMetalCandidateSelectionKey(
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config);
         }

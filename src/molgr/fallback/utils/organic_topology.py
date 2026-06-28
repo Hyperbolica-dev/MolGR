@@ -104,42 +104,68 @@ def _atom_has_odd_spin(atom: ob.OBAtom) -> bool:
     return cast(int, atom.GetSpinMultiplicity()) % 2 == 1
 
 
-def _atom_has_pi_feature(atom: ob.OBAtom, *, exclude_bond_idx: int | None = None) -> bool:
-    if atom.IsAromatic() or cast(int, atom.GetFormalCharge()) != 0 or _atom_has_odd_spin(atom):
-        return True
-    for bond_iter in ob.OBAtomBondIter(atom):
-        bond = cast(ob.OBBond, bond_iter)
-        if exclude_bond_idx is not None and cast(int, bond.GetIdx()) == exclude_bond_idx:
-            continue
-        other_atom = cast(ob.OBAtom, bond.GetNbrAtom(atom))
-        if other_atom.GetAtomicNum() == 1:
-            continue
-        if bond.IsAromatic() or cast(int, bond.GetBondOrder()) >= 2:
-            return True
-    return False
+def _is_multiple_like_bond(bond: ob.OBBond) -> bool:
+    return bool(bond.IsAromatic() or cast(int, bond.GetBondOrder()) >= 2)
+
+
+def _heavy_bond_atoms(bond: ob.OBBond) -> tuple[ob.OBAtom, ob.OBAtom] | None:
+    begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
+    end_atom = cast(ob.OBAtom, bond.GetEndAtom())
+    if begin_atom.GetAtomicNum() == 1 or end_atom.GetAtomicNum() == 1:
+        return None
+    return begin_atom, end_atom
 
 
 def _validated_conjugated_bond_indices(omol: pybel.Molecule) -> Set[int]:
     obmol = cast(ob.OBMol, omol.OBMol)
+    heavy_bonds: list[tuple[ob.OBBond, ob.OBAtom, ob.OBAtom]] = []
+    atom_has_adjacent_multiple_like_bond: Set[int] = set()
+    atom_has_adjacent_alternating_single_bond: Set[int] = set()
+    aromatic_bond_indices: Set[int] = set()
+    multiple_like_bond_indices: Set[int] = set()
     conjugated_bond_indices: Set[int] = set()
+
     for bond_iter in ob.OBMolBondIter(obmol):
         bond = cast(ob.OBBond, bond_iter)
-        begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
-        end_atom = cast(ob.OBAtom, bond.GetEndAtom())
-        if begin_atom.GetAtomicNum() == 1 or end_atom.GetAtomicNum() == 1:
+        heavy_atoms = _heavy_bond_atoms(bond)
+        if heavy_atoms is None:
+            continue
+        begin_atom, end_atom = heavy_atoms
+        heavy_bonds.append((bond, begin_atom, end_atom))
+        bond_idx = cast(int, bond.GetIdx())
+        if not _is_multiple_like_bond(bond):
+            continue
+        atom_has_adjacent_multiple_like_bond.add(begin_atom.GetIdx())
+        atom_has_adjacent_multiple_like_bond.add(end_atom.GetIdx())
+        if bond.IsAromatic():
+            aromatic_bond_indices.add(bond_idx)
+        else:
+            multiple_like_bond_indices.add(bond_idx)
+
+    alternating_single_bond_indices: Set[int] = set()
+    for bond, begin_atom, end_atom in heavy_bonds:
+        if bond.IsAromatic() or cast(int, bond.GetBondOrder()) != 1:
+            continue
+        if begin_atom.GetIdx() not in atom_has_adjacent_multiple_like_bond:
+            continue
+        if end_atom.GetIdx() not in atom_has_adjacent_multiple_like_bond:
             continue
         bond_idx = cast(int, bond.GetIdx())
-        bond_order = cast(int, bond.GetBondOrder())
-        if bond.IsAromatic() or bond_order >= 2:
+        alternating_single_bond_indices.add(bond_idx)
+        atom_has_adjacent_alternating_single_bond.add(begin_atom.GetIdx())
+        atom_has_adjacent_alternating_single_bond.add(end_atom.GetIdx())
+
+    conjugated_bond_indices.update(aromatic_bond_indices)
+    conjugated_bond_indices.update(alternating_single_bond_indices)
+    for bond, begin_atom, end_atom in heavy_bonds:
+        bond_idx = cast(int, bond.GetIdx())
+        if bond_idx not in multiple_like_bond_indices:
+            continue
+        if begin_atom.GetIdx() in atom_has_adjacent_alternating_single_bond:
             conjugated_bond_indices.add(bond_idx)
             continue
-        if bond_order != 1:
-            continue
-        if not _atom_has_pi_feature(begin_atom, exclude_bond_idx=bond_idx):
-            continue
-        if not _atom_has_pi_feature(end_atom, exclude_bond_idx=bond_idx):
-            continue
-        conjugated_bond_indices.add(bond_idx)
+        if end_atom.GetIdx() in atom_has_adjacent_alternating_single_bond:
+            conjugated_bond_indices.add(bond_idx)
     return conjugated_bond_indices
 
 

@@ -218,6 +218,9 @@ act-artifacts/
 .fuse_hidden*
 
 # KDE directory preferences
+
+# Local review platform
+.local/tmqmg_review/
 .directory
 
 # Linux trash folder which might appear on any partition or disk
@@ -445,3 +448,4 @@ AGENTS.md
 .clangd
 compile_commands.json
 .omm
+.tmp

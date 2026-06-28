@@ -34,6 +34,11 @@ namespace molgr
 
         int AssignRadicalDots(OBAtom &atom)
         {
+            if (atom.GetSpinMultiplicity() != 0)
+            {
+                return atom.GetSpinMultiplicity();
+            }
+
             const int total_valence = static_cast<int>(atom.GetTotalValence());
             const int typical_valence = GetTypicalValence(
                 atom.GetAtomicNum(),

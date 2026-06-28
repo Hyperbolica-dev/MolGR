@@ -32,49 +32,56 @@ def validate_omol(
     return radical_sum == total_radical_electrons
 
 
-def make_connections(omol: pybel.Molecule, factor: float = 1.4) -> tuple[pybel.Molecule, bool]:
+def make_connections(
+    omol: pybel.Molecule,
+    extra_tolerance_angstrom: float = 0.15,
+) -> tuple[pybel.Molecule, bool]:
     """Reconnect obvious donor/acceptor pairs before formal valence cleanup starts."""
 
     obmol = cast(ob.OBMol, omol.OBMol)
-    donate_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_DONATE.findall(omol)))
-    accept_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_ACCEPT.findall(omol)))
     hit = False
-    while donate_atoms and accept_atoms:
-        donate_atom_id = donate_atoms.pop(0)
-        pairs = sorted(
-            [
-                (donate_atom_id, accept_atom_id)
-                for accept_atom_id in accept_atoms
-                if accept_atom_id != donate_atom_id
-            ],
-            key=lambda x: cast(ob.OBAtom, obmol.GetAtom(x[0])).GetDistance(obmol.GetAtom(x[1])),
-        )
-        if not pairs:
-            continue
-        for pair_1, pair_2 in pairs:
-            donate_atom = cast(ob.OBAtom, obmol.GetAtom(pair_1))
-            accept_atom = cast(ob.OBAtom, obmol.GetAtom(pair_2))
-            distance = cast(float, donate_atom.GetDistance(accept_atom))
-            if (
-                distance
-                < cast(
+    while True:
+        donate_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_DONATE.findall(omol)))
+        accept_atoms: List[int] = list(itertools.chain(*smarts.PREPROCESS_ACCEPT.findall(omol)))
+        if not donate_atoms or not accept_atoms:
+            break
+
+        changed = False
+        for donate_atom_id in donate_atoms:
+            pairs = sorted(
+                [
+                    (donate_atom_id, accept_atom_id)
+                    for accept_atom_id in accept_atoms
+                    if accept_atom_id != donate_atom_id
+                ],
+                key=lambda x: cast(ob.OBAtom, obmol.GetAtom(x[0])).GetDistance(obmol.GetAtom(x[1])),
+            )
+            for pair_1, pair_2 in pairs:
+                donate_atom = cast(ob.OBAtom, obmol.GetAtom(pair_1))
+                accept_atom = cast(ob.OBAtom, obmol.GetAtom(pair_2))
+                distance = cast(float, donate_atom.GetDistance(accept_atom))
+                if distance >= cast(
                     float,
                     ob.GetCovalentRad(donate_atom.GetAtomicNum())
                     + ob.GetCovalentRad(accept_atom.GetAtomicNum()),
-                )
-                * factor
-                and pair_1 in donate_atoms
-                and pair_2 in accept_atoms
-            ):
-                if obmol.GetBond(pair_1, pair_2) is None:
+                ) + extra_tolerance_angstrom:
+                    continue
+
+                bond = cast(Optional[ob.OBBond], obmol.GetBond(pair_1, pair_2))
+                if bond is None:
                     obmol.AddBond(pair_1, pair_2, 1)
                     hit = True
-                    continue
-                if cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).GetBondOrder() == 0:
-                    cast(ob.OBBond, obmol.GetBond(pair_1, pair_2)).SetBondOrder(1)
+                    changed = True
+                    break
+                if bond.GetBondOrder() == 0:
+                    bond.SetBondOrder(1)
                     hit = True
-                    donate_atoms = list(itertools.chain(*smarts.PREPROCESS_DONATE.findall(omol)))
-                    accept_atoms = list(itertools.chain(*smarts.PREPROCESS_ACCEPT.findall(omol)))
+                    changed = True
+                    break
+            if changed:
+                break
+        if not changed:
+            break
     return omol, hit
 
 

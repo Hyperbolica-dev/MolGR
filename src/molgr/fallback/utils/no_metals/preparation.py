@@ -26,6 +26,15 @@ from molgr.fallback.stages.preprocess import make_connections, pre_clean, valida
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
 
 
+def _normalize_seed_electronic_labels(omol: pybel.Molecule) -> pybel.Molecule:
+    """Clear Open Babel's seed-time charge/radical guesses before reconstruction."""
+
+    for atom in omol.atoms:
+        atom.OBAtom.SetFormalCharge(0)
+        atom.OBAtom.SetSpinMultiplicity(0)
+    return omol
+
+
 def _seed_state(
     xyz_block: str,
     total_charge: int,
@@ -33,12 +42,13 @@ def _seed_state(
 ) -> ReconstructionState:
     """Create the initial reconstruction state from the input XYZ block."""
 
+    omol = _normalize_seed_electronic_labels(pybel.readstring("xyz", xyz_block))
     return ReconstructionState(
-        omol=pybel.readstring("xyz", xyz_block),
+        omol=omol,
         given_charge=0,
         total_charge=total_charge,
         total_radical_electrons=total_radical_electrons,
-        phase_history=("read_xyz",),
+        phase_history=("read_xyz", "normalize_seed_electronic_labels"),
         metadata={"source": "xyz_to_omol_no_metal_state"},
     )
 

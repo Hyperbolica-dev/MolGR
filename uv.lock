@@ -1485,7 +1485,8 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
-    { name = "openbabel-wheel" },
+    { name = "openbabel", marker = "python_full_version >= '3.10'" },
+    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
     { name = "rdkit", version = "2023.9.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.13'" },
     { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -1527,7 +1528,8 @@ requires-dist = [
     { name = "numpy", marker = "python_full_version == '3.9.*'", specifier = ">=1.26,<2" },
     { name = "numpy", marker = "python_full_version >= '3.10' and python_full_version < '3.13'", specifier = ">=1.26,<2.3" },
     { name = "numpy", marker = "python_full_version >= '3.13'", specifier = ">=1.26" },
-    { name = "openbabel-wheel", specifier = ">=3.1.1.22" },
+    { name = "openbabel", marker = "python_full_version >= '3.10'", specifier = ">=3.2.0" },
+    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
     { name = "rdkit", specifier = ">=2023.9.6" },
     { name = "typing-extensions", specifier = ">=4.13.2" },
 ]
@@ -1545,7 +1547,7 @@ dev = [
     { name = "pybind11-stubgen", specifier = ">=2.5.5" },
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "rdkit-dof", specifier = ">=0.2.0" },
+    { name = "rdkit-dof", specifier = ">=0.2.1" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scikit-build-core", specifier = ">=0.11.6" },
@@ -1787,6 +1789,39 @@ wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/72/3df6c1c06fc83d9cfe381cccb4be2532bbd38bf93fbc9fad087b6687f1c0/numpy-1.26.4-pp39-pypy39_pp73-macosx_10_9_x86_64.whl", hash = "sha256:afedb719a9dcfc7eaf2287b839d8198e06dcd4cb5d276a3df279231138e83d30" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/02/570545bac308b58ffb21adda0f4e220ba716fb658a63c151daecc3293350/numpy-1.26.4-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:95a7476c59002f2f6c590b9b7b998306fba6a5aa646b1e22ddfeaf8f78c3a29c" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/5f/fafd8c51235f60d49f7a88e2275e13971e90555b67da52dd6416caec32fe/numpy-1.26.4-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:7e50d0a0cc3189f9cb0aeb3a6a6af18c16f59f004b866cd2be1c14b36134a4a0" },
+]
+
+[[package]]
+name = "openbabel"
+version = "3.2.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/29/67/7e1c86fa3a932bba8d8c9dcef040687f1bce1f2903a29acd4fb5337bbea8/openbabel-3.2.0.tar.gz", hash = "sha256:332e6038146e0b69f9c32b8d71d6de153a095d98dce4663972c4a45e55449d01" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/b3/e9dc0030d2a2a94fdb25431dd5c41ae30e03dd87c1ca58560355f6ce470b/openbabel-3.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:e3a0a41121cab6d5046bbc6110b41b3143b49fb266287174b1d7c0f4806f3c9b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e2/8f/a911c328730031b24a12cbc77287f7585dc9d06488d42be39510fe6a2836/openbabel-3.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8569419eb98eb27064d97f683c7329a67e3f377b98e8b39c2fce075cdf402106" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3a/0a/ab1e985a6ea0a977c347d7db20ced293f1fc30dcfa250e6ceb66997bbef5/openbabel-3.2.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2ee0f76f08de25dc6cbb4002245f60a41d83e15d6c167273935f5a51adbb26d3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/3d/859beb1f4ce3529f90cc1864710c30602fd9c1ea6c57684671f9ee34c076/openbabel-3.2.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c9bb90387baec8ee53cb58f2862bcdb380376a10e00bc165d089ab7131de08ab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d9/05/3c1bbcf2045d57b360fc3cf56fb7425c69db6a8d6a444ca40435354e2b5b/openbabel-3.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:88c93643016bbc35a19280b4cfe898d537393e135eac4e33551a8244fdaa99dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d2/8b/f408f4aef903125216f79ac9fd2a785d3bd6385c7749612cdb144ff1ee02/openbabel-3.2.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:955eb6a3b2eb9d8a8333addfe9f1ca23bad6b9583ec299a7cdd7b82c9520aaf1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/78/08/87ab319cc3a0cdc7538c52e3185704c0632f179f6b2b44c01a4d91e0cda4/openbabel-3.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:debaf9b2d215b63ae1202294ce79247f078de0ca6855b73fc5d620e477af8952" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b1/5c/9cc27ba0090bb9581af40791cc9a06d9c75c5b432f48d21afc9452b6d8d4/openbabel-3.2.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:53081f3a34041862c0b87f2f948df86bddfe62b6ead26e7e4503dfdbebe971fc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/15/fe/3fc0c09a21d5cb8f79aab5fa96e08d95b1ba19d98bb0a9be57494ad6f718/openbabel-3.2.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b15890008b8de80b89ddc61f3a81d6f5d6752ef7a2e98c34774be9fedef165a3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/a3/8cb1685d607bd3d50175cc7378f128da1f4ca7dfa560499e68fbd69b5458/openbabel-3.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:c9a89a4c31ba4956ad04943951c16c5075ac1a10083f0bbfb02184ff36056094" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/86/d4/9b17a1d582ef34af16cc72ce1dc7cf0ab91cce23a842c73f8fd47053e0ab/openbabel-3.2.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:2be89c56d1597e7e8e30e321dc7a885db76a6f42483dc4395f6a4e6aa87f49e7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/ab/7514a0bd68c7dbbc61213be057b788a416f63f3c2c121eace1a181095fac/openbabel-3.2.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:df254b4c0c7ac6477e63710279726ea0b7f8bd55615c4b473a8524a4e943509b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8a/1b/e61fce03382321dbbf58009ec95e324ff972b4c1e86d2d4d2882b9f64048/openbabel-3.2.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:832874d7d51ef33ee7fec7a4fd0a6cba9276d8485150a833d63e545aadece679" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/7d/da11e42f9c2c4f348054cf4bf48e6bb4b405aecf15b924e67449707fd788/openbabel-3.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2de3626cce6e2b6ea6e94f03e34827247fc09c4e2c80f58c6c3a1f7e7acafa9c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/f5/3a989d3f00b23cbd9886e92964570434876dabe69392402ecc64a4e65dfd/openbabel-3.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:32971502bed2defb9fcc208fed0b25aa44d6bd39fb864cc0762a2ff0c2f085b9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/7d/48eac4f07be0b8a651ad27cd2f0a679715e1c00aa28c54046f6e6801e74a/openbabel-3.2.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:3f33cccedc860aefdf04711658a8ee88a3eec8e1948d443942c8e4c0cd130c31" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/70/33/926f796c71055c58d53cb4d082c5ef2c3e66205e660143ce00ad4aae7c0e/openbabel-3.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f3e30937e1e0db15eaa4193449948601a646d736ff224c90f161bdcf153d9e20" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c5/6f/155644a53a24d9b1ecc7596b042dd42f01fb03a4182ed38a0924c2692ea4/openbabel-3.2.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:01011b444e2c2f34dddea2720608529b28c18b48e47da79bdd1f6f270d1664de" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f6/a2/9ca362d4e6749c088acf7c6f6d537851be181cd0bd303b67a6365a9de1e2/openbabel-3.2.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7049c5d90b8941b75bf91d177d9b16cf19a52e72c75550184a7fbd5e5ea45660" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4c/ce/7a4651eb32860bb3d47b056e508d69df600724899e79b0d57063aa14937c/openbabel-3.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:c147a52d35aa566fe0c4f3481776678758028cd19a900250710f1d2eb6ae11b0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e5/bd/dc1484917ded358ca2be66972de9c010dbad02df6bbfc1f47e99404a5d08/openbabel-3.2.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:bb4b7d1d5244cce2fa3fce9bfcf5afafd960494b69d3b7417a3fb0988f1213d3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/5f/4322533ef75c841f03bf8a2f333a3c40d2340133b6e7f55ca0cd59a7f634/openbabel-3.2.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:278e3c6ae79e8b2752a540cdc52a36b9dd956fcf811d18df5a663085ce77daff" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/87/3cf7258f9af22f5d0985fbe63b1ce4b3635699b338e847f724c1d2127e5c/openbabel-3.2.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:97b838e89ca6b2f563d6bcdf5d8a08974915e1006ad4aa5813262e35635b6c6f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/07/40/fd97ad24f77b9c7bef6ba5d127f17d30008ea30ac494aa639b8aedfc6632/openbabel-3.2.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ac9a735958d27cfa5811bd7b95a074d3f1b776afdff77e50b0cc7b531858a15" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cf/16/27e8b0304948f9cbece9e0ec2c14326d6864127f411525112025d96fdc8c/openbabel-3.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:73d016280ad3bc28b2b61df88c43a3a1bac69c8613429d23daee6d2b769312bc" },
 ]
 
 [[package]]
@@ -2946,7 +2981,7 @@ wheels = [
 
 [[package]]
 name = "rdkit-dof"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 dependencies = [
     { name = "pillow", version = "10.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -2955,9 +2990,9 @@ dependencies = [
     { name = "rdkit", version = "2023.9.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.13'" },
     { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/bc/dfbd8b6bf934ded085d41c216d031b22742f2f964fb65553b4a8df3091da/rdkit_dof-0.2.0.tar.gz", hash = "sha256:d19fdd06eb3fcc87859514dd248e42cc799c2c6364989221acefb35c9d2d9f65" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/3b/7518ceb0eb85f11d98f2aef9c2a78a3ee035bb6e229403817a01a476076a/rdkit_dof-0.2.1.tar.gz", hash = "sha256:40b95169c884fa45e84944850ff05d9fd7185e8c66f4cad2c88b0503d57cfcee" }
 wheels = [
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ec/5c/cea0d945eb7011bfc2606e2ebd7766e1d84abe8bd5451eeb840fe4fb46ac/rdkit_dof-0.2.0-py3-none-any.whl", hash = "sha256:6a2c74422a2c80a5ffbce5e2063465811cfb3d2415a27c928eb5e2cf453f4191" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/77/5e/15db60cede0bdfc62dc7b1282f710a1ced5bbab1db3dc17021da95f74e7b/rdkit_dof-0.2.1-py3-none-any.whl", hash = "sha256:4ea2d4de899b5288e9d7413c52ff2d5452395066b19c1877ca4f2ba3e23da092" },
 ]
 
 [[package]]

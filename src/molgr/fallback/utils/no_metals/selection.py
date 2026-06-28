@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import astuple
+from typing import cast
+
+from openbabel import openbabel as ob
 
 from molgr.config import MolGRConfig, resolve_config
 from molgr.fallback.state import ReconstructionState
@@ -46,19 +49,45 @@ def _annotate_no_metal_candidate_topology(
     return metrics
 
 
+def _formal_charge_absolute_sum(candidate: ReconstructionState) -> int:
+    return int(
+        candidate.get_cached_omol_value(
+            "organic_formal_charge_absolute_sum",
+            lambda omol: sum(
+                abs(int(cast(ob.OBAtom, atom_iter).GetFormalCharge()))
+                for atom_iter in ob.OBMolAtomIter(cast(ob.OBMol, omol.OBMol))
+            ),
+        )
+    )
+
+
 def _no_metal_candidate_selection_key(
     candidate: ReconstructionState,
     *,
     config: MolGRConfig | None = None,
-) -> tuple[float, int, int, int, int, float]:
+) -> tuple[float, int, float, float, float, float]:
     metrics = _annotate_no_metal_candidate_topology(candidate, config=config)
     score = float(candidate.metadata.get("score", float("inf")))
+    formal_charge_absolute_sum = _formal_charge_absolute_sum(candidate)
+    conjugation_charge_penalty = formal_charge_absolute_sum / 2.0
+    adjusted_max_conjugated_component_size = (
+        metrics.max_conjugated_component_size - conjugation_charge_penalty
+    )
+    adjusted_conjugated_atom_count = metrics.conjugated_atom_count - conjugation_charge_penalty
+    adjusted_conjugated_bond_count = metrics.conjugated_bond_count - conjugation_charge_penalty
+    candidate.metadata["organic_formal_charge_absolute_sum"] = formal_charge_absolute_sum
+    candidate.metadata["organic_conjugation_charge_penalty"] = conjugation_charge_penalty
+    candidate.metadata["organic_adjusted_max_conjugated_component_size"] = (
+        adjusted_max_conjugated_component_size
+    )
+    candidate.metadata["organic_adjusted_conjugated_atom_count"] = adjusted_conjugated_atom_count
+    candidate.metadata["organic_adjusted_conjugated_bond_count"] = adjusted_conjugated_bond_count
     selection_key = (
         -metrics.aromatic_stability_score,
         -metrics.aromatic_atom_count,
-        -metrics.max_conjugated_component_size,
-        -metrics.conjugated_atom_count,
-        -metrics.conjugated_bond_count,
+        -adjusted_max_conjugated_component_size,
+        -adjusted_conjugated_atom_count,
+        -adjusted_conjugated_bond_count,
         score,
     )
     candidate.metadata["organic_topology_selection_key"] = selection_key

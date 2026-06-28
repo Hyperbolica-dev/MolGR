@@ -17,6 +17,18 @@ namespace molgr
     {
         namespace preparation
         {
+            namespace
+            {
+                void NormalizeSeedElectronicLabels(OpenBabel::OBMol &mol)
+                {
+                    FOR_ATOMS_OF_MOL(atom_iter, mol)
+                    {
+                        atom_iter->SetFormalCharge(0);
+                        atom_iter->SetSpinMultiplicity(0);
+                    }
+                }
+            }
+
             molgr::state::ReconstructionState SeedState(
                 const std::string &xyz_block,
                 int total_charge,
@@ -27,12 +39,13 @@ namespace molgr
                 {
                     return {};
                 }
+                NormalizeSeedElectronicLabels(*omol);
                 return molgr::state::ReconstructionState(
                     omol,
                     0,
                     total_charge,
                     total_radical_electrons,
-                    {"read_xyz"},
+                    {"read_xyz", "normalize_seed_electronic_labels"},
                     {{"source", std::string("xyz_to_omol_no_metal_state")}},
                     0);
             }
@@ -41,7 +54,7 @@ namespace molgr
                 const molgr::state::ReconstructionState &state)
             {
                 auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
-                machine.RunOmolStage("make_connections", reconstruct::MakeConnections, 1.4);
+                machine.RunOmolStage("make_connections", reconstruct::MakeConnections, 0.15);
                 machine.RunOmolStage("pre_clean", reconstruct::PreClean);
                 machine.RunOmolStage(
                     "fresh_omol_charge_radical_initial",

@@ -31,11 +31,6 @@ namespace molgr
             return atom_indices;
         }
 
-        bool ContainsAtomIdx(const std::vector<int> &atom_indices, int atom_idx)
-        {
-            return std::find(atom_indices.begin(), atom_indices.end(), atom_idx) != atom_indices.end();
-        }
-
         bool ValidateOmol(OBMol &mol, int total_charge, int total_radical, bool emit_warnings)
         {
             int charge_sum = 0;
@@ -76,80 +71,91 @@ namespace molgr
             return true;
         }
 
-        bool MakeConnections(OBMol &mol, double factor)
+        bool MakeConnections(OBMol &mol, double extra_tolerance_angstrom)
         {
             bool hit = false;
-            std::vector<int> donate_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_DONATE);
-            std::vector<int> accept_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_ACCEPT);
-
-            while (!donate_atoms.empty() && !accept_atoms.empty())
+            while (true)
             {
-                int donor_idx = donate_atoms.front();
-                donate_atoms.erase(donate_atoms.begin());
-
-                OBAtom *donor = mol.GetAtom(donor_idx);
-                if (!donor)
-                    continue;
-
-                std::vector<std::pair<int, int>> pairs;
-                for (int acceptor_idx : accept_atoms)
+                std::vector<int> donate_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_DONATE);
+                std::vector<int> accept_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_ACCEPT);
+                if (donate_atoms.empty() || accept_atoms.empty())
                 {
-                    OBAtom *acceptor = mol.GetAtom(acceptor_idx);
-                    if (acceptor && acceptor_idx != donor_idx)
-                    {
-                        pairs.push_back({donor_idx, acceptor_idx});
-                    }
+                    break;
                 }
 
-                std::sort(pairs.begin(), pairs.end(), [&mol](const auto &a, const auto &b)
-                          {
-                    OBAtom *a1 = mol.GetAtom(a.first);
-                    OBAtom *a2 = mol.GetAtom(a.second);
-                    OBAtom *b1 = mol.GetAtom(b.first);
-                    OBAtom *b2 = mol.GetAtom(b.second);
-                    return a1->GetDistance(a2) < b1->GetDistance(b2); });
-
-                if (pairs.empty())
+                bool changed = false;
+                for (int donor_idx : donate_atoms)
                 {
-                    continue;
-                }
-
-                for (const auto &pair : pairs)
-                {
-                    int p1 = pair.first;
-                    int p2 = pair.second;
-                    OBAtom *a1 = mol.GetAtom(p1);
-                    OBAtom *a2 = mol.GetAtom(p2);
-                    if (!a1 || !a2)
+                    OBAtom *donor = mol.GetAtom(donor_idx);
+                    if (!donor)
                     {
                         continue;
                     }
-                    double dist = a1->GetDistance(a2);
 
-                    double r1 = OBElements::GetCovalentRad(a1->GetAtomicNum());
-                    double r2 = OBElements::GetCovalentRad(a2->GetAtomicNum());
-
-                    if (dist < (r1 + r2) * factor &&
-                        ContainsAtomIdx(donate_atoms, p1) &&
-                        ContainsAtomIdx(accept_atoms, p2))
+                    std::vector<std::pair<int, int>> pairs;
+                    for (int acceptor_idx : accept_atoms)
                     {
+                        OBAtom *acceptor = mol.GetAtom(acceptor_idx);
+                        if (acceptor && acceptor_idx != donor_idx)
+                        {
+                            pairs.push_back({donor_idx, acceptor_idx});
+                        }
+                    }
+
+                    std::sort(pairs.begin(), pairs.end(), [&mol](const auto &a, const auto &b)
+                              {
+                        OBAtom *a1 = mol.GetAtom(a.first);
+                        OBAtom *a2 = mol.GetAtom(a.second);
+                        OBAtom *b1 = mol.GetAtom(b.first);
+                        OBAtom *b2 = mol.GetAtom(b.second);
+                        return a1->GetDistance(a2) < b1->GetDistance(b2); });
+
+                    for (const auto &pair : pairs)
+                    {
+                        int p1 = pair.first;
+                        int p2 = pair.second;
+                        OBAtom *a1 = mol.GetAtom(p1);
+                        OBAtom *a2 = mol.GetAtom(p2);
+                        if (!a1 || !a2)
+                        {
+                            continue;
+                        }
+                        double dist = a1->GetDistance(a2);
+
+                        double r1 = OBElements::GetCovalentRad(a1->GetAtomicNum());
+                        double r2 = OBElements::GetCovalentRad(a2->GetAtomicNum());
+
+                        if (dist >= (r1 + r2) + extra_tolerance_angstrom)
+                        {
+                            continue;
+                        }
+
                         OBBond *bond = mol.GetBond(a1, a2);
                         if (!bond)
                         {
                             mol.AddBond(p1, p2, 1);
                             hit = true;
+                            changed = true;
                             LOG_DEBUG("[MakeConnections] Add Bond " << p1 << "-" << p2);
-                            continue;
+                            break;
                         }
                         if (bond->GetBondOrder() == 0)
                         {
                             bond->SetBondOrder(1);
                             hit = true;
+                            changed = true;
                             LOG_DEBUG("[MakeConnections] Set Bond Order 1 " << p1 << "-" << p2);
-                            donate_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_DONATE);
-                            accept_atoms = GetFlatAtomList(mol, molgr::smarts::PatternId::PREPROCESS_ACCEPT);
+                            break;
                         }
                     }
+                    if (changed)
+                    {
+                        break;
+                    }
+                }
+                if (!changed)
+                {
+                    break;
                 }
             }
             return hit;

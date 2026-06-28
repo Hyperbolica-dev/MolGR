@@ -9,11 +9,22 @@
 
 namespace
 {
-    constexpr std::array<const char *, 4> kOmolDerivedMetadataKeys = {
+    constexpr std::array<const char *, 15> kOmolDerivedMetadataKeys = {
         "force_field_energy",
         "force_field_score_key",
         "organic_core_score",
         "score",
+        "organic_aromatic_atom_count",
+        "organic_aromatic_ring_count",
+        "organic_aromatic_stability_score",
+        "organic_conjugated_atom_count",
+        "organic_conjugated_bond_count",
+        "organic_max_conjugated_component_size",
+        "organic_formal_charge_absolute_sum",
+        "organic_conjugation_charge_penalty",
+        "organic_adjusted_max_conjugated_component_size",
+        "organic_adjusted_conjugated_atom_count",
+        "organic_adjusted_conjugated_bond_count",
     };
 
     constexpr std::array<const char *, 2> kCandidateDerivedMetadataKeys = {

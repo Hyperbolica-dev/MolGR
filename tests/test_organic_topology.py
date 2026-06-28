@@ -36,6 +36,25 @@ def test_continuous_conjugation_metrics_count_only_three_bond_alternation() -> N
     assert diene_metrics.max_conjugated_component_size == 4
 
 
+def test_charge_separated_fragment_without_bond_alternation_is_not_counted_as_conjugated() -> None:
+    pybel = _require_pybel()
+    alternating = pybel.readstring("smi", "[O-]/C(=C\\C(=O)C(F)(F)F)/C(F)(F)F")
+    charge_separated = pybel.readstring("smi", "O=C([CH+]C(=O)C(F)(F)F)C(F)(F)F")
+
+    alternating_metrics = compute_organic_topology_metrics(alternating)
+    charge_separated_metrics = compute_organic_topology_metrics(charge_separated)
+
+    assert charge_separated_metrics.conjugated_atom_count == 0
+    assert charge_separated_metrics.conjugated_bond_count == 0
+    assert charge_separated_metrics.max_conjugated_component_size == 0
+    assert alternating_metrics.conjugated_atom_count > charge_separated_metrics.conjugated_atom_count
+    assert alternating_metrics.conjugated_bond_count > charge_separated_metrics.conjugated_bond_count
+    assert (
+        alternating_metrics.max_conjugated_component_size
+        > charge_separated_metrics.max_conjugated_component_size
+    )
+
+
 def test_high_absolute_formal_charge_sum_rejects_ring_aromaticity() -> None:
     pybel = _require_pybel()
     tolerated = pybel.readstring("smi", "[c-]1[c-][c-][cH][cH][cH]1")

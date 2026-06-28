@@ -93,22 +93,26 @@ namespace molgr
         bool EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
         {
             bool hit = false;
-            while (true)
+            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
+            while (!matches.empty())
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
-                if (matches.empty())
-                    break;
-
-                auto idxs = matches[0];
+                auto idxs = matches.front();
+                matches.erase(matches.begin());
                 OBAtom *a1 = mol.GetAtom(idxs[0]);
                 OBAtom *a2 = mol.GetAtom(idxs[1]);
+                if (!a1 || !a2)
+                {
+                    continue;
+                }
 
                 int sum_nbr_charge = 0;
                 FOR_NB_OF_ATOM(nbr, a1)
                 sum_nbr_charge += nbr->GetFormalCharge();
 
-                if (-sum_nbr_charge >= a1->GetFormalCharge())
-                    break;
+                if (-sum_nbr_charge > a1->GetFormalCharge() || a2->GetSpinMultiplicity() != 1)
+                {
+                    continue;
+                }
 
                 a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
                 a2->SetFormalCharge(a2->GetFormalCharge() - 1);
@@ -176,16 +180,31 @@ namespace molgr
 
         bool EliminateCarbeneNeighborHeteroatom(OBMol &mol, int &charge)
         {
+            const auto possible_carbene_atom = [](const OBAtom &atom) -> bool
+            {
+                const int atomic_num = atom.GetAtomicNum();
+                if (kHeteroatoms.count(atomic_num) == 0 && atomic_num != 6)
+                {
+                    return false;
+                }
+                if (atom.GetSpinMultiplicity() != 2)
+                {
+                    return false;
+                }
+                return atomic_num != 8 && atomic_num != 9 && atomic_num != 16 &&
+                       atomic_num != 17 && atomic_num != 35 && atomic_num != 56;
+            };
+
             bool hit = false;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OBAtom *atom = &(*atom_iter);
-                if (atom->GetSpinMultiplicity() == 2)
+                if (possible_carbene_atom(*atom))
                 {
                     bool neighbor_radical = false;
                     FOR_NB_OF_ATOM(nbr, atom)
                     {
-                        if (nbr->GetSpinMultiplicity() > 0)
+                        if (nbr->GetSpinMultiplicity() == 1)
                         {
                             neighbor_radical = true;
                             break;
@@ -414,18 +433,55 @@ namespace molgr
 
             for (const auto &entry : possible_heteroatoms)
             {
-                if (charge >= 0)
+                if (charge > 0)
                 {
                     break;
                 }
                 OBAtom *atom = entry.first;
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
+                if (atom->GetSpinMultiplicity() != 1)
+                {
+                    continue;
+                }
+                int to_add = std::min(atom->GetSpinMultiplicity(), std::max(1, std::abs(charge)));
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
                 if (to_add > 0)
                 {
                     hit = true;
+                }
+            }
+
+            while (charge <= 0)
+            {
+                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
+                if (matches.empty())
+                {
+                    break;
+                }
+
+                auto idxs = matches.front();
+                if (idxs.size() < 5)
+                {
+                    break;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[4]);
+                if (!atom)
+                {
+                    break;
+                }
+
+                const int to_add = atom->GetSpinMultiplicity();
+                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
+                atom->SetFormalCharge(-to_add);
+                charge += to_add;
+                if (to_add > 0)
+                {
+                    hit = true;
+                }
+                else
+                {
+                    break;
                 }
             }
 
@@ -476,39 +532,6 @@ namespace molgr
                 if (to_add > 0)
                 {
                     hit = true;
-                }
-            }
-
-            while (charge <= 0)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                if (idxs.size() < 5)
-                {
-                    break;
-                }
-                OBAtom *atom = mol.GetAtom(idxs[4]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                const int to_add = atom->GetSpinMultiplicity();
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-                else
-                {
-                    break;
                 }
             }
 
@@ -565,6 +588,27 @@ namespace molgr
                 if (!updated)
                 {
                     break;
+                }
+            }
+
+            for (const auto &entry : possible_heteroatoms)
+            {
+                if (charge >= 0)
+                {
+                    break;
+                }
+                OBAtom *atom = entry.first;
+                if (atom->GetSpinMultiplicity() < 2)
+                {
+                    continue;
+                }
+                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
+                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
+                atom->SetFormalCharge(-to_add);
+                charge += to_add;
+                if (to_add > 0)
+                {
+                    hit = true;
                 }
             }
             return hit;

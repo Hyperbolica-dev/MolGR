@@ -7,7 +7,7 @@ def _smarts(pattern: str) -> pybel.Smarts:
     return pybel.Smarts(pattern)
 
 
-PREPROCESS_DONATE = _smarts("[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3]")
+PREPROCESS_DONATE = _smarts("[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3,Asv3,Sev2]")
 PREPROCESS_ACCEPT = _smarts(
     "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]"
 )
@@ -27,7 +27,9 @@ ELIM_POSITIVE_C_H = _smarts("[#6v3+0,#6v2+0,#1v0+0]")
 ELIM_NEGATIVE_C_V3 = _smarts("[#6v3+0]")
 ELIM_NEGATIVE_H = _smarts("[#1v0+0]")
 ELIM_NEGATIVE_C_LOW = _smarts("[#6v2+0,#6v1+0,#6v0+0]")
-ELIM_NEGATIVE_CP = _smarts("[C+0]1=[C+0]-[C+0]=[C+0]-[C+0]-1")
+ELIM_NEGATIVE_CP = _smarts(
+    "[#6v3+0,#6v4+0]1=[#6v3+0,#6v4+0]-[#6v3+0,#6v4+0]=[#6v3+0,#6v4+0]-[#6v2+0,#6v3+0]-1"
+)
 
 CLEAN_CARBENE_NEIGHBOR_UNSAT = _smarts("[*]-[*]=[*]")
 CLEAN_RESONANCE_0 = _smarts("[*-]-[*]=[*]~[*+]")
@@ -46,6 +48,7 @@ CLEAN_RESONANCE_12 = _smarts("[#7v3+0,#8v2+0,#16v2+0]-,:[*]=,:[*]-,:[*+1]")
 CLEAN_RESONANCE_13 = _smarts("[*-]:[*]=[#7+0,#8+0]")
 CLEAN_RESONANCE_14 = _smarts("[#15-,#16-,#17-,#35-,#53-]#[#7+1,#8+1,#16+1]")
 CLEAN_RESONANCE_15 = _smarts("[Cv2+0]=[Ov2+0]")
+CLEAN_RESONANCE_16 = _smarts("[*-1]-,:[*]=,:[*]-,:[*]=,:[*+1]")
 
 
 BREAK_DEFORMED_ENE_A = _smarts("[*]~[*+0]=,:[*+0]~[*]")
@@ -71,6 +74,9 @@ __all__ = [
     "CLEAN_RESONANCE_11",
     "CLEAN_RESONANCE_12",
     "CLEAN_RESONANCE_13",
+    "CLEAN_RESONANCE_14",
+    "CLEAN_RESONANCE_15",
+    "CLEAN_RESONANCE_16",
     "CLEAN_RESONANCE_2",
     "CLEAN_RESONANCE_3",
     "CLEAN_RESONANCE_4",

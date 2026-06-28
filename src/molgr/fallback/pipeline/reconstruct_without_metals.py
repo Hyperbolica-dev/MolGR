@@ -62,7 +62,7 @@ def _run_no_metal_pipeline_from_state(
         return None
 
     best_candidate: Optional[ReconstructionState] = None
-    best_selection_key: Optional[tuple[float, int, int, int, int, float]] = None
+    best_selection_key: Optional[tuple[float, int, float, float, float, float]] = None
     for candidate in resonance_candidates:
         selection._score_reconstruction_candidate(candidate, config=config)
         selection_key = selection._no_metal_candidate_selection_key(candidate, config=config)

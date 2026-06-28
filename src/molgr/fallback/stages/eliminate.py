@@ -17,15 +17,17 @@ def eliminate_high_positive_charge_atoms(
 
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
-    while res := smarts.ELIM_HIGH_POSITIVE.findall(omol):
+    res = smarts.ELIM_HIGH_POSITIVE.findall(omol)
+    while len(res):
         idxs = cast(List[Tuple[int, int]], res.pop(0))
         atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
         if (
             -sum(cast(ob.OBAtom, atom).GetFormalCharge() for atom in ob.OBAtomAtomIter(atom1))
-            >= atom1.GetFormalCharge()
+            > atom1.GetFormalCharge()
+            or atom2.GetSpinMultiplicity() != 1
         ):
-            break
+            continue
         atom2.SetSpinMultiplicity(atom2.GetSpinMultiplicity() - 1)
         atom2.SetFormalCharge(atom2.GetFormalCharge() - 1)
         given_charge += 1
@@ -78,12 +80,20 @@ def eliminate_carbene_neighbor_heteroatom(
     omol: pybel.Molecule, given_charge: int
 ) -> tuple[pybel.Molecule, int, bool]:
     """Push carbene radical density onto a neighboring heteroatom when possible."""
+
+    def possible_carbene_atom_checker(obatom: ob.OBAtom) -> bool:
+        if obatom.GetAtomicNum() not in consts.HETEROATOM and obatom.GetAtomicNum() != 6:
+            return False
+        if obatom.GetSpinMultiplicity() != 2:
+            return False
+        return obatom.GetAtomicNum() not in (8, 9, 16, 17, 35, 53)
+
     hit = False
     for atom in omol.atoms:
         obatom = cast(ob.OBAtom, atom.OBAtom)
-        if obatom.GetSpinMultiplicity() == 2:
+        if possible_carbene_atom_checker(obatom):
             if any(
-                cast(ob.OBAtom, neighbor).GetSpinMultiplicity()
+                cast(ob.OBAtom, neighbor).GetSpinMultiplicity() == 1
                 for neighbor in ob.OBAtomAtomIter(obatom)
             ):
                 continue
@@ -310,9 +320,11 @@ def eliminate_negative_charges(
             possible_heteroatoms.append((obatom, consts.HETEROATOM.index(obatom.GetAtomicNum())))
     possible_heteroatoms.sort(key=lambda x: x[1])
     for obatom, _ in possible_heteroatoms:
-        if given_charge >= 0:
+        if given_charge > 0:
             break
-        to_add = min(obatom.GetSpinMultiplicity(), abs(given_charge))
+        if obatom.GetSpinMultiplicity() != 1:
+            continue
+        to_add = min(obatom.GetSpinMultiplicity(), max(1, abs(given_charge)))
         obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
         obatom.SetFormalCharge(-to_add)
         given_charge += to_add
@@ -371,6 +383,19 @@ def eliminate_negative_charges(
                     hit = True
         else:
             break
+
+    for obatom, _ in possible_heteroatoms:
+        if given_charge >= 0:
+            break
+        if obatom.GetSpinMultiplicity() < 2:
+            continue
+        to_add = min(obatom.GetSpinMultiplicity(), abs(given_charge))
+        obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
+        obatom.SetFormalCharge(-to_add)
+        given_charge += to_add
+        if to_add > 0:
+            hit = True
+
     return omol, given_charge, hit
 
 

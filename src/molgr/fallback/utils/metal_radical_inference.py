@@ -45,6 +45,7 @@ _D_BLOCK_REARRANGEMENT_METALS = {
     "Hg",
 }
 _DONOR_FIELD_STRENGTH: Dict[int, float] = {
+    1: 1.20,
     6: 1.30,
     7: 1.00,
     8: 0.85,
@@ -66,6 +67,8 @@ _GEOMETRY_FIELD_ADJUSTMENT: Dict[str, float] = {
     "square_planar": 0.35,
     "octahedral_like": 0.05,
 }
+_METAL_HYDRIDE_COVALENT_TOLERANCE_ANGSTROM = 0.45
+_MIN_METAL_HYDRIDE_CUTOFF_ANGSTROM = 1.25
 
 
 @dataclasses.dataclass(frozen=True)
@@ -112,6 +115,33 @@ def _vector_from_atoms(metal_atom: ob.OBAtom, donor_atom: ob.OBAtom) -> Tuple[fl
 def _vector_norm(vector: Tuple[float, float, float]) -> float:
     x, y, z = vector
     return math.sqrt(x * x + y * y + z * z)
+
+
+def _clamped_covalent_radius(atomic_num: int) -> float:
+    value = float(ob.GetCovalentRad(atomic_num))
+    if value <= 0.0 or not math.isfinite(value):
+        return 0.0
+    return value
+
+
+def _metal_hydride_cutoff_angstrom(metal_atomic_num: int) -> float:
+    return max(
+        _MIN_METAL_HYDRIDE_CUTOFF_ANGSTROM,
+        _clamped_covalent_radius(metal_atomic_num)
+        + _clamped_covalent_radius(1)
+        + _METAL_HYDRIDE_COVALENT_TOLERANCE_ANGSTROM,
+    )
+
+
+def _is_direct_metal_hydride(
+    metal_atom: ob.OBAtom,
+    donor_atom: ob.OBAtom,
+    distance: float,
+) -> bool:
+    return (
+        donor_atom.GetAtomicNum() == 1
+        and distance <= _metal_hydride_cutoff_angstrom(metal_atom.GetAtomicNum())
+    )
 
 
 def _cross(
@@ -177,12 +207,13 @@ def _collect_coordination_environment(
         if neighbor.IsMetal():
             continue
         atomic_num = neighbor.GetAtomicNum()
-        if atomic_num <= 1:
-            continue
 
         vector = _vector_from_atoms(metal_atom, neighbor)
         distance = _vector_norm(vector)
-        if distance > metal_radical_config.coordination_cutoff_angstrom:
+        if atomic_num <= 1:
+            if not _is_direct_metal_hydride(metal_atom, neighbor, distance):
+                continue
+        elif distance > metal_radical_config.coordination_cutoff_angstrom:
             continue
 
         donors.append(

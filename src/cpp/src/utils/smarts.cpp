@@ -1,3 +1,10 @@
+/*
+ * @Author: TMJ
+ * @Date: 2026-05-15 15:36:10
+ * @LastEditors: TMJ
+ * @LastEditTime: 2026-06-28 19:16:26
+ * @Description: 请填写简介
+ */
 #include "molgr/utils/smarts.h"
 
 #include <openbabel/parsmart.h>
@@ -14,7 +21,7 @@ namespace
     constexpr std::size_t kPatternCount = static_cast<std::size_t>(PatternId::COUNT);
 
     constexpr std::array<const char *, kPatternCount> kSmartsPatterns = {
-        "[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3]",
+        "[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3,Asv3,Sev2]",
         "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]",
         "[Cv5,Nv5,Pv5,Siv5]=,#[*]",
         "[#6]1([#6]2)([#6]3)[#7]23[#6]1",
@@ -31,7 +38,7 @@ namespace
         "[#6v3+0]",
         "[#1v0+0]",
         "[#6v2+0,#6v1+0,#6v0+0]",
-        "[C+0]1=[C+0]-[C+0]=[C+0]-[C+0]-1",
+        "[#6v3+0,#6v4+0]1=[#6v3+0,#6v4+0]-[#6v3+0,#6v4+0]=[#6v3+0,#6v4+0]-[#6v2+0,#6v3+0]-1",
         "[*]-[*]=[*]",
         "[*-]-[*]=[*]~[*+]",
         "[*-]=[*+]=[*+0]",
@@ -49,6 +56,7 @@ namespace
         "[*-]:[*]=[#7+0,#8+0]",
         "[#15-,#16-,#17-,#35-,#53-]#[#7+1,#8+1,#16+1]",
         "[Cv2+0]=[Ov2+0]",
+        "[*-1]-,:[*]=,:[*]-,:[*]=,:[*+1]",
         "[*]~[*+0]=,:[*+0]~[*]",
         "[*]~[*+0](=,:[*+0])~[*]",
         "[*+0]#,=[*+0]",

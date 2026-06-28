@@ -25,6 +25,11 @@ namespace molgr
                 int max_conjugated_component_size = 0;
                 int conjugated_atom_count = 0;
                 int conjugated_bond_count = 0;
+                int formal_charge_absolute_sum = 0;
+                double conjugation_charge_penalty = 0.0;
+                double adjusted_max_conjugated_component_size = 0.0;
+                double adjusted_conjugated_atom_count = 0.0;
+                double adjusted_conjugated_bond_count = 0.0;
             };
 
             std::optional<molgr::state::ReconstructionState> XyzToOmolNoMetalState(

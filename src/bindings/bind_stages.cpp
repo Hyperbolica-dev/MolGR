@@ -25,10 +25,10 @@ void bind_stages(py::module_ &m)
 {
     // These dev helpers operate on OBMol pointers owned by Python OpenBabel wrappers.
     // Keep the GIL held while using those pointers and while constructing py::object results.
-    const auto make_connections_ptr = [](intptr_t mol_ptr, double factor)
+    const auto make_connections_ptr = [](intptr_t mol_ptr, double extra_tolerance_angstrom)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        return molgr::reconstruct::MakeConnections(*mol, factor);
+        return molgr::reconstruct::MakeConnections(*mol, extra_tolerance_angstrom);
     };
 
     const auto pre_clean_ptr = [](intptr_t mol_ptr)
@@ -179,10 +179,10 @@ Apply preprocess.make_connections to an existing OBMol.
 
 Args:
     mol_ptr: int address of OpenBabel::OBMol
-    factor: distance factor (default matches python fallback)
+    extra_tolerance_angstrom: additive distance tolerance in Angstrom
 )pbdoc",
         py::arg("mol_ptr"),
-        py::arg("factor") = 1.4);
+        py::arg("extra_tolerance_angstrom") = 0.15);
 
     m_preprocess.def(
         "pre_clean_ptr",

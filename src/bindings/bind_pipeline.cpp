@@ -354,7 +354,7 @@ namespace molgr
                         };
 
                         append_snapshot("read_xyz");
-                        machine.RunOmolStage("make_connections", reconstruct::MakeConnections, 1.4);
+                        machine.RunOmolStage("make_connections", reconstruct::MakeConnections, 0.15);
                         append_snapshot("make_connections");
                         machine.RunOmolStage("pre_clean", reconstruct::PreClean);
                         append_snapshot("pre_clean");
@@ -460,6 +460,14 @@ namespace molgr
                                 summary.max_conjugated_component_size;
                             item["conjugated_atom_count"] = summary.conjugated_atom_count;
                             item["conjugated_bond_count"] = summary.conjugated_bond_count;
+                            item["formal_charge_absolute_sum"] = summary.formal_charge_absolute_sum;
+                            item["conjugation_charge_penalty"] = summary.conjugation_charge_penalty;
+                            item["adjusted_max_conjugated_component_size"] =
+                                summary.adjusted_max_conjugated_component_size;
+                            item["adjusted_conjugated_atom_count"] =
+                                summary.adjusted_conjugated_atom_count;
+                            item["adjusted_conjugated_bond_count"] =
+                                summary.adjusted_conjugated_bond_count;
                             out.append(std::move(item));
                         }
                         return out;

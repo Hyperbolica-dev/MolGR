@@ -7,7 +7,7 @@ from typing import List, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.fallback.stages.fresh import fresh_omol_charge_radical
+from molgr.fallback.stages.fresh import assign_charge_radical_for_atom, fresh_omol_charge_radical
 from molgr.fallback.utils import consts, smarts
 
 
@@ -46,6 +46,8 @@ def clean_neighbor_radicals(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]
             bond.SetBondOrder(bond.GetBondOrder() + bond_to_add)
             begin_atom.SetSpinMultiplicity(begin_atom.GetSpinMultiplicity() - bond_to_add)
             end_atom.SetSpinMultiplicity(end_atom.GetSpinMultiplicity() - bond_to_add)
+            assign_charge_radical_for_atom(begin_atom)
+            assign_charge_radical_for_atom(end_atom)
             if bond_to_add > 0:
                 hit = True
     return omol, hit
@@ -430,6 +432,39 @@ def clean_resonances_15(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     return omol, hit
 
 
+def clean_resonances_16(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    obmol = cast(ob.OBMol, omol.OBMol)
+    res: List[Tuple[int, int, int, int, int]] = list(smarts.CLEAN_RESONANCE_16.findall(omol))
+    hit = False
+    while len(res):
+        idxs = res.pop(0)
+        obatom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        obatom5 = cast(ob.OBAtom, obmol.GetAtom(idxs[4]))
+        obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
+        obbond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
+        obbond4 = cast(ob.OBBond, obmol.GetBond(idxs[3], idxs[4]))
+
+        if (
+            obatom1.GetFormalCharge() == -1
+            and obatom1.GetSpinMultiplicity() == 0
+            and obatom5.GetFormalCharge() == 1
+            and obatom5.GetSpinMultiplicity() == 0
+            and obbond1.GetBondOrder() == 1
+            and obbond2.GetBondOrder() == 2
+            and obbond3.GetBondOrder() == 1
+            and obbond4.GetBondOrder() == 2
+        ):
+            obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
+            obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
+            obbond3.SetBondOrder(obbond3.GetBondOrder() + 1)
+            obbond4.SetBondOrder(obbond4.GetBondOrder() - 1)
+            obatom1.SetFormalCharge(obatom1.GetFormalCharge() + 1)
+            obatom5.SetFormalCharge(obatom5.GetFormalCharge() - 1)
+            hit = True
+    return omol, hit
+
+
 def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     """Run the ordered resonance normalization rule set after candidate generation."""
 
@@ -467,6 +502,8 @@ def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     omol, stage_hit = clean_resonances_14(omol)
     hit = stage_hit or hit
     omol, stage_hit = clean_resonances_15(omol)
+    hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_16(omol)
     hit = stage_hit or hit
     return omol, hit
 

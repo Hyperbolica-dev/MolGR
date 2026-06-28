@@ -258,6 +258,11 @@ namespace molgr
                         get_int("organic_max_conjugated_component_size"),
                         get_int("organic_conjugated_atom_count"),
                         get_int("organic_conjugated_bond_count"),
+                        get_int("organic_formal_charge_absolute_sum"),
+                        get_double("organic_conjugation_charge_penalty"),
+                        get_double("organic_adjusted_max_conjugated_component_size"),
+                        get_double("organic_adjusted_conjugated_atom_count"),
+                        get_double("organic_adjusted_conjugated_bond_count"),
                     });
                 }
                 return summaries;

@@ -41,6 +41,7 @@ namespace
         "Hg"};
 
     const std::map<int, double> kDonorFieldStrength = {
+        {1, 1.20},
         {6, 1.30},  {7, 1.00},  {8, 0.85},  {9, 0.65}, {15, 1.15},
         {16, 0.75}, {17, 0.55}, {35, 0.50}, {53, 0.45},
     };
@@ -57,6 +58,9 @@ namespace
         {"octahedral_like", 0.05},
     };
 
+    constexpr double kMetalHydrideCovalentToleranceAngstrom = 0.45;
+    constexpr double kMinMetalHydrideCutoffAngstrom = 1.25;
+
     Vector3 VectorFromAtoms(OpenBabel::OBAtom &metal_atom, OpenBabel::OBAtom &donor_atom)
     {
         return {
@@ -72,6 +76,33 @@ namespace
             std::get<0>(vector) * std::get<0>(vector) +
             std::get<1>(vector) * std::get<1>(vector) +
             std::get<2>(vector) * std::get<2>(vector));
+    }
+
+    double ClampedCovalentRadius(int atomic_num)
+    {
+        const double value = OpenBabel::OBElements::GetCovalentRad(atomic_num);
+        if (value <= 0.0 || !std::isfinite(value))
+        {
+            return 0.0;
+        }
+        return value;
+    }
+
+    double MetalHydrideCutoffAngstrom(int metal_atomic_num)
+    {
+        return std::max(
+            kMinMetalHydrideCutoffAngstrom,
+            ClampedCovalentRadius(metal_atomic_num) + ClampedCovalentRadius(1) +
+                kMetalHydrideCovalentToleranceAngstrom);
+    }
+
+    bool IsDirectMetalHydride(
+        OpenBabel::OBAtom &metal_atom,
+        OpenBabel::OBAtom &donor_atom,
+        double distance)
+    {
+        return static_cast<int>(donor_atom.GetAtomicNum()) == 1 &&
+               distance <= MetalHydrideCutoffAngstrom(static_cast<int>(metal_atom.GetAtomicNum()));
     }
 
     Vector3 Cross(const Vector3 &lhs, const Vector3 &rhs)
@@ -163,14 +194,17 @@ namespace
                 continue;
             }
             const int atomic_num = static_cast<int>(neighbor.GetAtomicNum());
-            if (atomic_num <= 1)
-            {
-                continue;
-            }
 
             const Vector3 vector = VectorFromAtoms(metal_atom, neighbor);
             const double distance = VectorNorm(vector);
-            if (distance > config.coordination_cutoff_angstrom)
+            if (atomic_num <= 1)
+            {
+                if (!IsDirectMetalHydride(metal_atom, neighbor, distance))
+                {
+                    continue;
+                }
+            }
+            else if (distance > config.coordination_cutoff_angstrom)
             {
                 continue;
             }
