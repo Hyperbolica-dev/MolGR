@@ -25,12 +25,15 @@ GNU General Public License for more details.
 #include "molgr/compat/openbabel_iter.h"
 #include <openbabel/generic.h>
 #include <openbabel/bond.h>
-#include <openbabel/parsmart.h>
 
+#include "molgr/vendor/openbabel_threading.h"
+
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
-#include <mutex>
+#include <optional>
+#include <stdexcept>
 #include <unordered_map>
 
 #include "molgr/utils/lru_cache.h"
@@ -58,6 +61,32 @@ namespace
     std::string atom_type;
   };
 
+  struct MolgrUffAtomPredicate
+  {
+    enum class Aromaticity
+    {
+      Any,
+      Aromatic,
+      Aliphatic,
+    };
+
+    int atomic_num = -1;
+    Aromaticity aromaticity = Aromaticity::Any;
+    std::optional<int> explicit_degree;
+    std::optional<int> total_h_count;
+    std::optional<int> ring_size;
+    std::optional<int> formal_charge;
+    std::optional<int> hybridization;
+  };
+
+  struct MolgrCompiledUffAtomTypeRule
+  {
+    std::string smarts;
+    std::string atom_type;
+    MolgrUffAtomPredicate atom;
+    std::optional<MolgrUffAtomPredicate> default_bond_neighbor;
+  };
+
   struct MolgrUffSharedData
   {
     bool loaded = false;
@@ -66,11 +95,585 @@ namespace
     std::vector<MolgrUffAtomTypeRule> atom_type_rules;
   };
 
-  struct MolgrCompiledUffAtomTypeRule
+  bool ConsumeChar(const std::string &text, std::size_t &pos, char expected)
   {
-    std::unique_ptr<OpenBabel::OBSmartsPattern> pattern;
-    std::string atom_type;
-  };
+    if (pos < text.size() && text[pos] == expected) {
+      ++pos;
+      return true;
+    }
+    return false;
+  }
+
+  std::optional<int> ConsumeUnsignedInt(const std::string &text, std::size_t &pos)
+  {
+    if (pos >= text.size() || !std::isdigit(static_cast<unsigned char>(text[pos]))) {
+      return std::nullopt;
+    }
+    int value = 0;
+    while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos]))) {
+      value = value * 10 + (text[pos] - '0');
+      ++pos;
+    }
+    return value;
+  }
+
+  bool ConsumeAtomicNumberPrimitive(
+      const std::string &text,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (!ConsumeChar(text, pos, '#')) {
+      return false;
+    }
+    std::optional<int> atomic_num = ConsumeUnsignedInt(text, pos);
+    if (!atomic_num.has_value()) {
+      return false;
+    }
+    predicate.atomic_num = *atomic_num;
+    return true;
+  }
+
+  bool ConsumeElementPrimitive(
+      const std::string &text,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (pos >= text.size()) {
+      return false;
+    }
+
+    switch (text[pos]) {
+    case 'B':
+      ++pos;
+      predicate.atomic_num = 5;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aliphatic;
+      return true;
+    case 'C':
+      ++pos;
+      predicate.atomic_num = 6;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aliphatic;
+      return true;
+    case 'N':
+      ++pos;
+      predicate.atomic_num = 7;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aliphatic;
+      return true;
+    case 'O':
+      ++pos;
+      predicate.atomic_num = 8;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aliphatic;
+      return true;
+    case 'S':
+      ++pos;
+      predicate.atomic_num = 16;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aliphatic;
+      return true;
+    case 'c':
+      ++pos;
+      predicate.atomic_num = 6;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aromatic;
+      return true;
+    case 'n':
+      ++pos;
+      predicate.atomic_num = 7;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aromatic;
+      return true;
+    case 'o':
+      ++pos;
+      predicate.atomic_num = 8;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aromatic;
+      return true;
+    case 's':
+      ++pos;
+      predicate.atomic_num = 16;
+      predicate.aromaticity = MolgrUffAtomPredicate::Aromaticity::Aromatic;
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  bool ConsumeFormalChargePrimitive(
+      const std::string &text,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (pos >= text.size() || (text[pos] != '+' && text[pos] != '-')) {
+      return false;
+    }
+    const int sign = text[pos] == '-' ? -1 : 1;
+    ++pos;
+    std::optional<int> magnitude = ConsumeUnsignedInt(text, pos);
+    predicate.formal_charge = sign * magnitude.value_or(1);
+    return true;
+  }
+
+  bool ConsumeAtomPrimitive(
+      const std::string &text,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (pos >= text.size()) {
+      return false;
+    }
+
+    if (text[pos] == '#') {
+      return ConsumeAtomicNumberPrimitive(text, pos, predicate);
+    }
+    if (text[pos] == '+' || text[pos] == '-') {
+      return ConsumeFormalChargePrimitive(text, pos, predicate);
+    }
+    if (ConsumeElementPrimitive(text, pos, predicate)) {
+      return true;
+    }
+
+    switch (text[pos]) {
+    case 'D': {
+      ++pos;
+      std::optional<int> degree = ConsumeUnsignedInt(text, pos);
+      predicate.explicit_degree = degree.value_or(1);
+      return true;
+    }
+    case 'H': {
+      ++pos;
+      std::optional<int> total_h_count = ConsumeUnsignedInt(text, pos);
+      predicate.total_h_count = total_h_count.value_or(1);
+      return true;
+    }
+    case 'r': {
+      ++pos;
+      std::optional<int> ring_size = ConsumeUnsignedInt(text, pos);
+      if (!ring_size.has_value()) {
+        return false;
+      }
+      predicate.ring_size = *ring_size;
+      return true;
+    }
+    case '^': {
+      ++pos;
+      std::optional<int> hybridization = ConsumeUnsignedInt(text, pos);
+      predicate.hybridization = hybridization.value_or(1);
+      return true;
+    }
+    default:
+      return false;
+    }
+  }
+
+  bool ConsumePredicateBody(
+      const std::string &body,
+      MolgrUffAtomPredicate &predicate)
+  {
+    std::size_t pos = 0;
+    while (pos < body.size()) {
+      if (!ConsumeAtomPrimitive(body, pos, predicate)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool ParseBracketAtomPredicate(
+      const std::string &smarts,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (!ConsumeChar(smarts, pos, '[')) {
+      return false;
+    }
+    const std::size_t body_start = pos;
+    while (pos < smarts.size() && smarts[pos] != ']') {
+      ++pos;
+    }
+    if (pos >= smarts.size()) {
+      return false;
+    }
+    const std::string body = smarts.substr(body_start, pos - body_start);
+    ++pos;
+    return ConsumePredicateBody(body, predicate);
+  }
+
+  bool ParseBareAtomPredicate(
+      const std::string &smarts,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    return ConsumeElementPrimitive(smarts, pos, predicate);
+  }
+
+  bool ParseAtomPredicate(
+      const std::string &smarts,
+      std::size_t &pos,
+      MolgrUffAtomPredicate &predicate)
+  {
+    if (pos < smarts.size() && smarts[pos] == '[') {
+      return ParseBracketAtomPredicate(smarts, pos, predicate);
+    }
+    return ParseBareAtomPredicate(smarts, pos, predicate);
+  }
+
+  MolgrCompiledUffAtomTypeRule CompileMolgrUffAtomTypeRule(
+      const MolgrUffAtomTypeRule &rule)
+  {
+    MolgrCompiledUffAtomTypeRule compiled;
+    compiled.smarts = rule.smarts;
+    compiled.atom_type = rule.atom_type;
+
+    std::size_t pos = 0;
+    if (!ParseAtomPredicate(rule.smarts, pos, compiled.atom) ||
+        compiled.atom.atomic_num < 0) {
+      throw std::runtime_error("Unsupported UFF atom-typing SMARTS: " + rule.smarts);
+    }
+
+    if (pos < rule.smarts.size()) {
+      MolgrUffAtomPredicate neighbor;
+      if (!ParseAtomPredicate(rule.smarts, pos, neighbor) ||
+          neighbor.atomic_num < 0 ||
+          pos != rule.smarts.size()) {
+        throw std::runtime_error("Unsupported UFF atom-typing SMARTS: " + rule.smarts);
+      }
+      compiled.default_bond_neighbor = neighbor;
+    }
+
+    return compiled;
+  }
+
+  bool HasSimplePathWithExactLength(
+      OpenBabel::OBAtom &current,
+      int target_idx,
+      int remaining_edges,
+      int blocked_atom_idx,
+      std::vector<unsigned char> &visited)
+  {
+    const int current_idx = static_cast<int>(current.GetIdx());
+    if (remaining_edges == 0) {
+      return current_idx == target_idx;
+    }
+    if (current_idx == target_idx) {
+      return false;
+    }
+
+    visited[static_cast<std::size_t>(current_idx)] = 1;
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBAtom *neighbor = current.BeginNbrAtom(bond_iter);
+         neighbor != nullptr;
+         neighbor = current.NextNbrAtom(bond_iter)) {
+      const int neighbor_idx = static_cast<int>(neighbor->GetIdx());
+      if (neighbor_idx == blocked_atom_idx) {
+        continue;
+      }
+      if (neighbor_idx == target_idx && remaining_edges == 1) {
+        visited[static_cast<std::size_t>(current_idx)] = 0;
+        return true;
+      }
+      if (neighbor_idx < 0 ||
+          static_cast<std::size_t>(neighbor_idx) >= visited.size() ||
+          visited[static_cast<std::size_t>(neighbor_idx)] != 0) {
+        continue;
+      }
+      if (HasSimplePathWithExactLength(
+              *neighbor,
+              target_idx,
+              remaining_edges - 1,
+              blocked_atom_idx,
+              visited)) {
+        visited[static_cast<std::size_t>(current_idx)] = 0;
+        return true;
+      }
+    }
+    visited[static_cast<std::size_t>(current_idx)] = 0;
+    return false;
+  }
+
+  bool RingSizeMatchesWithoutLazySssr(OpenBabel::OBAtom &atom, int ring_size)
+  {
+    OpenBabel::OBMol *mol = atom.GetParent();
+    if (mol == nullptr || ring_size < 3) {
+      return false;
+    }
+
+    std::vector<OpenBabel::OBAtom*> neighbors;
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBAtom *neighbor = atom.BeginNbrAtom(bond_iter);
+         neighbor != nullptr;
+         neighbor = atom.NextNbrAtom(bond_iter)) {
+      neighbors.push_back(neighbor);
+    }
+
+    const int atom_idx = static_cast<int>(atom.GetIdx());
+    const int path_edges = ring_size - 2;
+    for (std::size_t first = 0; first < neighbors.size(); ++first) {
+      for (std::size_t second = first + 1; second < neighbors.size(); ++second) {
+        std::vector<unsigned char> visited(
+            static_cast<std::size_t>(mol->NumAtoms()) + 1,
+            0);
+        visited[static_cast<std::size_t>(atom_idx)] = 1;
+        if (HasSimplePathWithExactLength(
+                *neighbors[first],
+                static_cast<int>(neighbors[second]->GetIdx()),
+                path_edges,
+                atom_idx,
+                visited)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  int ExplicitValenceWithoutLazyPerception(const OpenBabel::OBAtom &atom)
+  {
+    int valence = 0;
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBBond *bond =
+             const_cast<OpenBabel::OBAtom &>(atom).BeginBond(bond_iter);
+         bond != nullptr;
+         bond = const_cast<OpenBabel::OBAtom &>(atom).NextBond(bond_iter)) {
+      valence += bond->GetBondOrder();
+    }
+    return valence;
+  }
+
+  int TotalHydrogenCountWithoutLazyPerception(const OpenBabel::OBAtom &atom)
+  {
+    int hydrogen_count = atom.GetImplicitHCount();
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBAtom *neighbor =
+             const_cast<OpenBabel::OBAtom &>(atom).BeginNbrAtom(bond_iter);
+         neighbor != nullptr;
+         neighbor = const_cast<OpenBabel::OBAtom &>(atom).NextNbrAtom(bond_iter)) {
+      if (neighbor->GetAtomicNum() == OpenBabel::OBElements::Hydrogen) {
+        ++hydrogen_count;
+      }
+    }
+    return hydrogen_count;
+  }
+
+  bool HasNeighborThroughDefaultSmartsBond(
+      OpenBabel::OBAtom &atom,
+      const MolgrUffAtomPredicate &neighbor_predicate);
+
+  bool HasDoubleBondToAny(OpenBabel::OBAtom &atom)
+  {
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBBond *bond = atom.BeginBond(bond_iter);
+         bond != nullptr;
+         bond = atom.NextBond(bond_iter)) {
+      if (bond->GetBondOrder() == 2 && !bond->IsAromatic()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool HasTripleBondToAny(OpenBabel::OBAtom &atom)
+  {
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBBond *bond = atom.BeginBond(bond_iter);
+         bond != nullptr;
+         bond = atom.NextBond(bond_iter)) {
+      if (bond->GetBondOrder() == 3) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int MolgrUffSubsetHybridization(OpenBabel::OBAtom &atom)
+  {
+    const unsigned int perceived_hybridization = atom.GetHyb();
+    if (perceived_hybridization != 0) {
+      return static_cast<int>(perceived_hybridization);
+    }
+
+    const int atomic_num = static_cast<int>(atom.GetAtomicNum());
+    const int degree = static_cast<int>(atom.GetExplicitDegree());
+    const int total_valence =
+        ExplicitValenceWithoutLazyPerception(atom) + atom.GetImplicitHCount();
+
+    if (degree == 4) {
+      return 3;
+    }
+    if (degree == 5) {
+      return 5;
+    }
+    if (degree == 6) {
+      return 6;
+    }
+
+    const bool is_aromatic = molgr::vendor::openbabel_threading::AtomIsAromatic(atom);
+    if (atomic_num == OpenBabel::OBElements::Carbon) {
+      if (HasTripleBondToAny(atom)) {
+        return 1;
+      }
+      if (HasDoubleBondToAny(atom) || is_aromatic) {
+        return 2;
+      }
+      return 3;
+    }
+
+    if (atomic_num == OpenBabel::OBElements::Nitrogen) {
+      if (HasTripleBondToAny(atom)) {
+        return 1;
+      }
+      if (HasDoubleBondToAny(atom) || is_aromatic) {
+        return 2;
+      }
+      return 3;
+    }
+
+    if (atomic_num == OpenBabel::OBElements::Oxygen) {
+      if (HasTripleBondToAny(atom)) {
+        return 1;
+      }
+      if (HasDoubleBondToAny(atom) || is_aromatic) {
+        return 2;
+      }
+      return 3;
+    }
+
+    if (atomic_num == OpenBabel::OBElements::Sulfur) {
+      if (degree == 6) {
+        return 6;
+      }
+      if (HasDoubleBondToAny(atom) || is_aromatic) {
+        return 2;
+      }
+      return 3;
+    }
+
+    if (atomic_num == OpenBabel::OBElements::Boron) {
+      return degree == 4 ? 3 : 2;
+    }
+    if (atomic_num == OpenBabel::OBElements::Phosphorus) {
+      if (degree == 5 || total_valence == 5) {
+        return 5;
+      }
+      if (degree == 1 && HasDoubleBondToAny(atom)) {
+        return 2;
+      }
+      return 3;
+    }
+
+    switch (atomic_num) {
+    case OpenBabel::OBElements::Beryllium:
+    case OpenBabel::OBElements::Magnesium:
+    case OpenBabel::OBElements::Calcium:
+    case OpenBabel::OBElements::Strontium:
+    case OpenBabel::OBElements::Barium:
+    case OpenBabel::OBElements::Radium:
+      return 1;
+    case OpenBabel::OBElements::Aluminium:
+    case OpenBabel::OBElements::Gallium:
+    case OpenBabel::OBElements::Indium:
+    case OpenBabel::OBElements::Thallium:
+      return degree == 4 ? 3 : 2;
+    case OpenBabel::OBElements::Silicon:
+    case OpenBabel::OBElements::Lead:
+    case OpenBabel::OBElements::Germanium:
+    case OpenBabel::OBElements::Tin:
+    case OpenBabel::OBElements::Selenium:
+    case OpenBabel::OBElements::Tellurium:
+    case OpenBabel::OBElements::Polonium:
+      return 3;
+    case OpenBabel::OBElements::Arsenic:
+    case OpenBabel::OBElements::Antimony:
+      return degree == 3 ? 3 : (degree == 5 ? 5 : degree);
+    case OpenBabel::OBElements::Bismuth:
+      if (degree == 3) {
+        return 3;
+      }
+      if (degree == 5) {
+        return 6;
+      }
+      return degree;
+    default:
+      if (degree <= 2) {
+        return 1;
+      }
+      if (degree == 3) {
+        return 2;
+      }
+      if (degree == 4) {
+        return 3;
+      }
+      return degree;
+    }
+  }
+
+  bool AtomMatchesUffPredicate(
+      OpenBabel::OBAtom &atom,
+      const MolgrUffAtomPredicate &predicate)
+  {
+    if (predicate.atomic_num >= 0 &&
+        static_cast<int>(atom.GetAtomicNum()) != predicate.atomic_num) {
+      return false;
+    }
+    if (predicate.aromaticity == MolgrUffAtomPredicate::Aromaticity::Aromatic &&
+        !molgr::vendor::openbabel_threading::AtomIsAromatic(atom)) {
+      return false;
+    }
+    if (predicate.aromaticity == MolgrUffAtomPredicate::Aromaticity::Aliphatic &&
+        molgr::vendor::openbabel_threading::AtomIsAromatic(atom)) {
+      return false;
+    }
+    if (predicate.explicit_degree.has_value() &&
+        static_cast<int>(atom.GetExplicitDegree()) != *predicate.explicit_degree) {
+      return false;
+    }
+    if (predicate.total_h_count.has_value() &&
+        TotalHydrogenCountWithoutLazyPerception(atom) != *predicate.total_h_count) {
+      return false;
+    }
+    if (predicate.ring_size.has_value() &&
+        !RingSizeMatchesWithoutLazySssr(atom, *predicate.ring_size)) {
+      return false;
+    }
+    if (predicate.formal_charge.has_value() &&
+        atom.GetFormalCharge() != *predicate.formal_charge) {
+      return false;
+    }
+    if (predicate.hybridization.has_value() &&
+        MolgrUffSubsetHybridization(atom) != *predicate.hybridization) {
+      return false;
+    }
+    return true;
+  }
+
+  bool HasNeighborThroughDefaultSmartsBond(
+      OpenBabel::OBAtom &atom,
+      const MolgrUffAtomPredicate &neighbor_predicate)
+  {
+    OpenBabel::OBBondIterator bond_iter;
+    for (OpenBabel::OBBond *bond = atom.BeginBond(bond_iter);
+         bond != nullptr;
+         bond = atom.NextBond(bond_iter)) {
+      const bool default_bond_matches =
+          bond->GetBondOrder() == 1 ||
+          molgr::vendor::openbabel_threading::BondIsAromatic(*bond);
+      if (!default_bond_matches) {
+        continue;
+      }
+      OpenBabel::OBAtom *neighbor = bond->GetNbrAtom(&atom);
+      if (neighbor != nullptr && AtomMatchesUffPredicate(*neighbor, neighbor_predicate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool AtomMatchesUffRule(
+      OpenBabel::OBAtom &atom,
+      const MolgrCompiledUffAtomTypeRule &rule)
+  {
+    if (!AtomMatchesUffPredicate(atom, rule.atom)) {
+      return false;
+    }
+    if (!rule.default_bond_neighbor.has_value()) {
+      return true;
+    }
+    return HasNeighborThroughDefaultSmartsBond(atom, *rule.default_bond_neighbor);
+  }
 
   MolgrUffSharedData LoadMolgrUffSharedData()
   {
@@ -162,39 +765,21 @@ namespace
     return data;
   }
 
-  bool GetThreadLocalMolgrUffAtomTypeRules(
-      std::vector<MolgrCompiledUffAtomTypeRule> *&compiled_rules)
+  bool GetMolgrCompiledUffAtomTypeRules(
+      const std::vector<MolgrCompiledUffAtomTypeRule> *&compiled_rules)
   {
-    thread_local auto *rules = new std::vector<MolgrCompiledUffAtomTypeRule>();
-    thread_local bool initialized = false;
-    thread_local bool init_ok = false;
-    if (!initialized) {
-      initialized = true;
-      init_ok = true;
+    static const std::vector<MolgrCompiledUffAtomTypeRule> *rules = []()
+    {
       const auto &shared = GetMolgrUffSharedData();
-      rules->clear();
-      rules->reserve(shared.atom_type_rules.size());
+      auto *compiled = new std::vector<MolgrCompiledUffAtomTypeRule>();
+      compiled->reserve(shared.atom_type_rules.size());
       for (const auto &rule : shared.atom_type_rules) {
-        auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
-        if (!pattern->Init(rule.smarts.c_str())) {
-          init_ok = false;
-          rules->clear();
-          break;
-        }
-        rules->push_back(MolgrCompiledUffAtomTypeRule{
-            std::move(pattern),
-            rule.atom_type,
-        });
+        compiled->push_back(CompileMolgrUffAtomTypeRule(rule));
       }
-    }
+      return compiled;
+    }();
     compiled_rules = rules;
-    return init_ok;
-  }
-
-  std::mutex& MolgrUffAtomTypingMutex()
-  {
-    static std::mutex mutex;
-    return mutex;
+    return compiled_rules != nullptr && !compiled_rules->empty();
   }
 
   molgr::utils::StringLruCache<std::vector<std::string>>& MolgrUffAtomTypeAssignmentCache()
@@ -873,6 +1458,17 @@ namespace OpenBabel {
     atom_typing_cache_key_ = std::move(cache_key);
   }
 
+  std::vector<std::string> MolgrForceFieldUFF::DebugAtomTypes() const
+  {
+    std::vector<std::string> atom_types;
+    OpenBabel::OBMol &mutable_mol = const_cast<OpenBabel::OBMol &>(_mol);
+    atom_types.reserve(static_cast<std::size_t>(mutable_mol.NumAtoms()));
+    FOR_ATOMS_OF_MOL(atom_iter, mutable_mol) {
+      atom_types.emplace_back(atom_iter->GetType());
+    }
+    return atom_types;
+  }
+
   bool MolgrForceFieldUFF::Setup(OBMol &mol)
   {
     ActivateThreadLocalInstance();
@@ -1163,7 +1759,7 @@ namespace OpenBabel {
     const auto normalized_bond_order = [](OBBond *bond_ptr)
     {
       double normalized = bond_ptr->GetBondOrder();
-      if (bond_ptr->IsAromatic())
+      if (molgr::vendor::openbabel_threading::BondIsAromatic(*bond_ptr))
         normalized = 1.5;
       if (bond_ptr->IsAmide())
         normalized = 1.41;
@@ -1684,7 +2280,7 @@ namespace OpenBabel {
 
       OBBond *bc = _mol.GetBond(b, c);
       torsiontype = bc->GetBondOrder();
-      if (bc->IsAromatic())
+      if (molgr::vendor::openbabel_threading::BondIsAromatic(*bc))
         torsiontype = 1.5;
       if (bc->IsAmide())
         torsiontype = 1.41;
@@ -2086,9 +2682,6 @@ namespace OpenBabel {
 
   bool MolgrForceFieldUFF::SetTypes()
   {
-    vector<vector<int> > _mlist; //!< match list for atom typing
-    vector<vector<int> >::iterator j;
-
     _mol.SetAtomTypesPerceived();
 
     if (use_atom_typing_cache_ && !atom_typing_cache_key_.empty()) {
@@ -2099,27 +2692,16 @@ namespace OpenBabel {
       }
     }
 
-    std::lock_guard<std::mutex> lock(MolgrUffAtomTypingMutex());
-
-    if (use_atom_typing_cache_ && !atom_typing_cache_key_.empty()) {
-      std::vector<std::string> cached_atom_types;
-      if (MolgrUffAtomTypeAssignmentCache().Get(atom_typing_cache_key_, cached_atom_types) &&
-          ApplyMolgrUffAtomTypes(_mol, cached_atom_types)) {
-        return true;
-      }
-    }
-
-    std::vector<MolgrCompiledUffAtomTypeRule> *compiled_rules = nullptr;
-    if (!GetThreadLocalMolgrUffAtomTypeRules(compiled_rules) || compiled_rules == nullptr) {
-      obErrorLog.ThrowError(__FUNCTION__, "Could not initialize cached UFF atom type rules", obError);
+    const std::vector<MolgrCompiledUffAtomTypeRule> *compiled_rules = nullptr;
+    if (!GetMolgrCompiledUffAtomTypeRules(compiled_rules) || compiled_rules == nullptr) {
+      obErrorLog.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
       return false;
     }
 
     for (const auto &rule : *compiled_rules) {
-      if (rule.pattern->Match(_mol)) {
-        _mlist = rule.pattern->GetMapList();
-        for (j = _mlist.begin();j != _mlist.end();++j) {
-          _mol.GetAtom((*j)[0])->SetType(rule.atom_type.c_str());
+      FOR_ATOMS_OF_MOL(atom_iter, _mol) {
+        if (AtomMatchesUffRule(*atom_iter, rule)) {
+          atom_iter->SetType(rule.atom_type.c_str());
         }
       }
     }
@@ -2161,7 +2743,9 @@ namespace OpenBabel {
 
       FOR_ATOMS_OF_MOL (a, _mol) {
         snprintf(_logbuf, BUFF_SIZE, "%d\t%s\t%s\n", a->GetIdx(), a->GetType(),
-	  (a->IsInRing() ? (a->IsAromatic() ? "AR" : "AL") : "NO"));
+	  (a->IsInRing()
+       ? (molgr::vendor::openbabel_threading::AtomIsAromatic(*a) ? "AR" : "AL")
+       : "NO"));
         OBFFLog(_logbuf);
       }
 

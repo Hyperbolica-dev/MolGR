@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.fallback.utils.organic_topology import compute_organic_topology_metrics
 
 
@@ -90,7 +90,7 @@ def test_aromatic_stability_uses_configured_scale_factors() -> None:
     pybel = _require_pybel()
     pyridine = pybel.readstring("smi", "n1ccccc1")
     config = replace(
-        make_default_config().organic_topology,
+        MolGRConfig().organic_topology,
         aromatic_stability_ring_size_6_factor=0.50,
         aromatic_stability_hetero_atom_penalty=0.25,
         aromatic_stability_other_ring_max_score=0.99,

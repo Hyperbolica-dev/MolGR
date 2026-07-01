@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
@@ -15,23 +14,26 @@ ReconstructionFailurePolicy = Literal[
 ]
 
 
-@dataclass(frozen=True)
+@dataclass
 class ResonanceConfig:
     max_depth: int = 2
     limited_discrepancy_max_discrepancy: int = 1
     traversal_score: ResonanceTraversalScore = "uff_lite_gain"
 
 
-@dataclass(frozen=True)
+@dataclass
 class CppBackendConfig:
     max_threads: Optional[int] = None
     enable_target_bucket_parallelism: bool = True
     enable_candidate_scoring_parallelism: bool = False
-    enable_uff_atom_typing_cache: bool = True
+    enable_uff_atom_typing_cache: bool = False
+    enable_target_bucket_score_bundle_preheat: bool = True
+    target_bucket_parallel_threshold: int = 1
+    target_bucket_parallel_max_threads: Optional[int] = None
     candidate_score_parallel_threshold: int = 32
 
 
-@dataclass(frozen=True)
+@dataclass
 class OrganicTopologyConfig:
     aromatic_stability_benzene_score: float = 1.0
     aromatic_stability_other_ring_max_score: float = 0.99
@@ -46,7 +48,7 @@ class OrganicTopologyConfig:
     aromatic_stability_min_radical_factor: float = 0.50
 
 
-@dataclass(frozen=True)
+@dataclass
 class MetalScoringConfig:
     open_shell_multimetal_state_penalty_window: float = 10.0
     open_shell_multimetal_min_state_options: int = 6
@@ -59,7 +61,7 @@ class MetalScoringConfig:
     metal_access_clearance_angstrom: float = 0.0
 
 
-@dataclass(frozen=True)
+@dataclass
 class MetalRadicalInferenceConfig:
     coordination_cutoff_angstrom: float = 3.2
     max_considered_donors: int = 6
@@ -70,12 +72,12 @@ class MetalRadicalInferenceConfig:
     weak_field_threshold: float = 0.75
 
 
-@dataclass(frozen=True)
+@dataclass
 class PythonInterfaceConfig:
     reconstruction_failure_policy: ReconstructionFailurePolicy = "raise"
 
 
-@dataclass(frozen=True)
+@dataclass
 class MolGRConfig:
     resonance: ResonanceConfig = field(default_factory=ResonanceConfig)
     cpp_backend: CppBackendConfig = field(default_factory=CppBackendConfig)
@@ -87,54 +89,11 @@ class MolGRConfig:
     interface: PythonInterfaceConfig = field(default_factory=PythonInterfaceConfig)
 
 
-def make_default_config() -> MolGRConfig:
-    return MolGRConfig()
-
-
-DEFAULT_MOLGR_CONFIG = make_default_config()
-_ACTIVE_MOLGR_CONFIG = make_default_config()
-
-
-def _sync_cpp_backend_default_config(config: MolGRConfig) -> None:
-    core = sys.modules.get("molgr._core")
-    if core is None:
-        return
-    set_default_config = getattr(core, "set_default_config", None)
-    if set_default_config is None:
-        return
-    set_default_config(config)
-
-
-def get_config() -> MolGRConfig:
-    return _ACTIVE_MOLGR_CONFIG
-
-
-def set_config(config: MolGRConfig) -> None:
-    global _ACTIVE_MOLGR_CONFIG
-    _ACTIVE_MOLGR_CONFIG = config
-    _sync_cpp_backend_default_config(config)
-
-
-def reset_config() -> None:
-    global _ACTIVE_MOLGR_CONFIG
-    _ACTIVE_MOLGR_CONFIG = make_default_config()
-    _sync_cpp_backend_default_config(_ACTIVE_MOLGR_CONFIG)
-
-
-def resolve_config(config: Optional[MolGRConfig] = None) -> MolGRConfig:
-    return get_config() if config is None else config
-
-
-def sync_cpp_backend_default_config(config: Optional[MolGRConfig] = None) -> None:
-    _sync_cpp_backend_default_config(resolve_config(config))
-
-
-def is_default_config(config: Optional[MolGRConfig] = None) -> bool:
-    return resolve_config(config) == make_default_config()
+CONFIG = MolGRConfig()
 
 
 __all__ = [
-    "DEFAULT_MOLGR_CONFIG",
+    "CONFIG",
     "CppBackendConfig",
     "MetalRadicalInferenceConfig",
     "MetalScoringConfig",
@@ -144,11 +103,4 @@ __all__ = [
     "ReconstructionFailurePolicy",
     "ResonanceConfig",
     "ResonanceTraversalScore",
-    "get_config",
-    "is_default_config",
-    "make_default_config",
-    "reset_config",
-    "resolve_config",
-    "set_config",
-    "sync_cpp_backend_default_config",
 ]

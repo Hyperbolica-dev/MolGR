@@ -18,9 +18,12 @@
 #include "molgr/vendor/forcefielduff.h"
 
 #include <openbabel/obconversion.h>
+#include <openbabel/bond.h>
 #include "molgr/compat/openbabel_iter.h"
 
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
 #include <tuple>
@@ -39,6 +42,63 @@ namespace molgr
                     throw std::runtime_error("null OBMol pointer");
                 }
                 return reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+            }
+
+            py::tuple metal_state_signature(const molgr::metal::MetalAtomPosition &metal_state)
+            {
+                py::tuple item(8);
+                item[0] = metal_state.idx;
+                item[1] = metal_state.symbol;
+                item[2] = metal_state.element_idx;
+                item[3] = metal_state.valence;
+                item[4] = metal_state.radical_num;
+                item[5] = static_cast<long long>(std::llround(metal_state.position_x * 1000000.0));
+                item[6] = static_cast<long long>(std::llround(metal_state.position_y * 1000000.0));
+                item[7] = static_cast<long long>(std::llround(metal_state.position_z * 1000000.0));
+                return item;
+            }
+
+            py::list metal_state_choice_signature(
+                const std::vector<molgr::metal::MetalAtomPosition> &choice)
+            {
+                py::list out;
+                for (const auto &metal_state : choice)
+                {
+                    out.append(metal_state_signature(metal_state));
+                }
+                return out;
+            }
+
+            py::list metal_state_search_group_signature(
+                const molgr::metal::search::MetalStateChoiceGroup &group)
+            {
+                py::list out;
+                for (const auto &choice : group)
+                {
+                    out.append(metal_state_choice_signature(choice));
+                }
+                return out;
+            }
+
+            py::list metal_state_search_layer_signature(
+                const molgr::metal::search::MetalStateSearchLayer &layer)
+            {
+                py::list out;
+                for (const auto &group : layer)
+                {
+                    out.append(metal_state_search_group_signature(group));
+                }
+                return out;
+            }
+
+            py::list phase_history_signature(const std::vector<std::string> &phase_history)
+            {
+                py::list out;
+                for (const auto &phase : phase_history)
+                {
+                    out.append(phase);
+                }
+                return out;
             }
 
             std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
@@ -132,6 +192,106 @@ namespace molgr
                     py::call_guard<py::gil_scoped_release>());
 
                 ns.def(
+                    "debug_metal_search_summaries",
+                    [](const std::string &xyz_block,
+                       int total_charge,
+                       int total_radical_electrons,
+                       py::object config)
+                    {
+                        auto runtime_config = molgr::config::FromPython(config);
+                        py::dict out;
+                        const auto base_state = molgr::metal::preparation::PrepareMetalState(
+                            xyz_block,
+                            total_charge,
+                            total_radical_electrons,
+                            runtime_config);
+
+                        py::list available_states;
+                        for (const auto &state_options : base_state.available_valence_radical_states)
+                        {
+                            py::list state_options_out;
+                            for (const auto &metal_state : state_options)
+                            {
+                                state_options_out.append(metal_state_signature(metal_state));
+                            }
+                            available_states.append(std::move(state_options_out));
+                        }
+                        out["available_valence_radical_states"] = std::move(available_states);
+                        out["base_phase_history"] = phase_history_signature(base_state.phase_history);
+
+                        const auto state_search_groups =
+                            molgr::metal::search::BuildMetalStateSearchGroups(
+                                base_state.available_valence_radical_states,
+                                runtime_config);
+                        py::list state_search_groups_out;
+                        for (const auto &group : state_search_groups)
+                        {
+                            state_search_groups_out.append(metal_state_search_group_signature(group));
+                        }
+                        out["state_search_groups"] = std::move(state_search_groups_out);
+
+                        const auto layered_state_search_groups =
+                            molgr::metal::search::BuildLayeredMetalStateSearchGroups(
+                                state_search_groups,
+                                total_radical_electrons,
+                                runtime_config);
+                        py::list layers_out;
+                        py::list target_buckets_by_layer;
+                        for (const auto &layer : layered_state_search_groups)
+                        {
+                            layers_out.append(metal_state_search_layer_signature(layer));
+
+                            auto grouped_candidates =
+                                molgr::metal::search::GroupCandidatesByTargetDp(
+                                    base_state.phase_history,
+                                    layer,
+                                    total_charge,
+                                    total_radical_electrons,
+                                    runtime_config);
+                            py::list layer_buckets;
+                            for (const auto &target_entry : grouped_candidates)
+                            {
+                                py::dict bucket;
+                                bucket["target"] = py::make_tuple(
+                                    target_entry.first.no_metal_charge,
+                                    target_entry.first.no_metal_radicals);
+                                py::list candidates_out;
+                                for (const auto &candidate : target_entry.second)
+                                {
+                                    py::dict candidate_out;
+                                    candidate_out["combination_index"] =
+                                        molgr::metal::scoring::CandidateCombinationIndex(candidate);
+                                    candidate_out["no_metal_charge_target"] =
+                                        candidate.no_metal_charge_target;
+                                    candidate_out["no_metal_radical_target"] =
+                                        candidate.no_metal_radical_target;
+                                    candidate_out["metal_assignment_rank"] =
+                                        molgr::metal::scoring::MetadataDouble(
+                                            candidate,
+                                            "metal_assignment_rank");
+                                    candidate_out["metal_states"] =
+                                        metal_state_choice_signature(candidate.metal_states);
+                                    candidate_out["phase_history"] =
+                                        phase_history_signature(candidate.phase_history);
+                                    candidates_out.append(std::move(candidate_out));
+                                }
+                                bucket["candidates"] = std::move(candidates_out);
+                                layer_buckets.append(std::move(bucket));
+                            }
+                            target_buckets_by_layer.append(std::move(layer_buckets));
+                        }
+                        out["layered_state_search_groups"] = std::move(layers_out);
+                        out["target_buckets_by_layer"] = std::move(target_buckets_by_layer);
+                        return out;
+                    },
+                    "Return C++ metal-search groups, layers, and target buckets for parity debugging.",
+                    py::arg("xyz_block"),
+                    py::arg("total_charge") = 0,
+                    py::arg("total_radical_electrons") = 0,
+                    py::kw_only(),
+                    py::arg("config") = py::none());
+
+                ns.def(
                     "debug_scored_candidate_summaries",
                     [](const std::string &xyz_block,
                        int total_charge,
@@ -222,8 +382,8 @@ namespace molgr
                                                  : py::object(py::none());
                         py::list candidates_out;
                         auto selected_candidate =
-                            molgr::metal::scoring::SelectBestCandidate(
-                                selected_layer_candidates,
+                            molgr::metal::scoring::SelectBestCandidateInPlace(
+                                &selected_layer_candidates,
                                 runtime_config);
                         const int selected_combination_index =
                             selected_candidate.has_value()
@@ -239,9 +399,111 @@ namespace molgr
                                 selected_combination_index;
                             item["no_metal_charge_target"] = candidate.no_metal_charge_target;
                             item["no_metal_radical_target"] = candidate.no_metal_radical_target;
+                            if (candidate.no_metal_state)
+                            {
+                                item["no_metal_smiles"] = molgr::reconstruct::SmilesFirstToken(
+                                    candidate.no_metal_state->Mol());
+                                item["no_metal_score_key"] = molgr::scoring::BuildScoreKey(
+                                    candidate.no_metal_state->Mol());
+                                item["no_metal_total_charge"] = candidate.no_metal_state->total_charge;
+                                item["no_metal_total_radical_electrons"] =
+                                    candidate.no_metal_state->total_radical_electrons;
+                                py::list atom_signature;
+                                OpenBabel::OBMol &no_metal_mol =
+                                    const_cast<OpenBabel::OBMol &>(candidate.no_metal_state->Mol());
+                                FOR_ATOMS_OF_MOL(atom_iter, no_metal_mol)
+                                {
+                                    py::tuple atom_item(7);
+                                    atom_item[0] = static_cast<int>(atom_iter->GetAtomicNum());
+                                    atom_item[1] = atom_iter->GetFormalCharge();
+                                    atom_item[2] = atom_iter->GetSpinMultiplicity();
+                                    atom_item[3] = static_cast<long long>(
+                                        std::llround(atom_iter->GetX() * 1000000.0));
+                                    atom_item[4] = static_cast<long long>(
+                                        std::llround(atom_iter->GetY() * 1000000.0));
+                                    atom_item[5] = static_cast<long long>(
+                                        std::llround(atom_iter->GetZ() * 1000000.0));
+                                    atom_item[6] = atom_iter->IsAromatic();
+                                    atom_signature.append(std::move(atom_item));
+                                }
+                                item["no_metal_atom_signature"] = std::move(atom_signature);
+
+                                std::vector<std::tuple<int, int, int, bool>> bond_signature;
+                                FOR_BONDS_OF_MOL(bond_iter, no_metal_mol)
+                                {
+                                    int begin_idx = bond_iter->GetBeginAtom()->GetIdx();
+                                    int end_idx = bond_iter->GetEndAtom()->GetIdx();
+                                    if (begin_idx > end_idx)
+                                    {
+                                        std::swap(begin_idx, end_idx);
+                                    }
+                                    bond_signature.emplace_back(
+                                        begin_idx,
+                                        end_idx,
+                                        bond_iter->GetBondOrder(),
+                                        bond_iter->IsAromatic());
+                                }
+                                std::sort(bond_signature.begin(), bond_signature.end());
+                                py::list bond_signature_out;
+                                for (const auto &bond_item_source : bond_signature)
+                                {
+                                    py::tuple bond_item(4);
+                                    bond_item[0] = std::get<0>(bond_item_source);
+                                    bond_item[1] = std::get<1>(bond_item_source);
+                                    bond_item[2] = std::get<2>(bond_item_source);
+                                    bond_item[3] = std::get<3>(bond_item_source);
+                                    bond_signature_out.append(std::move(bond_item));
+                                }
+                                item["no_metal_bond_signature"] = std::move(bond_signature_out);
+                            }
+                            else
+                            {
+                                item["no_metal_smiles"] = py::none();
+                                item["no_metal_score_key"] = py::none();
+                                item["no_metal_total_charge"] = py::none();
+                                item["no_metal_total_radical_electrons"] = py::none();
+                                item["no_metal_atom_signature"] = py::none();
+                                item["no_metal_bond_signature"] = py::none();
+                            }
                             item["score"] = candidate.score.has_value()
                                                 ? py::object(py::float_(*candidate.score))
                                                 : py::object(py::none());
+                            const auto selection_key_it = candidate.metadata.find("selection_key");
+                            if (selection_key_it == candidate.metadata.end())
+                            {
+                                item["selection_key"] = py::none();
+                            }
+                            else if (const auto *selection_key =
+                                         std::get_if<std::string>(&selection_key_it->second))
+                            {
+                                py::tuple parsed_selection_key(3);
+                                std::size_t first_comma = selection_key->find(',');
+                                std::size_t second_comma = first_comma == std::string::npos
+                                                               ? std::string::npos
+                                                               : selection_key->find(',', first_comma + 1);
+                                if (first_comma != std::string::npos && second_comma != std::string::npos)
+                                {
+                                    parsed_selection_key[0] =
+                                        std::strtod(selection_key->substr(0, first_comma).c_str(), nullptr);
+                                    parsed_selection_key[1] =
+                                        std::strtod(
+                                            selection_key
+                                                ->substr(first_comma + 1, second_comma - first_comma - 1)
+                                                .c_str(),
+                                            nullptr);
+                                    parsed_selection_key[2] =
+                                        std::atoi(selection_key->substr(second_comma + 1).c_str());
+                                    item["selection_key"] = std::move(parsed_selection_key);
+                                }
+                                else
+                                {
+                                    item["selection_key"] = *selection_key;
+                                }
+                            }
+                            else
+                            {
+                                item["selection_key"] = py::none();
+                            }
                             item["metal_assignment_rank"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "metal_assignment_rank");
                             item["organic_aromatic_atom_count"] =
@@ -258,6 +520,33 @@ namespace molgr
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_charge_localization_penalty");
                             item["organic_radical_localization_penalty"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_radical_localization_penalty");
+                            item["metal_discordance_structural_count"] =
+                                molgr::metal::scoring::MetadataDouble(candidate, "metal_discordance_structural_count");
+                            item["metal_discordance_count"] =
+                                molgr::metal::scoring::MetadataDouble(candidate, "metal_discordance_count");
+                            item["metal_discordance_aromatic_ring_deficit_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_aromatic_ring_deficit_count");
+                            item["metal_discordance_aromatic_stability_deficit"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "metal_discordance_aromatic_stability_deficit");
+                            const auto passes_filter_it =
+                                candidate.metadata.find("passes_metal_discordance_filter");
+                            if (passes_filter_it == candidate.metadata.end())
+                            {
+                                item["passes_metal_discordance_filter"] = py::none();
+                            }
+                            else if (const auto *passes_filter =
+                                         std::get_if<bool>(&passes_filter_it->second))
+                            {
+                                item["passes_metal_discordance_filter"] = *passes_filter;
+                            }
+                            else
+                            {
+                                item["passes_metal_discordance_filter"] = py::none();
+                            }
                             py::list metal_states;
                             for (const auto &metal_state : candidate.metal_states)
                             {
@@ -684,7 +973,18 @@ namespace molgr
                     const auto timing = molgr::pipeline::perf::GetRunTimingBreakdown();
                     py::dict out;
                     out["no_metal_pipeline_ms"] = timing.no_metal_pipeline_ms;
+                    out["no_metal_linear_pipeline_ms"] = timing.no_metal_linear_pipeline_ms;
+                    out["no_metal_validate_ms"] = timing.no_metal_validate_ms;
                     out["resonance_handling_enumeration_ms"] = timing.resonance_handling_enumeration_ms;
+                    out["resonance_walk_ms"] = timing.resonance_walk_ms;
+                    out["resonance_prepare_ms"] = timing.resonance_prepare_ms;
+                    out["resonance_dedup_score_ms"] = timing.resonance_dedup_score_ms;
+                    out["resonance_score_ms"] = timing.resonance_score_ms;
+                    out["resonance_topology_ms"] = timing.resonance_topology_ms;
+                    out["resonance_raw_candidates"] = timing.resonance_raw_candidates;
+                    out["resonance_prepared_candidates"] = timing.resonance_prepared_candidates;
+                    out["resonance_valid_candidates"] = timing.resonance_valid_candidates;
+                    out["resonance_dedup_candidates"] = timing.resonance_dedup_candidates;
                     out["metal_enumeration_combination_ms"] = timing.metal_enumeration_combination_ms;
                     out["force_field_total_ms"] = timing.force_field_total_ms;
                     out["force_field_cache_key_ms"] = timing.force_field_cache_key_ms;

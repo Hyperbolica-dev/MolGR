@@ -4,8 +4,10 @@
 #include "molgr/stages/eliminate.h"
 #include "molgr/state.h"
 #include "molgr/utils/consts.h"
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -67,7 +69,8 @@ namespace
         {
             return static_cast<double>(std::max(it->second, 1));
         }
-        if (bond.IsAromatic())
+        if (molgr::vendor::openbabel_threading::BondIsAromatic(
+                const_cast<OpenBabel::OBBond &>(bond)))
         {
             return 1.5;
         }
@@ -292,7 +295,8 @@ namespace
         const OpenBabel::OBBond &bond,
         const BondOrderOverrides &bond_order_overrides)
     {
-        if (bond.IsAromatic())
+        if (molgr::vendor::openbabel_threading::BondIsAromatic(
+                const_cast<OpenBabel::OBBond &>(bond)))
         {
             return 2;
         }
@@ -613,7 +617,8 @@ namespace molgr
                     atom.GetAtomicNum(),
                     atom.GetFormalCharge(),
                     atom.GetSpinMultiplicity(),
-                    atom.IsAromatic());
+                    molgr::vendor::openbabel_threading::AtomIsAromatic(
+                        const_cast<OpenBabel::OBAtom &>(atom)));
             }
 
             state_key.bond_keys.reserve(static_cast<std::size_t>(mutable_mol.NumBonds()));
@@ -629,7 +634,7 @@ namespace molgr
                     begin_idx,
                     end_idx,
                     bond_iter->GetBondOrder(),
-                    bond_iter->IsAromatic());
+                    molgr::vendor::openbabel_threading::BondIsAromatic(*bond_iter));
             }
             return state_key;
         }
@@ -703,7 +708,7 @@ namespace molgr
         {
             OpenBabel::OBMol &query_mol = const_cast<OpenBabel::OBMol &>(mol);
             const auto matches =
-                molgr::smarts::Match(query_mol, molgr::smarts::PatternId::RESONANCE_ONE_STEP);
+                molgr::smarts::FindAll(query_mol, molgr::smarts::PatternId::RESONANCE_ONE_STEP);
             std::vector<IndexedResonanceTraversalMove> result;
             result.reserve(matches.size());
 
@@ -744,7 +749,7 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const std::tuple<int, int, int> &idxs)
         {
-            OpenBabel::OBMol new_mol(mol);
+            OpenBabel::OBMol new_mol = molgr::utils::CloneMolTopologyOnly(mol);
             OpenBabel::OBAtom *atom1 = new_mol.GetAtom(std::get<0>(idxs));
             OpenBabel::OBAtom *atom3 = new_mol.GetAtom(std::get<2>(idxs));
             OpenBabel::OBBond *bond1 = new_mol.GetBond(std::get<0>(idxs), std::get<1>(idxs));
@@ -765,7 +770,8 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const std::tuple<int, int, int> &idxs)
         {
-            auto new_mol = std::make_shared<OpenBabel::OBMol>(mol);
+            auto new_mol = std::make_shared<OpenBabel::OBMol>(
+                molgr::utils::CloneMolTopologyOnly(mol));
             OpenBabel::OBAtom *atom1 = new_mol->GetAtom(std::get<0>(idxs));
             OpenBabel::OBAtom *atom3 = new_mol->GetAtom(std::get<2>(idxs));
             OpenBabel::OBBond *bond1 = new_mol->GetBond(std::get<0>(idxs), std::get<1>(idxs));
@@ -875,7 +881,8 @@ namespace molgr
             int charge)
         {
             auto machine = molgr::state::OmolStateMachine(
-                std::make_shared<OpenBabel::OBMol>(mol),
+                std::make_shared<OpenBabel::OBMol>(
+                    molgr::utils::CloneMolTopologyOnly(mol)),
                 charge);
             bool hit = false;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::Eliminate13Dipole) || hit;
@@ -884,7 +891,10 @@ namespace molgr
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanNeighborRadicals) || hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanResonances) || hit;
-            return std::make_tuple(OpenBabel::OBMol(*machine.omol), machine.given_charge, hit);
+            return std::make_tuple(
+                molgr::utils::CloneMolTopologyOnly(*machine.omol),
+                machine.given_charge,
+                hit);
         }
 
         std::pair<OpenBabel::OBMol, int> ProcessResonance(const OpenBabel::OBMol &mol, int charge)

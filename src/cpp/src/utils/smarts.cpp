@@ -7,6 +7,8 @@
  */
 #include "molgr/utils/smarts.h"
 
+#include "molgr/vendor/openbabel_threading.h"
+
 #include <openbabel/parsmart.h>
 
 #include <array>
@@ -86,21 +88,28 @@ namespace
         }
         return *compiled_patterns;
     }
+
 }
 
 namespace molgr
 {
     namespace smarts
     {
-        std::vector<std::vector<int>> Match(OpenBabel::OBMol &mol, PatternId pattern_id)
+        std::vector<std::vector<int>> FindAll(
+            OpenBabel::OBSmartsPattern &pattern,
+            OpenBabel::OBMol &mol)
+        {
+            molgr::vendor::openbabel_threading::PrepareForSmartsMatching(mol);
+            std::vector<std::vector<int>> matches;
+            pattern.Match(mol, matches, OpenBabel::OBSmartsPattern::AllUnique);
+            return matches;
+        }
+
+        std::vector<std::vector<int>> FindAll(OpenBabel::OBMol &mol, PatternId pattern_id)
         {
             OpenBabel::OBSmartsPattern &pattern =
                 *ThreadLocalPatterns().at(static_cast<std::size_t>(pattern_id));
-            if (pattern.Match(mol))
-            {
-                return pattern.GetMapList();
-            }
-            return {};
+            return FindAll(pattern, mol);
         }
     }
 }

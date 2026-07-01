@@ -37,7 +37,7 @@ namespace molgr
             std::vector<EneCandidate> candidates;
 
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_A);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_A);
                 for (const auto &idxs : matches)
                 {
                     OBBond *bond = mol.GetBond(idxs[1], idxs[2]);
@@ -54,7 +54,7 @@ namespace molgr
             }
 
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_B);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::BREAK_DEFORMED_ENE_B);
                 for (const auto &idxs : matches)
                 {
                     OBBond *bond = mol.GetBond(idxs[1], idxs[2]);
@@ -104,7 +104,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_MULTIPLE);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_MULTIPLE);
                 if (matches.empty())
                     break;
                 if (check_cond())
@@ -124,7 +124,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_CATION);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_CATION);
                 if (matches.empty())
                     break;
                 if (check_cond())
@@ -146,7 +146,7 @@ namespace molgr
             }
 
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_AROMATIC);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::BREAK_ONE_BOND_AROMATIC);
                 if (!matches.empty())
                 {
                     if (check_cond())

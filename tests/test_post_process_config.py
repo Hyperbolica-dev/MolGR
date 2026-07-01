@@ -11,7 +11,7 @@ pytest.importorskip("rdkit")
 
 from rdkit import Chem, RDLogger
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.utils.post_process import make_dative_bond
 
 
@@ -91,7 +91,7 @@ def _blocked_iron_alkene_pair() -> Chem.Mol:
 
 
 def test_make_dative_bond_uses_metal_coordination_tolerance_config() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     tight_config = replace(
         base_config,
         metal_scoring=replace(
@@ -123,7 +123,7 @@ def test_make_dative_bond_requires_visible_coordination_atom() -> None:
 
 
 def test_metal_access_radius_scale_expands_post_process_distance_cutoff() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     tight_config = replace(
         base_config,
         metal_scoring=replace(
@@ -151,7 +151,7 @@ def test_metal_access_radius_scale_expands_post_process_distance_cutoff() -> Non
 
 
 def test_metal_access_radius_scale_expands_blocker_radius() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     unscaled_config = replace(
         base_config,
         metal_scoring=replace(
@@ -179,7 +179,7 @@ def test_metal_access_radius_scale_expands_blocker_radius() -> None:
 
 
 def test_make_dative_bond_uses_pi_dative_distance_difference_tolerance_config() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     tight_config = replace(
         base_config,
         metal_scoring=replace(

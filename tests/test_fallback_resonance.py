@@ -12,7 +12,7 @@ pytest.importorskip("openbabel")
 
 from openbabel import pybel
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import resonance as resonance_module
 from molgr.fallback.pipeline.resonance import (
     ResonanceTraversalContext,
@@ -37,13 +37,13 @@ def _make_seed(smiles: str, radical_atom_indices: tuple[int, ...]) -> pybel.Mole
 
 
 def test_default_resonance_traversal_score_names_uff_lite_gain() -> None:
-    config = make_default_config()
+    config = MolGRConfig()
 
     assert config.resonance.traversal_score == "uff_lite_gain"
 
 
 def test_no_metal_default_resonance_policy_accepts_uff_lite_gain() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         resonance=replace(
@@ -98,6 +98,23 @@ def test_build_processed_resonance_key_matches_clone_and_changes_with_state() ->
 
     assert build_processed_resonance_key(seed) == build_processed_resonance_key(clone)
     assert build_processed_resonance_key(seed) != build_processed_resonance_key(moved)
+
+
+def test_build_processed_resonance_key_avoids_openbabel_format_serialization(
+    monkeypatch,
+) -> None:
+    def fail_write(self, format: str = "smi", filename=None, overwrite=False, opt=None):
+        raise AssertionError(
+            f"processed resonance key should not call OpenBabel write({format!r})"
+        )
+
+    monkeypatch.setattr(pybel.Molecule, "write", fail_write)
+
+    seed = _make_seed("C=CC=C", (2,))
+    key = build_processed_resonance_key(seed)
+
+    assert key.startswith("A4:")
+    assert "|B3:" in key
 
 
 def test_get_radical_resonances_avoids_smiles_serialization_for_dedup(monkeypatch) -> None:

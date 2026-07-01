@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 import argparse
@@ -6,12 +7,10 @@ import time
 from importlib import import_module
 from pathlib import Path
 
-from tqdm import tqdm
-
-
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from benchmarks._timeout import CaseTimeoutError, case_timeout
 from benchmarks.smiles_xyz_benchmark.io import (
     summarize_results,
     write_results_csv,
@@ -22,15 +21,38 @@ from benchmarks.smiles_xyz_benchmark.schema import BenchmarkResult
 from scripts.molgr_cases_smiles_csv import load_smiles_csv_cases
 
 
+try:
+    from tqdm import tqdm as _tqdm_impl
+except ModuleNotFoundError:
+    def _tqdm_impl(iterable, **_kwargs):
+        return iterable
+
+
+def _tqdm(*args, **kwargs):
+    return _tqdm_impl(*args, **kwargs)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SMILES XYZ benchmark skeleton.")
     parser.add_argument("--input", type=Path, required=True, help="Input CSV path.")
     parser.add_argument("--limit", type=int, default=None, help="Optional case limit.")
     parser.add_argument("--out", type=Path, required=True, help="Output directory.")
+    parser.add_argument(
+        "--case-timeout-seconds",
+        type=float,
+        default=1.0,
+        help="Per-method per-case wall-time limit. Use 0 to disable.",
+    )
     return parser.parse_args()
 
 
-def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResult:
+def _run_case_method(
+    case: dict,
+    method_id: str,
+    method_runner,
+    *,
+    case_timeout_seconds: float | None,
+) -> BenchmarkResult:
     check_equivalence = import_module("molgr.utils.equivalence").check_equivalence
 
     if case.get("provider_error"):
@@ -50,7 +72,25 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
         )
 
     started = time.perf_counter()
-    output = method_runner(case)
+    try:
+        with case_timeout(case_timeout_seconds, f"{method_id} case {case['case_idx']}"):
+            output = method_runner(case)
+    except CaseTimeoutError as exc:
+        method_elapsed_ms = (time.perf_counter() - started) * 1000.0
+        breakdown = {"method_ms": method_elapsed_ms, "equivalence_ms": 0.0}
+        return BenchmarkResult(
+            case_idx=int(case["case_idx"]),
+            method_id=method_id,
+            input_smiles=str(case["input_smiles"]),
+            ground_truth_smiles=case.get("ground_truth_smiles"),
+            status="error",
+            error=str(exc),
+            predicted_smiles=None,
+            equivalent=None,
+            equivalence_method=None,
+            timing_ms_total=method_elapsed_ms,
+            timing_ms_breakdown=breakdown,
+        )
     method_elapsed_ms = (time.perf_counter() - started) * 1000.0
 
     breakdown = dict(output.timing_ms_breakdown or {})
@@ -66,14 +106,20 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
     if ground_truth_rdmol is not None and output.rdkit_mol is not None:
         equivalence_started = time.perf_counter()
         try:
-            is_equivalent, info = check_equivalence(
-                ground_truth_rdmol,
-                output.rdkit_mol,
-                use_chirality=True,
-                max_resonance=100,
-            )
+            with case_timeout(case_timeout_seconds, f"{method_id} equivalence {case['case_idx']}"):
+                is_equivalent, info = check_equivalence(
+                    ground_truth_rdmol,
+                    output.rdkit_mol,
+                    use_chirality=True,
+                    max_resonance=100,
+                )
             equivalent = is_equivalent
             equivalence_method = info.method.value if info.method is not None else None
+        except CaseTimeoutError as exc:
+            status = "error"
+            error = str(exc) if error is None else f"{error}; {exc}"
+            equivalent = None
+            equivalence_method = None
         except Exception as exc:  # noqa: BLE001
             status = "error"
             equivalence_error = f"equivalence check failed: {exc}"
@@ -98,14 +144,26 @@ def _run_case_method(case: dict, method_id: str, method_runner) -> BenchmarkResu
     )
 
 
-def run(input_path: Path, out_dir: Path, limit: int | None = None) -> list[BenchmarkResult]:
+def run(
+    input_path: Path,
+    out_dir: Path,
+    limit: int | None = None,
+    case_timeout_seconds: float | None = 1.0,
+) -> list[BenchmarkResult]:
     cases = load_smiles_csv_cases(input_path=input_path, limit=limit)
     methods = get_method_registry()
 
     results: list[BenchmarkResult] = []
     for method in methods:
-        for case in tqdm(cases, desc=f"Running {method.method_id}", total=len(cases)):
-            results.append(_run_case_method(case, method.method_id, method.run))
+        for case in _tqdm(cases, desc=f"Running {method.method_id}", total=len(cases)):
+            results.append(
+                _run_case_method(
+                    case,
+                    method.method_id,
+                    method.run,
+                    case_timeout_seconds=case_timeout_seconds,
+                )
+            )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     write_results_csv(out_dir / "results.csv", results)
@@ -115,7 +173,12 @@ def run(input_path: Path, out_dir: Path, limit: int | None = None) -> list[Bench
 
 def main() -> int:
     args = _parse_args()
-    run(input_path=args.input, out_dir=args.out, limit=args.limit)
+    run(
+        input_path=args.input,
+        out_dir=args.out,
+        limit=args.limit,
+        case_timeout_seconds=args.case_timeout_seconds or None,
+    )
     return 0
 
 

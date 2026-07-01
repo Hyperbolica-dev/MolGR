@@ -38,6 +38,23 @@ mol = xyz_to_rdmol(
 默认会补充可能的配位键和立体化学信息；需要关闭时可传入
 `make_dative_bonds=False` 或 `make_stereochemistry=False`。
 
+## 配置
+
+运行时配置基于 dataclass。默认使用包级全局对象
+[`molgr.config.CONFIG`](src/molgr/config.py)；调用方可以直接修改这个全局配置对象，也可以向
+`xyz_to_rdmol(..., config=...)` 传入独立的 [`MolGRConfig`](src/molgr/config.py)。
+
+```python
+from molgr.config import CONFIG
+
+CONFIG.cpp_backend.enable_target_bucket_parallelism = True
+CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
+CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
+```
+
+C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
+vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。
+
 ## 安装
 
 MolGR 需要 Python `>=3.8`。运行时依赖和构建依赖以 [`pyproject.toml`](pyproject.toml) 为准；
@@ -150,6 +167,10 @@ uv build
 - `make cpp-build`：重新构建可编辑 C++ 扩展，并刷新 C++ IDE 配置。
 - `make stubs`：重新生成编译扩展的类型存根。
 
+`make stubs` 会对 `molgr._core` 运行 `pybind11-stubgen`，保留公开 `pipeline`
+stubs 以及 [`src/molgr/_core/dev/`](src/molgr/_core/dev/) 下的开发/一致性测试 helper
+stubs，然后格式化并 lint 生成的 `.pyi` 文件。
+
 可选：根据当前环境生成 VSCode/clangd C++ 配置：
 
 ```bash
@@ -178,8 +199,15 @@ uv run pytest tests/test_fallback_get_possible_metal_radicals.py
 1. 使用 `make cpp-build` 重新构建扩展。
 2. 运行相关的 C++/Python 后端一致性测试，例如
    [`tests/test_backend_reconstruction_regression.py`](tests/test_backend_reconstruction_regression.py)
-   和 [`tests/test_cpp_uff_atom_typing_cache.py`](tests/test_cpp_uff_atom_typing_cache.py)。
+   [`tests/test_cpp_python_metal_candidate_parity.py`](tests/test_cpp_python_metal_candidate_parity.py)、
+   [`tests/test_cpp_uff_atom_typing_cache.py`](tests/test_cpp_uff_atom_typing_cache.py)
+   和 [`tests/test_force_field_scoring_policy.py`](tests/test_force_field_scoring_policy.py)。
 3. 如果绑定接口变化，运行 `make stubs`，并检查生成的 `.pyi` 文件。
+
+C++ 后端是 Python fallback 语义的加速实现。修改 SMARTS 匹配、UFF setup 状态、
+共振候选选择或 C++ 专属加速开关时，需要同步检查
+[`docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md`](docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md#cpppython-后端一致性护栏)
+中的后端一致性护栏。
 
 部分测试依赖 OpenBabel；如果当前环境缺少对应依赖，这些测试可能会被跳过。
 
@@ -211,6 +239,19 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --input tests/data/sdf/MoNNMo.sdf \
   --limit 1 \
   --out benchmarks/_runs/molfile-demo
+```
+
+运行一个 tmQMg 后端对齐子集：
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/tmqmg-parity \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback
 ```
 
 连续运行 benchmark 命令时，也可以切换当前 shell 环境：

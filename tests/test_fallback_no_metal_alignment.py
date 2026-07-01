@@ -16,7 +16,7 @@ from openbabel import pybel
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_without_metals as no_metal_module
 from molgr.fallback.pipeline.reconstruct_without_metals import (
     xyz_to_omol_no_metal,
@@ -1007,7 +1007,7 @@ def test_no_metal_cached_pipeline_uses_config_in_key_and_execution(
         total_radical_electrons=0,
         phase_history=("read_xyz",),
     )
-    default_config = make_default_config()
+    default_config = MolGRConfig()
     config_a = replace(
         default_config,
         resonance=replace(default_config.resonance, max_depth=2),

@@ -10,7 +10,7 @@ from typing import DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from typing_extensions import TypeAlias
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import MetalCandidateState, MetalCandidateStateMachine
 from molgr.fallback.utils import consts, dataclasses
 
@@ -106,7 +106,8 @@ def _build_metal_state_search_groups(
     *,
     config: MolGRConfig | None = None,
 ) -> Tuple[_MetalStateChoiceGroup, ...]:
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     unify_threshold = int(metal_scoring_config.same_element_multimetal_unify_threshold)
 
     grouped_indices_by_symbol: DefaultDict[str, list[int]] = defaultdict(list)
@@ -156,7 +157,8 @@ def _build_layered_metal_state_search_groups(
     if total_radical_electrons <= 0 or len(normalized_groups) < 2:
         return (normalized_groups,)
 
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     penalty_window = float(metal_scoring_config.open_shell_multimetal_state_penalty_window)
     min_state_options = max(1, int(metal_scoring_config.open_shell_multimetal_min_state_options))
 
@@ -278,7 +280,8 @@ def _resolve_search_limits(
     *,
     config: MolGRConfig | None = None,
 ) -> tuple[Optional[int], int, int]:
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     return (
         metal_scoring_config.max_mixed_valence_spread,
         total_radical_electrons,

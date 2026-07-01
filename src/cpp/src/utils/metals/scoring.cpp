@@ -1,8 +1,10 @@
 #include "molgr/utils/metals/scoring.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/organic_topology.h"
 #include "molgr/utils/scoring.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -13,10 +15,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <tuple>
@@ -109,7 +114,10 @@ namespace
 
     int BondOrder(const OpenBabel::OBBond &bond)
     {
-        return bond.IsAromatic() ? 2 : static_cast<int>(bond.GetBondOrder());
+        return molgr::vendor::openbabel_threading::BondIsAromatic(
+                   const_cast<OpenBabel::OBBond &>(bond))
+                   ? 2
+                   : static_cast<int>(bond.GetBondOrder());
     }
 
     OpenBabel::OBAtom *OtherBondAtom(OpenBabel::OBBond &bond, OpenBabel::OBAtom &atom)
@@ -225,7 +233,8 @@ namespace
 
         const double magnitude = static_cast<double>(std::abs(formal_charge));
         const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        const bool is_aromatic = atom.IsAromatic();
+        const bool is_aromatic = molgr::vendor::openbabel_threading::AtomIsAromatic(
+            const_cast<OpenBabel::OBAtom &>(atom));
         const int radical_electrons = static_cast<int>(atom.GetSpinMultiplicity()) % 2;
 
         const auto generic_penalty = [&]()
@@ -357,7 +366,8 @@ namespace
 
         const double magnitude = static_cast<double>(radical_electrons);
         const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        const bool is_aromatic = atom.IsAromatic();
+        const bool is_aromatic = molgr::vendor::openbabel_threading::AtomIsAromatic(
+            const_cast<OpenBabel::OBAtom &>(atom));
 
         if (atomic_num == 1)
         {
@@ -376,6 +386,30 @@ namespace
             return (is_conjugated || is_aromatic ? 1.5 : 3.0) * magnitude;
         }
         return (is_conjugated || is_aromatic ? 1.2 : 2.5) * magnitude;
+    }
+
+    std::string SelectionKeyString(double discordance_count, double score_value, int combination_index)
+    {
+        std::ostringstream out;
+        out << std::setprecision(17) << discordance_count << "," << score_value << ","
+            << combination_index;
+        return out.str();
+    }
+
+    std::shared_ptr<molgr::state::ReconstructionState> CloneNoMetalStateForCandidate(
+        const std::shared_ptr<molgr::state::ReconstructionState> &state)
+    {
+        if (!state)
+        {
+            return nullptr;
+        }
+        auto clone = std::make_shared<molgr::state::ReconstructionState>(*state);
+        if (state->omol)
+        {
+            clone->omol = std::make_shared<OpenBabel::OBMol>(
+                molgr::utils::CloneMolTopologyOnly(*state->omol));
+        }
+        return clone;
     }
 
     OrganicElectronicStateMetrics ComputeOrganicElectronicStateMetrics(
@@ -1076,6 +1110,19 @@ namespace molgr
                 }
 
                 std::vector<molgr::state::MetalCandidateState> scored_candidates = candidates;
+                return SelectBestCandidateInPlace(&scored_candidates, config);
+            }
+
+            std::optional<molgr::state::MetalCandidateState> SelectBestCandidateInPlace(
+                std::vector<molgr::state::MetalCandidateState> *candidates,
+                const molgr::config::MolGRConfig &config)
+            {
+                if (candidates == nullptr || candidates->empty())
+                {
+                    return std::nullopt;
+                }
+
+                auto &scored_candidates = *candidates;
                 int max_aromatic_ring_count = 0;
                 for (auto &candidate : scored_candidates)
                 {
@@ -1143,41 +1190,45 @@ namespace molgr
                         MetadataDouble(candidate, "metal_discordance_count", 0.0));
                 }
 
-                std::vector<molgr::state::MetalCandidateState> discordance_filtered_candidates;
-                discordance_filtered_candidates.reserve(scored_candidates.size());
-                for (auto candidate : scored_candidates)
+                std::vector<std::size_t> discordance_filtered_candidate_indices;
+                discordance_filtered_candidate_indices.reserve(scored_candidates.size());
+                for (std::size_t candidate_index = 0; candidate_index < scored_candidates.size();
+                     ++candidate_index)
                 {
+                    auto &candidate = scored_candidates[candidate_index];
                     const bool passes_discordance_filter =
                         MetadataDouble(candidate, "metal_discordance_count", 0.0) ==
                         min_discordance_count;
                     candidate.metadata["passes_metal_discordance_filter"] = passes_discordance_filter;
                     if (passes_discordance_filter)
                     {
-                        discordance_filtered_candidates.push_back(std::move(candidate));
+                        discordance_filtered_candidate_indices.push_back(candidate_index);
                     }
                 }
-                if (discordance_filtered_candidates.empty())
+                if (discordance_filtered_candidate_indices.empty())
                 {
                     return std::nullopt;
                 }
 
-                for (auto &candidate : discordance_filtered_candidates)
+                for (const std::size_t candidate_index : discordance_filtered_candidate_indices)
                 {
-                    AnnotateSelectedCandidateMetrics(&candidate, config);
+                    AnnotateSelectedCandidateMetrics(&scored_candidates[candidate_index], config);
                 }
 
                 std::optional<std::tuple<double, int>> best_selection_key;
                 std::optional<molgr::state::MetalCandidateState> best_candidate;
-                for (auto &candidate : discordance_filtered_candidates)
+                for (const std::size_t candidate_index : discordance_filtered_candidate_indices)
                 {
+                    auto &candidate = scored_candidates[candidate_index];
                     const double score_value =
                         candidate.score.has_value() ? *candidate.score : candidate.CombinedScore(config);
                     const auto selection_key =
                         std::make_tuple(score_value, CandidateCombinationIndex(candidate));
                     candidate.metadata["selection_key"] =
-                        std::to_string(min_discordance_count) + "," +
-                        std::to_string(score_value) + "," +
-                        std::to_string(CandidateCombinationIndex(candidate));
+                        SelectionKeyString(
+                            min_discordance_count,
+                            score_value,
+                            CandidateCombinationIndex(candidate));
                     if (best_selection_key.has_value() && selection_key >= *best_selection_key)
                     {
                         continue;
@@ -1194,7 +1245,9 @@ namespace molgr
                 const molgr::config::MolGRConfig &config)
             {
                 auto machine = molgr::state::MetalCandidateStateMachine::FromCandidateState(candidate);
-                machine.SetNoMetalState("reconstruct_no_metal", no_metal_state);
+                machine.SetNoMetalState(
+                    "reconstruct_no_metal",
+                    CloneNoMetalStateForCandidate(no_metal_state));
                 machine.Annotate("score_candidate");
                 auto prepared_candidate = machine.Freeze();
                 const double score = prepared_candidate.CombinedScore(config);

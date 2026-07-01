@@ -22,7 +22,7 @@ namespace molgr
         std::vector<int> GetFlatAtomList(OBMol &mol, molgr::smarts::PatternId pattern_id)
         {
             std::vector<int> atom_indices;
-            auto matches = molgr::smarts::Match(mol, pattern_id);
+            auto matches = molgr::smarts::FindAll(mol, pattern_id);
             for (const auto &match : matches)
             {
                 for (int idx : match)
@@ -166,7 +166,7 @@ namespace molgr
             bool hit = false;
             while (true)
             {
-                auto matches1 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_HYPERVALENT);
+                auto matches1 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_HYPERVALENT);
                 if (matches1.empty())
                 {
                     break;
@@ -182,7 +182,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches2 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_5);
+                auto matches2 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_5);
                 if (matches2.empty())
                 {
                     break;
@@ -218,7 +218,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches3 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_4);
+                auto matches3 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_4);
                 if (matches3.empty())
                 {
                     break;
@@ -253,7 +253,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches4 = molgr::smarts::Match(mol, molgr::smarts::PatternId::PRE_CLEAN_SI_O_F);
+                auto matches4 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_SI_O_F);
                 if (matches4.empty())
                 {
                     break;

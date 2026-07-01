@@ -38,6 +38,10 @@ namespace molgr
         ForceFieldEvaluation OrganicForceFieldEvaluation(
             const OpenBabel::OBMol &mol,
             const molgr::config::MolGRConfig &config);
+        ForceFieldEvaluation OrganicForceFieldEvaluationWithScoreKey(
+            const OpenBabel::OBMol &mol,
+            const std::string &score_key,
+            const molgr::config::MolGRConfig &config);
         ForceFieldEvaluation CombinedForceFieldEvaluation(
             const OpenBabel::OBMol &mol,
             const molgr::config::MolGRConfig &config);

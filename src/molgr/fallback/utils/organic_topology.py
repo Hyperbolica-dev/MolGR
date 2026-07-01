@@ -6,7 +6,7 @@ from typing import Dict, Iterable, Set, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import OrganicTopologyConfig, resolve_config
+from molgr.config import CONFIG, OrganicTopologyConfig
 
 
 _AROMATIC_RING_FORMAL_CHARGE_ABS_REJECTION_THRESHOLD = 4
@@ -182,7 +182,7 @@ def compute_organic_topology_metrics(
     config: OrganicTopologyConfig | None = None,
 ) -> OrganicTopologyMetrics:
     try:
-        topology_config = resolve_config().organic_topology if config is None else config
+        topology_config = CONFIG.organic_topology if config is None else config
         working_omol = _prepare_topology_working_molecule(omol)
         obmol = cast(ob.OBMol, working_omol.OBMol)
 

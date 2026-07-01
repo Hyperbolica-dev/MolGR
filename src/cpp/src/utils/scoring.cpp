@@ -4,6 +4,7 @@
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -384,7 +385,7 @@ namespace molgr
 
         static double CalculateConjugationReward(const OpenBabel::OBMol &mol)
         {
-            auto matches = molgr::smarts::Match(
+            auto matches = molgr::smarts::FindAll(
                 MutableMol(mol),
                 molgr::smarts::PatternId::SCORING_CONJUGATION);
             return static_cast<double>(matches.size()) * 2.0;
@@ -403,7 +404,7 @@ namespace molgr
                     continue;
                 }
 
-                if (atom.IsAromatic())
+                if (molgr::vendor::openbabel_threading::AtomIsAromatic(atom))
                 {
                     score -= 5.0 - std::abs(atom.GetFormalCharge()) * 3.0;
                 }
@@ -508,7 +509,7 @@ namespace molgr
 
         double OmolScore(const OpenBabel::OBMol &mol)
         {
-            MutableMol(mol).SetAromaticPerceived(false);
+            molgr::vendor::openbabel_threading::SetAromaticPerceived(MutableMol(mol), false);
             return OrganicCoreScore(mol) + PostReinsertionScore(mol);
         }
 

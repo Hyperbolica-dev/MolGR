@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,11 +15,13 @@ import pytest
 pytest.importorskip("openbabel")
 pytest.importorskip("rdkit")
 
+from openbabel import openbabel as ob
+from openbabel import pybel
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
 
 from molgr import _core
-from molgr.config import make_default_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.interface import xyz_to_rdmol
 
 
@@ -45,7 +48,7 @@ def _load_csv_case(case_index: int) -> tuple[str, int, int]:
 
 
 def _cpp_config(*, enable_uff_atom_typing_cache: bool):
-    config = make_default_config()
+    config = MolGRConfig()
     return replace(
         config,
         cpp_backend=replace(
@@ -56,7 +59,7 @@ def _cpp_config(*, enable_uff_atom_typing_cache: bool):
 
 
 def _cpp_resonance_config(*, traversal_score: str):
-    config = make_default_config()
+    config = MolGRConfig()
     return replace(
         config,
         resonance=replace(
@@ -68,11 +71,16 @@ def _cpp_resonance_config(*, traversal_score: str):
 
 def test_cpp_config_bridge_requires_current_config_shape() -> None:
     incomplete_config = SimpleNamespace(
-        resonance=make_default_config().resonance,
+        resonance=MolGRConfig().resonance,
     )
 
     with pytest.raises(AttributeError, match="missing required attribute 'cpp_backend'"):
-        _core.set_default_config(incomplete_config)
+        _core.dev.pipeline.reconstruct_without_metals.debug_resonance_candidate_summaries(
+            "2\nCC\nC 0 0 0\nC 0 0 1.5\n",
+            0,
+            0,
+            config=incomplete_config,
+        )
 
 
 def test_cpp_resonance_traversal_score_accepts_uff_lite_gain() -> None:
@@ -105,62 +113,186 @@ def test_cpp_resonance_traversal_score_accepts_input_order() -> None:
     assert input_order_summaries
 
 
-def test_cpp_config_bridge_reads_current_nested_fields() -> None:
-    base_config = make_default_config()
-    config = replace(
-        base_config,
+def test_cpp_default_config_enables_target_bucket_thread_parallelism() -> None:
+    config = MolGRConfig()
+
+    assert config.cpp_backend.enable_target_bucket_parallelism is True
+    assert config.cpp_backend.enable_candidate_scoring_parallelism is False
+    assert config.cpp_backend.target_bucket_parallel_threshold == 1
+    assert config.cpp_backend.target_bucket_parallel_max_threads is None
+
+
+def test_cpp_openbabel_threading_helpers_do_not_expose_a_cross_subsystem_global_lock() -> None:
+    threading_header = Path("src/cpp/include/molgr/vendor/openbabel_threading.h").read_text(
+        encoding="utf-8"
+    )
+    threading_source = Path("src/cpp/src/vendor/openbabel_threading.cpp").read_text(
+        encoding="utf-8"
+    )
+    target_bucket_pipeline = Path(
+        "src/cpp/src/pipeline/reconstruct_with_metals.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "PerceptionMutex" not in threading_header
+    assert "PerceptionMutex" not in threading_source
+    assert "std::mutex" not in threading_source
+    assert "std::lock_guard" not in threading_source
+    assert ".ConnectTheDots(" not in threading_source
+    assert ".PerceiveBondOrders(" not in threading_source
+    assert "OBMol::ConnectTheDots" not in threading_source
+    assert "OBMol::PerceiveBondOrders" not in threading_source
+    assert "openbabel/bondtyper.h" not in threading_source
+    assert "openbabel/typer.h" not in threading_source
+    assert "OBBondTyper" not in threading_source
+    assert "OBAromaticTyper" not in threading_source
+    assert "openbabel_threading" not in target_bucket_pipeline
+    assert "lock_guard" not in target_bucket_pipeline
+
+
+def test_cpp_xyz_seed_perception_uses_only_the_vendor_helper() -> None:
+    source_roots = [Path("src/cpp"), Path("src/bindings")]
+    source_files = [
+        path
+        for root in source_roots
+        for path in root.rglob("*")
+        if path.suffix in {".cpp", ".h", ".hpp"}
+    ]
+    direct_connect_the_dots_calls: list[str] = []
+    direct_perceive_bond_order_calls: list[str] = []
+    for path in source_files:
+        source = path.read_text(encoding="utf-8")
+        if ".ConnectTheDots(" in source or "OBMol::ConnectTheDots" in source:
+            direct_connect_the_dots_calls.append(str(path))
+        if ".PerceiveBondOrders(" in source or "OBMol::PerceiveBondOrders" in source:
+            direct_perceive_bond_order_calls.append(str(path))
+
+    assert direct_connect_the_dots_calls == []
+    assert direct_perceive_bond_order_calls == []
+
+
+def test_cpp_vendor_uff_atom_typing_does_not_call_openbabel_smarts() -> None:
+    vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "openbabel/parsmart.h" not in vendor_uff_source
+    assert "OBSmartsPattern" not in vendor_uff_source
+    assert "molgr/utils/smarts.h" not in vendor_uff_source
+    assert "molgr::smarts::FindAll" not in vendor_uff_source
+    assert "AssignHyb" not in vendor_uff_source
+    assert "atomtyper" not in vendor_uff_source
+
+
+def _pybel_xyz_seed_signature(xyz_block: str) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
+    mol = pybel.readstring("xyz", xyz_block)
+    bond_signature = tuple(
+        sorted(
+            (
+                int(bond.GetBeginAtomIdx()),
+                int(bond.GetEndAtomIdx()),
+                int(bond.GetBondOrder()),
+                bool(bond.IsAromatic()),
+            )
+            for bond in ob.OBMolBondIter(mol.OBMol)
+        )
+    )
+    hybridizations = tuple(int(atom.GetHyb()) for atom in ob.OBMolAtomIter(mol.OBMol))
+    return bond_signature, hybridizations
+
+
+def _cpp_xyz_seed_signature(xyz_block: str) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
+    molecule_data = _core.dev.utils.debug_xyz_seed_molecule_data(xyz_block)
+    bond_signature = tuple(
+        sorted(
+            (
+                int(bond.begin_atom_idx),
+                int(bond.end_atom_idx),
+                int(bond.order),
+                bool(bond.aromatic),
+            )
+            for bond in molecule_data.bonds
+        )
+    )
+    hybridizations = tuple(int(atom.hybridization) for atom in molecule_data.atoms)
+    return bond_signature, hybridizations
+
+
+@pytest.mark.parametrize(
+    "xyz_block",
+    [
+        "3\nco2\nO -1.16 0 0\nC 0 0 0\nO 1.16 0 0\n",
+        "4\nacetylene\nH -1.66 0 0\nC -0.60 0 0\nC 0.60 0 0\nH 1.66 0 0\n",
+        (
+            "12\nbenzene\n"
+            "C 1.396 0 0\nC 0.698 1.209 0\nC -0.698 1.209 0\n"
+            "C -1.396 0 0\nC -0.698 -1.209 0\nC 0.698 -1.209 0\n"
+            "H 2.479 0 0\nH 1.240 2.147 0\nH -1.240 2.147 0\n"
+            "H -2.479 0 0\nH -1.240 -2.147 0\nH 1.240 -2.147 0\n"
+        ),
+    ],
+)
+def test_cpp_vendor_xyz_seed_perception_matches_python_fallback(xyz_block: str) -> None:
+    assert _cpp_xyz_seed_signature(xyz_block) == _pybel_xyz_seed_signature(xyz_block)
+
+
+def test_cpp_vendor_xyz_seed_perception_is_safe_under_parallel_calls() -> None:
+    xyz_blocks = [
+        "3\nco2\nO -1.16 0 0\nC 0 0 0\nO 1.16 0 0\n",
+        "4\nacetylene\nH -1.66 0 0\nC -0.60 0 0\nC 0.60 0 0\nH 1.66 0 0\n",
+        (
+            "12\nbenzene\n"
+            "C 1.396 0 0\nC 0.698 1.209 0\nC -0.698 1.209 0\n"
+            "C -1.396 0 0\nC -0.698 -1.209 0\nC 0.698 -1.209 0\n"
+            "H 2.479 0 0\nH 1.240 2.147 0\nH -1.240 2.147 0\n"
+            "H -2.479 0 0\nH -1.240 -2.147 0\nH 1.240 -2.147 0\n"
+        ),
+    ]
+    expected = {xyz_block: _pybel_xyz_seed_signature(xyz_block) for xyz_block in xyz_blocks}
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(_cpp_xyz_seed_signature, xyz_block)
+            for _ in range(8)
+            for xyz_block in xyz_blocks
+        ]
+
+    observed = [future.result() for future in futures]
+    expected_sequence = [expected[xyz_block] for _ in range(8) for xyz_block in xyz_blocks]
+    assert observed == expected_sequence
+
+
+def test_cpp_force_field_uses_vendor_uff_without_openbabel_plugin_lock() -> None:
+    force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "OBForceField::FindForceField" not in force_field_source
+    assert "OpenBabelForceFieldMutex" not in force_field_source
+    assert "std::lock_guard<std::mutex>" not in force_field_source
+    assert "enable_vendor_uff_force_field" not in force_field_source
+    assert "MolgrForceFieldUFF" in force_field_source
+
+
+def test_cpp_config_bridge_reads_current_global_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    from openbabel import pybel
+
+    baseline_config = MolGRConfig()
+    tuned_config = replace(
+        baseline_config,
         organic_topology=replace(
-            base_config.organic_topology,
-            aromatic_stability_benzene_score=1.25,
-            aromatic_stability_other_ring_max_score=0.88,
-            aromatic_stability_ring_size_6_factor=0.77,
-            aromatic_stability_ring_size_5_factor=0.66,
-            aromatic_stability_other_ring_size_factor=0.55,
-            aromatic_stability_hetero_atom_penalty=0.11,
-            aromatic_stability_min_hetero_factor=0.44,
-            aromatic_stability_formal_charge_penalty=0.22,
-            aromatic_stability_min_charge_factor=0.33,
-            aromatic_stability_radical_penalty=0.31,
-            aromatic_stability_min_radical_factor=0.32,
-        ),
-        metal_scoring=replace(
-            base_config.metal_scoring,
-            metal_access_radius_scale=1.75,
-            metal_access_clearance_angstrom=0.42,
-            pi_dative_distance_difference_tolerance_angstrom=0.17,
-        ),
-        metal_radical_inference=replace(
-            base_config.metal_radical_inference,
-            square_planar_planarity_tolerance_angstrom=0.12,
-            trigonal_planar_planarity_tolerance_angstrom=0.23,
-            linear_angle_min_degrees=166.0,
+            baseline_config.organic_topology,
+            aromatic_stability_ring_size_6_factor=0.50,
+            aromatic_stability_hetero_atom_penalty=0.25,
         ),
     )
+    mol = pybel.readstring("smi", "n1ccccc1")
+    ptr = int(mol.OBMol.this)
 
-    _core.set_default_config(config)
-    summary = _core.get_default_config()
+    monkeypatch.setattr(CONFIG, "organic_topology", tuned_config.organic_topology)
 
-    assert summary["aromatic_stability_benzene_score"] == pytest.approx(1.25)
-    assert summary["aromatic_stability_other_ring_max_score"] == pytest.approx(0.88)
-    assert summary["aromatic_stability_ring_size_6_factor"] == pytest.approx(0.77)
-    assert summary["aromatic_stability_ring_size_5_factor"] == pytest.approx(0.66)
-    assert summary["aromatic_stability_other_ring_size_factor"] == pytest.approx(0.55)
-    assert summary["aromatic_stability_hetero_atom_penalty"] == pytest.approx(0.11)
-    assert summary["aromatic_stability_min_hetero_factor"] == pytest.approx(0.44)
-    assert summary["aromatic_stability_formal_charge_penalty"] == pytest.approx(0.22)
-    assert summary["aromatic_stability_min_charge_factor"] == pytest.approx(0.33)
-    assert summary["aromatic_stability_radical_penalty"] == pytest.approx(0.31)
-    assert summary["aromatic_stability_min_radical_factor"] == pytest.approx(0.32)
-    assert summary["metal_access_radius_scale"] == pytest.approx(1.75)
-    assert summary["metal_access_clearance_angstrom"] == pytest.approx(0.42)
-    assert summary["pi_dative_distance_difference_tolerance_angstrom"] == pytest.approx(0.17)
-    assert summary["metal_radical_square_planar_planarity_tolerance_angstrom"] == pytest.approx(
-        0.12
-    )
-    assert summary["metal_radical_trigonal_planar_planarity_tolerance_angstrom"] == pytest.approx(
-        0.23
-    )
-    assert summary["metal_radical_linear_angle_min_degrees"] == pytest.approx(166.0)
+    metrics = _core.dev.utils.compute_organic_topology_metrics_ptr(ptr)
+
+    assert metrics["aromatic_stability_score"] == pytest.approx(0.50 * 0.75)
 
 
 def _clear_cpp_scoring_caches(*, clear_uff_atom_typing_cache: bool) -> None:
@@ -251,7 +383,7 @@ def test_cpp_uff_atom_typing_cache_preserves_resonance_candidate_scores() -> Non
     assert _core.dev.pipeline.get_uff_atom_typing_cache_info()["size"] == 0
 
     _clear_cpp_scoring_caches(clear_uff_atom_typing_cache=True)
-    cached_cold = _candidate_summaries(
+    enabled_cold = _candidate_summaries(
         xyz_block,
         total_charge,
         total_radical_electrons,
@@ -262,7 +394,7 @@ def test_cpp_uff_atom_typing_cache_preserves_resonance_candidate_scores() -> Non
     assert cold_cache_info["misses"] > 0
 
     _clear_cpp_scoring_caches(clear_uff_atom_typing_cache=False)
-    cached_warm = _candidate_summaries(
+    enabled_warm = _candidate_summaries(
         xyz_block,
         total_charge,
         total_radical_electrons,
@@ -271,8 +403,8 @@ def test_cpp_uff_atom_typing_cache_preserves_resonance_candidate_scores() -> Non
     warm_cache_info = _core.dev.pipeline.get_uff_atom_typing_cache_info()
     assert warm_cache_info["hits"] > cold_cache_info["hits"]
 
-    _assert_candidate_summaries_match(uncached, cached_cold)
-    _assert_candidate_summaries_match(uncached, cached_warm)
+    _assert_candidate_summaries_match(uncached, enabled_cold)
+    _assert_candidate_summaries_match(uncached, enabled_warm)
 
 
 def test_cpp_uff_atom_typing_cache_preserves_public_cpp_reconstruction_result() -> None:

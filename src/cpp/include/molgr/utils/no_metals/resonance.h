@@ -2,6 +2,7 @@
 
 #include "molgr/config.h"
 #include "molgr/state.h"
+#include "molgr/utils/perf.h"
 
 #include <vector>
 
@@ -13,7 +14,8 @@ namespace molgr
         {
             std::vector<molgr::state::ReconstructionState> RecoverResonanceCandidates(
                 const molgr::state::ReconstructionState &state,
-                const molgr::config::MolGRConfig &config);
+                const molgr::config::MolGRConfig &config,
+                molgr::pipeline::perf::RunTimingReducer *timing_reducer = nullptr);
         }
     }
 }

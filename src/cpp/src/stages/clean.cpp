@@ -4,6 +4,7 @@
 #include "molgr/stages/internal_helpers.h"
 
 #include "molgr/utils/smarts.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -24,7 +25,7 @@ namespace molgr
             bool hit = false;
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_CARBENE_NEIGHBOR_UNSAT);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_CARBENE_NEIGHBOR_UNSAT);
                 if (matches.empty())
                     break;
                 bool any_applied = false;
@@ -86,7 +87,7 @@ namespace molgr
             bool CleanResonances0(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_0);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_0);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -122,7 +123,7 @@ namespace molgr
             bool CleanResonances1(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_1);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_1);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -149,7 +150,7 @@ namespace molgr
             bool CleanResonances2(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_2);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_2);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -188,7 +189,7 @@ namespace molgr
             bool CleanResonances3(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_3);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_3);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -220,7 +221,7 @@ namespace molgr
             bool CleanResonances4(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_4);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_4);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -247,7 +248,7 @@ namespace molgr
             bool CleanResonances5(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_5);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_5);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -280,7 +281,7 @@ namespace molgr
             bool CleanResonances6(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_6);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_6);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -307,7 +308,7 @@ namespace molgr
             bool CleanResonances7(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_7);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_7);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -339,8 +340,8 @@ namespace molgr
             bool CleanResonances8(OBMol &mol)
             {
                 bool hit = false;
-                mol.SetAromaticPerceived(false);
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_8);
+                molgr::vendor::openbabel_threading::SetAromaticPerceived(mol, false);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_8);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -359,9 +360,7 @@ namespace molgr
                     if (bond1->GetBondOrder() == 1 &&
                         bond2->GetBondOrder() == 2 &&
                         bond3->GetBondOrder() == 1 &&
-                        bond4->GetBondOrder() == 2 &&
-                        atom1->GetFormalCharge() == -1 &&
-                        atom5->GetFormalCharge() == 0)
+                        bond4->GetBondOrder() == 2)
                     {
                         bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
@@ -378,7 +377,7 @@ namespace molgr
             bool CleanResonances9(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_9);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_9);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -416,7 +415,7 @@ namespace molgr
             bool CleanResonances10(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_10);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_10);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -448,7 +447,7 @@ namespace molgr
             bool CleanResonances11(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_11);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_11);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -482,7 +481,7 @@ namespace molgr
             bool CleanResonances12(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_12);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_12);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -522,7 +521,7 @@ namespace molgr
             bool CleanResonances13(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_13);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_13);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -555,7 +554,7 @@ namespace molgr
             bool CleanResonances14(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_14);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_14);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -585,7 +584,7 @@ namespace molgr
             bool CleanResonances15(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_15);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_15);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();
@@ -617,7 +616,7 @@ namespace molgr
             bool CleanResonances16(OBMol &mol)
             {
                 bool hit = false;
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_16);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_16);
                 while (!matches.empty())
                 {
                     auto idxs = matches.front();

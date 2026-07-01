@@ -1,5 +1,6 @@
 #include "molgr/state.h"
 
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/scoring.h"
 
@@ -117,7 +118,10 @@ namespace molgr
         {
             PreheatedNoMetalScoreBundle bundle;
             bundle.post_reinsertion_base_key = molgr::scoring::BuildScoreKey(Mol());
-            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluationWithScoreKey(
+                Mol(),
+                bundle.post_reinsertion_base_key,
+                config);
             bundle.organic_core_score = evaluation.energy_kj_mol;
             const auto base_components = molgr::scoring::BuildPostReinsertionBaseComponents(Mol());
             bundle.base_symmetry_penalty = base_components.first;
@@ -173,7 +177,10 @@ namespace molgr
                 return organic_core_score_cache->second;
             }
             const std::string score_key = PostReinsertionBaseKey();
-            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluationWithScoreKey(
+                Mol(),
+                score_key,
+                config);
             const double score = evaluation.energy_kj_mol;
             organic_core_score_cache = std::make_pair(omol_revision, score);
             StoreNoMetalForceFieldMetadata(
@@ -264,7 +271,8 @@ namespace molgr
             }
             else if (!omol.unique())
             {
-                omol = std::make_shared<OpenBabel::OBMol>(*omol);
+                omol = std::make_shared<OpenBabel::OBMol>(
+                    molgr::utils::CloneMolTopologyOnly(*omol));
             }
             return *omol;
         }

@@ -446,8 +446,11 @@ Final selection now keeps only discordance and the organic score:
 
 ## Extra C++ Optimizations
 
-The C++ backend now includes several optimizations beyond a direct translation
-of the Python fallback:
+The C++ backend is the accelerated implementation of the Python fallback
+semantics. The optimizations below may change scheduling, caching, and
+thread-safe implementation details, but they must not change the candidate set,
+candidate order, scoring keys, tie-breakers, or final selected molecule for the
+same `MolGRConfig`.
 
 1. Metal-free fast path
    - `XyzBlockIsDefinitelyMetalFree(...)` scans atom symbols in the XYZ block
@@ -457,8 +460,14 @@ of the Python fallback:
    - the pybind entry releases the Python GIL around the C++ pipeline
 
 3. Target-bucket parallelism
-   - `enable_target_bucket_parallelism` is wired and enabled by default
+   - `enable_target_bucket_parallelism` is enabled by default
+   - `target_bucket_parallel_threshold` defaults to `1`
+   - `target_bucket_parallel_max_threads=None` means C++ automatically caps
+     worker count by hardware concurrency, target-bucket count, and
+     `cpp_backend.max_threads` when that global cap is set
    - independent no-metal target buckets can be reconstructed in parallel
+   - bucket workers clone a shared no-metal XYZ seed molecule instead of
+     re-parsing the same XYZ block
 
 4. Parallel DP frontier construction
    - when target-bucket parallelism is enabled and both halves are non-empty,
@@ -476,16 +485,23 @@ of the Python fallback:
      - post-reinsertion base components
      - fixed UFF force-field metadata
    - bucket-shared no-metal states can reuse this bundle across many candidates
+   - `enable_target_bucket_score_bundle_preheat` is enabled by default and can
+     be disabled independently when debugging behavior differences
 
 7. Global force-field evaluation LRU
    - `ForceFieldEvaluationCache` is a thread-safe LRU keyed by structure,
      for fixed UFF scoring
 
-8. UFF atom typing LRU
-   - the C++ fork of `MolgrForceFieldUFF` supports cached atom typing
-   - `enable_uff_atom_typing_cache` is enabled by default
+8. MolGR vendor UFF force field
+   - C++ always uses MolGR's thread-safe `MolgrForceFieldUFF` vendor submodule
+     for UFF scoring instead of OpenBabel's process-global force-field plugin.
+   - This avoids the global `OBForceField::FindForceField("uff")`
+     Setup/Energy lock while keeping the same fixed-UFF scoring policy as the
+     Python fallback.
+   - `enable_uff_atom_typing_cache` is an optional C++ acceleration and is
+     disabled by default.
 
-9. Thread-local reusable force-field instances
+9. Thread-local reusable vendor UFF instances
    - each thread reuses force-field instances
    - exact and coarse setup keys guard against stale OpenBabel setup reuse
 
@@ -493,13 +509,16 @@ of the Python fallback:
     - `OmolStateMachine` stores `shared_ptr<OBMol>`
     - branches share state until mutation requires `EnsureUniqueMol()`
 
-11. Topology-first resonance tie filtering
-    - Python scores every valid resonance candidate before applying the final
-      topology-and-score key
-    - C++ first narrows candidates to the best topology class, then only scores
-      ties
-    - because force-field score is the last tie-breaker, this preserves the
-      selection semantics while reducing force-field calls
+11. MolGR vendor XYZ seed perception
+    - C++ XYZ seed parsing uses `molgr::utils::ReadXyzBlockToMol(...)` and
+      `molgr::vendor::openbabel_threading::ConnectTheDotsAndPerceiveBondOrders(...)`.
+    - This helper vendors the narrow OpenBabel bond-connectivity and
+      bond-order perception logic needed by MolGR's XYZ seed path instead of
+      calling `OBMol::ConnectTheDots()` and `OBMol::PerceiveBondOrders()`
+      behind a process-wide lock.
+    - Do not call the OpenBabel methods directly from C++ code; doing so
+      serializes target-bucket workers and can hide behavior differences from
+      the Python fallback.
 
 12. Lightweight cross-language return type
     - the C++ backend returns `MoleculeData`, then Python converts to RDKit
@@ -514,6 +533,99 @@ Implementation note:
   higher than the benefit, so the current version no longer exposes C++ config
   fields for it
 - `RecoverResonanceCandidates(...)` still prepares resonance candidates serially
+
+## C++/Python Parity Guardrails
+
+The Python fallback is the semantic reference. The C++ backend may cache,
+parallelize, precompute, or use thread-safe vendor submodules, but those changes
+must preserve the same candidate set, candidate order, scoring keys, and final
+selected molecule as the Python fallback for the same `MolGRConfig`.
+
+Past backend divergences that must not be reintroduced:
+
+1. SMARTS matching semantics
+   - C++ SMARTS calls must go through `molgr::smarts::FindAll(...)`.
+   - `FindAll(...)` intentionally mirrors `pybel.Smarts.findall()` by calling
+     `OBSmartsPattern::Match(mol)` and returning `GetUMapList()`.
+   - Direct `OBSmartsPattern::Match(...)`, `GetMapList()`, or lower-level
+     OpenBabel match-list helpers should not be used outside the SMARTS helper.
+
+2. Force-field setup state
+   - OpenBabel UFF force-field instances are stateful and reuse setup data.
+   - Both backends must track an exact setup key and OpenBabel's coarser setup
+     key; when the exact key changes but the coarse key does not, the force
+     field must be reset before `Setup(...)`.
+   - Force-field cache clearing must also clear setup-state tracking.
+   - Vendor UFF and atom-typing caches must keep the same reset behavior.
+
+3. No-metal resonance selection
+   - C++ must use the same one-pass full selection key as Python:
+     `(-aromatic_stability, -aromatic_atom_count,
+     -adjusted_max_conjugated_component_size,
+     -adjusted_conjugated_atom_count, -adjusted_conjugated_bond_count, score)`.
+   - Do not reintroduce topology-first filtering that delays UFF scoring until
+     after a partial key comparison; the intermediate candidate summaries must
+     match Python, not only the final chemistry.
+
+4. `clean_resonances_8`
+   - C++ must match the Python condition. The rule is gated by the bond-order
+     pattern only; extra atom-charge checks change behavior.
+   - Aromatic perception resets must use the thread-safe OpenBabel helper.
+
+5. Element constants in elimination rules
+   - Keep numeric atomic-number lists aligned with Python constants.
+   - Iodine is `53`; avoid hand-written drift such as accidentally using `56`.
+
+6. Threading and C++-only accelerations
+   - `enable_target_bucket_parallelism` and similar C++-only options may change
+     scheduling and performance, but not result order, tie-breakers, or selected
+     candidates.
+   - Any optimization that can change candidate construction, filtering, score
+     reuse, OpenBabel perception, or force-field setup must be guarded by parity
+     tests before it is enabled.
+
+7. C++ XYZ seed perception
+   - C++ must not call `OBMol::ConnectTheDots()` or
+     `OBMol::PerceiveBondOrders()` directly. The only allowed C++ XYZ seed
+     entry is `ReadXyzBlockToMol(...)`, which uses the MolGR vendor helper.
+   - Reintroducing a global perception lock around OpenBabel's native methods
+     breaks target-bucket parallelism and makes the C++ backend a different
+     implementation strategy rather than a straight Python fallback
+     acceleration.
+
+Focused validation for these boundaries:
+
+```bash
+uv run pytest \
+  tests/test_cpp_python_metal_candidate_parity.py \
+  tests/test_cpp_uff_atom_typing_cache.py \
+  tests/test_force_field_scoring_policy.py \
+  tests/test_fallback_scoring_cache.py -q
+
+uv run ruff check \
+  tests/test_cpp_python_metal_candidate_parity.py \
+  tests/test_force_field_scoring_policy.py
+```
+
+For tmQMg regression checks, compare only the MolGR C++ and fallback methods
+when validating backend parity:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /mnt/e/download/tmQMg_properties_and_targets.csv \
+  --xyz-dir /mnt/e/download/tmQMg_xyz/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/<run-name> \
+  --progress-every 50 \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback \
+  --process-workers 1
+```
+
+Increase `--process-workers` only for throughput measurements. Process-level
+parallelism stacks with C++ target-bucket threads, so high worker counts can
+compete for the same CPU resources.
 
 ## Maintenance Boundaries
 

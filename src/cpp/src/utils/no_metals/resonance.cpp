@@ -4,9 +4,12 @@
 #include "molgr/stages/clean.h"
 #include "molgr/stages/eliminate.h"
 #include "molgr/stages/preprocess.h"
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/no_metals/selection.h"
+#include "molgr/utils/perf.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -91,7 +94,8 @@ namespace molgr
         {
             std::vector<molgr::state::ReconstructionState> RecoverResonanceCandidates(
                 const molgr::state::ReconstructionState &state,
-                const molgr::config::MolGRConfig &config)
+                const molgr::config::MolGRConfig &config,
+                molgr::pipeline::perf::RunTimingReducer *timing_reducer)
             {
                 std::vector<RawResonanceCandidate> raw_candidates;
                 auto base_machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
@@ -101,6 +105,7 @@ namespace molgr
                     0,
                     config.resonance.limited_discrepancy_max_discrepancy);
 
+                const auto walk_started = std::chrono::steady_clock::now();
                 reconstruct::WalkRadicalResonancesLimitedDiscrepancy(
                     state.Mol(),
                     resonance_max_depth,
@@ -109,7 +114,8 @@ namespace molgr
                         raw_candidates.push_back(
                             RawResonanceCandidate{
                                 resonance_index++,
-                                std::make_shared<OpenBabel::OBMol>(node.omol),
+                                std::make_shared<OpenBabel::OBMol>(
+                                    molgr::utils::CloneMolTopologyOnly(node.omol)),
                             });
                         return true;
                     },
@@ -117,9 +123,18 @@ namespace molgr
                         max_discrepancy,
                     },
                     config);
+                if (timing_reducer != nullptr)
+                {
+                    const auto walk_now = std::chrono::steady_clock::now();
+                    timing_reducer->AddResonanceWalkMs(
+                        std::chrono::duration<double, std::milli>(walk_now - walk_started).count());
+                    timing_reducer->AddResonanceRawCandidates(
+                        static_cast<double>(raw_candidates.size()));
+                }
 
                 std::vector<std::optional<PreparedResonanceCandidate>> prepared_candidates(
                     raw_candidates.size());
+                const auto prepare_started = std::chrono::steady_clock::now();
                 for (std::size_t candidate_index = 0;
                      candidate_index < raw_candidates.size();
                      ++candidate_index)
@@ -129,10 +144,21 @@ namespace molgr
                         state,
                         base_machine);
                 }
+                if (timing_reducer != nullptr)
+                {
+                    const auto prepare_now = std::chrono::steady_clock::now();
+                    timing_reducer->AddResonancePrepareMs(
+                        std::chrono::duration<double, std::milli>(prepare_now - prepare_started).count());
+                    timing_reducer->AddResonancePreparedCandidates(
+                        static_cast<double>(prepared_candidates.size()));
+                }
 
                 std::vector<molgr::state::ReconstructionState> candidates;
                 candidates.reserve(prepared_candidates.size());
                 std::set<reconstruct::ProcessedResonanceKey> seen_processed_states;
+                std::size_t valid_candidate_count = 0;
+                std::size_t dedup_candidate_count = 0;
+                const auto dedup_score_started = std::chrono::steady_clock::now();
                 for (auto &prepared_candidate : prepared_candidates)
                 {
                     if (!prepared_candidate.has_value())
@@ -147,13 +173,50 @@ namespace molgr
                     seen_processed_states.insert(prepared_candidate->processed_state_key);
                     if (prepared_candidate->candidate.has_value())
                     {
-                        candidates.push_back(std::move(*prepared_candidate->candidate));
+                        ++valid_candidate_count;
+                        ++dedup_candidate_count;
+                        auto candidate = std::move(*prepared_candidate->candidate);
+                        try
+                        {
+                            const auto score_started = std::chrono::steady_clock::now();
+                            molgr::no_metals::selection::ScoreReconstructionCandidate(
+                                candidate,
+                                config);
+                            if (timing_reducer != nullptr)
+                            {
+                                const auto score_now = std::chrono::steady_clock::now();
+                                timing_reducer->AddResonanceScoreMs(
+                                    std::chrono::duration<double, std::milli>(
+                                        score_now - score_started)
+                                        .count());
+                            }
+                        }
+                        catch (const std::exception &)
+                        {
+                            continue;
+                        }
+                        const auto topology_started = std::chrono::steady_clock::now();
+                        AnnotatePreparedCandidateTopology(candidate, config);
+                        if (timing_reducer != nullptr)
+                        {
+                            const auto topology_now = std::chrono::steady_clock::now();
+                            timing_reducer->AddResonanceTopologyMs(
+                                std::chrono::duration<double, std::milli>(
+                                    topology_now - topology_started)
+                                    .count());
+                        }
+                        candidates.push_back(std::move(candidate));
                     }
                 }
-
-                for (auto &candidate : candidates)
+                if (timing_reducer != nullptr)
                 {
-                    AnnotatePreparedCandidateTopology(candidate, config);
+                    const auto dedup_score_now = std::chrono::steady_clock::now();
+                    timing_reducer->AddResonanceDedupScoreMs(
+                        std::chrono::duration<double, std::milli>(dedup_score_now - dedup_score_started).count());
+                    timing_reducer->AddResonanceValidCandidates(
+                        static_cast<double>(valid_candidate_count));
+                    timing_reducer->AddResonanceDedupCandidates(
+                        static_cast<double>(dedup_candidate_count));
                 }
 
                 return candidates;

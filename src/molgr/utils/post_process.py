@@ -13,7 +13,7 @@ from typing import Optional
 import numpy as np
 from rdkit import Chem
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.utils.coordination_visibility import (
     CoordinationBlockerArrays,
@@ -90,7 +90,7 @@ def make_dative_bond(
     *,
     config: MolGRConfig | None = None,
 ) -> Chem.Mol:
-    resolved_config = resolve_config(config)
+    resolved_config = CONFIG if config is None else config
     if extra_tolerance is None:
         extra_tolerance = resolved_config.metal_scoring.metal_coordination_extra_tolerance_angstrom
     pi_dative_distance_difference_tolerance = (

@@ -10,8 +10,10 @@
 - `smiles_xyz_benchmark`：从 SMILES 输入生成 XYZ case，并比较不同重建方法。
 - `molfile_xyz_benchmark`：读取 `.mol`、`.molfile` 和 `.sdf` 输入，转换为 XYZ case，
   并运行同一套方法注册表。
+- `tmqmg_xyz_benchmark`：对 tmQMg CSV/XYZ 对运行同一套方法注册表，并支持按行号或 id
+  选择子集。
 
-两个 benchmark 目前使用相同方法：
+所有 benchmark 入口都使用同一套共享方法注册表：
 
 - `rdkit_determine_bonds`
 - `openbabel_read_xyz`
@@ -62,6 +64,36 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --out benchmarks/_runs/molfile-demo
 ```
 
+运行一个带子集筛选的小规模 tmQMg benchmark：
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --start-row 1 \
+  --end-row 100 \
+  --ids ABC123,DEF456 \
+  --limit 10 \
+  --out benchmarks/_runs/tmqmg-demo
+```
+
+验证后端行为对齐时，tmQMg 只需要比较 MolGR 的两个后端：
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/tmqmg-parity \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback
+```
+
+`tmqmg_xyz_benchmark` 还支持 `--process-workers N`。每个方法会被拆到多个 worker
+子进程中运行，同时 C++ 后端仍可使用内部 target-bucket 线程。过高进程数会和 C++ 线程竞争
+CPU，因此实际取值应按目标机器实测决定。
+
 如果需要连续运行 benchmark 命令，可以把当前 shell 切到 benchmark project：
 
 ```bash
@@ -102,6 +134,9 @@ Molfile/SDF benchmark：
 
 - `--limit`：限制 case 数量，便于快速检查。
 - `--out`：输出运行目录。
+- `--methods`：tmQMg 入口可用，用 method id 限制共享方法注册表。
+- `--process-workers`：tmQMg 入口可用，把每个方法拆到多个 worker 子进程。
+- `--cpp-accelerations`：tmQMg 入口可用，选择 C++ 加速 preset。
 
 ## 输出
 
@@ -147,3 +182,5 @@ Git revision。如果启用或重新分发这个基线，请确认用法符合�
 - [`smiles_xyz_benchmark/README.md`](smiles_xyz_benchmark/README.md)
 - [`molfile_xyz_benchmark/README.zh-CN.md`](molfile_xyz_benchmark/README.zh-CN.md)
 - [`molfile_xyz_benchmark/README.md`](molfile_xyz_benchmark/README.md)
+- [`tmqmg_xyz_benchmark/README.zh-CN.md`](tmqmg_xyz_benchmark/README.zh-CN.md)
+- [`tmqmg_xyz_benchmark/README.md`](tmqmg_xyz_benchmark/README.md)

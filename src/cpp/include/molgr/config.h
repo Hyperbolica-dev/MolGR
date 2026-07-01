@@ -17,7 +17,10 @@ namespace molgr::config
         std::optional<int> max_threads;
         bool enable_target_bucket_parallelism = true;
         bool enable_candidate_scoring_parallelism = false;
-        bool enable_uff_atom_typing_cache = true;
+        bool enable_uff_atom_typing_cache = false;
+        bool enable_target_bucket_score_bundle_preheat = true;
+        int target_bucket_parallel_threshold = 1;
+        std::optional<int> target_bucket_parallel_max_threads;
         int candidate_score_parallel_threshold = 32;
     };
 
@@ -70,5 +73,4 @@ namespace molgr::config
     };
 
     const MolGRConfig &GetDefaultConfig();
-    void SetDefaultConfig(const MolGRConfig &config);
 }

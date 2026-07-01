@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <future>
 #include <map>
 #include <set>
 #include <tuple>
@@ -783,46 +782,16 @@ namespace molgr
                     config.metal_scoring.max_mixed_valence_spread;
                 const int max_assignments_per_target =
                     std::max(1, config.metal_scoring.max_assignments_per_target);
-                const bool parallelize_frontiers =
-                    config.cpp_backend.enable_target_bucket_parallelism &&
-                    molgr::utils::parallel::ConfiguredParallelism(config, 2) > 1 &&
-                    !left_options.empty() &&
-                    !right_options.empty();
-                if (parallelize_frontiers)
-                {
-                    auto left_future = std::async(
-                        std::launch::async,
-                        [left_options = std::move(left_options),
-                         total_radical_electrons,
-                         max_mixed_valence_spread,
-                         max_assignments_per_target]()
-                        {
-                            return EnumeratePartialAssignmentFrontier(
-                                left_options,
-                                max_mixed_valence_spread,
-                                total_radical_electrons,
-                                max_assignments_per_target);
-                        });
-                    right_frontier = EnumeratePartialAssignmentFrontier(
-                        right_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                    left_frontier = left_future.get();
-                }
-                else
-                {
-                    left_frontier = EnumeratePartialAssignmentFrontier(
-                        left_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                    right_frontier = EnumeratePartialAssignmentFrontier(
-                        right_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                }
+                left_frontier = EnumeratePartialAssignmentFrontier(
+                    left_options,
+                    max_mixed_valence_spread,
+                    total_radical_electrons,
+                    max_assignments_per_target);
+                right_frontier = EnumeratePartialAssignmentFrontier(
+                    right_options,
+                    max_mixed_valence_spread,
+                    total_radical_electrons,
+                    max_assignments_per_target);
                 if (left_frontier.empty() || right_frontier.empty())
                 {
                     return {};
@@ -853,6 +822,7 @@ namespace molgr
                         machine.Annotate("enumerate_metal_combination");
                         machine.Annotate("reconstruct_no_metal_candidate");
                         machine.metadata["metal_assignment_rank"] = entry.metal_assignment_rank;
+                        machine.Annotate("rank_metal_assignment_for_target");
                         bucket.push_back(machine.Freeze());
                         ++combination_index;
                     }

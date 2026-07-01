@@ -8,7 +8,7 @@ from typing import Dict, List, Sequence, Tuple, cast
 
 from openbabel import openbabel as ob
 
-from molgr.config import MetalRadicalInferenceConfig, MolGRConfig, resolve_config
+from molgr.config import CONFIG, MetalRadicalInferenceConfig, MolGRConfig
 from molgr.fallback.utils import consts
 from molgr.fallback.utils.dataclasses import FDSP
 
@@ -101,7 +101,8 @@ class MetalRadicalInferenceResult:
 def _resolve_metal_radical_inference_config(
     config: MolGRConfig | None = None,
 ) -> MetalRadicalInferenceConfig:
-    return resolve_config(config).metal_radical_inference
+    resolved_config = CONFIG if config is None else config
+    return resolved_config.metal_radical_inference
 
 
 def _vector_from_atoms(metal_atom: ob.OBAtom, donor_atom: ob.OBAtom) -> Tuple[float, float, float]:

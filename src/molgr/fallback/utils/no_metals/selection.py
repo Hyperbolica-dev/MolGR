@@ -7,7 +7,7 @@ from typing import cast
 
 from openbabel import openbabel as ob
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import ReconstructionState
 from molgr.fallback.utils.organic_topology import (
     OrganicTopologyMetrics,
@@ -30,7 +30,8 @@ def _annotate_no_metal_candidate_topology(
     *,
     config: MolGRConfig | None = None,
 ) -> OrganicTopologyMetrics:
-    topology_config = resolve_config(config).organic_topology
+    resolved_config = CONFIG if config is None else config
+    topology_config = resolved_config.organic_topology
     metrics = candidate.get_cached_omol_value(
         f"organic_topology_metrics:{astuple(topology_config)!r}",
         lambda omol: compute_organic_topology_metrics(

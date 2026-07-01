@@ -27,7 +27,7 @@ namespace molgr
             {
                 while (true)
                 {
-                    auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_NEGATIVE);
+                    auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NNN_NEGATIVE);
                     if (matches.empty())
                     {
                         break;
@@ -65,7 +65,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_POSITIVE);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NNN_POSITIVE);
                 if (matches.empty())
                 {
                     break;
@@ -93,7 +93,7 @@ namespace molgr
         bool EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
         {
             bool hit = false;
-            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
+            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
             while (!matches.empty())
             {
                 auto idxs = matches.front();
@@ -126,7 +126,7 @@ namespace molgr
         bool EliminateCNInDoubt(OBMol &mol, int &charge)
         {
             bool hit = false;
-            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
+            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
             size_t count = matches.size();
             std::vector<int> atom_indices;
             atom_indices.reserve(count * 2);
@@ -165,7 +165,7 @@ namespace molgr
             bool hit = false;
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CARBOXYL);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_CARBOXYL);
                 if (matches.empty())
                     break;
                 OBAtom *a1 = mol.GetAtom(matches[0][0]);
@@ -192,7 +192,7 @@ namespace molgr
                     return false;
                 }
                 return atomic_num != 8 && atomic_num != 9 && atomic_num != 16 &&
-                       atomic_num != 17 && atomic_num != 35 && atomic_num != 56;
+                       atomic_num != 17 && atomic_num != 35 && atomic_num != 53;
             };
 
             bool hit = false;
@@ -313,7 +313,7 @@ namespace molgr
         bool Eliminate13Dipole(OBMol &mol, int &charge)
         {
             bool hit = false;
-            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_1_3_DIPOLE);
+            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_1_3_DIPOLE);
             while (!matches.empty())
             {
                 auto idxs = matches.front();
@@ -347,7 +347,7 @@ namespace molgr
             bool hit = false;
             while (charge > 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
                 if (matches.empty())
                 {
                     break;
@@ -368,7 +368,7 @@ namespace molgr
 
             while (charge > 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
                 if (matches.empty())
                 {
                     break;
@@ -454,7 +454,7 @@ namespace molgr
 
             while (charge <= 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
                 if (matches.empty())
                 {
                     break;
@@ -487,7 +487,7 @@ namespace molgr
 
             while (charge < 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3);
                 if (matches.empty())
                 {
                     break;
@@ -512,7 +512,7 @@ namespace molgr
 
             while (charge < 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_H);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_H);
                 if (matches.empty())
                 {
                     break;
@@ -537,7 +537,7 @@ namespace molgr
 
             while (charge < 0)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW);
                 if (matches.empty())
                 {
                     break;

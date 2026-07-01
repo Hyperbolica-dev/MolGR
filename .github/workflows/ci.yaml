@@ -201,9 +201,9 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_BEFORE_BUILD_MACOS: >
             python -m pip install -i "$PIP_INDEX_URL"
             "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
@@ -233,9 +233,9 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_BEFORE_BUILD_MACOS: >
             python -m pip install -i "$PIP_INDEX_URL"
             "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"

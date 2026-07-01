@@ -1,5 +1,7 @@
 #include "molgr/utils/xyz.h"
 
+#include "molgr/vendor/openbabel_threading.h"
+
 #include <openbabel/atom.h>
 #include <openbabel/elements.h>
 
@@ -162,8 +164,7 @@ namespace molgr
                 atom->SetAtomicNum(parsed_atom.atomic_num);
                 atom->SetVector(parsed_atom.x, parsed_atom.y, parsed_atom.z);
             }
-            mol->ConnectTheDots();
-            mol->PerceiveBondOrders();
+            molgr::vendor::openbabel_threading::ConnectTheDotsAndPerceiveBondOrders(*mol);
             mol->EndModify();
             return true;
         }

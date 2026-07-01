@@ -1,23 +1,19 @@
 """Public fallback utility exports."""
 
-from . import config, consts, smarts
-from .config import (
-    DEFAULT_MOLGR_CONFIG,
+from molgr.config import (
+    CONFIG,
     CppBackendConfig,
     MetalRadicalInferenceConfig,
     MetalScoringConfig,
     MolGRConfig,
+    OrganicTopologyConfig,
     PythonInterfaceConfig,
     ReconstructionFailurePolicy,
     ResonanceConfig,
     ResonanceTraversalScore,
-    get_config,
-    is_default_config,
-    make_default_config,
-    reset_config,
-    resolve_config,
-    set_config,
 )
+
+from . import consts, smarts
 from .force_field import (
     ForceFieldEvaluation,
     OmolForceFieldContext,
@@ -48,13 +44,14 @@ from .tools import typed_lru_cache
 
 
 __all__ = [
-    "DEFAULT_MOLGR_CONFIG",
+    "CONFIG",
     "CppBackendConfig",
     "ForceFieldEvaluation",
     "MetalRadicalInferenceConfig",
     "MetalScoringConfig",
     "MetalRadicalInferenceResult",
     "MolGRConfig",
+    "OrganicTopologyConfig",
     "PythonInterfaceConfig",
     "ReconstructionFailurePolicy",
     "OrganicTopologyMetrics",
@@ -66,7 +63,6 @@ __all__ = [
     "combined_force_field_energy",
     "combined_force_field_evaluation",
     "compute_organic_topology_metrics",
-    "config",
     "consts",
     "force_field_energy",
     "force_field_evaluation",
@@ -74,17 +70,11 @@ __all__ = [
     "force_field_evaluation_cache_info",
     "organic_force_field_energy",
     "organic_force_field_evaluation",
-    "get_config",
-    "is_default_config",
     "infer_metal_radical_counts",
     "infer_metal_radical_state",
-    "make_default_config",
     "is_conjugated_bond",
-    "reset_config",
-    "resolve_config",
     "selection_force_field_energy",
     "selection_force_field_evaluation",
-    "set_config",
     "smarts",
     "typed_lru_cache",
 ]

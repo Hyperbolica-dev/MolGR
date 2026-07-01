@@ -8,11 +8,12 @@ The flow is intentionally linear until validation fails:
 
 from __future__ import annotations
 
+from dataclasses import astuple, dataclass, field
 from typing import Optional
 
 from openbabel import pybel
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
 from molgr.fallback.utils.no_metals import (
     preparation,
@@ -25,6 +26,16 @@ from molgr.fallback.utils.tools import typed_lru_cache
 
 
 _DEFAULT_NO_METAL_STATE_CACHE_MAXSIZE = 1024
+
+
+@dataclass(frozen=True)
+class _ConfigCacheToken:
+    key: tuple[object, ...]
+    config: MolGRConfig = field(compare=False, hash=False)
+
+
+def _config_cache_token(config: MolGRConfig) -> _ConfigCacheToken:
+    return _ConfigCacheToken(astuple(config), config)
 
 
 def _run_no_metal_pipeline_from_state(
@@ -82,9 +93,9 @@ def _run_no_metal_pipeline_from_state(
 @typed_lru_cache(maxsize=_DEFAULT_NO_METAL_STATE_CACHE_MAXSIZE, typed=True)
 def _run_no_metal_pipeline_cached(
     seed_state: ReconstructionState,
-    config: MolGRConfig,
+    config_token: _ConfigCacheToken,
 ) -> Optional[ReconstructionState]:
-    return _run_no_metal_pipeline_from_state(seed_state, config=config)
+    return _run_no_metal_pipeline_from_state(seed_state, config=config_token.config)
 
 
 def xyz_to_omol_no_metal_state(
@@ -101,8 +112,26 @@ def xyz_to_omol_no_metal_state(
         total_charge,
         total_radical_electrons,
     )
-    resolved_config = resolve_config(config)
-    return _run_no_metal_pipeline_cached(seed_state, resolved_config)
+    resolved_config = CONFIG if config is None else config
+    return _run_no_metal_pipeline_cached(seed_state, _config_cache_token(resolved_config))
+
+
+def _seed_omol_to_omol_no_metal_state(
+    seed_omol: pybel.Molecule,
+    total_charge: int = 0,
+    total_radical_electrons: int = 0,
+    *,
+    config: MolGRConfig | None = None,
+) -> Optional[ReconstructionState]:
+    """Return the best no-metal state from a shared parsed seed molecule."""
+
+    seed_state = preparation._seed_state_from_omol(
+        seed_omol,
+        total_charge,
+        total_radical_electrons,
+    )
+    resolved_config = CONFIG if config is None else config
+    return _run_no_metal_pipeline_cached(seed_state, _config_cache_token(resolved_config))
 
 
 def xyz_to_omol_no_metal(
@@ -125,4 +154,7 @@ def xyz_to_omol_no_metal(
     return state.omol
 
 
-__all__ = ["xyz_to_omol_no_metal", "xyz_to_omol_no_metal_state"]
+__all__ = [
+    "xyz_to_omol_no_metal",
+    "xyz_to_omol_no_metal_state",
+]

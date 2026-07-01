@@ -158,7 +158,16 @@ def build_resonance_state_key(omol: pybel.Molecule) -> ResonanceStateKey:
 def build_processed_resonance_key(omol: pybel.Molecule) -> ProcessedResonanceKey:
     """Build the dedup key after `process_resonance` has normalized the candidate."""
 
-    return omol.write("molreport") or ""
+    atom_keys, bond_keys = build_resonance_state_key(omol)
+    atom_part = "".join(
+        f"{atomic_num},{formal_charge},{radical_num},{int(is_aromatic)};"
+        for atomic_num, formal_charge, radical_num, is_aromatic in atom_keys
+    )
+    bond_part = "".join(
+        f"{begin_idx},{end_idx},{bond_order},{int(is_aromatic)};"
+        for begin_idx, end_idx, bond_order, is_aromatic in bond_keys
+    )
+    return f"A{len(atom_keys)}:{atom_part}|B{len(bond_keys)}:{bond_part}"
 
 
 def _build_resonance_search_context(

@@ -42,7 +42,29 @@ def _seed_state(
 ) -> ReconstructionState:
     """Create the initial reconstruction state from the input XYZ block."""
 
-    omol = _normalize_seed_electronic_labels(pybel.readstring("xyz", xyz_block))
+    return _seed_state_from_omol(
+        _seed_omol_from_xyz(xyz_block),
+        total_charge,
+        total_radical_electrons,
+    )
+
+
+def _seed_omol_from_xyz(xyz_block: str) -> pybel.Molecule:
+    """Parse and normalize the shared initial no-metal molecule from XYZ."""
+
+    return _normalize_seed_electronic_labels(pybel.readstring("xyz", xyz_block))
+
+
+def _seed_state_from_omol(
+    seed_omol: pybel.Molecule,
+    total_charge: int,
+    total_radical_electrons: int,
+) -> ReconstructionState:
+    """Create an independent initial state by cloning a normalized seed molecule."""
+
+    omol = _normalize_seed_electronic_labels(
+        pybel.Molecule(ob.OBMol(cast(ob.OBMol, seed_omol.OBMol)))
+    )
     return ReconstructionState(
         omol=omol,
         given_charge=0,
@@ -109,7 +131,9 @@ def _run_linear_pipeline(state: ReconstructionState) -> ReconstructionState:
 
 __all__ = [
     "_run_linear_pipeline",
+    "_seed_omol_from_xyz",
     "_seed_state",
+    "_seed_state_from_omol",
     "clean_resonances",
     "validate_omol",
 ]

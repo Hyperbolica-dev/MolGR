@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.pipeline.resonance import ResonanceTraversalPolicy, get_radical_resonances
 from molgr.fallback.stages.preprocess import validate_omol
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
@@ -16,7 +16,7 @@ from .selection import _annotate_no_metal_candidate_topology, _score_reconstruct
 def _default_resonance_traversal_policy(
     config: MolGRConfig | None = None,
 ) -> ResonanceTraversalPolicy:
-    resolved_config = resolve_config(config)
+    resolved_config = CONFIG if config is None else config
     max_discrepancy = max(0, int(resolved_config.resonance.limited_discrepancy_max_discrepancy))
     traversal_score = resolved_config.resonance.traversal_score
     if traversal_score == "uff_lite_gain":
@@ -33,7 +33,8 @@ def _default_resonance_traversal_policy(
 
 
 def _resonance_max_depth(config: MolGRConfig | None = None) -> int:
-    return max(0, int(resolve_config(config).resonance.max_depth))
+    resolved_config = CONFIG if config is None else config
+    return max(0, int(resolved_config.resonance.max_depth))
 
 
 def _recover_resonance_candidates(

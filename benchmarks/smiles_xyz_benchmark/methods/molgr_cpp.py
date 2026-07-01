@@ -75,15 +75,8 @@ class MolGRCppMethod(BenchmarkMethod):
             except Exception:  # noqa: BLE001
                 return
 
-            timing_ms_breakdown["cpp_no_metal_pipeline_ms"] = float(
-                raw.get("no_metal_pipeline_ms", 0.0)
-            )
-            timing_ms_breakdown["cpp_resonance_handling_enumeration_ms"] = float(
-                raw.get("resonance_handling_enumeration_ms", 0.0)
-            )
-            timing_ms_breakdown["cpp_metal_enumeration_combination_ms"] = float(
-                raw.get("metal_enumeration_combination_ms", 0.0)
-            )
+            for key, value in raw.items():
+                timing_ms_breakdown[f"cpp_{key}"] = float(value)
 
         interface_started = time.perf_counter()
         try:

@@ -60,6 +60,7 @@ def test_molecule_data_roundtrip_obmol_preserves_fields() -> None:
         assert atom_out.atomic_num == atom_in.atomic_num
         assert atom_out.formal_charge == atom_in.formal_charge
         assert atom_out.radical_num == atom_in.radical_num
+        assert atom_out.hybridization == atom_in.hybridization
         assert atom_out.x == pytest.approx(atom_in.x)
         assert atom_out.y == pytest.approx(atom_in.y)
         assert atom_out.z == pytest.approx(atom_in.z)
@@ -68,5 +69,6 @@ def test_molecule_data_roundtrip_obmol_preserves_fields() -> None:
         assert bond_out.begin_atom_idx == bond_in.begin_atom_idx
         assert bond_out.end_atom_idx == bond_in.end_atom_idx
         assert bond_out.order == bond_in.order
+        assert bond_out.aromatic == bond_in.aromatic
         assert bond_out.begin_atom_idx >= 1
         assert bond_out.end_atom_idx >= 1

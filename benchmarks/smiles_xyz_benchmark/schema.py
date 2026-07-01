@@ -20,6 +20,9 @@ class BenchmarkResult:
     equivalence_method: str | None
     timing_ms_total: float
     timing_ms_breakdown: dict[str, float]
+    case_id: str | None = None
+    comparison_skipped: bool = False
+    comparison_skip_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

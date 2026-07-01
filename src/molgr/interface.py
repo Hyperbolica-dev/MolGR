@@ -13,7 +13,7 @@ from typing import Literal
 from openbabel import pybel
 from rdkit import Chem
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback import xyz2omol
 from molgr.utils.converter import mol_data_to_rdkit, pybel_to_rdmol
 from molgr.utils.post_process import make_dative_bond
@@ -61,7 +61,7 @@ def xyz_to_rdmol(
     """
     Convert XYZ block to RDKit Mol.
     """
-    resolved_config = resolve_config(config)
+    resolved_config = CONFIG if config is None else config
     total_radical_electrons = spin_multiplicity - 1
     if backend == "cpp":
         try:
@@ -84,7 +84,7 @@ def xyz_to_rdmol(
                 xyz_block,
                 total_charge,
                 total_radical_electrons,
-                config=config,
+                config=resolved_config,
             )
         except Exception:
             if _should_return_suspicious_on_reconstruction_failure(resolved_config):

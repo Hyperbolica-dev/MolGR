@@ -139,9 +139,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -206,9 +206,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -273,9 +273,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux
@@ -340,9 +340,9 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair
-            --exclude libopenbabel.so.
-            -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
           "$CIBUILDWHEEL" --platform linux

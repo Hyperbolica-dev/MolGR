@@ -10,7 +10,7 @@ import numpy as np
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import MetalScoringConfig, MolGRConfig, resolve_config
+from molgr.config import CONFIG, MetalScoringConfig, MolGRConfig
 from molgr.fallback.state import (
     MetalCandidateState,
     MetalCandidateStateMachine,
@@ -546,7 +546,7 @@ def _compute_organic_electronic_state_metrics(
     try:
         topology_metrics = compute_organic_topology_metrics(
             omol,
-            resolve_config(config).organic_topology,
+            (CONFIG if config is None else config).organic_topology,
         )
         obmol = cast(ob.OBMol, omol.OBMol)
         conjugated_atom_indices = set(topology_metrics.conjugated_atom_indices)
@@ -595,7 +595,8 @@ def _annotate_candidate_discordance_features(
     no_metal_state = candidate.no_metal_state
     if no_metal_state is None:
         raise ValueError("MetalCandidateState requires no_metal_state before discordance scoring")
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     obmol = cast(ob.OBMol, no_metal_state.omol.OBMol)
     blocker_arrays = _build_coordination_blocker_arrays(
         obmol,
@@ -758,7 +759,8 @@ def _annotate_organic_electronic_state_consistency(
     if no_metal_state is None:
         raise ValueError("MetalCandidateState requires no_metal_state before organic-state scoring")
 
-    topology_config = resolve_config(config).organic_topology
+    resolved_config = CONFIG if config is None else config
+    topology_config = resolved_config.organic_topology
     cache_key = f"organic_electronic_state_metrics:{astuple(topology_config)!r}"
     cached_metrics = cast(
         Optional[_OrganicElectronicStateMetrics],

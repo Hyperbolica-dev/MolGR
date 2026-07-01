@@ -5,6 +5,7 @@
 #include "molgr/stages/eliminate.h"
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/preprocess.h"
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/xyz.h"
 
 #include "molgr/compat/openbabel_iter.h"
@@ -29,25 +30,68 @@ namespace molgr
                 }
             }
 
-            molgr::state::ReconstructionState SeedState(
-                const std::string &xyz_block,
+            molgr::state::ReconstructionState BuildSeedState(
+                std::shared_ptr<OpenBabel::OBMol> omol,
                 int total_charge,
                 int total_radical_electrons)
             {
-                auto omol = std::make_shared<OpenBabel::OBMol>();
-                if (!molgr::utils::ReadXyzBlockToMol(xyz_block, omol.get()))
-                {
-                    return {};
-                }
-                NormalizeSeedElectronicLabels(*omol);
                 return molgr::state::ReconstructionState(
-                    omol,
+                    std::move(omol),
                     0,
                     total_charge,
                     total_radical_electrons,
                     {"read_xyz", "normalize_seed_electronic_labels"},
                     {{"source", std::string("xyz_to_omol_no_metal_state")}},
                     0);
+            }
+
+            std::shared_ptr<OpenBabel::OBMol> SeedOmolFromXyzBlock(
+                const std::string &xyz_block)
+            {
+                auto omol = std::make_shared<OpenBabel::OBMol>();
+                if (!molgr::utils::ReadXyzBlockToMol(xyz_block, omol.get()))
+                {
+                    return nullptr;
+                }
+                NormalizeSeedElectronicLabels(*omol);
+                return omol;
+            }
+
+            std::shared_ptr<OpenBabel::OBMol> NormalizeSeedOmolCopy(
+                const OpenBabel::OBMol &seed_omol)
+            {
+                auto omol = std::make_shared<OpenBabel::OBMol>(
+                    molgr::utils::CloneMolTopologyOnly(seed_omol));
+                NormalizeSeedElectronicLabels(*omol);
+                return omol;
+            }
+
+            molgr::state::ReconstructionState SeedStateFromOmol(
+                const OpenBabel::OBMol &seed_omol,
+                int total_charge,
+                int total_radical_electrons)
+            {
+                auto omol = NormalizeSeedOmolCopy(seed_omol);
+                return BuildSeedState(
+                    std::move(omol),
+                    total_charge,
+                    total_radical_electrons);
+            }
+
+            molgr::state::ReconstructionState SeedState(
+                const std::string &xyz_block,
+                int total_charge,
+                int total_radical_electrons)
+            {
+                auto omol = SeedOmolFromXyzBlock(xyz_block);
+                if (!omol)
+                {
+                    return {};
+                }
+                return BuildSeedState(
+                    std::move(omol),
+                    total_charge,
+                    total_radical_electrons);
             }
 
             molgr::state::ReconstructionState RunLinearPipeline(

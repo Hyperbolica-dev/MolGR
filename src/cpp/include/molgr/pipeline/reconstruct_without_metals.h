@@ -5,6 +5,8 @@
 #include "molgr/utils/perf.h"
 #include "molgr/utils/utils.h"
 
+#include <openbabel/mol.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,6 +36,22 @@ namespace molgr
 
             std::optional<molgr::state::ReconstructionState> XyzToOmolNoMetalState(
                 const std::string &xyz_block,
+                int total_charge,
+                int total_radical_electrons,
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig(),
+                perf::RunTimingReducer *timing_reducer = nullptr,
+                bool preheat_score_bundle = true);
+
+            std::optional<molgr::state::ReconstructionState> SeedOmolToOmolNoMetalState(
+                const OpenBabel::OBMol &seed_omol,
+                int total_charge,
+                int total_radical_electrons,
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig(),
+                perf::RunTimingReducer *timing_reducer = nullptr,
+                bool preheat_score_bundle = true);
+
+            std::optional<molgr::state::ReconstructionState> SeedOmolCopyToOmolNoMetalState(
+                std::shared_ptr<OpenBabel::OBMol> seed_omol,
                 int total_charge,
                 int total_radical_electrons,
                 const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig(),

@@ -4,8 +4,8 @@
 
 The script walks tmQMg rows in CSV order, resolves each XYZ file, and runs one
 reconstruction call with backend="python" and one with backend="cpp" for each
-row. It uses a fresh default MolGR config so the C++ backend keeps its built-in
-hardware-parallel defaults.
+row. It uses a fresh MolGR config object so each run is isolated from global
+configuration mutations.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ if __package__ in (None, ""):
 
 from rdkit import Chem, RDLogger
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.interface import xyz_to_rdmol
 
 
@@ -461,6 +461,7 @@ def _summarize(
                 "enable_target_bucket_parallelism": config.cpp_backend.enable_target_bucket_parallelism,
                 "enable_candidate_scoring_parallelism": config.cpp_backend.enable_candidate_scoring_parallelism,
                 "enable_uff_atom_typing_cache": config.cpp_backend.enable_uff_atom_typing_cache,
+                "target_bucket_parallel_threshold": config.cpp_backend.target_bucket_parallel_threshold,
                 "candidate_score_parallel_threshold": config.cpp_backend.candidate_score_parallel_threshold,
             }
         },
@@ -538,7 +539,7 @@ def run(
         limit=limit,
     )
 
-    config = make_default_config()
+    config = MolGRConfig()
     started_at = time.perf_counter()
     results: list[dict[str, Any]] = []
 

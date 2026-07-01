@@ -336,7 +336,9 @@ DP 合并后的 target bucket key 是：
 
 ## C++ 后端已实现的额外优化
 
-C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下额外优化：
+C++ 后端是 Python fallback 语义的加速实现。下面这些优化可以改变调度、缓存和线程安全实现
+细节，但同一个 `MolGRConfig` 下不得改变候选集合、候选顺序、评分 key、平局打破逻辑或最终
+入选分子。
 
 1. 无金属输入快路径
    - `XyzBlockIsDefinitelyMetalFree(...)` 只扫描 XYZ atom symbol。
@@ -348,8 +350,12 @@ C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下�
 
 3. 目标桶并行
    - `enable_target_bucket_parallelism` 默认开启。
+   - `target_bucket_parallel_threshold` 默认为 `1`。
+   - `target_bucket_parallel_max_threads=None` 表示 C++ 按硬件线程数、target bucket 数量以及
+     已设置的 `cpp_backend.max_threads` 全局上限自动确定 worker 数。
    - 每个 no-metal target bucket 独立重建，可通过 `ParallelForIndices(...)` 并行执行。
-   - 并行度由硬件线程数、任务数和 `cpp_backend.max_threads` 共同限制。
+   - 桶内 worker 复用同一个 no-metal XYZ seed molecule 的 clone，不再重复解析同一个
+     XYZ block。
 
 4. DP frontier 并行
    - C++ `GroupCandidatesByTargetDp(...)` 在目标桶并行开启且左右 frontier 都非空时，用 `std::async` 并行构建一侧 partial assignment frontier。
@@ -366,17 +372,18 @@ C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下�
      - post-reinsertion base components
      - 固定 UFF force-field 元数据
    - 金属桶内多个候选共享同一个 no-metal state 时，可以避免重复构建这些派生数据。
+   - `enable_target_bucket_score_bundle_preheat` 默认开启，可单独关闭以排查行为差异。
 
 7. 全局 force-field evaluation LRU
    - `ForceFieldEvaluationCache` 使用线程安全 LRU，key 对应固定 UFF 结构评分。
    - 相同结构重复评分时可直接复用 `ForceFieldEvaluation`。
 
-8. UFF atom typing LRU
-   - C++ fork 的 `MolgrForceFieldUFF` 支持 atom typing cache。
-   - `enable_uff_atom_typing_cache` 默认开启。
-   - 这减少了大量相似候选重复执行 UFF atom type assignment 的成本。
+8. MolGR vendor UFF force-field
+   - C++ 固定使用 MolGR 维护的线程安全 `MolgrForceFieldUFF` vendor 子模块进行 UFF 评分，不再调用 OpenBabel 进程全局 force-field 插件。
+   - 这样可以移除 `OBForceField::FindForceField("uff")` 的 Setup/Energy 全局锁，同时保持与 Python fallback 相同的固定 UFF 评分策略。
+   - `enable_uff_atom_typing_cache` 是可选 C++ 加速项，默认关闭。
 
-9. thread-local force-field 实例复用
+9. thread-local vendor UFF 实例复用
    - 每个线程维护可复用的 force-field 实例。
    - C++ 使用 exact setup key 和 OpenBabel setup key 判断何时需要重置实例，避免 OpenBabel 粗粒度 setup 判断遗漏图/电荷变化。
 
@@ -385,10 +392,14 @@ C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下�
     - 分支时如果没有替换 molecule，会共享对象和缓存；真正修改时通过 `EnsureUniqueMol()` 复制。
     - 共振分支和候选状态传递减少了不必要的 OBMol 拷贝。
 
-11. no-metal 共振候选的拓扑优先评分
-    - Python fallback 会给每个有效共振候选评分后用拓扑和 score 组成 selection key。
-    - C++ 先找最优拓扑候选集合，只对拓扑并列者执行 force-field 评分。
-    - 由于 force-field score 在 no-metal selection key 中排最后，这保持选择语义，同时减少 force-field 调用。
+11. MolGR vendor XYZ seed perception
+    - C++ 解析 XYZ seed 时统一使用 `molgr::utils::ReadXyzBlockToMol(...)` 和
+      `molgr::vendor::openbabel_threading::ConnectTheDotsAndPerceiveBondOrders(...)`。
+    - 这个 helper 只 vendor MolGR XYZ seed 路径需要的 OpenBabel bond connectivity
+      和 bond-order perception 逻辑，不再用进程级全局锁包住
+      `OBMol::ConnectTheDots()` / `OBMol::PerceiveBondOrders()`。
+    - C++ 代码不要直接调用这两个 OpenBabel 方法；直接调用会重新串行化目标桶 worker，
+      也会让 C++ 后端偏离 Python fallback 的原样加速实现。
 
 12. C++ 输出 `MoleculeData`
     - C++ 后端返回轻量 `MoleculeData`，Python 层再转 RDKit。
@@ -402,6 +413,89 @@ C++ 后端当前不仅是 Python fallback 的逐行翻译，还实现了以下�
 
 - resonance candidate parallelism 的调度成本高于收益，当前版本不再保留对应 C++ 配置项。
 - `RecoverResonanceCandidates(...)` 仍按串行流程准备 resonance candidates。
+
+## C++/Python 后端一致性护栏
+
+Python fallback 是语义参考。C++ 后端可以缓存、并行、预计算，或使用线程安全 vendor
+子模块，但这些优化必须保持相同 `MolGRConfig` 下的候选集合、候选顺序、评分 key 和最终
+入选分子与 Python fallback 一致。
+
+下面是已经踩过的行为分叉点，后续修改不能重新引入：
+
+1. SMARTS 匹配语义
+   - C++ 中所有 SMARTS 调用必须通过 `molgr::smarts::FindAll(...)`。
+   - `FindAll(...)` 有意复刻 `pybel.Smarts.findall()`：调用
+     `OBSmartsPattern::Match(mol)` 后返回 `GetUMapList()`。
+   - 除 SMARTS helper 内部外，不要直接使用 `OBSmartsPattern::Match(...)`、
+     `GetMapList()` 或更底层的 OpenBabel match-list helper。
+
+2. force-field setup 状态
+   - OpenBabel UFF force-field 实例是有状态对象，会复用 setup 数据。
+   - 两端都必须维护 exact setup key 和 OpenBabel 粗粒度 setup key；当 exact key
+     改变但粗粒度 key 未变时，必须先 reset force field，再执行 `Setup(...)`。
+   - 清空 force-field cache 时，也必须同步清空 setup-state 记录。
+   - vendor UFF 和 atom typing cache 必须保留同样的 reset 语义。
+
+3. no-metal 共振候选选择
+   - C++ 必须使用与 Python 相同的一次性完整 selection key：
+     `(-aromatic_stability, -aromatic_atom_count,
+     -adjusted_max_conjugated_component_size,
+     -adjusted_conjugated_atom_count, -adjusted_conjugated_bond_count, score)`。
+   - 不要重新引入“先按 topology 过滤，再只给并列者做 UFF scoring”的路径；中间候选
+     摘要也必须与 Python 对齐，而不仅是最终化学等价。
+
+4. `clean_resonances_8`
+   - C++ 条件必须匹配 Python。该规则只由 bond-order pattern 触发；额外的 atom
+     charge 检查会改变行为。
+   - aromatic perception reset 必须使用线程安全 OpenBabel helper。
+
+5. elimination 规则中的元素常量
+   - 数字 atomic-number 列表必须和 Python 常量保持一致。
+   - iodine 是 `53`；避免再次出现误写成 `56` 这类手写常量漂移。
+
+6. 线程并行和 C++ 专属加速项
+   - `enable_target_bucket_parallelism` 等 C++ 专属选项只能改变调度和性能，不能改变结果
+     顺序、平局打破逻辑或入选候选。
+   - 任何可能影响候选构造、过滤、score 复用、OpenBabel perception 或 force-field setup
+     的优化，启用前都必须有 parity 测试兜住。
+
+7. C++ XYZ seed perception
+   - C++ 不能直接调用 `OBMol::ConnectTheDots()` 或 `OBMol::PerceiveBondOrders()`。
+     C++ XYZ seed 唯一允许入口是 `ReadXyzBlockToMol(...)`，内部使用 MolGR vendor helper。
+   - 重新引入包住 OpenBabel 原生方法的全局 perception lock 会破坏目标桶并行，也会让
+     C++ 后端变成另一套实现策略，而不是 Python fallback 的原样加速实现。
+
+这些边界的最小验证命令：
+
+```bash
+uv run pytest \
+  tests/test_cpp_python_metal_candidate_parity.py \
+  tests/test_cpp_uff_atom_typing_cache.py \
+  tests/test_force_field_scoring_policy.py \
+  tests/test_fallback_scoring_cache.py -q
+
+uv run ruff check \
+  tests/test_cpp_python_metal_candidate_parity.py \
+  tests/test_force_field_scoring_policy.py
+```
+
+验证 tmQMg 后端对齐时，只比较 MolGR C++ 和 fallback 两个方法：
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /mnt/e/download/tmQMg_properties_and_targets.csv \
+  --xyz-dir /mnt/e/download/tmQMg_xyz/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/<run-name> \
+  --progress-every 50 \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback \
+  --process-workers 1
+```
+
+只有在测吞吐时才增加 `--process-workers`。进程级并行会与 C++ target-bucket 线程叠加，
+过高 worker 数会竞争同一批 CPU 资源。
 
 ## 维护边界
 

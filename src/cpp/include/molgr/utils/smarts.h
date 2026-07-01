@@ -1,6 +1,7 @@
 #pragma once
 
 #include <openbabel/mol.h>
+#include <openbabel/parsmart.h>
 
 #include <cstddef>
 #include <vector>
@@ -57,6 +58,11 @@ namespace molgr
             COUNT,
         };
 
-        std::vector<std::vector<int>> Match(OpenBabel::OBMol &mol, PatternId pattern_id);
+        // Match SMARTS with the same semantics as Python pybel.Smarts.findall():
+        // OpenBabel::OBSmartsPattern::Match(mol), followed by GetUMapList().
+        std::vector<std::vector<int>> FindAll(
+            OpenBabel::OBSmartsPattern &pattern,
+            OpenBabel::OBMol &mol);
+        std::vector<std::vector<int>> FindAll(OpenBabel::OBMol &mol, PatternId pattern_id);
     }
 }

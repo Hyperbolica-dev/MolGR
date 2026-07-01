@@ -16,7 +16,7 @@ from openbabel import pybel
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
 
-from molgr.config import DEFAULT_MOLGR_CONFIG
+from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_with_metals as with_metals_module
 from molgr.fallback.pipeline import reconstruct_without_metals as without_metals_module
 from molgr.fallback.pipeline.reconstruct_with_metals import xyz2omol
@@ -68,6 +68,30 @@ def _seed_case(smiles: str) -> tuple[str, int, int]:
     assert int(embed_code) == 0
     total_charge, total_radical_electrons = _total_charge_and_radicals(mol_h)
     return Chem.MolToXYZBlock(mol_h), total_charge, total_radical_electrons
+
+
+def _patch_no_metal_seed_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+    no_metal_state: ReconstructionState,
+    *,
+    parse_calls: dict[str, int] | None = None,
+) -> None:
+    def fake_seed_omol_from_xyz(*args, **kwargs):
+        del args, kwargs
+        if parse_calls is not None:
+            parse_calls["count"] += 1
+        return no_metal_state.omol
+
+    monkeypatch.setattr(
+        with_metals_module.no_metal_preparation,
+        "_seed_omol_from_xyz",
+        fake_seed_omol_from_xyz,
+    )
+    monkeypatch.setattr(
+        without_metals_module,
+        "_seed_omol_to_omol_no_metal_state",
+        lambda *args, **kwargs: no_metal_state,
+    )
 
 
 def _load_parity_cases() -> list[object]:
@@ -250,10 +274,11 @@ O 1.2 0.0 0.0
         }
 
     monkeypatch.setattr(metal_search_module, "_group_candidates_by_target_dp", fake_group)
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
+    parse_calls = {"count": 0}
+    _patch_no_metal_seed_reconstruction(
+        monkeypatch,
+        no_metal_state,
+        parse_calls=parse_calls,
     )
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
@@ -280,9 +305,9 @@ O 1.2 0.0 0.0
         fake_prepare_candidate,
     )
     layered_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             open_shell_multimetal_state_penalty_window=0.0,
             open_shell_multimetal_min_state_options=1,
         ),
@@ -297,8 +322,124 @@ O 1.2 0.0 0.0
 
     assert result is not None
     assert layer_calls == [[1, 1], [2, 2]]
+    assert parse_calls == {"count": 1}
     assert result.metadata["search_layer_index"] == 1
     assert result.combined_omol == {"valences": (2, 2)}
+
+
+def test_xyz2omol_state_reuses_clean_no_metal_seed_across_target_buckets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_metal_state = MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0)
+    second_metal_state = MetalAtomPosition(1, "Li", 3, 2, 0, 0.0, 0.0, 0.0)
+    first_candidate = make_metal_candidate_state(
+        (),
+        (first_metal_state,),
+        -1,
+        0,
+        combination_index=0,
+    )
+    second_candidate = make_metal_candidate_state(
+        (),
+        (second_metal_state,),
+        -2,
+        0,
+        combination_index=1,
+    )
+    no_metal_seed = pybel.readstring(
+        "xyz",
+        """2
+CO
+C 0.0 0.0 0.0
+O 1.2 0.0 0.0
+""",
+    )
+    prepared_state = MetalPreparationState(
+        no_metal_xyz_block="clean-seed-xyz",
+        available_valence_radical_states=((first_metal_state, second_metal_state),),
+        total_charge=0,
+        total_radical_electrons=0,
+    )
+    no_metal_state = ReconstructionState(
+        omol=no_metal_seed,
+        given_charge=0,
+        total_charge=-1,
+        total_radical_electrons=0,
+    )
+
+    monkeypatch.setattr(
+        metal_preparation_module,
+        "prepare_metal_state",
+        lambda *args, **kwargs: prepared_state,
+    )
+    monkeypatch.setattr(
+        metal_search_module,
+        "_group_candidates_by_target_dp",
+        lambda *args, **kwargs: {
+            (
+                first_candidate.no_metal_charge_target,
+                first_candidate.no_metal_radical_target,
+            ): [first_candidate],
+            (
+                second_candidate.no_metal_charge_target,
+                second_candidate.no_metal_radical_target,
+            ): [second_candidate],
+        },
+    )
+    parse_calls = {"count": 0}
+
+    def fake_seed_omol_from_xyz(xyz_block):
+        assert xyz_block == "clean-seed-xyz"
+        parse_calls["count"] += 1
+        return no_metal_seed
+
+    monkeypatch.setattr(
+        with_metals_module.no_metal_preparation,
+        "_seed_omol_from_xyz",
+        fake_seed_omol_from_xyz,
+    )
+
+    captured_seeds: list[object] = []
+
+    def fake_seed_to_state(seed_omol, *args, **kwargs):
+        del args, kwargs
+        captured_seeds.append(seed_omol)
+        return no_metal_state
+
+    monkeypatch.setattr(
+        without_metals_module,
+        "_seed_omol_to_omol_no_metal_state",
+        fake_seed_to_state,
+    )
+
+    def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
+        del config
+        candidate.no_metal_state = no_metal_state
+        candidate.score = 1.0
+        candidate.metadata["score"] = 1.0
+        candidate.metadata["metal_assignment_rank"] = 0.0
+        candidate.metadata["organic_aromatic_atom_count"] = 0
+        candidate.metadata["organic_aromatic_ring_count"] = 0
+        candidate.metadata["organic_conjugated_atom_count"] = 0
+        candidate.metadata["organic_conjugated_bond_count"] = 0
+        candidate.metadata["organic_max_conjugated_component_size"] = 0
+        candidate.metadata["organic_radical_localization_penalty"] = 0.0
+        candidate.metadata["organic_charge_localization_penalty"] = 0.0
+        candidate.combined_omol = {"used_seed": True}
+        return candidate
+
+    monkeypatch.setattr(
+        metal_scoring_module,
+        "_prepare_candidate_with_no_metal_state",
+        fake_prepare_candidate,
+    )
+
+    result = with_metals_module.xyz2omol_state("ignored", 0, 0)
+
+    assert result is not None
+    assert parse_calls == {"count": 1}
+    assert captured_seeds == [no_metal_seed, no_metal_seed]
+    assert result.combined_omol == {"used_seed": True}
 
 
 def test_xyz2omol_state_reads_target_group_pruning_limits_from_config(
@@ -331,9 +472,9 @@ def test_xyz2omol_state_reads_target_group_pruning_limits_from_config(
     monkeypatch.setattr(metal_search_module, "_group_candidates_by_target_dp", fake_group)
 
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=5,
             max_assignments_per_target=7,
         ),
@@ -359,9 +500,9 @@ def test_group_candidates_by_target_dp_caps_candidates_per_target() -> None:
         for idx in range(1, 5)
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=None,
             max_assignments_per_target=1,
         ),
@@ -392,9 +533,9 @@ def test_group_candidates_by_target_dp_assigns_combination_indices_in_cpp_target
         ),
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=None,
             max_assignments_per_target=10,
         ),
@@ -439,9 +580,9 @@ def test_group_candidates_by_target_dp_uses_meet_in_the_middle_split(monkeypatch
         tracking_frontier,
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -464,9 +605,9 @@ def test_group_candidates_by_target_dp_preserves_cross_half_valence_spread_pruni
         (MetalAtomPosition(2, "Fe", 26, 6, 0, 2.0, 0.0, 0.0),),
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -529,9 +670,9 @@ def test_combine_partial_assignment_frontiers_only_checks_radical_compatible_buc
 
     monkeypatch.setattr(metal_search_module, "_merge_valence_bounds", tracking_merge)
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -724,11 +865,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
     calls = {"count": 0}
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
@@ -830,11 +967,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del config
@@ -932,11 +1065,7 @@ O 3.2 0.0 0.0
             (fallback.no_metal_charge_target, fallback.no_metal_radical_target): [fallback],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del config
@@ -1034,11 +1163,7 @@ O 3.2 0.0 0.0
             (fallback.no_metal_charge_target, fallback.no_metal_radical_target): [fallback],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_combined_score(self):
         valence = self.metal_states[0].valence
@@ -1721,16 +1846,16 @@ N 2.10 0.0 0.0
         combination_index=0,
     )
     tight_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_coordination_extra_tolerance_angstrom=0.10,
         ),
     )
     loose_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_coordination_extra_tolerance_angstrom=0.35,
         ),
     )
@@ -1777,17 +1902,17 @@ N 2.22 0.0 0.0
         combination_index=0,
     )
     unscaled_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_access_radius_scale=1.0,
             metal_coordination_extra_tolerance_angstrom=0.10,
         ),
     )
     scaled_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_access_radius_scale=1.10,
             metal_coordination_extra_tolerance_angstrom=0.10,
         ),
@@ -2332,11 +2457,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_combined_score(self):
         valence = self.metal_states[0].valence
@@ -2409,11 +2530,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del no_metal_state, config
