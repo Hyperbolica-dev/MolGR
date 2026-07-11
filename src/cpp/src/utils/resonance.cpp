@@ -886,6 +886,7 @@ namespace molgr
                 charge);
             bool hit = false;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::Eliminate13Dipole) || hit;
+            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateCPLikeRadicalAnion) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateNegativeCharges) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;

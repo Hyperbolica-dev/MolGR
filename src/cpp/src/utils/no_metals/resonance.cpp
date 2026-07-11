@@ -45,6 +45,9 @@ namespace
             molgr::reconstruct::Eliminate13Dipole);
         branched_machine.RunOmolChargeStage(
             std::nullopt,
+            molgr::reconstruct::EliminateCPLikeRadicalAnion);
+        branched_machine.RunOmolChargeStage(
+            std::nullopt,
             molgr::reconstruct::EliminatePositiveCharges);
         branched_machine.RunOmolChargeStage(
             std::nullopt,

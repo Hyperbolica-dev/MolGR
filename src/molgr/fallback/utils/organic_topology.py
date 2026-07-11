@@ -55,6 +55,67 @@ def _is_charge_accepted_aromatic_ring(obmol: ob.OBMol, ring: ob.OBRing) -> bool:
     )
 
 
+def _ring_bond(obmol: ob.OBMol, begin_idx: int, end_idx: int) -> ob.OBBond | None:
+    return cast("ob.OBBond | None", obmol.GetBond(begin_idx, end_idx))
+
+
+def _additional_atom_pi_electrons(atom: ob.OBAtom, *, incident_to_ring_multiple_bond: bool) -> int:
+    if incident_to_ring_multiple_bond:
+        return 0
+    atomic_num = int(atom.GetAtomicNum())
+    if atomic_num == 1:
+        return 0
+    if int(atom.GetFormalCharge()) < 0:
+        return 2
+    if atomic_num != 6:
+        return 2
+    if _atom_has_odd_spin(atom):
+        return 1
+    return 0
+
+
+def _ring_pi_electron_count(obmol: ob.OBMol, ring: ob.OBRing) -> int | None:
+    ring_atom_indices = _ring_atom_indices(ring)
+    if len(ring_atom_indices) < 3:
+        return None
+
+    pi_electron_count = 0
+    atoms_incident_to_ring_multiple_bond: Set[int] = set()
+    for offset, begin_idx in enumerate(ring_atom_indices):
+        end_idx = ring_atom_indices[(offset + 1) % len(ring_atom_indices)]
+        bond = _ring_bond(obmol, begin_idx, end_idx)
+        if bond is None:
+            return None
+        if int(bond.GetBondOrder()) >= 2:
+            pi_electron_count += 2
+            atoms_incident_to_ring_multiple_bond.add(begin_idx)
+            atoms_incident_to_ring_multiple_bond.add(end_idx)
+
+    for atom_idx in ring_atom_indices:
+        atom = obmol.GetAtom(atom_idx)
+        if atom is None:
+            continue
+        pi_electron_count += _additional_atom_pi_electrons(
+            atom,
+            incident_to_ring_multiple_bond=atom_idx in atoms_incident_to_ring_multiple_bond,
+        )
+    return pi_electron_count
+
+
+def _has_huckel_pi_electron_count(pi_electron_count: int | None) -> bool:
+    return (
+        pi_electron_count is not None
+        and pi_electron_count >= 2
+        and (pi_electron_count - 2) % 4 == 0
+    )
+
+
+def _is_huckel_accepted_aromatic_ring(obmol: ob.OBMol, ring: ob.OBRing) -> bool:
+    return _is_charge_accepted_aromatic_ring(obmol, ring) and _has_huckel_pi_electron_count(
+        _ring_pi_electron_count(obmol, ring)
+    )
+
+
 def _aromatic_ring_stability_weight(
     obmol: ob.OBMol,
     ring_atom_indices: Iterable[int],
@@ -191,7 +252,7 @@ def compute_organic_topology_metrics(
         aromatic_atom_indices: Set[int] = set()
         for ring_iter in ob.OBMolRingIter(obmol):
             ring = cast(ob.OBRing, ring_iter)
-            if not _is_charge_accepted_aromatic_ring(obmol, ring):
+            if not _is_huckel_accepted_aromatic_ring(obmol, ring):
                 continue
             aromatic_ring_count += 1
             ring_atom_indices = _ring_atom_indices(ring)

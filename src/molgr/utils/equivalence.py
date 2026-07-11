@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Tuple
 
-from rdkit import Chem
+from rdkit import Chem, rdBase
 from rdkit.Chem import ResonanceMolSupplier, inchi
 
 
@@ -134,6 +134,9 @@ def _clear_metal_radicals(mol: Chem.Mol) -> Chem.Mol:
 
 def _safe_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
     clone = _safe_copy(mol)
+    if not use_chirality:
+        Chem.RemoveStereochemistry(clone)
+        clone.UpdatePropertyCache(strict=False)
     return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality)
 
 
@@ -167,7 +170,7 @@ def _add_hs_without_sanitize(mol: Chem.Mol) -> Chem.Mol:
 
 
 def _standardize_metal_bonds(mol: Chem.Mol) -> Chem.Mol:
-    rw_mol = Chem.RWMol(_safe_copy(_clear_metal_radicals(mol)))
+    rw_mol = Chem.RWMol(_safe_copy(_clear_metal_radicals(_add_hs_without_sanitize(mol))))
     for bond in list(rw_mol.GetBonds()):
         begin_atom = bond.GetBeginAtom()
         end_atom = bond.GetEndAtom()
@@ -231,7 +234,6 @@ def _prepare_organic_mol(mol: Chem.Mol) -> Chem.Mol:
     standardized = _standardize_metal_bonds(mol)
     standardized = _remove_coordination_bonds(standardized)
     standardized = _remove_metal_atoms(standardized)
-    standardized = _add_hs_without_sanitize(standardized)
     standardized.UpdatePropertyCache(strict=False)
     with suppress(Exception):
         Chem.SanitizeMol(standardized)
@@ -385,7 +387,7 @@ def _resonance_match(
     return False, mol1_count, mol2_count, None
 
 
-def check_equivalence(
+def _check_equivalence_impl(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
     use_chirality: bool = True,
@@ -504,3 +506,21 @@ def check_equivalence(
 
     info.reason = "Not equivalent: no standardized comparison path matched."
     return False, info
+
+
+def check_equivalence(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    use_chirality: bool = True,
+    max_resonance: int = 50,
+    resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
+    | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
+) -> Tuple[bool, EquivalenceInfo]:
+    with rdBase.BlockLogs():
+        return _check_equivalence_impl(
+            mol1,
+            mol2,
+            use_chirality=use_chirality,
+            max_resonance=max_resonance,
+            resonance_flags=resonance_flags,
+        )

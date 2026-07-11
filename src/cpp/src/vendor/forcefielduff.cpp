@@ -1458,6 +1458,21 @@ namespace OpenBabel {
     atom_typing_cache_key_ = std::move(cache_key);
   }
 
+  void MolgrForceFieldUFF::CopyPerceivedHybridizationTo(OBMol &mol) const
+  {
+    if (_mol.NumAtoms() != mol.NumAtoms()) {
+      return;
+    }
+    OpenBabel::OBMol &source_mol = const_cast<OpenBabel::OBMol &>(_mol);
+    FOR_ATOMS_OF_MOL(source_atom, source_mol) {
+      OpenBabel::OBAtom *target_atom = mol.GetAtom(source_atom->GetIdx());
+      if (target_atom != nullptr) {
+        target_atom->SetHyb(source_atom->GetHyb());
+      }
+    }
+    mol.SetHybridizationPerceived(source_mol.HasHybridizationPerceived());
+  }
+
   std::vector<std::string> MolgrForceFieldUFF::DebugAtomTypes() const
   {
     std::vector<std::string> atom_types;

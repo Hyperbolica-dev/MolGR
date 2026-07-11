@@ -92,6 +92,13 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
+    const auto eliminate_cp_like_radical_anion_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        const bool hit = molgr::reconstruct::EliminateCPLikeRadicalAnion(*mol, given_charge);
+        return py::make_tuple(given_charge, hit);
+    };
+
     const auto eliminate_nnn_ptr = [](intptr_t mol_ptr, int given_charge, bool positive) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
@@ -272,6 +279,19 @@ Args:
         eliminate_negative_charges_ptr,
         R"pbdoc(
 Apply eliminate.eliminate_negative_charges to an existing OBMol.
+
+Args:
+    mol_ptr: int address of OpenBabel::OBMol
+    given_charge: charge deficit to be updated in place and returned
+)pbdoc",
+        py::arg("mol_ptr"),
+        py::arg("given_charge"));
+
+    m_eliminate.def(
+        "eliminate_cp_like_radical_anion_ptr",
+        eliminate_cp_like_radical_anion_ptr,
+        R"pbdoc(
+Apply eliminate.eliminate_cp_like_radical_anion to an existing OBMol.
 
 Args:
     mol_ptr: int address of OpenBabel::OBMol

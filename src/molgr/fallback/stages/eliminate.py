@@ -2,12 +2,222 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Tuple, cast
 
 from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.utils import consts, smarts
+
+
+@dataclass(frozen=True)
+class _ChargeAssignmentAction:
+    atom_idx: int
+    formal_charge: int
+    spin_consumed: int
+    charge_delta: int
+    score_key: Tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _NegativeChargeAssignmentPattern:
+    smarts: pybel.Smarts
+    tier: int
+    target_idx: int = 0
+    requires_negative_deficit: bool = False
+
+
+_NEGATIVE_CHARGE_ASSIGNMENT_PATTERNS = (
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_F, tier=10),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_O, tier=20),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_O_1, tier=21),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_CL, tier=30),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_N, tier=40),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_N_1, tier=41),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_N_2, tier=42),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_BR, tier=50),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_I, tier=60),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_S, tier=70),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_S_1, tier=71),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_SE, tier=80),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_SE_1, tier=81),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_P, tier=90),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_P_1, tier=91),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_P_2, tier=92),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_B, tier=95),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_B_1, tier=96),
+    _NegativeChargeAssignmentPattern(smarts.ELIM_NEGATIVE_B_2, tier=97),
+    _NegativeChargeAssignmentPattern(
+        smarts.ELIM_NEGATIVE_C_V3,
+        tier=100,
+        requires_negative_deficit=True,
+    ),
+    _NegativeChargeAssignmentPattern(
+        smarts.ELIM_NEGATIVE_C_LOW,
+        tier=110,
+        requires_negative_deficit=True,
+    ),
+    _NegativeChargeAssignmentPattern(
+        smarts.ELIM_NEGATIVE_H,
+        tier=120,
+        requires_negative_deficit=True,
+    ),
+)
+
+
+def _apply_charge_assignment_action(
+    obmol: ob.OBMol,
+    action: _ChargeAssignmentAction,
+) -> bool:
+    atom = cast(ob.OBAtom, obmol.GetAtom(action.atom_idx))
+    if atom is None or action.spin_consumed <= 0:
+        return False
+    if atom.GetSpinMultiplicity() < action.spin_consumed:
+        return False
+    atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - action.spin_consumed)
+    atom.SetFormalCharge(action.formal_charge)
+    return True
+
+
+def _atom_idx(atom: ob.OBAtom) -> int:
+    return int(atom.GetIdx())
+
+
+def _negative_charge_assignment_amount(atom: ob.OBAtom, given_charge: int) -> int:
+    return min(atom.GetSpinMultiplicity(), max(1, abs(given_charge)))
+
+
+def _positive_charge_assignment_actions(
+    omol: pybel.Molecule,
+    obmol: ob.OBMol,
+    given_charge: int,
+) -> list[_ChargeAssignmentAction]:
+    if given_charge <= 0:
+        return []
+
+    actions: list[_ChargeAssignmentAction] = []
+    seen: set[tuple[int, int, int]] = set()
+
+    def append_action(atom: ob.OBAtom, *, tier: int, match_order: int, amount: int) -> None:
+        if atom is None or amount <= 0:
+            return
+        atom_idx = _atom_idx(atom)
+        key = (atom_idx, tier, amount)
+        if key in seen:
+            return
+        seen.add(key)
+        charge_after = given_charge - amount
+        atomic_num = int(atom.GetAtomicNum())
+        actions.append(
+            _ChargeAssignmentAction(
+                atom_idx=atom_idx,
+                formal_charge=amount,
+                spin_consumed=amount,
+                charge_delta=-amount,
+                score_key=(
+                    tier,
+                    abs(charge_after),
+                    max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                ),
+            )
+        )
+
+    for match_order, n_idxs in enumerate(
+        cast(List[Tuple[int, int]], smarts.ELIM_POSITIVE_N.findall(omol))
+    ):
+        atom = cast(ob.OBAtom, obmol.GetAtom(n_idxs[1]))
+        if atom.GetFormalCharge() == 0 and atom.GetSpinMultiplicity() >= 1:
+            append_action(atom, tier=0, match_order=match_order, amount=1)
+
+    for match_order, c_h_idxs in enumerate(
+        cast(List[Tuple[int, int, int]], smarts.ELIM_POSITIVE_C_H.findall(omol))
+    ):
+        atom = cast(ob.OBAtom, obmol.GetAtom(c_h_idxs[0]))
+        if atom.GetFormalCharge() == 0 and atom.GetSpinMultiplicity() >= 1:
+            append_action(atom, tier=10, match_order=match_order, amount=1)
+
+    for match_order, atom_iter in enumerate(ob.OBMolAtomIter(obmol)):
+        atom = cast(ob.OBAtom, atom_iter)
+        if atom.GetFormalCharge() == 0 and atom.GetSpinMultiplicity() >= 1:
+            append_action(
+                atom,
+                tier=100,
+                match_order=match_order,
+                amount=min(atom.GetSpinMultiplicity(), given_charge),
+            )
+
+    return sorted(actions, key=lambda action: action.score_key)
+
+
+def _negative_charge_assignment_actions(
+    omol: pybel.Molecule,
+    obmol: ob.OBMol,
+    given_charge: int,
+) -> list[_ChargeAssignmentAction]:
+    if given_charge > 0:
+        return []
+
+    actions: list[_ChargeAssignmentAction] = []
+    seen: set[tuple[int, int, int]] = set()
+
+    def append_action(atom: ob.OBAtom, *, tier: int, match_order: int, amount: int) -> None:
+        if atom is None or amount <= 0:
+            return
+        atom_idx = _atom_idx(atom)
+        key = (atom_idx, tier, amount)
+        if key in seen:
+            return
+        seen.add(key)
+        charge_after = given_charge + amount
+        atomic_num = int(atom.GetAtomicNum())
+        actions.append(
+            _ChargeAssignmentAction(
+                atom_idx=atom_idx,
+                formal_charge=-amount,
+                spin_consumed=amount,
+                charge_delta=amount,
+                score_key=(
+                    tier,
+                    abs(charge_after),
+                    max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                ),
+            )
+        )
+
+    for pattern in _NEGATIVE_CHARGE_ASSIGNMENT_PATTERNS:
+        if pattern.requires_negative_deficit and given_charge >= 0:
+            continue
+        for match_order, pattern_idxs in enumerate(
+            cast(List[Tuple[int, ...]], pattern.smarts.findall(omol))
+        ):
+            atom = cast(ob.OBAtom, obmol.GetAtom(pattern_idxs[pattern.target_idx]))
+            if atom.GetFormalCharge() == 0 and atom.GetSpinMultiplicity() >= 1:
+                append_action(
+                    atom,
+                    tier=pattern.tier,
+                    match_order=match_order,
+                    amount=_negative_charge_assignment_amount(atom, given_charge),
+                )
+
+    if given_charge < 0:
+        for match_order, atom_iter in enumerate(ob.OBMolAtomIter(obmol)):
+            atom = cast(ob.OBAtom, atom_iter)
+            if atom.GetFormalCharge() == 0 and atom.GetSpinMultiplicity() >= 1:
+                append_action(
+                    atom,
+                    tier=1000,
+                    match_order=match_order,
+                    amount=_negative_charge_assignment_amount(atom, given_charge),
+                )
+
+    return sorted(actions, key=lambda action: action.score_key)
 
 
 def eliminate_high_positive_charge_atoms(
@@ -269,38 +479,43 @@ def eliminate_1_3_dipole(
     return omol, given_charge, hit
 
 
+def eliminate_cp_like_radical_anion(
+    omol: pybel.Molecule, given_charge: int
+) -> tuple[pybel.Molecule, int, bool]:
+    """Convert cyclopentadienyl-like radicals into their anionic aromatic form."""
+
+    obmol = cast(ob.OBMol, omol.OBMol)
+    hit = False
+    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_CP.findall(omol)):
+        idxs = cast(Tuple[int, int, int, int, int], res.pop(0))
+        atom = cast(ob.OBAtom, obmol.GetAtom(idxs[4]))
+        if atom.GetFormalCharge() != 0:
+            break
+        to_add = atom.GetSpinMultiplicity()
+        if to_add <= 0:
+            break
+        atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - to_add)
+        atom.SetFormalCharge(-to_add)
+        given_charge += to_add
+        hit = True
+    return omol, given_charge, hit
+
+
 def eliminate_positive_charges(
     omol: pybel.Molecule, given_charge: int
 ) -> tuple[pybel.Molecule, int, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
 
-    while given_charge > 0 and (res := smarts.ELIM_POSITIVE_N.findall(omol)):
-        idxs_1 = cast(Tuple[int, int], res.pop(0))
-        abatom = cast(ob.OBAtom, obmol.GetAtom(idxs_1[1]))
-        abatom.SetSpinMultiplicity(abatom.GetSpinMultiplicity() - 1)
-        abatom.SetFormalCharge(1)
-        given_charge -= 1
-        hit = True
-
-    while given_charge > 0 and (res := smarts.ELIM_POSITIVE_C_H.findall(omol)):
-        idxs_2 = cast(Tuple[int, int, int], res.pop(0))
-        abatom2 = cast(ob.OBAtom, obmol.GetAtom(idxs_2[0]))
-        abatom2.SetSpinMultiplicity(abatom2.GetSpinMultiplicity() - 1)
-        abatom2.SetFormalCharge(1)
-        given_charge -= 1
-        hit = True
-    for atom in omol.atoms:
-        obatom = cast(ob.OBAtom, atom.OBAtom)
-        if given_charge <= 0:
+    while given_charge > 0:
+        actions = _positive_charge_assignment_actions(omol, obmol, given_charge)
+        if not actions:
             break
-        if obatom.GetSpinMultiplicity() >= 1 and obatom.GetFormalCharge() == 0:
-            to_add = min(obatom.GetSpinMultiplicity(), given_charge)
-            obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
-            obatom.SetFormalCharge(to_add)
-            given_charge -= to_add
-            if to_add > 0:
-                hit = True
+        action = actions[0]
+        if not _apply_charge_assignment_action(obmol, action):
+            break
+        given_charge += action.charge_delta
+        hit = True
     return omol, given_charge, hit
 
 
@@ -309,92 +524,16 @@ def eliminate_negative_charges(
 ) -> tuple[pybel.Molecule, int, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
-    possible_heteroatoms: List[Tuple[ob.OBAtom, int]] = []
-    for atom in omol.atoms:
-        obatom = cast(ob.OBAtom, atom.OBAtom)
-        if (
-            obatom.GetAtomicNum() in consts.HETEROATOM
-            and obatom.GetFormalCharge() == 0
-            and obatom.GetSpinMultiplicity() >= 1
-        ):
-            possible_heteroatoms.append((obatom, consts.HETEROATOM.index(obatom.GetAtomicNum())))
-    possible_heteroatoms.sort(key=lambda x: x[1])
-    for obatom, _ in possible_heteroatoms:
-        if given_charge > 0:
+
+    while given_charge <= 0:
+        actions = _negative_charge_assignment_actions(omol, obmol, given_charge)
+        if not actions:
             break
-        if obatom.GetSpinMultiplicity() != 1:
-            continue
-        to_add = min(obatom.GetSpinMultiplicity(), max(1, abs(given_charge)))
-        obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
-        obatom.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
-
-    while given_charge <= 0 and (res := smarts.ELIM_NEGATIVE_CP.findall(omol)):
-        idxs = cast(Tuple[int, int, int, int, int], res.pop(0))
-        obatom5 = cast(ob.OBAtom, obmol.GetAtom(idxs[4]))
-        to_add = obatom5.GetSpinMultiplicity()
-        obatom5.SetSpinMultiplicity(obatom5.GetSpinMultiplicity() - to_add)
-        obatom5.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
-
-    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_V3.findall(omol)):
-        c_v3_idxs = cast(Tuple[int], res.pop(0))
-        obatom1 = cast(ob.OBAtom, obmol.GetAtom(c_v3_idxs[0]))
-        to_add = min(obatom1.GetSpinMultiplicity(), abs(given_charge))
-        obatom1.SetSpinMultiplicity(obatom1.GetSpinMultiplicity() - to_add)
-        obatom1.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
-
-    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_H.findall(omol)):
-        h_idxs = cast(Tuple[int], res.pop(0))
-        obatom2 = cast(ob.OBAtom, obmol.GetAtom(h_idxs[0]))
-        to_add = min(obatom2.GetSpinMultiplicity(), abs(given_charge))
-        obatom2.SetSpinMultiplicity(obatom2.GetSpinMultiplicity() - to_add)
-        obatom2.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
-
-    while given_charge < 0 and (res := smarts.ELIM_NEGATIVE_C_LOW.findall(omol)):
-        c_low_idxs = cast(Tuple[int], res.pop(0))
-        obatom3 = cast(ob.OBAtom, obmol.GetAtom(c_low_idxs[0]))
-        to_add = min(obatom3.GetSpinMultiplicity(), abs(given_charge))
-        obatom3.SetSpinMultiplicity(obatom3.GetSpinMultiplicity() - to_add)
-        obatom3.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
-
-    while given_charge < 0:
-        for atom in ob.OBMolAtomIter(obmol):
-            atom = cast(ob.OBAtom, atom)
-            if atom.GetSpinMultiplicity() >= 1 and atom.GetFormalCharge() == 0:
-                to_add = min(atom.GetSpinMultiplicity(), abs(given_charge))
-                atom.SetSpinMultiplicity(atom.GetSpinMultiplicity() - to_add)
-                atom.SetFormalCharge(-to_add)
-                given_charge += to_add
-                if to_add > 0:
-                    hit = True
-        else:
+        action = actions[0]
+        if not _apply_charge_assignment_action(obmol, action):
             break
-
-    for obatom, _ in possible_heteroatoms:
-        if given_charge >= 0:
-            break
-        if obatom.GetSpinMultiplicity() < 2:
-            continue
-        to_add = min(obatom.GetSpinMultiplicity(), abs(given_charge))
-        obatom.SetSpinMultiplicity(obatom.GetSpinMultiplicity() - to_add)
-        obatom.SetFormalCharge(-to_add)
-        given_charge += to_add
-        if to_add > 0:
-            hit = True
+        given_charge += action.charge_delta
+        hit = True
 
     return omol, given_charge, hit
 
@@ -406,6 +545,7 @@ __all__ = [
     "eliminate_carboxyl",
     "eliminate_carbene_neighbor_heteroatom",
     "eliminate_charge_spliting",
+    "eliminate_cp_like_radical_anion",
     "eliminate_high_positive_charge_atoms",
     "eliminate_negative_charges",
     "eliminate_positive_charges",

@@ -799,6 +799,7 @@ namespace
         {
             OpenBabel::OBAtom &atom = *atom_iter;
             if (IsUnsaturatedOrganicCation(atom) &&
+                !molgr::vendor::openbabel_threading::AtomIsAromatic(atom) &&
                 !IsLocallyZwitterionicOrganicCation(atom))
             {
                 return 1;

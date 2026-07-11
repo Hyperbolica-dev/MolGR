@@ -72,6 +72,22 @@ def test_equivalence_treats_metals_as_isolated_ions() -> None:
     assert info.method == equivalence.EquivalenceMethod.IDEAL
 
 
+def test_equivalence_suppresses_rdkit_warnings_for_metal_hydrides(capfd) -> None:
+    mol1 = Chem.MolFromSmiles("C->[IrH+2]<-N", sanitize=False)
+    mol2 = Chem.MolFromSmiles("C->[Ir+2]([H])<-N", sanitize=False)
+    assert mol1 is not None
+    assert mol2 is not None
+    mol1.UpdatePropertyCache(strict=False)
+    mol2.UpdatePropertyCache(strict=False)
+
+    equivalent, info = equivalence.check_equivalence(mol1, mol2, use_chirality=False)
+
+    captured = capfd.readouterr()
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.IDEAL
+    assert captured.err == ""
+
+
 def test_equivalence_rejects_hydrogen_count_mismatch_after_expansion() -> None:
     mol1 = Chem.MolFromSmiles("C=C")
     mol2 = Chem.MolFromSmiles("CC")

@@ -330,6 +330,8 @@ namespace molgr
             }
             else
             {
+                machine.EnsureUniqueMol().SetHybridizationPerceived(false);
+                machine.EnsureUniqueMol().SetAtomTypesPerceived(false);
                 machine.InvalidateOmolDerivedCache();
             }
 

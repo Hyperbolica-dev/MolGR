@@ -5,7 +5,10 @@ from dataclasses import replace
 import pytest
 
 from molgr.config import MolGRConfig
-from molgr.fallback.utils.organic_topology import compute_organic_topology_metrics
+from molgr.fallback.utils.organic_topology import (
+    _additional_atom_pi_electrons,
+    compute_organic_topology_metrics,
+)
 
 
 def _require_pybel():
@@ -47,8 +50,12 @@ def test_charge_separated_fragment_without_bond_alternation_is_not_counted_as_co
     assert charge_separated_metrics.conjugated_atom_count == 0
     assert charge_separated_metrics.conjugated_bond_count == 0
     assert charge_separated_metrics.max_conjugated_component_size == 0
-    assert alternating_metrics.conjugated_atom_count > charge_separated_metrics.conjugated_atom_count
-    assert alternating_metrics.conjugated_bond_count > charge_separated_metrics.conjugated_bond_count
+    assert (
+        alternating_metrics.conjugated_atom_count > charge_separated_metrics.conjugated_atom_count
+    )
+    assert (
+        alternating_metrics.conjugated_bond_count > charge_separated_metrics.conjugated_bond_count
+    )
     assert (
         alternating_metrics.max_conjugated_component_size
         > charge_separated_metrics.max_conjugated_component_size
@@ -67,6 +74,66 @@ def test_high_absolute_formal_charge_sum_rejects_ring_aromaticity() -> None:
     assert tolerated_metrics.aromatic_ring_count == 1
     assert rejected_metrics.aromatic_atom_count == 0
     assert rejected_metrics.aromatic_ring_count == 0
+
+
+def test_ring_aromaticity_requires_huckel_pi_electron_count() -> None:
+    pybel = _require_pybel()
+    accepted = pybel.readstring("smi", "[n-]1cccc1")
+    rejected = pybel.readstring("smi", "c1cc2ccccc2cc1")
+
+    accepted_metrics = compute_organic_topology_metrics(accepted)
+    rejected_metrics = compute_organic_topology_metrics(rejected)
+
+    assert accepted_metrics.aromatic_ring_count == 1
+    assert accepted_metrics.aromatic_atom_count == 5
+    assert rejected_metrics.aromatic_ring_count == 1
+    assert rejected_metrics.aromatic_atom_count == 6
+
+
+def test_negative_ring_atom_contributes_pi_electrons_when_not_in_ring_multiple_bond() -> None:
+    pybel = _require_pybel()
+    omol = pybel.readstring("smi", "[N-]1C=CC=C1")
+    negative_nitrogen = omol.OBMol.GetAtom(1)
+
+    assert int(negative_nitrogen.GetAtomicNum()) == 7
+    assert int(negative_nitrogen.GetFormalCharge()) == -1
+    assert (
+        _additional_atom_pi_electrons(
+            negative_nitrogen,
+            incident_to_ring_multiple_bond=False,
+        )
+        == 2
+    )
+    assert (
+        _additional_atom_pi_electrons(
+            negative_nitrogen,
+            incident_to_ring_multiple_bond=True,
+        )
+        == 0
+    )
+
+
+def test_acasoo_like_resonance_prefers_huckel_valid_aromatic_ring_count() -> None:
+    pybel = _require_pybel()
+    resonance_zero = pybel.readstring(
+        "smi",
+        r"C\1/2=C(/C3=C(c4c(=N3)/c(=C\3/C=CC(=N3)/C(=c\3/cc/c(=C(/C(=N2)C=C1)\c1ccccc1)/[n-]3)/c1ccccc1)/c1ccccc1c4[O-])N)\c1ccccc1",
+    )
+    resonance_one = pybel.readstring(
+        "smi",
+        r"C\1/2=C(/c3c(c4c(/C(=C\5/C=CC(=N5)/C(=c\5/cc/c(=C(/C(=N2)C=C1)\c1ccccc1)/[n-]5)/c1ccccc1)/c1ccccc1C4=O)[n-]3)N)\c1ccccc1",
+    )
+
+    zero_metrics = compute_organic_topology_metrics(resonance_zero)
+    one_metrics = compute_organic_topology_metrics(resonance_one)
+
+    assert zero_metrics.aromatic_ring_count == 4
+    assert zero_metrics.aromatic_atom_count == 24
+    assert zero_metrics.aromatic_stability_score == pytest.approx(4.0)
+    assert one_metrics.aromatic_ring_count == 5
+    assert one_metrics.aromatic_atom_count == 29
+    assert one_metrics.aromatic_stability_score == pytest.approx(4.63504)
+    assert one_metrics.aromatic_stability_score > zero_metrics.aromatic_stability_score
 
 
 def test_aromatic_stability_scores_benzene_above_heteroaromatics() -> None:

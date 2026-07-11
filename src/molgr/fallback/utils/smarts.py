@@ -24,6 +24,25 @@ ELIM_NNN_POSITIVE = _smarts("[#7v3+0]-[#7v2+0]-[#7v3+0]")
 ELIM_1_3_DIPOLE = _smarts("[*-1]-,=[N+0,O+0]-,=[*]")
 ELIM_POSITIVE_N = _smarts("[Nv3+0]=[Nv2+0]")
 ELIM_POSITIVE_C_H = _smarts("[#6v3+0,#6v2+0,#1v0+0]")
+ELIM_NEGATIVE_F = _smarts("[#9v0+0]")
+ELIM_NEGATIVE_O = _smarts("[#8v0+0]")
+ELIM_NEGATIVE_O_1 = _smarts("[#8v1+0]")
+ELIM_NEGATIVE_CL = _smarts("[#17v0+0]")
+ELIM_NEGATIVE_N = _smarts("[#7v0+0]")
+ELIM_NEGATIVE_N_1 = _smarts("[#7v1+0]")
+ELIM_NEGATIVE_N_2 = _smarts("[#7v2+0]")
+ELIM_NEGATIVE_BR = _smarts("[#35v0+0]")
+ELIM_NEGATIVE_I = _smarts("[#53v0+0]")
+ELIM_NEGATIVE_S = _smarts("[#16v0+0]")
+ELIM_NEGATIVE_S_1 = _smarts("[#16v1+0]")
+ELIM_NEGATIVE_SE = _smarts("[#34v0+0]")
+ELIM_NEGATIVE_SE_1 = _smarts("[#34v1+0]")
+ELIM_NEGATIVE_P = _smarts("[#15v0+0]")
+ELIM_NEGATIVE_P_1 = _smarts("[#15v1+0]")
+ELIM_NEGATIVE_P_2 = _smarts("[#15v2+0]")
+ELIM_NEGATIVE_B = _smarts("[#5v0+0]")
+ELIM_NEGATIVE_B_1 = _smarts("[#5v1+0]")
+ELIM_NEGATIVE_B_2 = _smarts("[#5v2+0]")
 ELIM_NEGATIVE_C_V3 = _smarts("[#6v3+0]")
 ELIM_NEGATIVE_H = _smarts("[#1v0+0]")
 ELIM_NEGATIVE_C_LOW = _smarts("[#6v2+0,#6v1+0,#6v0+0]")
@@ -89,9 +108,28 @@ __all__ = [
     "ELIM_CARBOXYL",
     "ELIM_CN_IN_DOUBT",
     "ELIM_HIGH_POSITIVE",
+    "ELIM_NEGATIVE_B",
+    "ELIM_NEGATIVE_B_1",
+    "ELIM_NEGATIVE_B_2",
+    "ELIM_NEGATIVE_BR",
     "ELIM_NEGATIVE_C_LOW",
     "ELIM_NEGATIVE_C_V3",
+    "ELIM_NEGATIVE_CL",
+    "ELIM_NEGATIVE_F",
     "ELIM_NEGATIVE_H",
+    "ELIM_NEGATIVE_I",
+    "ELIM_NEGATIVE_N",
+    "ELIM_NEGATIVE_N_1",
+    "ELIM_NEGATIVE_N_2",
+    "ELIM_NEGATIVE_O",
+    "ELIM_NEGATIVE_O_1",
+    "ELIM_NEGATIVE_P",
+    "ELIM_NEGATIVE_P_1",
+    "ELIM_NEGATIVE_P_2",
+    "ELIM_NEGATIVE_S",
+    "ELIM_NEGATIVE_S_1",
+    "ELIM_NEGATIVE_SE",
+    "ELIM_NEGATIVE_SE_1",
     "ELIM_NNN_NEGATIVE",
     "ELIM_NNN_POSITIVE",
     "ELIM_POSITIVE_C_H",

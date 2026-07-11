@@ -34,6 +34,7 @@ from scripts.reconstruction_trace import (
     _parse_size,
     _render_html_browser_report,
     _resolve_output_format,
+    _with_inline_dof_svgs,
     dof_rendering_summary,
     split_repeated_values,
     trace_reconstruction_case,
@@ -134,8 +135,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dof-max-images",
         type=int,
-        default=120,
-        help="Maximum number of individual rdkit-dof images to write. Default: 120.",
+        default=1000,
+        help="Maximum number of individual rdkit-dof images to write. Default: 1000.",
     )
     parser.add_argument(
         "--dof-image-size",
@@ -274,6 +275,75 @@ def _trace_tmqmg_case(
     return trace
 
 
+def _split_svg_fragment_lines(svg_fragment: str) -> list[str]:
+    """Split embedded SVG at tag boundaries so HTML source avoids huge lines."""
+
+    if not svg_fragment:
+        return []
+    return svg_fragment.replace("><", ">\n<").splitlines()
+
+
+def _split_embedded_svg_fragments(value: Any) -> Any:
+    if isinstance(value, dict):
+        copied = {key: _split_embedded_svg_fragments(item) for key, item in value.items()}
+        svg_fragment = copied.get("svg_fragment")
+        if isinstance(svg_fragment, str):
+            copied["svg_fragment"] = _split_svg_fragment_lines(svg_fragment)
+        return copied
+    if isinstance(value, list):
+        return [_split_embedded_svg_fragments(item) for item in value]
+    return value
+
+
+def _html_script_json_pretty(value: Any) -> str:
+    return (
+        json.dumps(
+            _jsonable(value),
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,
+        )
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+
+
+def _replace_trace_json_script(html_text: str, script_json: str) -> str:
+    open_tag = '<script id="trace-json" type="application/json">'
+    close_tag = "</script>"
+    open_index = html_text.find(open_tag)
+    if open_index < 0:
+        return html_text
+    content_start = open_index + len(open_tag)
+    close_index = html_text.find(close_tag, content_start)
+    if close_index < 0:
+        return html_text
+    return html_text[:content_start] + "\n" + script_json + "\n  " + html_text[close_index:]
+
+
+def _support_multiline_svg_fragment_arrays(html_text: str) -> str:
+    return html_text.replace(
+        '        return image.svg_fragment || "";',
+        "        if (Array.isArray(image.svg_fragment)) {\n"
+        '          return image.svg_fragment.join("\\n");\n'
+        "        }\n"
+        '        return image.svg_fragment || "";',
+        1,
+    )
+
+
+def _render_tmqmg_html_report(output: dict[str, Any]) -> str:
+    html_text = _render_html_browser_report(_jsonable(output))
+    inline_output = _with_inline_dof_svgs(_jsonable(output))
+    readable_output = _split_embedded_svg_fragments(inline_output)
+    html_text = _replace_trace_json_script(
+        html_text,
+        _html_script_json_pretty(readable_output),
+    )
+    return _support_multiline_svg_fragment_arrays(html_text)
+
+
 def _write_output(args: argparse.Namespace, output: dict[str, Any]) -> None:
     output_format = _resolve_output_format(args)
     if output_format == "json":
@@ -284,7 +354,7 @@ def _write_output(args: argparse.Namespace, output: dict[str, Any]) -> None:
             allow_nan=False,
         )
     else:
-        output_text = _render_html_browser_report(_jsonable(output))
+        output_text = _render_tmqmg_html_report(output)
 
     if args.out is None:
         print(output_text, end="" if output_text.endswith("\n") else "\n")

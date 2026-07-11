@@ -12,6 +12,7 @@ __all__: list[str] = [
     "eliminate_carboxyl_ptr",
     "eliminate_charge_spliting_ptr",
     "eliminate_cn_in_doubt_ptr",
+    "eliminate_cp_like_radical_anion_ptr",
     "eliminate_high_positive_charge_atoms_ptr",
     "eliminate_negative_charges_ptr",
     "eliminate_nnn_ptr",
@@ -72,6 +73,18 @@ def eliminate_cn_in_doubt_ptr(
 ) -> tuple:
     """
     Apply eliminate.eliminate_cn_in_doubt to an existing OBMol.
+
+    Args:
+        mol_ptr: int address of OpenBabel::OBMol
+        given_charge: charge deficit to be updated in place and returned
+    """
+
+def eliminate_cp_like_radical_anion_ptr(
+    mol_ptr: typing.SupportsInt | typing.SupportsIndex,
+    given_charge: typing.SupportsInt | typing.SupportsIndex,
+) -> tuple:
+    """
+    Apply eliminate.eliminate_cp_like_radical_anion to an existing OBMol.
 
     Args:
         mol_ptr: int address of OpenBabel::OBMol

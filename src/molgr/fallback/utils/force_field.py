@@ -15,10 +15,10 @@ if TYPE_CHECKING:
     from molgr.fallback.state import ReconstructionState
 
 
-ForceFieldAtomKey = Tuple[int, int, int, int, int, int, bool]
+ForceFieldAtomKey = Tuple[int, int, int, int, int, int, int, bool]
 ForceFieldBondKey = Tuple[int, int, int, bool]
 ForceFieldScoreKey = Tuple[Tuple[ForceFieldAtomKey, ...], Tuple[ForceFieldBondKey, ...]]
-ForceFieldSetupAtomKey = Tuple[int, int, int, int, bool]
+ForceFieldSetupAtomKey = Tuple[int, int, int, int, int, bool]
 ForceFieldSetupKey = Tuple[Tuple[ForceFieldSetupAtomKey, ...], Tuple[ForceFieldBondKey, ...]]
 OpenBabelSetupAtomKey = Tuple[int, int]
 OpenBabelSetupBondKey = Tuple[int, int, int, int]
@@ -51,6 +51,7 @@ def _build_score_key(omol: pybel.Molecule) -> ForceFieldScoreKey:
                 int(obatom.GetAtomicNum()),
                 int(obatom.GetFormalCharge()),
                 int(obatom.GetSpinMultiplicity()),
+                int(obatom.GetHyb()),
                 _quantized_coordinate(obatom.GetX()),
                 _quantized_coordinate(obatom.GetY()),
                 _quantized_coordinate(obatom.GetZ()),
@@ -80,6 +81,7 @@ def _build_force_field_setup_key(obmol: ob.OBMol) -> ForceFieldSetupKey:
                 int(obatom.GetAtomicNum()),
                 int(obatom.GetFormalCharge()),
                 int(obatom.GetSpinMultiplicity()),
+                int(obatom.GetHyb()),
                 int(obatom.GetExplicitDegree()),
                 bool(obatom.IsAromatic()),
             )

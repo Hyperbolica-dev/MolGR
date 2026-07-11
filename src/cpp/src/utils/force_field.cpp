@@ -179,7 +179,7 @@ namespace
         std::string key;
         key.reserve(
             32 +
-            static_cast<std::size_t>(mutable_mol.NumAtoms()) * 24 +
+            static_cast<std::size_t>(mutable_mol.NumAtoms()) * 28 +
             static_cast<std::size_t>(mutable_mol.NumBonds()) * 24);
 
         key += "A";
@@ -192,6 +192,8 @@ namespace
             AppendValue(key, atom_iter->GetFormalCharge());
             key.push_back(',');
             AppendValue(key, atom_iter->GetSpinMultiplicity());
+            key.push_back(',');
+            AppendValue(key, static_cast<int>(atom_iter->GetHyb()));
             key.push_back(',');
             AppendValue(key, static_cast<int>(atom_iter->GetExplicitDegree()));
             key.push_back(',');
@@ -393,6 +395,10 @@ namespace
             exact_setup_key);
         const auto setup_started = Clock::now();
         setup_ok = force_field_ptr->Setup(working_mol);
+        if (setup_ok)
+        {
+            force_field_ptr->CopyPerceivedHybridizationTo(working_mol);
+        }
         setup_ms =
             std::chrono::duration<double, std::milli>(Clock::now() - setup_started).count();
         reusable_force_field.last_exact_setup_key = exact_setup_key;
@@ -442,7 +448,7 @@ namespace molgr
             std::string key;
             key.reserve(
                 32 +
-                static_cast<std::size_t>(mutable_mol.NumAtoms()) * 56 +
+                static_cast<std::size_t>(mutable_mol.NumAtoms()) * 60 +
                 static_cast<std::size_t>(mutable_mol.NumBonds()) * 24);
 
             key += "A";
@@ -456,6 +462,8 @@ namespace molgr
                 AppendValue(key, atom.GetFormalCharge());
                 key.push_back(',');
                 AppendValue(key, atom.GetSpinMultiplicity());
+                key.push_back(',');
+                AppendValue(key, static_cast<int>(atom.GetHyb()));
                 key.push_back(',');
                 AppendValue(key, QuantizedCoordinate(atom.GetX()));
                 key.push_back(',');

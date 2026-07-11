@@ -13,6 +13,7 @@ namespace molgr
         bool EliminateCarbeneNeighborHeteroatom(OpenBabel::OBMol &mol, int &current_charge_deficit);
         bool EliminateChargeSpliting(OpenBabel::OBMol &mol, int &current_charge_deficit);
         bool Eliminate13Dipole(OpenBabel::OBMol &mol, int &current_charge_deficit);
+        bool EliminateCPLikeRadicalAnion(OpenBabel::OBMol &mol, int &current_charge_deficit);
         bool EliminatePositiveCharges(OpenBabel::OBMol &mol, int &current_charge_deficit);
         bool EliminateNegativeCharges(OpenBabel::OBMol &mol, int &current_charge_deficit);
     }

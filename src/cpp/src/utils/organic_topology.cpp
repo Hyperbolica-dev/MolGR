@@ -97,6 +97,81 @@ namespace
         return atom.GetSpinMultiplicity() % 2 == 1;
     }
 
+    int AdditionalAtomPiElectrons(
+        const OpenBabel::OBAtom &atom,
+        bool incident_to_ring_multiple_bond)
+    {
+        if (incident_to_ring_multiple_bond || atom.GetAtomicNum() == 1)
+        {
+            return 0;
+        }
+        if (atom.GetFormalCharge() < 0)
+        {
+            return 2;
+        }
+        if (atom.GetAtomicNum() != 6)
+        {
+            return 2;
+        }
+        if (AtomHasOddSpin(atom))
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    int RingPiElectronCount(OpenBabel::OBMol &mol, const OpenBabel::OBRing &ring)
+    {
+        if (ring._path.size() < 3)
+        {
+            return -1;
+        }
+
+        int pi_electron_count = 0;
+        IntFlagSet atoms_incident_to_ring_multiple_bond(
+            static_cast<std::size_t>(mol.NumAtoms()) + 1);
+        for (std::size_t offset = 0; offset < ring._path.size(); ++offset)
+        {
+            const int begin_idx = ring._path[offset];
+            const int end_idx = ring._path[(offset + 1) % ring._path.size()];
+            OpenBabel::OBBond *bond = mol.GetBond(begin_idx, end_idx);
+            if (bond == nullptr)
+            {
+                return -1;
+            }
+            if (bond->GetBondOrder() >= 2)
+            {
+                pi_electron_count += 2;
+                atoms_incident_to_ring_multiple_bond.Add(begin_idx);
+                atoms_incident_to_ring_multiple_bond.Add(end_idx);
+            }
+        }
+
+        for (int atom_idx : ring._path)
+        {
+            const OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            if (atom == nullptr)
+            {
+                continue;
+            }
+            pi_electron_count += AdditionalAtomPiElectrons(
+                *atom,
+                atoms_incident_to_ring_multiple_bond.Contains(atom_idx));
+        }
+        return pi_electron_count;
+    }
+
+    bool HasHuckelPiElectronCount(int pi_electron_count)
+    {
+        return pi_electron_count >= 2 && (pi_electron_count - 2) % 4 == 0;
+    }
+
+    bool IsHuckelAcceptedAromaticRing(OpenBabel::OBMol &mol, OpenBabel::OBRing &ring)
+    {
+        return IsChargeAcceptedAromaticRing(mol, ring) &&
+               HasHuckelPiElectronCount(RingPiElectronCount(mol, ring));
+    }
+
     double AromaticRingStabilityWeight(
         OpenBabel::OBMol &mol,
         const OpenBabel::OBRing &ring,
@@ -308,7 +383,7 @@ namespace molgr
             FOR_RINGS_OF_MOL(ring_iter, working)
             {
                 OpenBabel::OBRing *ring = &(*ring_iter);
-                if (ring == nullptr || !IsChargeAcceptedAromaticRing(working, *ring))
+                if (ring == nullptr || !IsHuckelAcceptedAromaticRing(working, *ring))
                 {
                     continue;
                 }

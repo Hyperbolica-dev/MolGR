@@ -401,8 +401,10 @@ def _nonnegative_metal_unsaturated_organic_cation_count(
 
     for atom_iter in ob.OBMolAtomIter(obmol):
         atom = cast(ob.OBAtom, atom_iter)
-        if _is_unsaturated_organic_cation(atom) and not _is_locally_zwitterionic_organic_cation(
-            atom
+        if (
+            _is_unsaturated_organic_cation(atom)
+            and not bool(atom.IsAromatic())
+            and not _is_locally_zwitterionic_organic_cation(atom)
         ):
             return 1
     return 0

@@ -122,6 +122,8 @@ namespace molgr
                     std::forward<Args>(args)...);
                 if (hit)
                 {
+                    mol.SetHybridizationPerceived(false);
+                    mol.SetAtomTypesPerceived(false);
                     ++omol_revision;
                     InvalidateOmolDerivedCache();
                 }
@@ -145,6 +147,8 @@ namespace molgr
                 const bool charge_hit = before_charge != given_charge;
                 if (molecule_hit)
                 {
+                    mol.SetHybridizationPerceived(false);
+                    mol.SetAtomTypesPerceived(false);
                     ++omol_revision;
                     InvalidateOmolDerivedCache();
                 }

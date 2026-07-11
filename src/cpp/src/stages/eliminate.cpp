@@ -12,6 +12,8 @@
 #include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
+#include <set>
+#include <tuple>
 #include <vector>
 
 namespace molgr
@@ -19,6 +21,308 @@ namespace molgr
     namespace reconstruct
     {
         using namespace OpenBabel;
+
+        struct ChargeAssignmentAction
+        {
+            int atom_idx;
+            int formal_charge;
+            int spin_consumed;
+            int charge_delta;
+            std::vector<int> score_key;
+        };
+
+        struct NegativeChargeAssignmentPattern
+        {
+            molgr::smarts::PatternId pattern_id;
+            int tier;
+            int target_idx;
+            bool requires_negative_deficit;
+        };
+
+        const std::vector<NegativeChargeAssignmentPattern> &NegativeChargeAssignmentPatterns()
+        {
+            static const std::vector<NegativeChargeAssignmentPattern> patterns = {
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_F, 10, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_O, 20, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_O_1, 21, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_CL, 30, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N, 40, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N_1, 41, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N_2, 42, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_BR, 50, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_I, 60, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_S, 70, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_S_1, 71, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_SE, 80, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_SE_1, 81, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P, 90, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P_1, 91, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P_2, 92, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B, 95, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B_1, 96, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B_2, 97, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3, 100, 0, true},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW, 110, 0, true},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_H, 120, 0, true},
+            };
+            return patterns;
+        }
+
+        int NegativeChargeAssignmentAmount(OBAtom *atom, int charge)
+        {
+            if (atom == nullptr)
+            {
+                return 0;
+            }
+            return std::min(atom->GetSpinMultiplicity(), std::max(1, std::abs(charge)));
+        }
+
+        bool ApplyChargeAssignmentAction(OBMol &mol, const ChargeAssignmentAction &action)
+        {
+            OBAtom *atom = mol.GetAtom(action.atom_idx);
+            if (atom == nullptr || action.spin_consumed <= 0)
+            {
+                return false;
+            }
+            if (atom->GetSpinMultiplicity() < action.spin_consumed)
+            {
+                return false;
+            }
+            atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - action.spin_consumed);
+            atom->SetFormalCharge(action.formal_charge);
+            return true;
+        }
+
+        void AppendPositiveChargeAssignmentAction(
+            std::vector<ChargeAssignmentAction> &actions,
+            std::set<std::tuple<int, int, int>> &seen,
+            OBAtom *atom,
+            int charge,
+            int tier,
+            int match_order,
+            int amount)
+        {
+            if (atom == nullptr || amount <= 0)
+            {
+                return;
+            }
+            const int atom_idx = atom->GetIdx();
+            const auto seen_key = std::make_tuple(atom_idx, tier, amount);
+            if (seen.count(seen_key) != 0)
+            {
+                return;
+            }
+            seen.insert(seen_key);
+
+            const int charge_after = charge - amount;
+            const int atomic_num = atom->GetAtomicNum();
+            actions.push_back(ChargeAssignmentAction{
+                atom_idx,
+                amount,
+                amount,
+                -amount,
+                {
+                    tier,
+                    std::abs(charge_after),
+                    std::max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                }});
+        }
+
+        void AppendNegativeChargeAssignmentAction(
+            std::vector<ChargeAssignmentAction> &actions,
+            std::set<std::tuple<int, int, int>> &seen,
+            OBAtom *atom,
+            int charge,
+            int tier,
+            int match_order,
+            int amount)
+        {
+            if (atom == nullptr || amount <= 0)
+            {
+                return;
+            }
+            const int atom_idx = atom->GetIdx();
+            const auto seen_key = std::make_tuple(atom_idx, tier, amount);
+            if (seen.count(seen_key) != 0)
+            {
+                return;
+            }
+            seen.insert(seen_key);
+
+            const int charge_after = charge + amount;
+            const int atomic_num = atom->GetAtomicNum();
+            actions.push_back(ChargeAssignmentAction{
+                atom_idx,
+                -amount,
+                amount,
+                amount,
+                {
+                    tier,
+                    std::abs(charge_after),
+                    std::max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                }});
+        }
+
+        std::vector<ChargeAssignmentAction> PositiveChargeAssignmentActions(
+            OBMol &mol,
+            int charge)
+        {
+            std::vector<ChargeAssignmentAction> actions;
+            if (charge <= 0)
+            {
+                return actions;
+            }
+
+            std::set<std::tuple<int, int, int>> seen;
+            auto n_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
+            for (std::size_t match_order = 0; match_order < n_matches.size(); ++match_order)
+            {
+                const auto &idxs = n_matches[match_order];
+                if (idxs.size() < 2)
+                {
+                    continue;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[1]);
+                if (atom != nullptr && atom->GetFormalCharge() == 0 && atom->GetSpinMultiplicity() >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        0,
+                        static_cast<int>(match_order),
+                        1);
+                }
+            }
+
+            auto c_h_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
+            for (std::size_t match_order = 0; match_order < c_h_matches.size(); ++match_order)
+            {
+                const auto &idxs = c_h_matches[match_order];
+                if (idxs.empty())
+                {
+                    continue;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[0]);
+                if (atom != nullptr && atom->GetFormalCharge() == 0 && atom->GetSpinMultiplicity() >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        10,
+                        static_cast<int>(match_order),
+                        1);
+                }
+            }
+
+            int match_order = 0;
+            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            {
+                OBAtom *atom = &(*atom_iter);
+                if (atom->GetFormalCharge() == 0 && atom->GetSpinMultiplicity() >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        100,
+                        match_order,
+                        std::min(atom->GetSpinMultiplicity(), charge));
+                }
+                ++match_order;
+            }
+
+            std::sort(
+                actions.begin(),
+                actions.end(),
+                [](const auto &left, const auto &right)
+                {
+                    return left.score_key < right.score_key;
+                });
+            return actions;
+        }
+
+        std::vector<ChargeAssignmentAction> NegativeChargeAssignmentActions(
+            OBMol &mol,
+            int charge)
+        {
+            std::vector<ChargeAssignmentAction> actions;
+            if (charge > 0)
+            {
+                return actions;
+            }
+
+            std::set<std::tuple<int, int, int>> seen;
+
+            for (const auto &pattern : NegativeChargeAssignmentPatterns())
+            {
+                if (pattern.requires_negative_deficit && charge >= 0)
+                {
+                    continue;
+                }
+                auto matches = molgr::smarts::FindAll(mol, pattern.pattern_id);
+                for (std::size_t match_order = 0; match_order < matches.size(); ++match_order)
+                {
+                    const auto &idxs = matches[match_order];
+                    if (idxs.size() <= static_cast<std::size_t>(pattern.target_idx))
+                    {
+                        continue;
+                    }
+                    OBAtom *atom = mol.GetAtom(idxs[pattern.target_idx]);
+                    if (atom != nullptr && atom->GetFormalCharge() == 0 && atom->GetSpinMultiplicity() >= 1)
+                    {
+                        AppendNegativeChargeAssignmentAction(
+                            actions,
+                            seen,
+                            atom,
+                            charge,
+                            pattern.tier,
+                            static_cast<int>(match_order),
+                            NegativeChargeAssignmentAmount(atom, charge));
+                    }
+                }
+            }
+
+            if (charge < 0)
+            {
+                int match_order = 0;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    OBAtom *atom = &(*atom_iter);
+                    if (atom->GetFormalCharge() == 0 && atom->GetSpinMultiplicity() >= 1)
+                    {
+                        AppendNegativeChargeAssignmentAction(
+                            actions,
+                            seen,
+                            atom,
+                            charge,
+                            1000,
+                            match_order,
+                            NegativeChargeAssignmentAmount(atom, charge));
+                    }
+                    ++match_order;
+                }
+            }
+
+            std::sort(
+                actions.begin(),
+                actions.end(),
+                [](const auto &left, const auto &right)
+                {
+                    return left.score_key < right.score_key;
+                });
+            return actions;
+        }
 
         bool EliminateNNN(OBMol &mol, int &charge, bool positive)
         {
@@ -342,117 +646,10 @@ namespace molgr
             return hit;
         }
 
-        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        bool EliminateCPLikeRadicalAnion(OBMol &mol, int &charge)
         {
             bool hit = false;
-            while (charge > 0)
-            {
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[1]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
-                atom->SetFormalCharge(1);
-                charge -= 1;
-                hit = true;
-            }
-
-            while (charge > 0)
-            {
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
-                atom->SetFormalCharge(1);
-                charge -= 1;
-                hit = true;
-            }
-
-            FOR_ATOMS_OF_MOL(atom_iter, mol)
-            {
-                OBAtom *atom = &(*atom_iter);
-                if (charge <= 0)
-                {
-                    break;
-                }
-                if (atom->GetSpinMultiplicity() >= 1 && atom->GetFormalCharge() == 0)
-                {
-                    int to_add = std::min(atom->GetSpinMultiplicity(), charge);
-                    atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                    atom->SetFormalCharge(to_add);
-                    charge -= to_add;
-                    hit = true;
-                }
-            }
-            return hit;
-        }
-
-        bool EliminateNegativeCharges(OBMol &mol, int &charge)
-        {
-            bool hit = false;
-            const std::vector<int> heteroatom_priority = {9, 8, 17, 7, 35, 53, 16, 34, 15};
-
-            std::vector<std::pair<OBAtom *, size_t>> possible_heteroatoms;
-            FOR_ATOMS_OF_MOL(atom_iter, mol)
-            {
-                OBAtom *atom = &(*atom_iter);
-                if (atom->GetFormalCharge() != 0 || atom->GetSpinMultiplicity() < 1)
-                {
-                    continue;
-                }
-
-                auto pos = std::find(heteroatom_priority.begin(), heteroatom_priority.end(), atom->GetAtomicNum());
-                if (pos != heteroatom_priority.end())
-                {
-                    possible_heteroatoms.push_back({atom, static_cast<size_t>(pos - heteroatom_priority.begin())});
-                }
-            }
-
-            std::sort(possible_heteroatoms.begin(), possible_heteroatoms.end(),
-                      [](const auto &a, const auto &b)
-                      { return a.second < b.second; });
-
-            for (const auto &entry : possible_heteroatoms)
-            {
-                if (charge > 0)
-                {
-                    break;
-                }
-                OBAtom *atom = entry.first;
-                if (atom->GetSpinMultiplicity() != 1)
-                {
-                    continue;
-                }
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::max(1, std::abs(charge)));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge <= 0)
+            while (charge < 0)
             {
                 auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
                 if (matches.empty())
@@ -466,150 +663,62 @@ namespace molgr
                     break;
                 }
                 OBAtom *atom = mol.GetAtom(idxs[4]);
-                if (!atom)
+                if (atom == nullptr || atom->GetFormalCharge() != 0)
                 {
                     break;
                 }
 
                 const int to_add = atom->GetSpinMultiplicity();
+                if (to_add <= 0)
+                {
+                    break;
+                }
                 atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
                 atom->SetFormalCharge(-to_add);
                 charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-                else
-                {
-                    break;
-                }
+                hit = true;
             }
+            return hit;
+        }
 
-            while (charge < 0)
+        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        {
+            bool hit = false;
+            while (charge > 0)
             {
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3);
-                if (matches.empty())
+                const auto actions = PositiveChargeAssignmentActions(mol, charge);
+                if (actions.empty())
                 {
                     break;
                 }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
+                const auto &action = actions.front();
+                if (!ApplyChargeAssignmentAction(mol, action))
                 {
                     break;
                 }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
+                charge += action.charge_delta;
+                hit = true;
             }
+            return hit;
+        }
 
-            while (charge < 0)
+        bool EliminateNegativeCharges(OBMol &mol, int &charge)
+        {
+            bool hit = false;
+            while (charge <= 0)
             {
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_H);
-                if (matches.empty())
+                const auto actions = NegativeChargeAssignmentActions(mol, charge);
+                if (actions.empty())
                 {
                     break;
                 }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
+                const auto &action = actions.front();
+                if (!ApplyChargeAssignmentAction(mol, action))
                 {
                     break;
                 }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                bool updated = false;
-                FOR_ATOMS_OF_MOL(atom_iter, mol)
-                {
-                    OBAtom *atom = &(*atom_iter);
-                    if (atom->GetSpinMultiplicity() < 1 || atom->GetFormalCharge() != 0)
-                    {
-                        continue;
-                    }
-
-                    const int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                    atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                    atom->SetFormalCharge(-to_add);
-                    charge += to_add;
-                    if (to_add > 0)
-                    {
-                        hit = true;
-                        updated = true;
-                    }
-                    if (charge >= 0)
-                    {
-                        break;
-                    }
-                }
-                if (!updated)
-                {
-                    break;
-                }
-            }
-
-            for (const auto &entry : possible_heteroatoms)
-            {
-                if (charge >= 0)
-                {
-                    break;
-                }
-                OBAtom *atom = entry.first;
-                if (atom->GetSpinMultiplicity() < 2)
-                {
-                    continue;
-                }
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
+                charge += action.charge_delta;
+                hit = true;
             }
             return hit;
         }
