@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace molgr
 {
@@ -35,6 +36,9 @@ namespace molgr
                 int total_radical_electrons);
 
             molgr::state::ReconstructionState RunLinearPipeline(
+                const molgr::state::ReconstructionState &state);
+
+            std::vector<molgr::state::ReconstructionState> EnumerateNoMetalCandidateStates(
                 const molgr::state::ReconstructionState &state);
         }
     }

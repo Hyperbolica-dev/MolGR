@@ -27,13 +27,16 @@ from molgr.fallback.stages.eliminate import (
     eliminate_carbene_neighbor_heteroatom,
     eliminate_charge_spliting,
     eliminate_CN_in_doubt,
+    eliminate_cp_like_radical_anion,
     eliminate_high_positive_charge_atoms,
     eliminate_negative_charges,
     eliminate_NNN,
+    eliminate_positive_charges,
 )
 from molgr.fallback.stages.fresh import fresh_omol_charge_radical
 from molgr.fallback.stages.preprocess import make_connections
 from molgr.fallback.state import ReconstructionState
+from molgr.fallback.utils import resonance as resonance_utils
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation_module
 from molgr.fallback.utils.no_metals import resonance as no_metal_resonance_module
 from molgr.fallback.utils.no_metals import selection as no_metal_selection_module
@@ -289,7 +292,9 @@ def test_eliminate_cn_in_doubt_requires_disjoint_pairs_for_python_and_cpp() -> N
     assert _pybel_stage_signature(cpp_omol) == before
 
 
-def test_eliminate_negative_charges_converts_cyclopentadienyl_radical_for_python_and_cpp() -> None:
+def test_eliminate_cp_like_radical_anion_converts_cyclopentadienyl_radical_for_python_and_cpp() -> (
+    None
+):
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
         obmol.BeginModify()
@@ -308,10 +313,10 @@ def test_eliminate_negative_charges_converts_cyclopentadienyl_radical_for_python
         return pybel.Molecule(obmol)
 
     omol = make_omol()
-    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+    omol, given_charge, hit = eliminate_cp_like_radical_anion(omol, -1)
 
     assert hit
-    assert given_charge == 1
+    assert given_charge == 0
     assert _pybel_stage_signature(omol) == (
         ((1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0), (5, -1, 0)),
         ((1, 2, 2), (2, 3, 1), (3, 4, 2), (4, 5, 1), (5, 1, 1)),
@@ -320,19 +325,133 @@ def test_eliminate_negative_charges_converts_cyclopentadienyl_radical_for_python
     from molgr import _core  # type: ignore
 
     cpp_omol = make_omol()
-    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_cp_like_radical_anion_ptr(
         _get_ptr(cpp_omol.OBMol),
-        0,
+        -1,
     )
-    if not cpp_hit:
-        pytest.skip("loaded C++ extension does not include ELIM_NEGATIVE_CP; rebuild _core")
 
     assert cpp_hit
     assert cpp_given_charge == given_charge
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
-def test_eliminate_negative_charges_prefers_single_radical_heteroatom_even_at_zero_charge_for_python_and_cpp() -> None:
+def test_eliminate_cp_like_radical_anion_requires_negative_charge_deficit_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(5):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(6)
+            atom.SetFormalCharge(0)
+            atom.SetSpinMultiplicity(0)
+        obmol.GetAtom(5).SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 2)
+        obmol.AddBond(2, 3, 1)
+        obmol.AddBond(3, 4, 2)
+        obmol.AddBond(4, 5, 1)
+        obmol.AddBond(5, 1, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    before = _pybel_stage_signature(omol)
+    omol, given_charge, hit = eliminate_cp_like_radical_anion(omol, 0)
+
+    assert not hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol) == before
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    before = _pybel_stage_signature(cpp_omol)
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_cp_like_radical_anion_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert not cpp_hit
+    assert cpp_given_charge == 0
+    assert _pybel_stage_signature(cpp_omol) == before
+
+
+def test_eliminate_cp_like_radical_anion_stops_after_negative_charge_deficit_is_filled_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for ring_offset in (0, 5):
+            for _ in range(5):
+                atom = obmol.NewAtom()
+                atom.SetAtomicNum(6)
+                atom.SetFormalCharge(0)
+                atom.SetSpinMultiplicity(0)
+            obmol.GetAtom(ring_offset + 5).SetSpinMultiplicity(1)
+            obmol.AddBond(ring_offset + 1, ring_offset + 2, 2)
+            obmol.AddBond(ring_offset + 2, ring_offset + 3, 1)
+            obmol.AddBond(ring_offset + 3, ring_offset + 4, 2)
+            obmol.AddBond(ring_offset + 4, ring_offset + 5, 1)
+            obmol.AddBond(ring_offset + 5, ring_offset + 1, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    def cp_status(omol: pybel.Molecule) -> tuple[int, int]:
+        atom_signature = _pybel_stage_signature(omol)[0]
+        negative_cp_atoms = sum(
+            1
+            for atom_idx, formal_charge, spin in atom_signature
+            if atom_idx in (5, 10) and formal_charge == -1 and spin == 0
+        )
+        radical_cp_atoms = sum(
+            1
+            for atom_idx, formal_charge, spin in atom_signature
+            if atom_idx in (5, 10) and formal_charge == 0 and spin == 1
+        )
+        return negative_cp_atoms, radical_cp_atoms
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_cp_like_radical_anion(omol, -1)
+
+    assert hit
+    assert given_charge == 0
+    assert cp_status(omol) == (1, 1)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_cp_like_radical_anion(omol, -2)
+
+    assert hit
+    assert given_charge == 0
+    assert cp_status(omol) == (2, 0)
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_cp_like_radical_anion_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == 0
+    assert cp_status(cpp_omol) == (1, 1)
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_cp_like_radical_anion_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -2,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == 0
+    assert cp_status(cpp_omol) == (2, 0)
+
+
+def test_eliminate_negative_charges_prefers_single_radical_heteroatom_even_at_zero_charge_for_python_and_cpp() -> (
+    None
+):
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
         obmol.BeginModify()
@@ -363,7 +482,313 @@ def test_eliminate_negative_charges_prefers_single_radical_heteroatom_even_at_ze
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
-def test_eliminate_high_positive_charge_atoms_skips_overstabilized_match_and_keeps_later_match_for_python_and_cpp() -> None:
+def test_eliminate_negative_charges_uses_ordered_smarts_before_atom_order_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        nitrogen = obmol.NewAtom()
+        nitrogen.SetAtomicNum(7)
+        nitrogen.SetFormalCharge(0)
+        nitrogen.SetSpinMultiplicity(1)
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetFormalCharge(0)
+        oxygen.SetSpinMultiplicity(1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+
+    assert hit
+    assert given_charge == 1
+    assert _pybel_stage_signature(omol) == (((1, 0, 1), (2, -1, 0)), ())
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_negative_charges_uses_same_action_for_double_radical_heteroatom_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetFormalCharge(0)
+        oxygen.SetSpinMultiplicity(2)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+
+    assert hit
+    assert given_charge == 1
+    assert _pybel_stage_signature(omol) == (((1, -1, 1),), ())
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_negative_charges_matches_valence_specific_oxygen_smarts_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetFormalCharge(0)
+        oxygen.SetSpinMultiplicity(1)
+        hydrogen = obmol.NewAtom()
+        hydrogen.SetAtomicNum(1)
+        hydrogen.SetFormalCharge(0)
+        hydrogen.SetSpinMultiplicity(0)
+        obmol.AddBond(1, 2, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+
+    assert hit
+    assert given_charge == 1
+    assert _pybel_stage_signature(omol) == (
+        ((1, -1, 0), (2, 0, 0)),
+        ((1, 2, 1),),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_negative_charges_leaves_cp_aromatic_action_to_resonance_stage_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(5):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(6)
+            atom.SetFormalCharge(0)
+            atom.SetSpinMultiplicity(0)
+        obmol.GetAtom(5).SetSpinMultiplicity(1)
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetFormalCharge(0)
+        oxygen.SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 2)
+        obmol.AddBond(2, 3, 1)
+        obmol.AddBond(3, 4, 2)
+        obmol.AddBond(4, 5, 1)
+        obmol.AddBond(5, 1, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, 0)
+
+    assert hit
+    assert given_charge == 1
+    assert _pybel_stage_signature(omol)[0] == (
+        (1, 0, 0),
+        (2, 0, 0),
+        (3, 0, 0),
+        (4, 0, 0),
+        (5, 0, 1),
+        (6, -1, 0),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_process_resonance_runs_cp_like_stage_before_positive_charge_assignment_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(5):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(6)
+            atom.SetFormalCharge(0)
+            atom.SetSpinMultiplicity(0)
+        obmol.GetAtom(5).SetSpinMultiplicity(1)
+        carbon = obmol.NewAtom()
+        carbon.SetAtomicNum(6)
+        carbon.SetFormalCharge(0)
+        carbon.SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 2)
+        obmol.AddBond(2, 3, 1)
+        obmol.AddBond(3, 4, 2)
+        obmol.AddBond(4, 5, 1)
+        obmol.AddBond(5, 1, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    processed, given_charge, hit = resonance_utils.process_resonance(omol, -1)
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(processed)[0] == (
+        (1, 0, 0),
+        (2, 0, 0),
+        (3, 0, 0),
+        (4, 0, 0),
+        (5, -1, 0),
+        (6, 0, 1),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_res_ptr, cpp_charge = _core.dev.pipeline.resonance.process_resonance_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+    )
+    try:
+        cpp_processed = _core.utils.extract_molecule_data(cpp_res_ptr)
+        assert cpp_charge == given_charge
+        assert tuple(
+            (atom.formal_charge, atom.radical_num) for atom in cpp_processed.atoms
+        ) == tuple(
+            (atom.OBAtom.GetFormalCharge(), atom.OBAtom.GetSpinMultiplicity()) for atom in processed
+        )
+    finally:
+        _core.free_obmol_ptr(cpp_res_ptr)
+
+
+def test_eliminate_negative_charges_prefers_carbon_before_hydrogen_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        carbon = obmol.NewAtom()
+        carbon.SetAtomicNum(6)
+        carbon.SetFormalCharge(0)
+        carbon.SetSpinMultiplicity(1)
+        hydrogen = obmol.NewAtom()
+        hydrogen.SetAtomicNum(1)
+        hydrogen.SetFormalCharge(0)
+        hydrogen.SetSpinMultiplicity(1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(omol, -1)
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol)[0] == ((1, -1, 0), (2, 0, 1))
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_positive_charges_prefers_nitrogen_motif_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        n1 = obmol.NewAtom()
+        n1.SetAtomicNum(7)
+        n1.SetFormalCharge(0)
+        n1.SetSpinMultiplicity(0)
+        n2 = obmol.NewAtom()
+        n2.SetAtomicNum(7)
+        n2.SetFormalCharge(0)
+        n2.SetSpinMultiplicity(1)
+        hydrogen = obmol.NewAtom()
+        hydrogen.SetAtomicNum(1)
+        hydrogen.SetFormalCharge(0)
+        hydrogen.SetSpinMultiplicity(0)
+        carbon = obmol.NewAtom()
+        carbon.SetAtomicNum(6)
+        carbon.SetFormalCharge(0)
+        carbon.SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 2)
+        obmol.AddBond(1, 3, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_positive_charges(omol, 1)
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol)[0] == (
+        (1, 0, 0),
+        (2, 1, 0),
+        (3, 0, 0),
+        (4, 0, 1),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_positive_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        1,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_high_positive_charge_atoms_skips_overstabilized_match_and_keeps_later_match_for_python_and_cpp() -> (
+    None
+):
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
         obmol.BeginModify()
@@ -617,6 +1042,128 @@ def test_clean_neighbor_radicals_refreshes_atom_state_for_python_and_cpp() -> No
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
+def test_enumerate_no_metal_candidate_states_resolves_neighbor_radicals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(2):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(8)
+            atom.SetFormalCharge(0)
+            atom.SetSpinMultiplicity(1)
+        obmol.AddBond(1, 2, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    state = ReconstructionState(
+        omol=make_omol(),
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=0,
+        phase_history=("read_xyz",),
+    )
+
+    monkeypatch.setattr(no_metal_preparation_module, "make_connections", lambda omol: (omol, False))
+    monkeypatch.setattr(no_metal_preparation_module, "pre_clean", lambda omol: (omol, False))
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "fresh_omol_charge_radical",
+        lambda omol: (omol, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_NNN",
+        lambda omol, given_charge, positive: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_high_positive_charge_atoms",
+        lambda omol, given_charge: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_CN_in_doubt",
+        lambda omol, given_charge: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_carboxyl",
+        lambda omol, given_charge: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_carbene_neighbor_heteroatom",
+        lambda omol, given_charge: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "clean_carbene_neighbor_unsaturated",
+        lambda omol: (omol, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "eliminate_charge_spliting",
+        lambda omol, given_charge: (omol, given_charge, False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "break_deformed_ene",
+        lambda *args: (args[0], False),
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "break_one_bond",
+        lambda omol, given_charge, total_radical_electrons: (omol, given_charge, False),
+    )
+
+    candidates = no_metal_preparation_module._enumerate_no_metal_candidate_states(state)
+
+    assert len(candidates) == 3
+    assert [
+        candidate.metadata["neighbor_radical_resolution_strategy"] for candidate in candidates
+    ] == [
+        "direct",
+        "charge_begin_positive",
+        "charge_begin_negative",
+    ]
+    assert [
+        _pybel_stage_signature(candidate.omol)
+        for candidate in candidates
+    ] == [
+        (((1, 0, 0), (2, 0, 0)), ((1, 2, 2),)),
+        (((1, 1, 0), (2, -1, 0)), ((1, 2, 1),)),
+        (((1, -1, 0), (2, 1, 0)), ((1, 2, 1),)),
+    ]
+
+    from molgr import _core  # type: ignore
+
+    xyz_block = """2
+OO
+O 0.0 0.0 0.0
+O 1.48 0.0 0.0
+    """
+    cpp_candidates = (
+        _core.dev.pipeline.reconstruct_without_metals.debug_no_metal_candidate_states(
+            xyz_block,
+            0,
+            0,
+        )
+    )
+    assert [
+        candidate["neighbor_radical_resolution_strategy"] for candidate in cpp_candidates
+    ] == [
+        "direct",
+        "charge_begin_positive",
+        "charge_begin_negative",
+    ]
+    assert any(
+        "clean_neighbor_radicals_charge_begin_positive" in candidate["phase_history"]
+        for candidate in cpp_candidates
+    )
+
+
 def test_eliminate_carbene_neighbor_heteroatom_skips_radical_neighbors_for_python_and_cpp() -> None:
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
@@ -853,6 +1400,194 @@ def test_fallback_no_metal_reuses_resonance_score_metadata(monkeypatch: pytest.M
     assert result is not None
     assert result.metadata["score"] == 2.0
     assert result.phase_history[-1] == "select_best_resonance_candidate"
+
+
+def test_no_metal_pipeline_enumerates_resonance_for_all_linear_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    no_metal_module._run_no_metal_pipeline_cached.cache_clear()
+
+    base_state = ReconstructionState(
+        omol=pybel.readstring("smi", "CC"),
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=0,
+        phase_history=("read_xyz",),
+    )
+    branch_states = [
+        ReconstructionState(
+            omol=pybel.readstring("smi", "CC"),
+            given_charge=0,
+            total_charge=0,
+            total_radical_electrons=0,
+            phase_history=("read_xyz", "branch_0"),
+            metadata={"branch": 0, "priority": 0},
+        ),
+        ReconstructionState(
+            omol=pybel.readstring("smi", "C=C"),
+            given_charge=0,
+            total_charge=0,
+            total_radical_electrons=0,
+            phase_history=("read_xyz", "branch_1"),
+            metadata={"branch": 1, "priority": 10},
+        ),
+        ReconstructionState(
+            omol=pybel.readstring("smi", "c1ccccc1"),
+            given_charge=0,
+            total_charge=0,
+            total_radical_electrons=0,
+            phase_history=("read_xyz", "branch_2"),
+            metadata={"branch": 2, "priority": 20},
+        ),
+    ]
+    resonance_map = {
+        0: [
+            ReconstructionState(
+                omol=pybel.readstring("smi", "C=C"),
+                given_charge=0,
+                total_charge=0,
+                total_radical_electrons=0,
+                phase_history=("read_xyz", "validate_resonance_candidate"),
+                metadata={"branch": 0, "priority": 1},
+            )
+        ],
+        1: [
+            ReconstructionState(
+                omol=pybel.readstring("smi", "C=C"),
+                given_charge=0,
+                total_charge=0,
+                total_radical_electrons=0,
+                phase_history=("read_xyz", "validate_resonance_candidate"),
+                metadata={"branch": 1, "priority": 2},
+            )
+        ],
+        2: [
+            ReconstructionState(
+                omol=pybel.readstring("smi", "c1ccccc1"),
+                given_charge=0,
+                total_charge=0,
+                total_radical_electrons=0,
+                phase_history=("read_xyz", "validate_resonance_candidate"),
+                metadata={"branch": 2, "priority": 3},
+            )
+        ],
+    }
+    resonance_calls: list[int] = []
+
+    monkeypatch.setattr(
+        no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "_enumerate_no_metal_candidate_states",
+        lambda state: branch_states,
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "validate_omol",
+        lambda omol, total_charge, total_radical_electrons: omol.write("can").strip()
+        == branch_states[0].omol.write("can").strip(),
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "_recover_resonance_candidates",
+        lambda state, **kwargs: resonance_calls.append(int(state.metadata["branch"]))
+        or resonance_map[int(state.metadata["branch"])],
+    )
+    monkeypatch.setattr(
+        no_metal_selection_module,
+        "_score_reconstruction_candidate",
+        lambda candidate, **kwargs: float(candidate.metadata["priority"]),
+    )
+    monkeypatch.setattr(
+        no_metal_selection_module,
+        "_no_metal_candidate_selection_key",
+        lambda candidate, **kwargs: (
+            float(candidate.metadata["priority"]),
+            0,
+            0,
+            0,
+            0,
+            0,
+        ),
+    )
+
+    result = xyz_to_omol_no_metal_state("all-branches-resonance", 0, 0)
+
+    assert result is not None
+    assert resonance_calls == [0, 1, 2]
+    assert result.phase_history[-1] == "select_best_resonance_candidate"
+    assert result.metadata["branch"] == 0
+    assert result.metadata["priority"] == 1
+
+
+def test_no_metal_direct_candidate_is_isolated_from_resonance_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    no_metal_module._run_no_metal_pipeline_cached.cache_clear()
+    obmol = ob.OBMol()
+    obmol.BeginModify()
+    atom = obmol.NewAtom()
+    atom.SetAtomicNum(7)
+    atom.SetFormalCharge(0)
+    atom.SetSpinMultiplicity(1)
+    obmol.EndModify()
+    linear_state = ReconstructionState(
+        omol=pybel.Molecule(obmol),
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=1,
+        phase_history=("read_xyz", "linear"),
+        metadata={"priority": 0},
+    )
+    seed_state = ReconstructionState(
+        omol=pybel.readstring("smi", "[N]"),
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=1,
+        phase_history=("read_xyz",),
+    )
+
+    def mutate_linear_state(state: ReconstructionState, **kwargs: object) -> list[ReconstructionState]:
+        del kwargs
+        atom = state.omol.OBMol.GetAtom(1)
+        atom.SetFormalCharge(-1)
+        atom.SetSpinMultiplicity(0)
+        return []
+
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "_enumerate_no_metal_candidate_states",
+        lambda state: [linear_state],
+    )
+    monkeypatch.setattr(
+        no_metal_preparation_module,
+        "clean_resonances",
+        lambda omol: (omol, False),
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "_recover_resonance_candidates",
+        mutate_linear_state,
+    )
+    monkeypatch.setattr(
+        no_metal_selection_module,
+        "_score_reconstruction_candidate",
+        lambda candidate, **kwargs: 0.0,
+    )
+    monkeypatch.setattr(
+        no_metal_selection_module,
+        "_no_metal_candidate_selection_key",
+        lambda candidate, **kwargs: (0.0, 0, 0.0, 0.0, 0.0, 0.0),
+    )
+
+    result = no_metal_module._run_no_metal_pipeline_from_state(seed_state)
+
+    assert result is not None
+    result_atom = result.omol.OBMol.GetAtom(1)
+    assert result_atom.GetFormalCharge() == 0
+    assert result_atom.GetSpinMultiplicity() == 1
+    assert linear_state.omol.OBMol.GetAtom(1).GetFormalCharge() == -1
 
 
 def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_field(

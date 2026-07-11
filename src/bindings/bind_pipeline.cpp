@@ -413,17 +413,18 @@ namespace molgr
                                     const_cast<OpenBabel::OBMol &>(candidate.no_metal_state->Mol());
                                 FOR_ATOMS_OF_MOL(atom_iter, no_metal_mol)
                                 {
-                                    py::tuple atom_item(7);
+                                    py::tuple atom_item(8);
                                     atom_item[0] = static_cast<int>(atom_iter->GetAtomicNum());
                                     atom_item[1] = atom_iter->GetFormalCharge();
                                     atom_item[2] = atom_iter->GetSpinMultiplicity();
-                                    atom_item[3] = static_cast<long long>(
-                                        std::llround(atom_iter->GetX() * 1000000.0));
+                                    atom_item[3] = atom_iter->GetHyb();
                                     atom_item[4] = static_cast<long long>(
-                                        std::llround(atom_iter->GetY() * 1000000.0));
+                                        std::llround(atom_iter->GetX() * 1000000.0));
                                     atom_item[5] = static_cast<long long>(
+                                        std::llround(atom_iter->GetY() * 1000000.0));
+                                    atom_item[6] = static_cast<long long>(
                                         std::llround(atom_iter->GetZ() * 1000000.0));
-                                    atom_item[6] = atom_iter->IsAromatic();
+                                    atom_item[7] = atom_iter->IsAromatic();
                                     atom_signature.append(std::move(atom_item));
                                 }
                                 item["no_metal_atom_signature"] = std::move(atom_signature);
@@ -607,6 +608,60 @@ namespace molgr
                         return item;
                     },
                     "Return the C++ no-metal linear-pipeline state for parity debugging.",
+                    py::arg("xyz_block"),
+                    py::arg("total_charge") = 0,
+                    py::arg("total_radical_electrons") = 0);
+
+                ns.def(
+                    "debug_no_metal_candidate_states",
+                    [](const std::string &xyz_block,
+                       int total_charge,
+                       int total_radical_electrons)
+                        -> py::object
+                    {
+                        auto seed_state = molgr::no_metals::preparation::SeedState(
+                            xyz_block,
+                            total_charge,
+                            total_radical_electrons);
+                        if (!seed_state.omol)
+                        {
+                            return py::none();
+                        }
+                        auto states = molgr::no_metals::preparation::EnumerateNoMetalCandidateStates(
+                            seed_state);
+                        py::list out;
+                        for (auto &state : states)
+                        {
+                            py::dict item;
+                            item["smiles"] = molgr::reconstruct::SmilesFirstToken(state.Mol());
+                            item["given_charge"] = state.given_charge;
+                            item["total_charge"] = state.total_charge;
+                            item["total_radical_electrons"] = state.total_radical_electrons;
+                            item["valid"] = molgr::reconstruct::ValidateOmol(
+                                state.MutableMol(),
+                                state.total_charge,
+                                state.total_radical_electrons);
+                            py::list phases;
+                            for (const auto &phase : state.phase_history)
+                            {
+                                phases.append(phase);
+                            }
+                            item["phase_history"] = std::move(phases);
+                            const auto strategy_it =
+                                state.metadata.find("neighbor_radical_resolution_strategy");
+                            if (strategy_it != state.metadata.end())
+                            {
+                                if (const auto *strategy =
+                                        std::get_if<std::string>(&strategy_it->second))
+                                {
+                                    item["neighbor_radical_resolution_strategy"] = *strategy;
+                                }
+                            }
+                            out.append(std::move(item));
+                        }
+                        return out;
+                    },
+                    "Return C++ no-metal candidate states for parity debugging.",
                     py::arg("xyz_block"),
                     py::arg("total_charge") = 0,
                     py::arg("total_radical_electrons") = 0);

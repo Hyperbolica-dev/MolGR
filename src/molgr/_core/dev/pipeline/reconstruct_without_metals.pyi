@@ -9,9 +9,19 @@ import typing
 __all__: list[str] = [
     "debug_linear_pipeline_state",
     "debug_linear_pipeline_trace",
+    "debug_no_metal_candidate_states",
     "debug_processed_root_resonance",
     "debug_resonance_candidate_summaries",
 ]
+
+def debug_no_metal_candidate_states(
+    xyz_block: str,
+    total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
+) -> typing.Any:
+    """
+    Return C++ no-metal candidate states for parity debugging.
+    """
 
 def debug_linear_pipeline_state(
     xyz_block: str,

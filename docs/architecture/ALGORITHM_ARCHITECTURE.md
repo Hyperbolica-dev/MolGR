@@ -42,9 +42,11 @@ The current algorithm can be read as seven layers:
 
 4. Metal-free reconstruction
    - seed a `ReconstructionState`
-   - run the deterministic linear pipeline
-   - if valid, clean and score directly
-   - if invalid, enter radical resonance recovery
+   - run the deterministic direct linear pipeline for the ordinary path
+   - enumerate explicit no-metal candidate states when neighbor-radical
+     resolution has multiple plausible strategies
+   - validate, clean, and score direct candidates as a fallback pool
+   - run radical resonance recovery for every no-metal candidate state
 
 5. Resonance recovery
    - traverse candidates using configured resonance depth and traversal policy
@@ -52,6 +54,8 @@ The current algorithm can be read as seven layers:
    - deduplicate with processed resonance keys
    - keep only candidates that match the charge/radical target
    - choose the best no-metal candidate by organic topology first, then force-field score
+   - prefer the resonance candidate pool when any resonance candidate survives;
+     use direct-valid candidates only as fallback
 
 6. Metal candidate scoring and selection
    - each no-metal target bucket is reconstructed once and shared by all metal assignments in that bucket
@@ -100,14 +104,15 @@ flowchart TD
     Buckets --> NoMetal["xyz_to_omol_no_metal_state / XyzToOmolNoMetalState<br/>run once per target bucket"]
     CppNoMetal --> Seed["seed no-metal ReconstructionState"]
     NoMetal --> Seed
-    Seed --> Linear["linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
-    Linear --> Valid{"validate_omol"}
+    Seed --> Linear["direct linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
+    Seed --> CandidateEnum["enumerate no-metal candidate states:<br/>explicit neighbor-radical resolution strategies"]
+    CandidateEnum --> Valid{"validate_omol"}
+    CandidateEnum --> Resonance["recover resonance candidates"]
 
     Valid -->|"valid"| Direct["clean_resonances + score direct candidate"]
-    Valid -->|"invalid"| Resonance["recover resonance candidates"]
     Resonance --> Walk["limited-discrepancy radical resonance traversal"]
     Walk --> Process["process_resonance + dedupe + validate"]
-    Process --> NoMetalSelect["select no-metal candidate<br/>topology first, force-field tie-break"]
+    Process --> NoMetalSelect["select no-metal candidate<br/>resonance pool first, direct fallback"]
     Direct --> NoMetalSelect
 
     NoMetalSelect --> ScoreMetal["score metal candidates with shared no-metal state"]
@@ -146,14 +151,12 @@ sequenceDiagram
     alt no metal fast/direct path
         BE->>NM: reconstruct full XYZ as no-metal target
         NM->>NM: seed ReconstructionState
-        NM->>NM: run deterministic linear stages
-        alt valid after linear stages
-            NM->>SC: score direct no-metal candidate
-        else invalid after linear stages
-            NM->>RS: enumerate radical resonance candidates
-            RS->>RS: traverse, process, dedupe, validate
-            RS->>SC: return valid no-metal candidates
-        end
+        NM->>NM: run direct linear path and candidate-state enumeration
+        NM->>SC: validate, clean, and score direct candidates
+        NM->>RS: enumerate radical resonance candidates for every candidate state
+        RS->>RS: traverse, process, dedupe, validate
+        RS->>SC: return valid no-metal candidates
+        SC->>SC: prefer resonance pool; fall back to direct candidates
         SC->>CV: selected no-metal molecule data
     else metal-containing path
         BE->>MP: prepare_metal_state(xyz, charge, radicals)
@@ -164,14 +167,12 @@ sequenceDiagram
         MS->>MS: meet-in-the-middle DP grouping by target bucket
         loop per target bucket
             MS->>NM: reconstruct no_metal_xyz_block with target charge/radicals
-            NM->>NM: run deterministic linear stages
-            alt valid after linear stages
-                NM->>SC: score direct no-metal candidate
-            else invalid after linear stages
-                NM->>RS: enumerate radical resonance candidates
-                RS->>RS: traverse, process, dedupe, validate
-                RS->>SC: return valid no-metal candidates
-            end
+            NM->>NM: run direct linear path and candidate-state enumeration
+            NM->>SC: validate, clean, and score direct candidates
+            NM->>RS: enumerate radical resonance candidates for every candidate state
+            RS->>RS: traverse, process, dedupe, validate
+            RS->>SC: return valid no-metal candidates
+            SC->>SC: prefer resonance pool; fall back to direct candidates
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
@@ -188,7 +189,7 @@ sequenceDiagram
     CV-->>User: Chem.Mol
 ```
 
-## Metal-Free Linear Pipeline
+## Metal-Free Linear Pipeline And Candidate Enumeration
 
 The deterministic metal-free stage order is aligned between
 [`src/molgr/fallback/utils/no_metals/preparation.py`](../../src/molgr/fallback/utils/no_metals/preparation.py)
@@ -200,19 +201,33 @@ implementation:
 3. `fresh_omol_charge_radical_initial`
 4. initialize the residual charge budget
 5. run the eliminate/clean sequence for NNN, high positive centers, ambiguous CN,
-   carboxyl, carbene-adjacent cases, neighboring radicals, and charge splitting
-6. `break_deformed_ene`
-7. `break_one_bond`
-8. `fresh_omol_charge_radical_final`
+   carboxyl, and carbene-adjacent cases
+6. resolve neighboring radicals on the direct linear path with
+   `clean_neighbor_radicals`
+7. run charge splitting and bond-breaking cleanup
+8. `break_deformed_ene`
+9. `break_one_bond`
+10. `fresh_omol_charge_radical_final`
 
-If `validate_omol(...)` succeeds after the linear pipeline, the flow goes
-straight to `clean_resonances` and scoring. Otherwise it enters resonance
-recovery.
+The direct linear pipeline remains a single deterministic path. Candidate
+enumeration is a separate layer: when neighboring radical pairs are present,
+MolGR also enumerates charge-separated resolution strategies
+(`charge_begin_positive` and `charge_begin_negative`) and runs the same
+post-resolution deterministic stages for each strategy.
+
+Each enumerated no-metal candidate state is checked in two ways:
+
+- direct pool: if `validate_omol(...)` succeeds, run `clean_resonances`, score
+  the direct candidate, and keep it as a fallback candidate
+- resonance pool: run resonance recovery for the candidate state regardless of
+  whether the direct form was already valid
+
+If any resonance candidate survives, no-metal selection uses the resonance
+pool. Direct-valid candidates are used only when the resonance pool is empty.
 
 ## Resonance Recovery
 
-Resonance recovery is only used when the linear metal-free pipeline does not
-produce a valid target.
+Resonance recovery is run for every enumerated no-metal candidate state.
 
 Current behavior:
 

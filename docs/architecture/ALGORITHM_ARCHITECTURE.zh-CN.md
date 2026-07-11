@@ -36,9 +36,10 @@ MolGR 的统一算法可以按七层理解：
 
 4. 无金属重建
    - 从 no-metal XYZ 创建 `ReconstructionState`
-   - 运行确定性线性 pipeline
-   - 如果结构有效，直接清理、评分并返回候选
-   - 如果结构无效，进入自由基共振恢复
+   - 为普通路径运行确定性 direct 线性 pipeline
+   - 当邻位自由基有多个合理处理方式时，显式枚举 no-metal candidate states
+   - 对 direct candidate 做验证、`clean_resonances` 和评分，作为兜底候选池
+   - 对每个 no-metal candidate state 都执行自由基共振恢复
 
 5. 共振恢复
    - 按配置的 `resonance.max_depth` 和 `resonance.traversal_score` 遍历候选
@@ -46,6 +47,7 @@ MolGR 的统一算法可以按七层理解：
    - 用 processed resonance key 去重
    - 验证电荷和自由基数是否满足目标
    - 按有机拓扑和力场能量选择 no-metal 赢家
+   - 只要 resonance 候选池非空，就优先从 resonance 候选中选；direct-valid 候选只做兜底
 
 6. 金属候选评分和选择
    - 同一个 no-metal 目标桶只重建一次，然后共享给桶内所有金属态候选
@@ -94,14 +96,15 @@ flowchart TD
     Buckets --> NoMetal["xyz_to_omol_no_metal_state / XyzToOmolNoMetalState<br/>run once per target bucket"]
     CppNoMetal --> Seed["seed no-metal ReconstructionState"]
     NoMetal --> Seed
-    Seed --> Linear["linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
-    Linear --> Valid{"validate_omol"}
+    Seed --> Linear["direct linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
+    Seed --> CandidateEnum["enumerate no-metal candidate states:<br/>explicit neighbor-radical resolution strategies"]
+    CandidateEnum --> Valid{"validate_omol"}
+    CandidateEnum --> Resonance["recover resonance candidates"]
 
     Valid -->|"valid"| Direct["clean_resonances + score direct candidate"]
-    Valid -->|"invalid"| Resonance["recover resonance candidates"]
     Resonance --> Walk["limited-discrepancy radical resonance traversal"]
     Walk --> Process["process_resonance + dedupe + validate"]
-    Process --> NoMetalSelect["select no-metal candidate<br/>topology first, force-field tie-break"]
+    Process --> NoMetalSelect["select no-metal candidate<br/>resonance pool first, direct fallback"]
     Direct --> NoMetalSelect
 
     NoMetalSelect --> ScoreMetal["score metal candidates with shared no-metal state"]
@@ -140,14 +143,12 @@ sequenceDiagram
     alt no metal fast/direct path
         BE->>NM: reconstruct full XYZ as no-metal target
         NM->>NM: seed ReconstructionState
-        NM->>NM: run deterministic linear stages
-        alt valid after linear stages
-            NM->>SC: score direct no-metal candidate
-        else invalid after linear stages
-            NM->>RS: enumerate radical resonance candidates
-            RS->>RS: traverse, process, dedupe, validate
-            RS->>SC: return valid no-metal candidates
-        end
+        NM->>NM: run direct linear path and candidate-state enumeration
+        NM->>SC: validate, clean, and score direct candidates
+        NM->>RS: enumerate radical resonance candidates for every candidate state
+        RS->>RS: traverse, process, dedupe, validate
+        RS->>SC: return valid no-metal candidates
+        SC->>SC: prefer resonance pool; fall back to direct candidates
         SC->>CV: selected no-metal molecule data
     else metal-containing path
         BE->>MP: prepare_metal_state(xyz, charge, radicals)
@@ -158,14 +159,12 @@ sequenceDiagram
         MS->>MS: meet-in-the-middle DP grouping by target bucket
         loop per target bucket
             MS->>NM: reconstruct no_metal_xyz_block with target charge/radicals
-            NM->>NM: run deterministic linear stages
-            alt valid after linear stages
-                NM->>SC: score direct no-metal candidate
-            else invalid after linear stages
-                NM->>RS: enumerate radical resonance candidates
-                RS->>RS: traverse, process, dedupe, validate
-                RS->>SC: return valid no-metal candidates
-            end
+            NM->>NM: run direct linear path and candidate-state enumeration
+            NM->>SC: validate, clean, and score direct candidates
+            NM->>RS: enumerate radical resonance candidates for every candidate state
+            RS->>RS: traverse, process, dedupe, validate
+            RS->>SC: return valid no-metal candidates
+            SC->>SC: prefer resonance pool; fall back to direct candidates
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
@@ -182,7 +181,7 @@ sequenceDiagram
     CV-->>User: Chem.Mol
 ```
 
-## 无金属线性 Pipeline
+## 无金属线性 Pipeline 与候选枚举
 
 无金属重建的确定性阶段由
 [`src/molgr/fallback/utils/no_metals/preparation.py`](../../src/molgr/fallback/utils/no_metals/preparation.py)
@@ -193,17 +192,28 @@ sequenceDiagram
 2. `pre_clean`
 3. `fresh_omol_charge_radical_initial`
 4. 初始化剩余电荷预算：目标总电荷减去当前原子形式电荷
-5. 依次执行 NNN、强正电中心、CN 疑难键、羧基、卡宾邻位、邻位自由基、电荷分离等消除/清理阶段
-6. `break_deformed_ene`
-7. `break_one_bond`
-8. `fresh_omol_charge_radical_final`
+5. 依次执行 NNN、强正电中心、CN 疑难键、羧基、卡宾邻位等消除/清理阶段
+6. direct 线性路径用 `clean_neighbor_radicals` 处理邻位自由基
+7. 执行电荷分离和断键清理
+8. `break_deformed_ene`
+9. `break_one_bond`
+10. `fresh_omol_charge_radical_final`
 
-线性阶段后如果 `validate_omol(...)` 满足目标电荷和自由基数，则直接进入 `clean_resonances` 和评分。
-否则进入共振恢复。
+direct 线性 pipeline 保持单一路径。候选枚举是单独一层：当存在邻位自由基对时，MolGR
+额外枚举两种电荷分离处理策略（`charge_begin_positive` 和
+`charge_begin_negative`），并对每种策略继续执行同一套后续确定性阶段。
+
+每个枚举出的 no-metal candidate state 都会进入两套检查：
+
+- direct 候选池：如果 `validate_omol(...)` 通过，就执行 `clean_resonances`、评分，并保留为兜底候选。
+- resonance 候选池：无论 direct 形态是否已经有效，都继续执行共振恢复。
+
+只要 resonance 候选池非空，no-metal selection 就从 resonance 候选中选；direct-valid
+候选只在 resonance 候选池为空时使用。
 
 ## 共振恢复策略
 
-共振恢复只在无金属线性阶段不能直接得到有效结构时触发。当前策略是：
+共振恢复会对每个枚举出的 no-metal candidate state 执行。当前策略是：
 
 - 构建 resonance state key 和 bond index map。
 - 枚举一步自由基共振迁移。

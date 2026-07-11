@@ -137,6 +137,19 @@ def prepare_metal_state(
     available_valence_radical_states = tuple(
         tuple(_build_metal_states(obatom, config=config)) for obatom in removable_metal_atoms
     )
+    if not removable_metal_atoms:
+        return MetalPreparationState(
+            no_metal_xyz_block=xyz_block,
+            available_valence_radical_states=available_valence_radical_states,
+            total_charge=total_charge,
+            total_radical_electrons=total_radical_electrons,
+            phase_history=(
+                "read_xyz",
+                "build_metal_state_options",
+                "preserve_no_metal_xyz",
+            ),
+            metadata={"metal_atom_count": 0},
+        )
     for obatom in removable_metal_atoms:
         omol.OBMol.DeleteAtom(obatom)
     return MetalPreparationState(

@@ -1,9 +1,12 @@
 """No-metal reconstruction pipeline for fallback.
 
-The flow is intentionally linear until validation fails:
-1. Apply deterministic preprocess / eliminate / clean / bond-breaking stages.
-2. If the structure is already valid, score it directly.
-3. Otherwise enumerate resonance candidates, normalize them, and choose the winner.
+The deterministic direct path stays linear; alternative neighbor-radical
+resolutions are exposed only as candidate states:
+1. Build no-metal candidate states from deterministic stages plus explicit
+   neighbor-radical strategies.
+2. Validate every candidate directly, but still run resonance recovery for each one.
+3. Prefer the best resonance candidate; fall back to direct-valid candidates only
+   if no resonance candidate survives.
 """
 
 from __future__ import annotations
@@ -46,35 +49,46 @@ def _run_no_metal_pipeline_from_state(
     if seed_state.total_radical_electrons < 0:
         return None
 
-    state = preparation._run_linear_pipeline(seed_state)
+    direct_candidates: list[ReconstructionState] = []
+    resonance_candidates: list[ReconstructionState] = []
+    for state in preparation._enumerate_no_metal_candidate_states(seed_state):
+        if preparation.validate_omol(
+            state.omol,
+            seed_state.total_charge,
+            seed_state.total_radical_electrons,
+        ):
+            result_machine = OmolStateMachine.from_reconstruction_state(state).branch(
+                None,
+                omol=preparation._clone_omol(state.omol),
+            )
+            result_machine.annotate("validate_direct_candidate")
+            result_machine.run_omol_stage("clean_resonances", preparation.clean_resonances)
+            result = result_machine.freeze_like(state)
+            try:
+                selection._score_reconstruction_candidate(result, config=config)
+            except ValueError:
+                pass
+            else:
+                selection._annotate_no_metal_candidate_topology(result, config=config)
+                direct_candidates.append(result)
 
-    if preparation.validate_omol(
-        state.omol,
-        seed_state.total_charge,
-        seed_state.total_radical_electrons,
-    ):
-        result_machine = OmolStateMachine.from_reconstruction_state(state)
-        result_machine.annotate("validate_direct_candidate")
-        result_machine.run_omol_stage("clean_resonances", preparation.clean_resonances)
-        result = result_machine.freeze_like(state)
-        try:
-            selection._score_reconstruction_candidate(result, config=config)
-        except ValueError:
-            return None
-        selection._annotate_no_metal_candidate_topology(result, config=config)
-        return result
+        resonance_candidates.extend(
+            no_metal_resonance._recover_resonance_candidates(
+                state,
+                resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(
+                    config
+                ),
+                config=config,
+            )
+        )
 
-    resonance_candidates = no_metal_resonance._recover_resonance_candidates(
-        state,
-        resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(config),
-        config=config,
-    )
-    if not resonance_candidates:
+    candidate_pool = resonance_candidates if resonance_candidates else direct_candidates
+    if not candidate_pool:
         return None
 
     best_candidate: Optional[ReconstructionState] = None
     best_selection_key: Optional[tuple[float, int, float, float, float, float]] = None
-    for candidate in resonance_candidates:
+    for candidate in candidate_pool:
         selection._score_reconstruction_candidate(candidate, config=config)
         selection_key = selection._no_metal_candidate_selection_key(candidate, config=config)
         if best_selection_key is not None and selection_key >= best_selection_key:
@@ -84,6 +98,9 @@ def _run_no_metal_pipeline_from_state(
 
     if best_candidate is None:
         return None
+
+    if "validate_resonance_candidate" not in best_candidate.phase_history:
+        return best_candidate
 
     result_machine = OmolStateMachine.from_reconstruction_state(best_candidate)
     result_machine.annotate("select_best_resonance_candidate")

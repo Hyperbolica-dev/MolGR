@@ -98,11 +98,13 @@ def _python_scored_candidates(xyz_block: str, total_charge: int, total_radical_e
         for target_entry in grouped_candidates.values():
             if not target_entry:
                 continue
-            no_metal_state = reconstruct_with_metals.reconstruct_without_metals.xyz_to_omol_no_metal_state(
-                base_state.no_metal_xyz_block,
-                target_entry[0].no_metal_charge_target,
-                target_entry[0].no_metal_radical_target,
-                config=config,
+            no_metal_state = (
+                reconstruct_with_metals.reconstruct_without_metals.xyz_to_omol_no_metal_state(
+                    base_state.no_metal_xyz_block,
+                    target_entry[0].no_metal_charge_target,
+                    target_entry[0].no_metal_radical_target,
+                    config=config,
+                )
             )
             if no_metal_state is None:
                 continue
@@ -112,8 +114,8 @@ def _python_scored_candidates(xyz_block: str, total_charge: int, total_radical_e
                         candidate,
                         no_metal_state,
                         config=config,
+                    )
                 )
-            )
         if candidates:
             scored = scoring.select_best_candidate(candidates, config=config)
             return layer_index, candidates, scored
@@ -132,12 +134,17 @@ def _python_no_metal_resonance_candidate_summaries(
         total_charge,
         total_radical_electrons,
     )
-    state = no_metal_preparation._run_linear_pipeline(seed_state)
-    candidates = no_metal_resonance._recover_resonance_candidates(
-        state,
-        resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(config),
-        config=config,
-    )
+    candidates = []
+    for state in no_metal_preparation._enumerate_no_metal_candidate_states(seed_state):
+        candidates.extend(
+            no_metal_resonance._recover_resonance_candidates(
+                state,
+                resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(
+                    config
+                ),
+                config=config,
+            )
+        )
 
     summaries = []
     for candidate in candidates:
@@ -219,7 +226,9 @@ def _cpp_metal_search_group_signature(group) -> tuple[tuple[tuple[object, ...], 
     return tuple(tuple(tuple(metal_state) for metal_state in choice) for choice in group)
 
 
-def _cpp_metal_search_layer_signature(layer) -> tuple[tuple[tuple[tuple[object, ...], ...], ...], ...]:
+def _cpp_metal_search_layer_signature(
+    layer,
+) -> tuple[tuple[tuple[tuple[object, ...], ...], ...], ...]:
     return tuple(_cpp_metal_search_group_signature(group) for group in layer)
 
 
@@ -270,7 +279,9 @@ def _python_metal_search_summary(
             layer_buckets.append(
                 {
                     "target": tuple(target),
-                    "candidates": tuple(_candidate_search_signature(candidate) for candidate in candidates),
+                    "candidates": tuple(
+                        _candidate_search_signature(candidate) for candidate in candidates
+                    ),
                 }
             )
         target_buckets_by_layer.append(tuple(layer_buckets))
@@ -325,18 +336,16 @@ def _cpp_metal_search_summary(raw: dict) -> dict[str, object]:
         ),
         "base_phase_history": tuple(raw["base_phase_history"]),
         "state_search_groups": tuple(
-            _cpp_metal_search_group_signature(group)
-            for group in raw["state_search_groups"]
+            _cpp_metal_search_group_signature(group) for group in raw["state_search_groups"]
         ),
         "layered_state_search_groups": tuple(
-            _cpp_metal_search_layer_signature(layer)
-            for layer in raw["layered_state_search_groups"]
+            _cpp_metal_search_layer_signature(layer) for layer in raw["layered_state_search_groups"]
         ),
         "target_buckets_by_layer": tuple(target_buckets_by_layer),
     }
 
 
-def _pybel_atom_signature(omol) -> tuple[tuple[int, int, int, int, int, int, bool], ...]:
+def _pybel_atom_signature(omol) -> tuple[tuple[int, int, int, int, int, int, int, bool], ...]:
     atom_signature = []
     for atom in ob.OBMolAtomIter(omol.OBMol):
         atom_signature.append(
@@ -344,6 +353,7 @@ def _pybel_atom_signature(omol) -> tuple[tuple[int, int, int, int, int, int, boo
                 int(atom.GetAtomicNum()),
                 int(atom.GetFormalCharge()),
                 int(atom.GetSpinMultiplicity()),
+                int(atom.GetHyb()),
                 round(float(atom.GetX()) * 1_000_000),
                 round(float(atom.GetY()) * 1_000_000),
                 round(float(atom.GetZ()) * 1_000_000),
@@ -360,7 +370,9 @@ def _pybel_bond_signature(omol) -> tuple[tuple[int, int, int, bool], ...]:
         end_idx = int(bond.GetEndAtom().GetIdx())
         if begin_idx > end_idx:
             begin_idx, end_idx = end_idx, begin_idx
-        bond_signature.append((begin_idx, end_idx, int(bond.GetBondOrder()), bool(bond.IsAromatic())))
+        bond_signature.append(
+            (begin_idx, end_idx, int(bond.GetBondOrder()), bool(bond.IsAromatic()))
+        )
     return tuple(sorted(bond_signature))
 
 
@@ -409,6 +421,8 @@ def _assert_cpp_python_topology_metrics_match(omol, *, config) -> None:
         "c1ccccc1",
         "C=CC=C",
         "[c-]1[c-][c-][cH][cH][cH]1",
+        "c1cc2ccccc2cc1",
+        "[n-]1cccc1",
         "C/C(=C/C(=N/c1c(C)cccc1C)/C)/[N-]c1c(C)cccc1C.Cc1ccccc1",
     ],
 )
@@ -522,6 +536,8 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
     total_radical_electrons = 0
     config = MolGRConfig()
 
+    _core.dev.pipeline.clear_force_field_evaluation_cache()
+    _core.dev.pipeline.clear_uff_atom_typing_cache()
     cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
         xyz_block,
         total_charge,
@@ -543,7 +559,10 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
         assert cpp_item["no_metal_radical_target"] == py_item.no_metal_radical_target
         assert py_item.no_metal_state is not None
         assert cpp_item["no_metal_total_charge"] == py_item.no_metal_state.total_charge
-        assert cpp_item["no_metal_total_radical_electrons"] == py_item.no_metal_state.total_radical_electrons
+        assert (
+            cpp_item["no_metal_total_radical_electrons"]
+            == py_item.no_metal_state.total_radical_electrons
+        )
         assert tuple(cpp_item["no_metal_atom_signature"]) == _pybel_atom_signature(
             py_item.no_metal_state.omol
         )

@@ -148,6 +148,25 @@ O 3.2 0.0 0.0
     assert state.metadata["metal_atom_count"] == 1
 
 
+def test_prepare_metal_state_preserves_metal_free_xyz_block() -> None:
+    xyz_block = """2
+NO
+N 0.0 0.0 0.0
+O 1.2 0.0 0.0
+"""
+
+    state = prepare_metal_state(xyz_block, 0, 1)
+
+    assert state.no_metal_xyz_block == xyz_block
+    assert state.available_valence_radical_states == ()
+    assert state.phase_history == (
+        "read_xyz",
+        "build_metal_state_options",
+        "preserve_no_metal_xyz",
+    )
+    assert state.metadata["metal_atom_count"] == 0
+
+
 def test_xyz2omol_state_prunes_open_shell_multimetal_state_space_for_monnmo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1726,6 +1745,42 @@ def test_metal_discordance_counts_unsaturated_organic_cation_for_nonnegative_met
         scored.metadata["metal_discordance_nonnegative_metal_unsaturated_organic_cation_count"]
         == expected_unsaturated_cation_count
     )
+
+
+def test_metal_discordance_exempts_aromatic_unsaturated_organic_cation() -> None:
+    no_metal = pybel.readstring("smi", "[nH+]1ccccc1")
+    positive_atom = next(
+        atom for atom in no_metal.atoms if int(atom.OBAtom.GetFormalCharge()) > 0
+    ).OBAtom
+    assert positive_atom.IsAromatic()
+    assert metal_scoring_module._is_unsaturated_organic_cation(positive_atom)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, 1, 0, 100.0, 0.0, 0.0),),
+        1,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert (
+        scored.metadata["metal_discordance_nonnegative_metal_unsaturated_organic_cation_count"] == 0
+    )
+    assert scored.metadata["metal_discordance_structural_count"] == 0
 
 
 def test_metal_discordance_counts_unsaturated_cation_when_only_global_charge_is_zero() -> None:
