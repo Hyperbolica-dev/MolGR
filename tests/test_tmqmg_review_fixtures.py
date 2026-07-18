@@ -12,6 +12,11 @@ from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.interface import xyz_to_rdmol
 from molgr.utils.converter import get_atom_unpaired_electrons
 from molgr.utils.equivalence import check_equivalence
+from scripts.reconstruction_trace import (
+    TraceInputCase,
+    load_review_fixture_cases,
+    trace_reconstruction_case,
+)
 
 
 _FIXTURE_ROOT = Path(__file__).parent / "data" / "tmqmg" / "reviewed"
@@ -142,6 +147,31 @@ def test_reviewed_approved_sdf_graphs_survive_reconstruction() -> None:
         )
         equivalent, info = check_equivalence(expected_answer, rebuilt, use_chirality=False)
         assert equivalent, f"{record['case_id']}: {info.reason}"
+
+
+def test_review_manifest_is_a_live_trace_input_source() -> None:
+    cases = load_review_fixture_cases(_MANIFEST_PATH)
+    records = _manifest_records()
+
+    assert {case.id for case in cases} == {str(record["case_id"]) for record in records}
+    assert all(case.xyz_source == "review_fixture" for case in cases)
+    assert all(case.fixture_kind for case in cases)
+    assert all(case.fixture_structure_file for case in cases)
+
+
+@pytest.mark.parametrize("case_id", ["ABAGAM", "ABEGOD"])
+def test_review_fixture_trace_matches_approved_answer(case_id: str) -> None:
+    case = next(
+        case for case in load_review_fixture_cases(_MANIFEST_PATH, [case_id]) if case.id == case_id
+    )
+    assert isinstance(case, TraceInputCase)
+
+    trace = trace_reconstruction_case(case, score_all_candidates=False)
+    fixture_check = trace["review_fixture"]
+
+    assert fixture_check["equivalent"] is True, fixture_check
+    assert fixture_check["equivalence_method"]
+    assert fixture_check["trace_smiles"]
 
 
 @pytest.mark.parametrize("backend", ["cpp", "python"])

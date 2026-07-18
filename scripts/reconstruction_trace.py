@@ -27,7 +27,7 @@ if __package__ in (None, ""):
 
 from openbabel import openbabel as ob
 from openbabel import pybel
-from rdkit import RDLogger
+from rdkit import Chem, RDLogger
 
 from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_without_metals
@@ -38,6 +38,7 @@ from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
 from molgr.fallback.utils.no_metals import selection as no_metal_selection
 from molgr.utils.converter import pybel_to_rdmol
+from molgr.utils.equivalence import check_equivalence
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
@@ -53,6 +54,9 @@ class TraceInputCase:
     total_radical_electrons: int
     xyz_path: Path | None = None
     xyz_source: str = ""
+    fixture_kind: str = ""
+    fixture_structure_file: str = ""
+    expected_smiles: str = ""
 
 
 @dataclasses.dataclass
@@ -165,6 +169,25 @@ def _parse_args() -> argparse.Namespace:
             "Optional JSON case file. The file may contain one object or a list of objects with "
             "id, xyz_path or xyz_block, total_charge/charge, and total_radical_electrons or "
             "spin_multiplicity."
+        ),
+    )
+    parser.add_argument(
+        "--review-fixtures-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Load trace inputs directly from a reviewed fixture manifest. SDF coordinates and "
+            "XYZ electronic states are resolved relative to the manifest."
+        ),
+    )
+    parser.add_argument(
+        "--fixture-id",
+        dest="fixture_ids",
+        action="append",
+        default=[],
+        help=(
+            "Optional reviewed fixture id. May be repeated or comma-separated. "
+            "Defaults to all manifest fixtures."
         ),
     )
     parser.add_argument(
@@ -710,10 +733,100 @@ def _load_json_cases(path: Path) -> list[TraceInputCase]:
     return cases
 
 
+_APPROVED_REVIEW_FIXTURE_KINDS = {
+    "approved_graph",
+    "manual_reference",
+    "tmqmg_reference",
+}
+
+
+def _review_fixture_xyz_block(path: Path) -> str:
+    if path.suffix.lower() != ".sdf":
+        return path.read_text(encoding="utf-8")
+    expected = next(
+        (
+            mol
+            for mol in Chem.SDMolSupplier(str(path), sanitize=False, removeHs=False)
+            if mol is not None
+        ),
+        None,
+    )
+    if expected is None:
+        raise ValueError(f"review fixture SDF is unreadable: {path}")
+    if expected.GetNumConformers() != 1:
+        raise ValueError(f"review fixture SDF must contain one conformer: {path}")
+    return Chem.MolToXYZBlock(expected)
+
+
+def load_review_fixture_cases(
+    manifest_path: Path,
+    fixture_ids: Sequence[str] = (),
+) -> list[TraceInputCase]:
+    """Load trace inputs from the current reviewed fixture manifest."""
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw_records = payload.get("fixtures") if isinstance(payload, dict) else None
+    if not isinstance(raw_records, list):
+        raise ValueError(f"invalid reviewed fixture manifest: {manifest_path}")
+
+    requested_ids = set(fixture_ids)
+    found_ids: set[str] = set()
+    cases: list[TraceInputCase] = []
+    for raw_record in raw_records:
+        if not isinstance(raw_record, dict):
+            raise ValueError(f"invalid reviewed fixture record: {raw_record!r}")
+        case_id = str(raw_record.get("case_id") or "").strip()
+        if not case_id:
+            raise ValueError("reviewed fixture record is missing case_id")
+        if requested_ids and case_id not in requested_ids:
+            continue
+        if case_id in found_ids:
+            raise ValueError(f"duplicate reviewed fixture id: {case_id}")
+        found_ids.add(case_id)
+
+        structure_file = str(raw_record.get("structure_file") or "").strip()
+        if not structure_file:
+            raise ValueError(f"reviewed fixture {case_id} is missing structure_file")
+        structure_path = manifest_path.parent / structure_file
+        if not structure_path.is_file():
+            raise FileNotFoundError(structure_path)
+        fixture_kind = str(raw_record.get("kind") or "").strip()
+        expected_smiles = (
+            str(raw_record.get("approved_smiles") or "").strip()
+            if fixture_kind in _APPROVED_REVIEW_FIXTURE_KINDS
+            else ""
+        )
+        cases.append(
+            TraceInputCase(
+                id=case_id,
+                xyz_block=_review_fixture_xyz_block(structure_path),
+                total_charge=int(raw_record.get("total_charge") or 0),
+                total_radical_electrons=int(raw_record.get("total_radical_electrons") or 0),
+                xyz_path=structure_path,
+                xyz_source="review_fixture",
+                fixture_kind=fixture_kind,
+                fixture_structure_file=structure_file,
+                expected_smiles=expected_smiles,
+            )
+        )
+
+    missing_ids = requested_ids - found_ids
+    if missing_ids:
+        raise ValueError("reviewed fixture ids not found: " + ", ".join(sorted(missing_ids)))
+    if not cases:
+        raise ValueError(f"reviewed fixture manifest selected no cases: {manifest_path}")
+    return cases
+
+
 def _collect_input_cases(args: argparse.Namespace) -> list[TraceInputCase]:
     cases: list[TraceInputCase] = []
     if args.case_json is not None:
         cases.extend(_load_json_cases(args.case_json))
+    fixture_ids = split_repeated_values(args.fixture_ids)
+    if args.review_fixtures_manifest is not None:
+        cases.extend(load_review_fixture_cases(args.review_fixtures_manifest, fixture_ids))
+    elif fixture_ids:
+        raise ValueError("--fixture-id requires --review-fixtures-manifest")
 
     direct_total_radicals = _direct_total_radicals(args)
     labels = split_repeated_values(args.ids)
@@ -767,7 +880,10 @@ def _collect_input_cases(args: argparse.Namespace) -> list[TraceInputCase]:
     if label_index < len(labels):
         raise ValueError("more --id labels were provided than direct coordinate inputs")
     if not cases:
-        raise ValueError("provide at least one of --xyz, --xyz-block, --stdin, or --case-json")
+        raise ValueError(
+            "provide at least one of --xyz, --xyz-block, --stdin, --case-json, "
+            "or --review-fixtures-manifest"
+        )
     return cases
 
 
@@ -1290,6 +1406,7 @@ def _html_case_trace(case: dict[str, Any]) -> str:
         )
     base_state = cast(Dict[str, Any], case.get("base_state", {}))
     selected = cast(Dict[str, Any], case.get("selected_candidate", {}))
+    review_fixture = cast(Dict[str, Any], case.get("review_fixture", {}))
     summary = _html_kv_table(
         (
             ("id", case.get("id", "")),
@@ -1302,6 +1419,9 @@ def _html_case_trace(case: dict[str, Any]) -> str:
             ("自旋来源", case.get("spin_source", "")),
             ("XYZ 路径", case.get("xyz_path", "")),
             ("XYZ 来源", case.get("xyz_source", "")),
+            ("review fixture 类型", review_fixture.get("kind", "")),
+            ("review fixture 等价", review_fixture.get("equivalent", "")),
+            ("review fixture 比较原因", review_fixture.get("equivalence_reason", "")),
             ("参考 SMILES", case.get("reference_smiles", "")),
             ("金属原子数", base_state.get("metal_atom_count", "")),
             (
@@ -1320,6 +1440,10 @@ def _html_case_trace(case: dict[str, Any]) -> str:
         _html_details("基本信息", summary, open_=True),
         _html_details("基础状态完整 JSON", _html_json_block(base_state)),
     ]
+    if review_fixture:
+        sections.append(
+            _html_details("review fixture 同步检查", _html_json_block(review_fixture), open_=True)
+        )
     if case.get("trace_kind") == "no_metal":
         sections.append(
             _html_details(
@@ -2024,6 +2148,9 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
               ["自旋来源", item.spin_source],
               ["XYZ 路径", item.xyz_path],
               ["XYZ 来源", item.xyz_source],
+              ["review fixture 类型", item.review_fixture && item.review_fixture.kind],
+              ["review fixture 等价", item.review_fixture && item.review_fixture.equivalent],
+              ["review fixture 比较原因", item.review_fixture && item.review_fixture.equivalence_reason],
               ["参考 SMILES", item.reference_smiles],
               ["金属原子数", base.metal_atom_count],
               ["生产选择层", item.search && item.search.selected_layer_index],
@@ -2036,6 +2163,21 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             children,
           });
           roots.push(caseNode);
+          if (item.review_fixture) {
+            children.push(makeNode({
+              label: "review fixture 同步检查",
+              kind: "fixture equivalence",
+              caseId,
+              summary: [
+                ["fixture 类型", item.review_fixture.kind],
+                ["结构文件", item.review_fixture.structure_file],
+                ["等价", item.review_fixture.equivalent],
+                ["方法", item.review_fixture.equivalence_method],
+                ["原因", item.review_fixture.equivalence_reason],
+              ],
+              metadata: item.review_fixture,
+            }));
+          }
           if (item.trace_kind === "no_metal") {
             children.push(buildNoMetal(caseId, "无金属重建", item.no_metal_trace || {}));
             return;
@@ -3034,6 +3176,14 @@ def _trace_candidates(
             ),
             None,
         )
+        if selected_summary is not None and selected_candidate is not None:
+            try:
+                selected_omol = selected_candidate.materialize_combined_omol(
+                    preparation.combine_metal_with_omol
+                )
+                selected_summary["graph"] = _omol_smiles_detail(selected_omol)
+            except Exception as exc:
+                selected_summary["graph_error"] = f"{type(exc).__name__}: {exc}"
     selected_path_animation = _render_selected_metal_path_animation(
         selected_candidate,
         no_metal_xyz_block=base_state.no_metal_xyz_block,
@@ -3081,6 +3231,68 @@ def _metal_atom_count_from_xyz(xyz_block: str) -> int:
     return sum(1 for atom in omol.atoms if atom.OBAtom.IsMetal())
 
 
+def _selected_trace_smiles(trace: dict[str, Any]) -> str:
+    selected = trace.get("selected_candidate")
+    if not isinstance(selected, dict):
+        return ""
+    if trace.get("trace_kind") == "no_metal":
+        state = selected.get("state")
+        if isinstance(state, dict):
+            return str(state.get("canonical_smiles") or state.get("smiles") or "")
+        return ""
+    graph = selected.get("graph")
+    if isinstance(graph, dict):
+        return str(graph.get("canonical_smiles") or graph.get("smiles") or "")
+    return ""
+
+
+def _mol_from_unsanitized_smiles(smiles: str) -> Chem.Mol | None:
+    mol = Chem.MolFromSmiles(smiles, sanitize=False) if smiles.strip() else None
+    if mol is not None:
+        mol.UpdatePropertyCache(strict=False)
+    return mol
+
+
+def _review_fixture_trace_check(
+    input_case: TraceInputCase,
+    trace: dict[str, Any],
+) -> dict[str, Any]:
+    trace_smiles = _selected_trace_smiles(trace)
+    check: dict[str, Any] = {
+        "kind": input_case.fixture_kind,
+        "structure_file": input_case.fixture_structure_file,
+        "expected_smiles": input_case.expected_smiles,
+        "trace_smiles": trace_smiles,
+        "equivalent": None,
+        "equivalence_method": "",
+        "equivalence_reason": "",
+    }
+    if not input_case.expected_smiles:
+        check["equivalence_reason"] = "fixture_has_no_approved_answer"
+        return check
+    if not trace_smiles:
+        check["equivalent"] = False
+        check["equivalence_reason"] = "trace_has_no_selected_graph"
+        return check
+
+    expected = _mol_from_unsanitized_smiles(input_case.expected_smiles)
+    traced = _mol_from_unsanitized_smiles(trace_smiles)
+    if expected is None:
+        check["equivalent"] = False
+        check["equivalence_reason"] = "fixture_approved_smiles_invalid"
+        return check
+    if traced is None:
+        check["equivalent"] = False
+        check["equivalence_reason"] = "trace_selected_smiles_invalid"
+        return check
+
+    equivalent, info = check_equivalence(expected, traced, use_chirality=False)
+    check["equivalent"] = equivalent
+    check["equivalence_method"] = info.method.value if info.method else ""
+    check["equivalence_reason"] = info.reason
+    return check
+
+
 def trace_reconstruction_case(
     input_case: TraceInputCase,
     *,
@@ -3125,6 +3337,9 @@ def trace_reconstruction_case(
             config=config,
         )
         trace["trace_kind"] = "metal"
+
+    if input_case.fixture_kind:
+        trace["review_fixture"] = _review_fixture_trace_check(input_case, trace)
 
     trace.update(
         {
@@ -3191,7 +3406,9 @@ def main() -> int:
 
     output = {
         "input": {
-            "source": "generic",
+            "source": (
+                "review_fixtures" if args.review_fixtures_manifest is not None else "generic"
+            ),
             "ids": [case.id for case in input_cases],
             "total_charge": args.total_charge,
             "total_radical_electrons": _direct_total_radicals(args),

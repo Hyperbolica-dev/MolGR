@@ -35,3 +35,17 @@ Rebuild the review-driven fixtures from the local review database with:
 uv run python .local/tmqmg_review/build_fixtures.py \
   --xyz-dir /mnt/e/download/tmQMg_xyz/xyz
 ```
+
+Trace the current reviewed fixtures directly from the manifest; no separate
+trace case list is maintained:
+
+```bash
+uv run python scripts/reconstruction_trace.py \
+  --review-fixtures-manifest tests/data/tmqmg/reviewed/manifest.json \
+  --fixture-id ABEGOD \
+  --format html --out /tmp/abegod-review-trace.html
+```
+
+The trace output includes a `review_fixture` synchronization check comparing
+the selected trace graph to the approved answer with
+`check_equivalence(..., use_chirality=False)`.
