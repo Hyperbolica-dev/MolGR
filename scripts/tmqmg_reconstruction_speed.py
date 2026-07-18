@@ -153,13 +153,9 @@ def _validate_columns(
     fieldname_set = set(fieldnames)
     missing = [name for name in ("id", "charge") if name not in fieldname_set]
     if missing:
-        raise ValueError(
-            "tmQMg CSV is missing required columns: " + ", ".join(sorted(missing))
-        )
+        raise ValueError("tmQMg CSV is missing required columns: " + ", ".join(sorted(missing)))
     if xyz_dir is None and "xyz_path" not in fieldname_set:
-        raise ValueError(
-            "tmQMg CSV must contain an 'xyz_path' column when --xyz-dir is omitted."
-        )
+        raise ValueError("tmQMg CSV must contain an 'xyz_path' column when --xyz-dir is omitted.")
     if spin_source == "reference_smiles" and "smiles" not in fieldname_set:
         raise ValueError(
             "tmQMg CSV must contain a 'smiles' column when --spin-source reference_smiles is used."
@@ -434,14 +430,10 @@ def _summarize(
     wall_seconds: float,
 ) -> dict[str, Any]:
     python_successes = [
-        float(row["python_elapsed_ms"])
-        for row in results
-        if row.get("python_status") == "ok"
+        float(row["python_elapsed_ms"]) for row in results if row.get("python_status") == "ok"
     ]
     cpp_successes = [
-        float(row["cpp_elapsed_ms"])
-        for row in results
-        if row.get("cpp_status") == "ok"
+        float(row["cpp_elapsed_ms"]) for row in results if row.get("cpp_status") == "ok"
     ]
     paired_speedups = [
         float(row["speedup_ratio_python_over_cpp"])
@@ -487,7 +479,9 @@ def _summarize(
         },
         "paired": {
             "ok_count": len(paired_speedups),
-            "mean_speedup_ratio_python_over_cpp": round(sum(paired_speedups) / len(paired_speedups), 6)
+            "mean_speedup_ratio_python_over_cpp": round(
+                sum(paired_speedups) / len(paired_speedups), 6
+            )
             if paired_speedups
             else 0.0,
             "median_speedup_ratio_python_over_cpp": round(median(paired_speedups), 6)

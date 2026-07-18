@@ -10,7 +10,7 @@ __all__: list[str] = [
     "eliminate_1_3_dipole_ptr",
     "eliminate_carbene_neighbor_heteroatom_ptr",
     "eliminate_carboxyl_ptr",
-    "eliminate_charge_spliting_ptr",
+    "assign_negative_charges_from_radicals_ptr",
     "eliminate_cn_in_doubt_ptr",
     "eliminate_cp_like_radical_anion_ptr",
     "eliminate_high_positive_charge_atoms_ptr",
@@ -55,16 +55,16 @@ def eliminate_carboxyl_ptr(
         given_charge: charge deficit to be updated in place and returned
     """
 
-def eliminate_charge_spliting_ptr(
+def assign_negative_charges_from_radicals_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
-    given_charge: typing.SupportsInt | typing.SupportsIndex,
+    remaining_charge: typing.SupportsInt | typing.SupportsIndex,
 ) -> tuple:
     """
-    Apply eliminate.eliminate_charge_spliting to an existing OBMol.
+    Convert selected single radicals into anions on an existing OBMol.
 
     Args:
         mol_ptr: int address of OpenBabel::OBMol
-        given_charge: charge deficit to be updated in place and returned
+        remaining_charge: charge budget to be updated in place and returned
     """
 
 def eliminate_cn_in_doubt_ptr(

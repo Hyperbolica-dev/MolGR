@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-MolGR stands for Moleculer Graph Reconstructer.
+MolGR stands for Moleculer Graph Reconstructor.
 
 MolGR is a Python package for reconstructing molecular graphs from XYZ coordinates.
 It accepts an XYZ block, total charge, and spin multiplicity, and returns an
@@ -131,8 +131,9 @@ path. Both backends follow the same high-level reconstruction flow:
 1. Parse the XYZ input and determine reconstruction targets from total charge,
    spin multiplicity, and runtime config.
 2. Route to `backend="cpp"` or `backend="python"`.
-3. For metal-free structures, reconstruct the organic graph directly; if the direct candidate is
-   invalid, enter resonance recovery.
+3. For metal-free structures, search neighboring-radical seeds in increasing
+   charge-separation discrepancy layers. The layers share resonance deduplication state and stop
+   at the first valid layer; deformed-pi and bond-break recovery run only if every primary layer is empty.
 4. For metal-containing structures, temporarily strip metals from the organic core, enumerate
    possible metal states, and group those states by the induced organic charge/radical target.
 5. Reconstruct each organic target bucket once, then reuse it across corresponding metal candidates.
@@ -162,6 +163,7 @@ Common checks:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
+uv run pyright
 uv run pytest
 ```
 
@@ -176,7 +178,7 @@ The root [`makefile`](makefile) provides common development shortcuts:
 - `make format`: run the Ruff formatter; modifies files.
 - `make lint`: run `ruff check . --fix`; modifies files.
 - `make test`: run pytest.
-- `make type-check`: run MyPy on `src`.
+- `make type-check`: run MyPy and Pyright on `src`.
 - `make cpp-build`: rebuild the editable C++ extension and refresh C++ IDE config.
 - `make stubs`: regenerate type stubs for the compiled extension.
 

@@ -129,9 +129,9 @@ def test_cpp_openbabel_threading_helpers_do_not_expose_a_cross_subsystem_global_
     threading_source = Path("src/cpp/src/vendor/openbabel_threading.cpp").read_text(
         encoding="utf-8"
     )
-    target_bucket_pipeline = Path(
-        "src/cpp/src/pipeline/reconstruct_with_metals.cpp"
-    ).read_text(encoding="utf-8")
+    target_bucket_pipeline = Path("src/cpp/src/pipeline/reconstruct_with_metals.cpp").read_text(
+        encoding="utf-8"
+    )
 
     assert "PerceptionMutex" not in threading_header
     assert "PerceptionMutex" not in threading_source
@@ -171,9 +171,7 @@ def test_cpp_xyz_seed_perception_uses_only_the_vendor_helper() -> None:
 
 
 def test_cpp_vendor_uff_atom_typing_does_not_call_openbabel_smarts() -> None:
-    vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(
-        encoding="utf-8"
-    )
+    vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(encoding="utf-8")
 
     assert "openbabel/parsmart.h" not in vendor_uff_source
     assert "OBSmartsPattern" not in vendor_uff_source
@@ -183,7 +181,9 @@ def test_cpp_vendor_uff_atom_typing_does_not_call_openbabel_smarts() -> None:
     assert "atomtyper" not in vendor_uff_source
 
 
-def _pybel_xyz_seed_signature(xyz_block: str) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
+def _pybel_xyz_seed_signature(
+    xyz_block: str,
+) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
     mol = pybel.readstring("xyz", xyz_block)
     bond_signature = tuple(
         sorted(
@@ -200,7 +200,9 @@ def _pybel_xyz_seed_signature(xyz_block: str) -> tuple[tuple[tuple[int, int, int
     return bond_signature, hybridizations
 
 
-def _cpp_xyz_seed_signature(xyz_block: str) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
+def _cpp_xyz_seed_signature(
+    xyz_block: str,
+) -> tuple[tuple[tuple[int, int, int, bool], ...], tuple[int, ...]]:
     molecule_data = _core.dev.utils.debug_xyz_seed_molecule_data(xyz_block)
     bond_signature = tuple(
         sorted(
@@ -262,9 +264,7 @@ def test_cpp_vendor_xyz_seed_perception_is_safe_under_parallel_calls() -> None:
 
 
 def test_cpp_force_field_uses_vendor_uff_without_openbabel_plugin_lock() -> None:
-    force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(
-        encoding="utf-8"
-    )
+    force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(encoding="utf-8")
 
     assert "OBForceField::FindForceField" not in force_field_source
     assert "OpenBabelForceFieldMutex" not in force_field_source

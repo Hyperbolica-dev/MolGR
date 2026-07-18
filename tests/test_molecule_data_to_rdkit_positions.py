@@ -7,16 +7,83 @@ Description: 请填写简介
 """
 # pyright: reportMissingImports=false
 
+import io
 import sys
 from pathlib import Path
 
 import pytest
+from rdkit import Chem
 
-from molgr.utils.converter import mol_data_to_rdkit
+from molgr.utils.converter import (
+    METAL_UNPAIRED_ELECTRONS_PROP,
+    get_atom_unpaired_electrons,
+    mol_data_to_rdkit,
+    pybel_to_rdmol,
+)
 
 
 pytest.importorskip("rdkit")
 pytest.importorskip("openbabel")
+
+
+def _openbabel_metal_radical_molecule():
+    from openbabel import openbabel as ob
+    from openbabel import pybel
+
+    obmol = ob.OBMol()
+    iron = obmol.NewAtom()
+    iron.SetAtomicNum(26)
+    iron.SetFormalCharge(2)
+    iron.SetSpinMultiplicity(2)
+    iron.SetVector(0.0, 0.0, 0.0)
+    carbon = obmol.NewAtom()
+    carbon.SetAtomicNum(6)
+    carbon.SetSpinMultiplicity(1)
+    carbon.SetVector(3.0, 0.0, 0.0)
+    return pybel.Molecule(obmol)
+
+
+def _assert_metal_unpaired_electron_representation(mol) -> None:
+    iron = mol.GetAtomWithIdx(0)
+    carbon = mol.GetAtomWithIdx(1)
+
+    assert iron.GetNumRadicalElectrons() == 0
+    assert iron.GetIntProp(METAL_UNPAIRED_ELECTRONS_PROP) == 2
+    assert get_atom_unpaired_electrons(iron) == 2
+    assert carbon.GetNumRadicalElectrons() == 1
+    assert not carbon.HasProp(METAL_UNPAIRED_ELECTRONS_PROP)
+    assert get_atom_unpaired_electrons(carbon) == 1
+
+
+def test_rdkit_converters_store_metal_spin_outside_formal_radicals() -> None:
+    from molgr import _core
+
+    omol = _openbabel_metal_radical_molecule()
+    mol_ptr = int(getattr(omol.OBMol, "this", omol.OBMol))
+    mol_data = _core.utils.extract_molecule_data(mol_ptr)
+
+    _assert_metal_unpaired_electron_representation(mol_data_to_rdkit(mol_data, kekulize=False))
+    _assert_metal_unpaired_electron_representation(pybel_to_rdmol(omol, kekulize=False))
+
+
+def test_metal_unpaired_electron_property_survives_sdf_round_trip() -> None:
+    mol = pybel_to_rdmol(_openbabel_metal_radical_molecule(), kekulize=False)
+    buffer = io.StringIO()
+    writer = Chem.SDWriter(buffer)
+    writer.write(mol)
+    writer.flush()
+
+    restored = next(
+        Chem.ForwardSDMolSupplier(
+            io.BytesIO(buffer.getvalue().encode()),
+            sanitize=False,
+            removeHs=False,
+        )
+    )
+    assert restored is not None
+    iron = restored.GetAtomWithIdx(0)
+    assert iron.GetNumRadicalElectrons() == 0
+    assert get_atom_unpaired_electrons(iron) == 2
 
 
 def test_mol_data_to_rdkit_sets_positions_by_atom_index() -> None:

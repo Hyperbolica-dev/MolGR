@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from rdkit import Chem
@@ -18,6 +19,7 @@ from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_with_metals
 from molgr.fallback.utils.force_field import organic_force_field_evaluation
 from molgr.fallback.utils.metals import preparation, scoring, search
+from molgr.fallback.utils.no_metals import neighbor_radicals as no_metal_neighbor_radicals
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
 from molgr.fallback.utils.no_metals import resonance as no_metal_resonance
 from molgr.fallback.utils.no_metals import selection as no_metal_selection
@@ -48,7 +50,7 @@ def _load_tmqmg_xyz(case_id: str) -> str:
 def _canonical_reconstructed_smiles(
     xyz_block: str,
     *,
-    backend: str,
+    backend: Literal["cpp", "python"],
     total_charge: int,
     total_radical_electrons: int,
     config,
@@ -134,17 +136,14 @@ def _python_no_metal_resonance_candidate_summaries(
         total_charge,
         total_radical_electrons,
     )
-    candidates = []
-    for state in no_metal_preparation._enumerate_no_metal_candidate_states(seed_state):
-        candidates.extend(
-            no_metal_resonance._recover_resonance_candidates(
-                state,
-                resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(
-                    config
-                ),
-                config=config,
-            )
-        )
+    prepared_seed = no_metal_preparation.prepare_no_metal_seed(seed_state)
+    neighbor_seeds = no_metal_neighbor_radicals.enumerate_neighbor_radical_seeds(prepared_seed)
+    resonance_seeds = no_metal_resonance.build_resonance_seed_pool(neighbor_seeds)
+    candidates = no_metal_resonance.search_resonance_candidates(
+        resonance_seeds,
+        resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(config),
+        config=config,
+    )
 
     summaries = []
     for candidate in candidates:
@@ -153,9 +152,11 @@ def _python_no_metal_resonance_candidate_summaries(
             candidate,
             config=config,
         )
+        smiles = candidate.omol.write("smi")
+        assert smiles is not None
         summaries.append(
             {
-                "smiles": candidate.omol.write("smi").split()[0],
+                "smiles": smiles.split()[0],
                 "resonance_index": candidate.metadata.get("resonance_index"),
                 "score": float(candidate.metadata.get("score", 0.0)),
                 "selection_key": selection_key,
@@ -184,6 +185,7 @@ def _cpp_no_metal_resonance_candidate_summaries(
             -float(item["adjusted_max_conjugated_component_size"]),
             -float(item["adjusted_conjugated_atom_count"]),
             -float(item["adjusted_conjugated_bond_count"]),
+            int(item["excess_radical_labels"]),
             float(item["score"]),
         )
         summaries.append(
@@ -597,6 +599,13 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
         assert cpp_item["metal_discordance_aromatic_stability_deficit"] == pytest.approx(
             float(py_item.metadata.get("metal_discordance_aromatic_stability_deficit", 0.0))
         )
+        for metadata_key in (
+            "metal_discordance_repeated_component_charge_asymmetry_count",
+            "metal_discordance_haptic_arene_reduction_count",
+            "metal_discordance_visible_donor_multiple_bond_count",
+            "metal_discordance_coordination_geometry_count",
+        ):
+            assert cpp_item[metadata_key] == py_item.metadata.get(metadata_key)
         assert cpp_item["passes_metal_discordance_filter"] == py_item.metadata.get(
             "passes_metal_discordance_filter"
         )

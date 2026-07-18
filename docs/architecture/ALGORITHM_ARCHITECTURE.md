@@ -42,25 +42,25 @@ The current algorithm can be read as seven layers:
 
 4. Metal-free reconstruction
    - seed a `ReconstructionState`
-   - run the deterministic direct linear pipeline for the ordinary path
-   - enumerate explicit no-metal candidate states when neighbor-radical
-     resolution has multiple plausible strategies
-   - validate, clean, and score direct candidates as a fallback pool
-   - run radical resonance recovery for every no-metal candidate state
+   - run deterministic preparation up to neighboring-radical handling
+   - enumerate complete local resolutions by exact charge-separation action count
+   - search bond-order-only seeds first, then progressively widen to charge-separated seeds
 
 5. Resonance recovery
-   - traverse candidates using configured resonance depth and traversal policy
-   - run `process_resonance`
-   - deduplicate with processed resonance keys
+   - traverse each discrepancy layer using the configured resonance depth and policy
+   - normalize each raw resonance in both clean-only and full modes
+   - share raw-state, traversal-label, and processed-state deduplication across layers
+   - stop after the first layer that produces valid candidates
    - keep only candidates that match the charge/radical target
+   - only if the pool is empty, retry with deformed-pi recovery and then
+     last-resort bond-break recovery
    - choose the best no-metal candidate by organic topology first, then force-field score
-   - prefer the resonance candidate pool when any resonance candidate survives;
-     use direct-valid candidates only as fallback
 
 6. Metal candidate scoring and selection
    - each no-metal target bucket is reconstructed once and shared by all metal assignments in that bucket
    - each metal candidate inherits the shared organic-core force-field score
-   - selection compares metal-discordance count, then organic-core force-field score, then `combination_index`
+   - selection compares structural metal discordance, organic-core force-field
+     score, then `combination_index`
    - only the final winner materializes metal reinsertion
 
 7. RDKit output finalization
@@ -104,16 +104,18 @@ flowchart TD
     Buckets --> NoMetal["xyz_to_omol_no_metal_state / XyzToOmolNoMetalState<br/>run once per target bucket"]
     CppNoMetal --> Seed["seed no-metal ReconstructionState"]
     NoMetal --> Seed
-    Seed --> Linear["direct linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
-    Seed --> CandidateEnum["enumerate no-metal candidate states:<br/>explicit neighbor-radical resolution strategies"]
-    CandidateEnum --> Valid{"validate_omol"}
-    CandidateEnum --> Resonance["recover resonance candidates"]
-
-    Valid -->|"valid"| Direct["clean_resonances + score direct candidate"]
+    Seed --> Prepare["prepare no-metal seed:<br/>connectivity and deterministic cleanup"]
+    Prepare --> CandidateEnum["enumerate exact discrepancy layer:<br/>0, then 1, ..."]
+    CandidateEnum --> SeedPool["build layer seed pool:<br/>raw + electronic-state variants"]
+    SeedPool --> Resonance["search with shared session"]
     Resonance --> Walk["limited-discrepancy radical resonance traversal"]
-    Walk --> Process["process_resonance + dedupe + validate"]
-    Process --> NoMetalSelect["select no-metal candidate<br/>resonance pool first, direct fallback"]
-    Direct --> NoMetalSelect
+    Walk --> Process["dual normalization + global dedupe + validate"]
+    Process -->|"empty and layers remain"| CandidateEnum
+    Process -->|"all layers empty"| Recovery1["tier 1: recover deformed pi bonds"]
+    Recovery1 -->|"empty"| Recovery2["tier 2: break bonds as last resort"]
+    Process --> NoMetalSelect["select no-metal candidate"]
+    Recovery1 --> NoMetalSelect
+    Recovery2 --> NoMetalSelect
 
     NoMetalSelect --> ScoreMetal["score metal candidates with shared no-metal state"]
     ScoreMetal --> MetalSelect["select_best_candidate"]
@@ -148,15 +150,17 @@ sequenceDiagram
     IF->>IF: total_radical_electrons = spin_multiplicity - 1
     IF->>BE: route to cpp or python backend
 
-    alt no metal fast/direct path
+    alt no-metal fast path
         BE->>NM: reconstruct full XYZ as no-metal target
         NM->>NM: seed ReconstructionState
-        NM->>NM: run direct linear path and candidate-state enumeration
-        NM->>SC: validate, clean, and score direct candidates
-        NM->>RS: enumerate radical resonance candidates for every candidate state
-        RS->>RS: traverse, process, dedupe, validate
+        NM->>NM: prepare seed and enumerate discrepancy layer 0
+        NM->>RS: search layer with shared deduplication session
+        RS->>RS: widen only while the current layer is empty
+        opt all primary layers are empty
+            NM->>RS: retry with tier-1, then tier-2 recovery seeds
+        end
         RS->>SC: return valid no-metal candidates
-        SC->>SC: prefer resonance pool; fall back to direct candidates
+        SC->>SC: select best no-metal candidate
         SC->>CV: selected no-metal molecule data
     else metal-containing path
         BE->>MP: prepare_metal_state(xyz, charge, radicals)
@@ -167,12 +171,11 @@ sequenceDiagram
         MS->>MS: meet-in-the-middle DP grouping by target bucket
         loop per target bucket
             MS->>NM: reconstruct no_metal_xyz_block with target charge/radicals
-            NM->>NM: run direct linear path and candidate-state enumeration
-            NM->>SC: validate, clean, and score direct candidates
-            NM->>RS: enumerate radical resonance candidates for every candidate state
-            RS->>RS: traverse, process, dedupe, validate
+            NM->>NM: prepare and enumerate neighboring-radical discrepancy layers
+            NM->>RS: search layers with one shared session
+            RS->>RS: recover only when all primary layers are empty
             RS->>SC: return valid no-metal candidates
-            SC->>SC: prefer resonance pool; fall back to direct candidates
+            SC->>SC: select best no-metal candidate
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
@@ -189,9 +192,9 @@ sequenceDiagram
     CV-->>User: Chem.Mol
 ```
 
-## Metal-Free Linear Pipeline And Candidate Enumeration
+## Metal-Free Preparation, Seed Enumeration, And Recovery
 
-The deterministic metal-free stage order is aligned between
+The deterministic metal-free preparation is aligned between
 [`src/molgr/fallback/utils/no_metals/preparation.py`](../../src/molgr/fallback/utils/no_metals/preparation.py)
 and the corresponding C++
 implementation:
@@ -202,32 +205,29 @@ implementation:
 4. initialize the residual charge budget
 5. run the eliminate/clean sequence for NNN, high positive centers, ambiguous CN,
    carboxyl, and carbene-adjacent cases
-6. resolve neighboring radicals on the direct linear path with
-   `clean_neighbor_radicals`
-7. run charge splitting and bond-breaking cleanup
-8. `break_deformed_ene`
-9. `break_one_bond`
-10. `fresh_omol_charge_radical_final`
 
-The direct linear pipeline remains a single deterministic path. Candidate
-enumeration is a separate layer: when neighboring radical pairs are present,
-MolGR also enumerates charge-separated resolution strategies
-(`charge_begin_positive` and `charge_begin_negative`) and runs the same
-post-resolution deterministic stages for each strategy.
+The deterministic preparation stops before neighboring-radical resolution.
+`enumerate_neighbor_radical_seeds(...)` then enumerates complete local action
+sequences. Each adjacent pair may increase bond order or become either
+orientation of charge separation. Disjoint and overlapping pairs can therefore
+produce mixed strategies rather than one global branch choice.
 
-Each enumerated no-metal candidate state is checked in two ways:
+The production pipeline calls `enumerate_neighbor_radical_seeds(...)` with an
+exact discrepancy budget. Layer zero contains bond-order-only resolutions;
+later layers contain resolutions with one or more charge-separation actions.
+`build_resonance_seed_pool(...)` keeps each layer's original branch states and adds distinct states produced by
+carbene-radical relocation, negative-charge assignment from radical labels, and
+electronic-label refresh.
 
-- direct pool: if `validate_omol(...)` succeeds, run `clean_resonances`, score
-  the direct candidate, and keep it as a fallback candidate
-- resonance pool: run resonance recovery for the candidate state regardless of
-  whether the direct form was already valid
-
-If any resonance candidate survives, no-metal selection uses the resonance
-pool. Direct-valid candidates are used only when the resonance pool is empty.
+All primary layers reuse one resonance search session. Raw resonance states,
+Pareto traversal labels, and processed states discovered by an earlier layer are
+not recomputed. Search stops at the first layer with a valid candidate. There is
+no separate direct-candidate path after this point.
 
 ## Resonance Recovery
 
-Resonance recovery is run for every enumerated no-metal candidate state.
+Resonance search consumes one discrepancy layer at a time while deduplicating
+globally across the shared session.
 
 Current behavior:
 
@@ -237,14 +237,18 @@ Current behavior:
   - `uff_lite_gain`
   - `input_order`
 - by default, use limited-discrepancy traversal
-- run `process_resonance` on each candidate and deduplicate by processed key
+- deduplicate raw states across seeds
+- normalize each raw state with `clean_resonances` and with full
+  `process_resonance`, then deduplicate processed states globally
 - keep only candidates that satisfy `validate_omol(...)`
+- if none survive, generate tier-1 deformed-pi recovery seeds and search again
+- if that is still empty, generate tier-2 bond-break recovery seeds and search
+  one final time
 - select the best no-metal candidate by:
-  1. more aromatic atoms
-  2. larger maximum conjugated component
-  3. more conjugated atoms
-  4. more conjugated bonds
-  5. lower force-field score
+  1. higher aromatic stability, then more aromatic atoms
+  2. larger charge-adjusted conjugated topology
+  3. fewer excess radical labels
+  4. lower force-field score
 
 ## Metal Search and Selection
 
@@ -307,8 +311,9 @@ Each `MetalCandidateState` is scored after attaching a shared
       absolute value of the formal-charge sum over the ring is at least 4, the
       ring does not count as aromatic and does not contribute aromatic atoms
     - this prevents heavily charge-separated rings from being treated as
-      aromatic only because they formally satisfy a `4n+2` electron count, so
-      aromatic-ring loss can contribute to discordance scoring
+      aromatic only because they formally satisfy a `4n+2` electron count
+    - aromatic-ring and aromatic-stability deficits are retained as diagnostic
+      metadata, but they do not contribute to hard discordance
   - conjugated atoms and bonds
   - maximum conjugated component size
   - charge localization penalty
@@ -445,14 +450,48 @@ Typical discordance structures to record:
    - selection role: mark global charge-balance discordance for the current
      metal-valence candidate; do not remove the candidate directly
 
-Final selection now keeps only discordance and the organic score:
+7. Charge-asymmetric constitutionally repeated components
+   - disconnected organic components are grouped by an element-and-connectivity
+     signature that deliberately ignores formal charge and bond order
+   - a repeated component group contributes one discordance count when its
+     members have different net formal charges
+   - this identifies a candidate that breaks equivalent ligand fragments into
+     inconsistent oxidation or reduction states
+
+8. Reduced nonaromatic carbon in a visible haptic ring ligand
+   - an organic component must expose at least three carbon atoms to the same
+     metal through the inner-sphere visibility test
+   - each negatively charged, nonaromatic ring carbon in such a component
+     contributes one discordance count
+   - this captures loss of the delocalized ring form under an over-oxidized
+     metal-state candidate without using a global aromaticity reward
+
+9. Multiple bond between visible coordinating heteroatoms
+   - a bond of order two or greater between two visible inner-sphere
+     `N/O/P/S` atoms contributes one discordance count
+   - this marks a candidate that consumes two coordinating donor sites by
+     forcing a localized heteroatom multiple bond
+
+10. Strong coordination-geometry mismatch
+    - square-planar Pd/Pt candidates at formal valence IV or higher contribute
+      one discordance count
+    - linear Ag/Au candidates at formal valence III or higher contribute one
+      discordance count
+    - the rule is intentionally restricted to these strong geometry/oxidation
+      contradictions; other geometries remain diagnostic-neutral
+
+Final selection keeps the feature layers explicit:
 
 - first attach the shared no-metal state to every metal candidate and compute
-  the organic-core force-field score plus `metal_discordance_count`
+  the organic-core force-field score
+- `metal_discordance_structural_count` is the sum of structural features,
+  including the fractional negative-metal penalty
+- `metal_discordance_count` is the same structural total; aromatic deficits and
+  metal-state list membership are not included
 - compare `metal_discordance_count` first and keep only candidates with the
   lowest discordance score
-- if multiple candidates tie at the lowest discordance count, compare the
-  organic-core force-field score directly
+- if multiple candidates tie, compare the organic-core force-field score
+  directly; the order of configured metal-state lists is not a chemical score
 - if the organic score is still tied, use `combination_index` as a stable
   deterministic tie-breaker
 - selected candidates still record organic electronic-state metrics used to
@@ -547,7 +586,7 @@ Implementation note:
 - resonance-candidate parallelism was removed because scheduling overhead was
   higher than the benefit, so the current version no longer exposes C++ config
   fields for it
-- `RecoverResonanceCandidates(...)` still prepares resonance candidates serially
+- `SearchResonanceCandidates(...)` still prepares resonance candidates serially
 
 ## C++/Python Parity Guardrails
 

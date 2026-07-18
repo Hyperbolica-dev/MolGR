@@ -75,7 +75,9 @@ add_library(molgr STATIC
     src/cpp/src/utils/metals/preparation.cpp
     src/cpp/src/utils/metals/scoring.cpp
     src/cpp/src/utils/metals/search.cpp
+    src/cpp/src/utils/no_metals/neighbor_radicals.cpp
     src/cpp/src/utils/no_metals/preparation.cpp
+    src/cpp/src/utils/no_metals/recovery.cpp
     src/cpp/src/utils/no_metals/resonance.cpp
     src/cpp/src/utils/no_metals/selection.cpp
     src/cpp/src/utils/organic_topology.cpp

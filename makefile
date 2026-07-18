@@ -131,8 +131,9 @@ lint:
 	uv run ruff check . --fix
 
 type-check:
-	@echo "🦆 Running Mypy Type Checker..."
+	@echo "🦆 Running Mypy and Pyright Type Checkers..."
 	uv run mypy src
+	uv run pyright
 
 check: format lint type-check
 

@@ -134,11 +134,14 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_charge_spliting_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
+    const auto assign_negative_charges_from_radicals_ptr = [](intptr_t mol_ptr,
+                                                               int remaining_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::EliminateChargeSpliting(*mol, given_charge);
-        return py::make_tuple(given_charge, hit);
+        const bool hit = molgr::reconstruct::AssignNegativeChargesFromRadicals(
+            *mol,
+            remaining_charge);
+        return py::make_tuple(remaining_charge, hit);
     };
 
     const auto clean_resonances_ptr = [](intptr_t mol_ptr)
@@ -368,17 +371,17 @@ Args:
         py::arg("given_charge"));
 
     m_eliminate.def(
-        "eliminate_charge_spliting_ptr",
-        eliminate_charge_spliting_ptr,
+        "assign_negative_charges_from_radicals_ptr",
+        assign_negative_charges_from_radicals_ptr,
         R"pbdoc(
-Apply eliminate.eliminate_charge_spliting to an existing OBMol.
+Convert selected single radicals into anions on an existing OBMol.
 
 Args:
     mol_ptr: int address of OpenBabel::OBMol
-    given_charge: charge deficit to be updated in place and returned
+    remaining_charge: charge budget to be updated in place and returned
 )pbdoc",
         py::arg("mol_ptr"),
-        py::arg("given_charge"));
+        py::arg("remaining_charge"));
 
     m_clean.def(
         "clean_resonances_ptr",

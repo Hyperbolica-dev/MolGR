@@ -319,22 +319,7 @@ def test_cpp_and_python_backends_match_smiles_regression_cases(
 
 @pytest.mark.parametrize(
     "make_dative_bonds",
-    [
-        pytest.param(
-            False,
-            marks=pytest.mark.skip(
-                reason=("monnmo can abort in the C++ backend under threaded reconstruction")
-            ),
-            id="make-dative-bonds-false",
-        ),
-        pytest.param(
-            True,
-            marks=pytest.mark.skip(
-                reason=("monnmo can abort in the C++ backend under threaded reconstruction")
-            ),
-            id="make-dative-bonds-true",
-        ),
-    ],
+    [False, True],
 )
 def test_cpp_and_python_backends_match_monnmo_regression_case(
     make_dative_bonds: bool,

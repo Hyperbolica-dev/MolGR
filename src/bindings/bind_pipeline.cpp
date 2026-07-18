@@ -13,6 +13,7 @@
 #include "molgr/utils/metals/scoring.h"
 #include "molgr/utils/metals/search.h"
 #include "molgr/utils/metals/preparation.h"
+#include "molgr/utils/no_metals/neighbor_radicals.h"
 #include "molgr/utils/no_metals/preparation.h"
 #include "molgr/utils/utils.h"
 #include "molgr/vendor/forcefielduff.h"
@@ -533,6 +534,22 @@ namespace molgr
                                 molgr::metal::scoring::MetadataDouble(
                                     candidate,
                                     "metal_discordance_aromatic_stability_deficit");
+                            item["metal_discordance_repeated_component_charge_asymmetry_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_repeated_component_charge_asymmetry_count");
+                            item["metal_discordance_haptic_arene_reduction_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_haptic_arene_reduction_count");
+                            item["metal_discordance_visible_donor_multiple_bond_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_visible_donor_multiple_bond_count");
+                            item["metal_discordance_coordination_geometry_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_coordination_geometry_count");
                             const auto passes_filter_it =
                                 candidate.metadata.find("passes_metal_discordance_filter");
                             if (passes_filter_it == candidate.metadata.end())
@@ -574,12 +591,31 @@ namespace molgr
 
             void bind_reconstruct_without_metals_dev_ns(py::module_ &ns)
             {
+                const auto state_summary = [](molgr::state::ReconstructionState &state)
+                {
+                    py::dict item;
+                    item["smiles"] = molgr::reconstruct::SmilesFirstToken(state.Mol());
+                    item["given_charge"] = state.given_charge;
+                    item["total_charge"] = state.total_charge;
+                    item["total_radical_electrons"] = state.total_radical_electrons;
+                    item["valid"] = molgr::reconstruct::ValidateOmol(
+                        state.MutableMol(),
+                        state.total_charge,
+                        state.total_radical_electrons);
+                    py::list phases;
+                    for (const auto &phase : state.phase_history)
+                    {
+                        phases.append(phase);
+                    }
+                    item["phase_history"] = std::move(phases);
+                    return item;
+                };
+
                 ns.def(
-                    "debug_linear_pipeline_state",
-                    [](const std::string &xyz_block,
-                       int total_charge,
-                       int total_radical_electrons)
-                        -> py::object
+                    "debug_prepared_no_metal_seed",
+                    [state_summary](const std::string &xyz_block,
+                                    int total_charge,
+                                    int total_radical_electrons) -> py::object
                     {
                         auto seed_state = molgr::no_metals::preparation::SeedState(
                             xyz_block,
@@ -589,35 +625,21 @@ namespace molgr
                         {
                             return py::none();
                         }
-                        auto state = molgr::no_metals::preparation::RunLinearPipeline(seed_state);
-                        py::dict item;
-                        item["smiles"] = molgr::reconstruct::SmilesFirstToken(state.Mol());
-                        item["given_charge"] = state.given_charge;
-                        item["total_charge"] = state.total_charge;
-                        item["total_radical_electrons"] = state.total_radical_electrons;
-                        item["valid"] = molgr::reconstruct::ValidateOmol(
-                            state.MutableMol(),
-                            state.total_charge,
-                            state.total_radical_electrons);
-                        py::list phases;
-                        for (const auto &phase : state.phase_history)
-                        {
-                            phases.append(phase);
-                        }
-                        item["phase_history"] = std::move(phases);
-                        return item;
+                        auto prepared =
+                            molgr::no_metals::preparation::PrepareNoMetalSeed(seed_state);
+                        return state_summary(prepared);
                     },
-                    "Return the C++ no-metal linear-pipeline state for parity debugging.",
+                    "Return the production C++ prepared no-metal seed.",
                     py::arg("xyz_block"),
                     py::arg("total_charge") = 0,
                     py::arg("total_radical_electrons") = 0);
 
                 ns.def(
-                    "debug_no_metal_candidate_states",
-                    [](const std::string &xyz_block,
-                       int total_charge,
-                       int total_radical_electrons)
-                        -> py::object
+                    "debug_neighbor_radical_seeds",
+                    [state_summary](const std::string &xyz_block,
+                                    int total_charge,
+                                    int total_radical_electrons,
+                                    std::optional<int> exact_discrepancy) -> py::object
                     {
                         auto seed_state = molgr::no_metals::preparation::SeedState(
                             xyz_block,
@@ -627,150 +649,54 @@ namespace molgr
                         {
                             return py::none();
                         }
-                        auto states = molgr::no_metals::preparation::EnumerateNoMetalCandidateStates(
-                            seed_state);
+                        auto prepared =
+                            molgr::no_metals::preparation::PrepareNoMetalSeed(seed_state);
+                        auto states =
+                            molgr::no_metals::neighbor_radicals::EnumerateNeighborRadicalSeeds(
+                                prepared,
+                                exact_discrepancy);
                         py::list out;
                         for (auto &state : states)
                         {
-                            py::dict item;
-                            item["smiles"] = molgr::reconstruct::SmilesFirstToken(state.Mol());
-                            item["given_charge"] = state.given_charge;
-                            item["total_charge"] = state.total_charge;
-                            item["total_radical_electrons"] = state.total_radical_electrons;
-                            item["valid"] = molgr::reconstruct::ValidateOmol(
-                                state.MutableMol(),
-                                state.total_charge,
-                                state.total_radical_electrons);
-                            py::list phases;
-                            for (const auto &phase : state.phase_history)
+                            py::dict item = state_summary(state);
+                            const auto resolution_it =
+                                state.metadata.find("neighbor_radical_resolution");
+                            if (resolution_it != state.metadata.end())
                             {
-                                phases.append(phase);
-                            }
-                            item["phase_history"] = std::move(phases);
-                            const auto strategy_it =
-                                state.metadata.find("neighbor_radical_resolution_strategy");
-                            if (strategy_it != state.metadata.end())
-                            {
-                                if (const auto *strategy =
-                                        std::get_if<std::string>(&strategy_it->second))
+                                if (const auto *resolution =
+                                        std::get_if<std::string>(&resolution_it->second))
                                 {
-                                    item["neighbor_radical_resolution_strategy"] = *strategy;
+                                    item["neighbor_radical_resolution"] = *resolution;
+                                }
+                            }
+                            const auto positive_it = state.metadata.find("positive_atom_idx");
+                            if (positive_it != state.metadata.end())
+                            {
+                                if (const auto *positive_idx =
+                                        std::get_if<int>(&positive_it->second))
+                                {
+                                    item["positive_atom_idx"] = *positive_idx;
+                                }
+                            }
+                            const auto actions_it =
+                                state.metadata.find("neighbor_radical_actions");
+                            if (actions_it != state.metadata.end())
+                            {
+                                if (const auto *actions =
+                                        std::get_if<std::string>(&actions_it->second))
+                                {
+                                    item["neighbor_radical_actions"] = *actions;
                                 }
                             }
                             out.append(std::move(item));
                         }
                         return out;
                     },
-                    "Return C++ no-metal candidate states for parity debugging.",
+                    "Return production C++ neighboring-radical seeds.",
                     py::arg("xyz_block"),
                     py::arg("total_charge") = 0,
-                    py::arg("total_radical_electrons") = 0);
-
-                ns.def(
-                    "debug_linear_pipeline_trace",
-                    [](const std::string &xyz_block,
-                       int total_charge,
-                       int total_radical_electrons) -> py::object
-                    {
-                        auto seed_state = molgr::no_metals::preparation::SeedState(
-                            xyz_block,
-                            total_charge,
-                            total_radical_electrons);
-                        if (!seed_state.omol)
-                        {
-                            return py::none();
-                        }
-
-                        auto machine = molgr::state::OmolStateMachine::FromReconstructionState(seed_state);
-                        py::list trace;
-                        const auto append_snapshot = [&](const std::string &phase)
-                        {
-                            py::dict item;
-                            item["phase"] = phase;
-                            item["smiles"] = molgr::reconstruct::SmilesFirstToken(machine.EnsureUniqueMol());
-                            item["score_key"] = molgr::scoring::BuildScoreKey(machine.EnsureUniqueMol());
-                            item["given_charge"] = machine.given_charge;
-                            item["valid"] = molgr::reconstruct::ValidateOmol(
-                                machine.EnsureUniqueMol(),
-                                total_charge,
-                                total_radical_electrons);
-                            trace.append(std::move(item));
-                        };
-
-                        append_snapshot("read_xyz");
-                        machine.RunOmolStage("make_connections", reconstruct::MakeConnections, 0.15);
-                        append_snapshot("make_connections");
-                        machine.RunOmolStage("pre_clean", reconstruct::PreClean);
-                        append_snapshot("pre_clean");
-                        machine.RunOmolStage(
-                            "fresh_omol_charge_radical_initial",
-                            reconstruct::FreshOmolChargeRadical);
-                        append_snapshot("fresh_omol_charge_radical_initial");
-
-                        int formal_charge_sum = 0;
-                        FOR_ATOMS_OF_MOL(atom_iter, machine.EnsureUniqueMol())
-                        {
-                            formal_charge_sum += atom_iter->GetFormalCharge();
-                        }
-                        machine.SetGivenCharge(
-                            "initialize_charge_budget",
-                            total_charge - formal_charge_sum);
-                        append_snapshot("initialize_charge_budget");
-
-                        machine.RunOmolChargeStage("eliminate_NNN_negative", reconstruct::EliminateNNN, false);
-                        append_snapshot("eliminate_NNN_negative");
-                        machine.RunOmolChargeStage(
-                            "eliminate_high_positive_charge_atoms",
-                            reconstruct::EliminateHighPositiveChargeAtoms);
-                        append_snapshot("eliminate_high_positive_charge_atoms");
-                        machine.RunOmolChargeStage(
-                            "eliminate_CN_in_doubt",
-                            reconstruct::EliminateCNInDoubt);
-                        append_snapshot("eliminate_CN_in_doubt");
-                        machine.RunOmolChargeStage("eliminate_NNN_positive", reconstruct::EliminateNNN, true);
-                        append_snapshot("eliminate_NNN_positive");
-                        machine.RunOmolChargeStage("eliminate_carboxyl", reconstruct::EliminateCarboxyl);
-                        append_snapshot("eliminate_carboxyl");
-                        machine.RunOmolStage(
-                            "clean_carbene_neighbor_unsaturated_first",
-                            reconstruct::CleanCarbeneNeighborUnsaturated);
-                        append_snapshot("clean_carbene_neighbor_unsaturated_first");
-                        machine.RunOmolChargeStage(
-                            "eliminate_carbene_neighbor_heteroatom",
-                            reconstruct::EliminateCarbeneNeighborHeteroatom);
-                        append_snapshot("eliminate_carbene_neighbor_heteroatom");
-                        machine.RunOmolStage("clean_neighbor_radicals", reconstruct::CleanNeighborRadicals);
-                        append_snapshot("clean_neighbor_radicals");
-                        machine.RunOmolStage(
-                            "clean_carbene_neighbor_unsaturated_second",
-                            reconstruct::CleanCarbeneNeighborUnsaturated);
-                        append_snapshot("clean_carbene_neighbor_unsaturated_second");
-                        machine.RunOmolChargeStage(
-                            "eliminate_charge_spliting",
-                            reconstruct::EliminateChargeSpliting);
-                        append_snapshot("eliminate_charge_spliting");
-                        machine.RunOmolStage(
-                            "break_deformed_ene",
-                            reconstruct::BreakDeformedEne,
-                            machine.given_charge,
-                            total_radical_electrons,
-                            5.0);
-                        append_snapshot("break_deformed_ene");
-                        machine.RunOmolChargeStage(
-                            "break_one_bond",
-                            reconstruct::BreakOneBond,
-                            total_radical_electrons);
-                        append_snapshot("break_one_bond");
-                        machine.RunOmolStage(
-                            "fresh_omol_charge_radical_final",
-                            reconstruct::FreshOmolChargeRadical);
-                        append_snapshot("fresh_omol_charge_radical_final");
-                        return std::move(trace);
-                    },
-                    "Return per-stage C++ no-metal linear-pipeline snapshots for parity debugging.",
-                    py::arg("xyz_block"),
-                    py::arg("total_charge") = 0,
-                    py::arg("total_radical_electrons") = 0);
+                    py::arg("total_radical_electrons") = 0,
+                    py::arg("exact_discrepancy") = py::none());
 
                 ns.def(
                     "debug_resonance_candidate_summaries",
@@ -780,7 +706,8 @@ namespace molgr
                        py::object config)
                     {
                         auto runtime_config = molgr::config::FromPython(config);
-                        std::vector<molgr::pipeline::reconstruct_without_metals::DebugNoMetalCandidateSummary>
+                        std::vector<
+                            molgr::pipeline::reconstruct_without_metals::DebugNoMetalCandidateSummary>
                             summaries;
                         {
                             py::gil_scoped_release release;
@@ -798,69 +725,35 @@ namespace molgr
                             item["smiles"] = summary.smiles;
                             item["resonance_index"] = summary.resonance_index;
                             item["score"] = summary.score;
-                            item["aromatic_stability_score"] = summary.aromatic_stability_score;
+                            item["aromatic_stability_score"] =
+                                summary.aromatic_stability_score;
                             item["aromatic_atom_count"] = summary.aromatic_atom_count;
                             item["max_conjugated_component_size"] =
                                 summary.max_conjugated_component_size;
                             item["conjugated_atom_count"] = summary.conjugated_atom_count;
                             item["conjugated_bond_count"] = summary.conjugated_bond_count;
-                            item["formal_charge_absolute_sum"] = summary.formal_charge_absolute_sum;
-                            item["conjugation_charge_penalty"] = summary.conjugation_charge_penalty;
+                            item["formal_charge_absolute_sum"] =
+                                summary.formal_charge_absolute_sum;
+                            item["conjugation_charge_penalty"] =
+                                summary.conjugation_charge_penalty;
                             item["adjusted_max_conjugated_component_size"] =
                                 summary.adjusted_max_conjugated_component_size;
                             item["adjusted_conjugated_atom_count"] =
                                 summary.adjusted_conjugated_atom_count;
                             item["adjusted_conjugated_bond_count"] =
                                 summary.adjusted_conjugated_bond_count;
+                            item["excess_radical_labels"] = summary.excess_radical_labels;
                             out.append(std::move(item));
                         }
                         return out;
                     },
-                    "Return C++ no-metal resonance candidates for parity debugging.",
+                    "Return production C++ no-metal resonance candidate summaries.",
                     py::arg("xyz_block"),
                     py::arg("total_charge") = 0,
                     py::arg("total_radical_electrons") = 0,
                     py::kw_only(),
                     py::arg("config") = py::none());
-
-                ns.def(
-                    "debug_processed_root_resonance",
-                    [](const std::string &xyz_block,
-                       int total_charge,
-                       int total_radical_electrons)
-                        -> py::object
-                    {
-                        auto seed_state = molgr::no_metals::preparation::SeedState(
-                            xyz_block,
-                            total_charge,
-                            total_radical_electrons);
-                        if (!seed_state.omol)
-                        {
-                            return py::none();
-                        }
-                        auto state = molgr::no_metals::preparation::RunLinearPipeline(seed_state);
-                        auto processed = molgr::resonance::ProcessResonanceDetailed(
-                            state.Mol(),
-                            state.given_charge);
-                        py::dict item;
-                        item["smiles"] = molgr::reconstruct::SmilesFirstToken(std::get<0>(processed));
-                        item["given_charge"] = std::get<1>(processed);
-                        item["hit"] = std::get<2>(processed);
-                        auto &processed_mol = std::get<0>(processed);
-                        item["valid"] = molgr::reconstruct::ValidateOmol(
-                            processed_mol,
-                            state.total_charge,
-                            state.total_radical_electrons);
-                        item["processed_key"] =
-                            molgr::resonance::BuildProcessedResonanceKey(processed_mol);
-                        return item;
-                    },
-                    "Process the linear no-metal state as a root resonance candidate for debugging.",
-                    py::arg("xyz_block"),
-                    py::arg("total_charge") = 0,
-                    py::arg("total_radical_electrons") = 0);
             }
-
             void bind_resonance_dev_ns(py::module_ &ns)
             {
                 ns.def(
@@ -1037,6 +930,7 @@ namespace molgr
                     out["resonance_score_ms"] = timing.resonance_score_ms;
                     out["resonance_topology_ms"] = timing.resonance_topology_ms;
                     out["resonance_raw_candidates"] = timing.resonance_raw_candidates;
+                    out["resonance_pruned_expansions"] = timing.resonance_pruned_expansions;
                     out["resonance_prepared_candidates"] = timing.resonance_prepared_candidates;
                     out["resonance_valid_candidates"] = timing.resonance_valid_candidates;
                     out["resonance_dedup_candidates"] = timing.resonance_dedup_candidates;

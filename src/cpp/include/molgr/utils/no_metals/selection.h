@@ -26,7 +26,8 @@ namespace molgr
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig());
 
-            std::tuple<double, int, double, double, double, double> NoMetalCandidateSelectionKey(
+            std::tuple<double, int, double, double, double, int, double>
+            NoMetalCandidateSelectionKey(
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config);
         }

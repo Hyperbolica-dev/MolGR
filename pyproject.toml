@@ -1,7 +1,7 @@
 [project]
 name = "molgr"
 dynamic = ["version"]
-description = "Add your description here"
+description = "MolGR, a Python package for reconstructing molecular graphs from XYZ coordinates."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
@@ -58,6 +58,7 @@ dev = [
     "jinja2",
     "pybind11-stubgen>=2.5.5",
     "rdkit-dof>=0.2.1",
+    "pyright>=1.1.408",
 ]
 
 [tool.ruff]
@@ -85,12 +86,12 @@ select = [
     "SIM", # flake8-simplify
 ]
 ignore = [
-    "E501", # line too long 
-    "B008", # do not perform function calls in argument defaults
-    "C901", # too complex
+    "E501",  # line too long
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
     "UP045", # don't suggest X | None on py38
     "UP006",
-    "UP007", 
+    "UP007",
 ]
 
 [tool.ruff.lint.isort]
@@ -119,6 +120,22 @@ warn_unused_ignores = false # 警告多余的 # type: ignore
 ignore_missing_imports = true
 no_site_packages = true
 exclude = "^(tests/|scripts/|build/|dist/|src/molgr/_core/)"
+
+[tool.pyright]
+include = ["src"]
+exclude = [
+    "**/.*",
+    "build",
+    "dist",
+    "__pycache__",
+    "**/node_modules",
+    ".venv",
+    ".venv-benchmark",
+]
+pythonVersion = "3.8"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
 
 
 [[tool.uv.index]]

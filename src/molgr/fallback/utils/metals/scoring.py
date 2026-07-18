@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import astuple, dataclass
-from typing import List, Optional, Set, Tuple, cast
+from typing import DefaultDict, List, Optional, Set, Tuple, cast
 
 import numpy as np
 from openbabel import openbabel as ob
@@ -28,6 +30,9 @@ from molgr.utils.coordination_visibility import (
 
 _INNER_VISIBLE_DIRADICAL_EXEMPT_ATOMIC_NUMS = frozenset({15, 16, 17, 35, 53})
 _NEGATIVE_METAL_DISCORDANCE_PENALTY = 0.5
+_CONNECTIVITY_HASH_OFFSET = 1469598103934665603
+_CONNECTIVITY_HASH_PRIME = 1099511628211
+_CONNECTIVITY_HASH_MASK = (1 << 64) - 1
 
 
 @dataclass(frozen=True)
@@ -164,6 +169,201 @@ def _non_metal_atom_entries(obmol: ob.OBMol) -> tuple[ob.OBAtom, ...]:
             continue
         atoms.append(atom)
     return tuple(atoms)
+
+
+def _component_atom_index_groups(obmol: ob.OBMol) -> tuple[tuple[int, ...], ...]:
+    unseen = {int(atom.GetIdx()) for atom in ob.OBMolAtomIter(obmol)}
+    components: list[tuple[int, ...]] = []
+    while unseen:
+        start_idx = min(unseen)
+        unseen.remove(start_idx)
+        stack = [start_idx]
+        component = [start_idx]
+        while stack:
+            atom = cast(ob.OBAtom, obmol.GetAtom(stack.pop()))
+            for neighbor_iter in ob.OBAtomAtomIter(atom):
+                neighbor = cast(ob.OBAtom, neighbor_iter)
+                neighbor_idx = int(neighbor.GetIdx())
+                if neighbor_idx not in unseen:
+                    continue
+                unseen.remove(neighbor_idx)
+                stack.append(neighbor_idx)
+                component.append(neighbor_idx)
+        components.append(tuple(sorted(component)))
+    return tuple(components)
+
+
+def _connectivity_hash(values: Sequence[int]) -> int:
+    value = _CONNECTIVITY_HASH_OFFSET
+    for item in values:
+        value ^= int(item) & _CONNECTIVITY_HASH_MASK
+        value = (value * _CONNECTIVITY_HASH_PRIME) & _CONNECTIVITY_HASH_MASK
+    return value
+
+
+def _component_connectivity_signature(
+    obmol: ob.OBMol,
+    atom_indices: Sequence[int],
+) -> tuple[int, ...]:
+    labels = {
+        atom_idx: int(cast(ob.OBAtom, obmol.GetAtom(atom_idx)).GetAtomicNum())
+        for atom_idx in atom_indices
+    }
+    for _ in range(4):
+        next_labels: dict[int, int] = {}
+        for atom_idx in atom_indices:
+            atom = cast(ob.OBAtom, obmol.GetAtom(atom_idx))
+            neighbor_labels = sorted(
+                labels[int(cast(ob.OBAtom, neighbor_iter).GetIdx())]
+                for neighbor_iter in ob.OBAtomAtomIter(atom)
+            )
+            next_labels[atom_idx] = _connectivity_hash(
+                (labels[atom_idx], len(neighbor_labels), *neighbor_labels)
+            )
+        labels = next_labels
+    return tuple(sorted(labels.values()))
+
+
+def _repeated_component_charge_asymmetry_count(obmol: ob.OBMol) -> int:
+    charges_by_connectivity: DefaultDict[tuple[int, ...], list[int]] = defaultdict(list)
+    for atom_indices in _component_atom_index_groups(obmol):
+        signature = _component_connectivity_signature(obmol, atom_indices)
+        charges_by_connectivity[signature].append(
+            sum(
+                int(cast(ob.OBAtom, obmol.GetAtom(atom_idx)).GetFormalCharge())
+                for atom_idx in atom_indices
+            )
+        )
+    return sum(
+        1
+        for charges in charges_by_connectivity.values()
+        if len(charges) > 1 and min(charges) != max(charges)
+    )
+
+
+def _haptic_arene_reduction_count(
+    obmol: ob.OBMol,
+    visible_inner_atom_indices: set[int],
+) -> int:
+    count = 0
+    for atom_indices in _component_atom_index_groups(obmol):
+        visible_carbon_count = sum(
+            atom_idx in visible_inner_atom_indices
+            and cast(ob.OBAtom, obmol.GetAtom(atom_idx)).GetAtomicNum() == 6
+            for atom_idx in atom_indices
+        )
+        if visible_carbon_count < 3:
+            continue
+        count += sum(
+            cast(ob.OBAtom, obmol.GetAtom(atom_idx)).GetAtomicNum() == 6
+            and cast(ob.OBAtom, obmol.GetAtom(atom_idx)).GetFormalCharge() < 0
+            and bool(cast(ob.OBAtom, obmol.GetAtom(atom_idx)).IsInRing())
+            and not bool(cast(ob.OBAtom, obmol.GetAtom(atom_idx)).IsAromatic())
+            for atom_idx in atom_indices
+        )
+    return count
+
+
+def _visible_donor_multiple_bond_count(
+    obmol: ob.OBMol,
+    visible_inner_atom_indices: set[int],
+) -> int:
+    donor_atomic_numbers = {7, 8, 15, 16}
+    count = 0
+    for bond_iter in ob.OBMolBondIter(obmol):
+        bond = cast(ob.OBBond, bond_iter)
+        begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
+        end_atom = cast(ob.OBAtom, bond.GetEndAtom())
+        if int(begin_atom.GetIdx()) not in visible_inner_atom_indices:
+            continue
+        if int(end_atom.GetIdx()) not in visible_inner_atom_indices:
+            continue
+        if begin_atom.GetAtomicNum() not in donor_atomic_numbers:
+            continue
+        if end_atom.GetAtomicNum() not in donor_atomic_numbers:
+            continue
+        if int(bond.GetBondOrder()) >= 2:
+            count += 1
+    return count
+
+
+def _vector_norm(vector: tuple[float, float, float]) -> float:
+    return math.sqrt(sum(component * component for component in vector))
+
+
+def _coordination_geometry(
+    visible_atoms: Sequence[ob.OBAtom],
+    metal_state: dataclasses.MetalAtomPosition,
+    *,
+    config: MolGRConfig | None = None,
+) -> str:
+    resolved_config = CONFIG if config is None else config
+    geometry_config = resolved_config.metal_radical_inference
+    vectors = [
+        (
+            float(atom.GetX()) - metal_state.position_x,
+            float(atom.GetY()) - metal_state.position_y,
+            float(atom.GetZ()) - metal_state.position_z,
+        )
+        for atom in visible_atoms
+    ]
+    if len(vectors) == 2:
+        denominator = _vector_norm(vectors[0]) * _vector_norm(vectors[1])
+        if denominator <= 1e-8:
+            return "bent"
+        cosine = sum(lhs * rhs for lhs, rhs in zip(vectors[0], vectors[1])) / denominator
+        angle = math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
+        return "linear" if angle >= geometry_config.linear_angle_min_degrees else "bent"
+    if len(vectors) != 4:
+        return "other"
+
+    best_normal: tuple[float, float, float] | None = None
+    best_norm = 0.0
+    for idx, lhs in enumerate(vectors):
+        for rhs in vectors[idx + 1 :]:
+            normal = (
+                lhs[1] * rhs[2] - lhs[2] * rhs[1],
+                lhs[2] * rhs[0] - lhs[0] * rhs[2],
+                lhs[0] * rhs[1] - lhs[1] * rhs[0],
+            )
+            normal_norm = _vector_norm(normal)
+            if normal_norm > best_norm:
+                best_normal = normal
+                best_norm = normal_norm
+    if best_normal is None or best_norm <= 1e-8:
+        return "other"
+    unit_normal = tuple(component / best_norm for component in best_normal)
+    planarity_distance = sum(
+        abs(sum(component * normal for component, normal in zip(vector, unit_normal)))
+        for vector in vectors
+    ) / len(vectors)
+    if planarity_distance <= geometry_config.square_planar_planarity_tolerance_angstrom:
+        return "square_planar"
+    return "tetrahedral"
+
+
+def _coordination_geometry_discordance_count(
+    visible_atoms_by_metal: Sequence[Sequence[ob.OBAtom]],
+    metal_states: Sequence[dataclasses.MetalAtomPosition],
+    *,
+    config: MolGRConfig | None = None,
+) -> int:
+    count = 0
+    for visible_atoms, metal_state in zip(visible_atoms_by_metal, metal_states):
+        geometry = _coordination_geometry(
+            visible_atoms,
+            metal_state,
+            config=config,
+        )
+        if (
+            metal_state.symbol in {"Pd", "Pt"}
+            and metal_state.valence >= 4
+            and geometry == "square_planar"
+        ) or (
+            metal_state.symbol in {"Ag", "Au"} and metal_state.valence >= 3 and geometry == "linear"
+        ):
+            count += 1
+    return count
 
 
 def _inner_visible_atoms_to_metal(
@@ -609,15 +809,18 @@ def _annotate_candidate_discordance_features(
     inner_visible_diradical_count = 0
     inner_visible_same_sign_charge_count = 0
     visible_inner_atom_indices: set[int] = set()
+    visible_atoms_by_metal: list[tuple[ob.OBAtom, ...]] = []
 
     for metal_state in candidate.metal_states:
         metal_charge_sign = _charge_sign(int(metal_state.valence))
-        for atom in _inner_visible_atoms_to_metal(
+        visible_atoms = _inner_visible_atoms_to_metal(
             non_metal_atoms,
             metal_state,
             metal_scoring_config=metal_scoring_config,
             blocker_arrays=blocker_arrays,
-        ):
+        )
+        visible_atoms_by_metal.append(visible_atoms)
+        for atom in visible_atoms:
             atom_idx = int(atom.GetIdx())
             visible_inner_atom_indices.add(atom_idx)
             if _is_inner_visible_diradical_discordance_atom(atom):
@@ -628,7 +831,11 @@ def _annotate_candidate_discordance_features(
             has_inner_same_sign_charge = (metal_charge_sign == 0 and formal_charge > 0) or (
                 metal_charge_sign != 0 and atom_charge_sign == metal_charge_sign
             )
-            if has_inner_same_sign_charge and not _has_adjacent_formal_charge_cancellation(atom):
+            if (
+                has_inner_same_sign_charge
+                and not (formal_charge > 0 and bool(atom.IsAromatic()))
+                and not _has_adjacent_formal_charge_cancellation(atom)
+            ):
                 inner_visible_same_sign_charge_count += 1
 
     outer_or_invisible_adjacent_double_charge_count = 0
@@ -681,9 +888,20 @@ def _annotate_candidate_discordance_features(
             and end_atom.GetAtomicNum() == 6
             and begin_charge_sign == end_charge_sign
         )
+        is_resonance_mobile_outer_ring_carbanion_pair = (
+            not pair_both_inner_visible
+            and begin_idx not in visible_inner_atom_indices
+            and end_idx not in visible_inner_atom_indices
+            and begin_atom.GetAtomicNum() == 6
+            and end_atom.GetAtomicNum() == 6
+            and begin_charge < 0
+            and end_charge < 0
+            and bool(begin_atom.IsInRing())
+            and bool(end_atom.IsInRing())
+        )
         if is_inner_visible_adjacent_carbanion_pair:
             inner_visible_adjacent_carbanion_pair_count += 1
-        elif not pair_both_inner_visible:
+        elif not pair_both_inner_visible and not is_resonance_mobile_outer_ring_carbanion_pair:
             outer_or_invisible_adjacent_double_charge_count += 1
             metal_charge_sign = _nearest_nonzero_metal_charge_sign_to_bond(
                 begin_atom,
@@ -697,8 +915,22 @@ def _annotate_candidate_discordance_features(
             else:
                 outer_or_invisible_adjacent_opposite_sign_double_charge_count += 1
 
+    repeated_component_charge_asymmetry_count = _repeated_component_charge_asymmetry_count(obmol)
+    haptic_arene_reduction_count = _haptic_arene_reduction_count(
+        obmol,
+        visible_inner_atom_indices,
+    )
+    visible_donor_multiple_bond_count = _visible_donor_multiple_bond_count(
+        obmol,
+        visible_inner_atom_indices,
+    )
+    coordination_geometry_discordance_count = _coordination_geometry_discordance_count(
+        visible_atoms_by_metal,
+        candidate.metal_states,
+        config=config,
+    )
     negative_metal_penalty = _NEGATIVE_METAL_DISCORDANCE_PENALTY * negative_metal_count
-    discordance_count = (
+    structural_discordance_count = (
         inner_visible_diradical_count
         + outer_or_invisible_adjacent_double_charge_count
         + inner_visible_adjacent_carbanion_pair_count
@@ -707,8 +939,13 @@ def _annotate_candidate_discordance_features(
         + negative_metal_penalty
         + zero_valent_metals_with_organic_cation_count
         + nonnegative_metal_unsaturated_organic_cation_count
+        + repeated_component_charge_asymmetry_count
+        + haptic_arene_reduction_count
+        + visible_donor_multiple_bond_count
+        + coordination_geometry_discordance_count
     )
-    candidate.metadata["metal_discordance_structural_count"] = discordance_count
+    discordance_count = structural_discordance_count
+    candidate.metadata["metal_discordance_structural_count"] = structural_discordance_count
     candidate.metadata["metal_discordance_aromatic_ring_deficit_count"] = 0
     candidate.metadata["metal_discordance_count"] = discordance_count
     candidate.metadata["metal_discordance_inner_visible_diradical_count"] = (
@@ -748,6 +985,18 @@ def _annotate_candidate_discordance_features(
     )
     candidate.metadata["metal_discordance_nonnegative_metal_unsaturated_organic_cation_count"] = (
         nonnegative_metal_unsaturated_organic_cation_count
+    )
+    candidate.metadata["metal_discordance_repeated_component_charge_asymmetry_count"] = (
+        repeated_component_charge_asymmetry_count
+    )
+    candidate.metadata["metal_discordance_haptic_arene_reduction_count"] = (
+        haptic_arene_reduction_count
+    )
+    candidate.metadata["metal_discordance_visible_donor_multiple_bond_count"] = (
+        visible_donor_multiple_bond_count
+    )
+    candidate.metadata["metal_discordance_coordination_geometry_count"] = (
+        coordination_geometry_discordance_count
     )
     return discordance_count
 
@@ -887,9 +1136,7 @@ def _annotate_candidate_set_discordance_features(
         candidate.metadata["metal_discordance_aromatic_stability_deficit"] = (
             aromatic_stability_deficit
         )
-        candidate.metadata["metal_discordance_count"] = (
-            structural_discordance_count + aromatic_stability_deficit
-        )
+        candidate.metadata["metal_discordance_count"] = structural_discordance_count
 
 
 def select_best_candidate(

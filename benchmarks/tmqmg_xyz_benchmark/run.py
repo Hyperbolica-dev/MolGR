@@ -32,6 +32,7 @@ from rdkit import Chem
 try:
     from tqdm import tqdm as _tqdm_impl
 except ModuleNotFoundError:
+
     def _tqdm_impl(iterable, **_kwargs):
         return iterable
 
@@ -657,7 +658,9 @@ def run(
     runtime_cpp_backend_config = cpp_backend_config or _build_cpp_backend_config_payload(
         use_all_accelerations=False
     )
-    methods = _select_methods(get_method_registry(tuple(method_ids) if method_ids else None), method_ids)
+    methods = _select_methods(
+        get_method_registry(tuple(method_ids) if method_ids else None), method_ids
+    )
     results: list[BenchmarkResult] = []
     for method in _tqdm(methods, desc="Running methods", total=len(methods)):
         method_results = _run_method_subprocesses(

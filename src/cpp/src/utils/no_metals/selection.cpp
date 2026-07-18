@@ -4,6 +4,7 @@
 
 #include "molgr/compat/openbabel_iter.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace molgr
@@ -27,6 +28,25 @@ namespace molgr
                         formal_charge_absolute_sum += std::abs(atom->GetFormalCharge());
                     }
                     return formal_charge_absolute_sum;
+                }
+
+                int ExcessRadicalLabels(const molgr::state::ReconstructionState &candidate)
+                {
+                    int radical_sum = 0;
+                    for (int atom_idx = 1; atom_idx <= candidate.Mol().NumAtoms(); ++atom_idx)
+                    {
+                        const auto *atom = candidate.Mol().GetAtom(atom_idx);
+                        if (atom != nullptr)
+                        {
+                            radical_sum += atom->GetSpinMultiplicity();
+                        }
+                    }
+                    candidate.metadata["organic_radical_label_sum"] = radical_sum;
+                    const int excess = std::max(
+                        0,
+                        radical_sum - candidate.total_radical_electrons);
+                    candidate.metadata["organic_excess_radical_labels"] = excess;
+                    return excess;
                 }
             }
 
@@ -90,11 +110,13 @@ namespace molgr
                 };
             }
 
-            std::tuple<double, int, double, double, double, double> NoMetalCandidateSelectionKey(
+            std::tuple<double, int, double, double, double, int, double>
+            NoMetalCandidateSelectionKey(
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config)
             {
                 const auto topology_key = NoMetalCandidateTopologySelectionKey(candidate, config);
+                const int excess_radical_labels = ExcessRadicalLabels(candidate);
                 const double score = ScoreReconstructionCandidate(candidate, config);
                 return {
                     std::get<0>(topology_key),
@@ -102,6 +124,7 @@ namespace molgr
                     std::get<2>(topology_key),
                     std::get<3>(topology_key),
                     std::get<4>(topology_key),
+                    excess_radical_labels,
                     score,
                 };
             }

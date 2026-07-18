@@ -104,9 +104,7 @@ def test_build_processed_resonance_key_avoids_openbabel_format_serialization(
     monkeypatch,
 ) -> None:
     def fail_write(self, format: str = "smi", filename=None, overwrite=False, opt=None):
-        raise AssertionError(
-            f"processed resonance key should not call OpenBabel write({format!r})"
-        )
+        raise AssertionError(f"processed resonance key should not call OpenBabel write({format!r})")
 
     monkeypatch.setattr(pybel.Molecule, "write", fail_write)
 
@@ -489,7 +487,7 @@ def test_omol_state_machine_caches_resonance_key_until_omol_changes(
     assert calls == 2
 
 
-def test_recover_resonance_candidates_returns_valid_candidates() -> None:
+def test_search_resonance_candidates_returns_valid_candidates() -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -497,13 +495,13 @@ def test_recover_resonance_candidates_returns_valid_candidates() -> None:
         total_charge=0,
         total_radical_electrons=1,
     )
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
     assert candidates
     scores = [selection_force_field_energy(candidate.omol) for candidate in candidates]
     assert min(scores) == sorted(scores)[0]
 
 
-def test_recover_resonance_candidates_returns_candidates_without_shared_region_scoring() -> None:
+def test_search_resonance_candidates_without_shared_region_scoring() -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -511,12 +509,12 @@ def test_recover_resonance_candidates_returns_candidates_without_shared_region_s
         total_charge=0,
         total_radical_electrons=1,
     )
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
 
     assert candidates
 
 
-def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> None:
+def test_search_resonance_candidates_dedups_processed_states(monkeypatch) -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -525,22 +523,37 @@ def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> No
         total_radical_electrons=1,
     )
 
-    resonance_a = object()
-    resonance_b = object()
-    processed = object()
+    resonance_a = seed.clone
+    resonance_b = seed.clone
     validate_calls = 0
-    organic_score_calls = 0
     force_field_score_calls = 0
+
+    def walk_resonances(omol, *, visit, **kwargs):
+        del omol, kwargs
+        for resonance in (resonance_a, resonance_b):
+            visit(
+                resonance_utils_module.ResonanceSearchNode(
+                    resonance,
+                    (id(resonance),),
+                    0,
+                    0,
+                )
+            )
 
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "get_radical_resonances",
-        lambda omol: [resonance_a, resonance_b],
+        "walk_radical_resonances",
+        walk_resonances,
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "clean_resonances",
+        lambda omol: (omol, False),
     )
     monkeypatch.setattr(
         resonance_utils_module,
-        "process_resonance",
-        lambda omol, given_charge: (processed, given_charge, True),
+        "build_resonance_state_key",
+        lambda omol: (id(omol),),
     )
     monkeypatch.setattr(
         resonance_utils_module,
@@ -553,29 +566,22 @@ def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> No
         validate_calls += 1
         return True
 
-    def organic_core_score(self):
-        nonlocal organic_score_calls
-        organic_score_calls += 1
-        return 1.0
-
     def full_score(self):
         nonlocal force_field_score_calls
         force_field_score_calls += 1
         return 1.0
 
     monkeypatch.setattr(no_metal_resonance_module, "validate_omol", validate)
-    monkeypatch.setattr(ReconstructionState, "organic_core_score", organic_core_score)
     monkeypatch.setattr(ReconstructionState, "full_score", full_score)
 
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
 
     assert len(candidates) == 1
     assert validate_calls == 1
-    assert organic_score_calls == 1
     assert force_field_score_calls == 1
 
 
-def test_recover_resonance_candidates_forwards_traversal_policy(monkeypatch) -> None:
+def test_search_resonance_candidates_forwards_traversal_policy(monkeypatch) -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -586,19 +592,25 @@ def test_recover_resonance_candidates_forwards_traversal_policy(monkeypatch) -> 
     policy = object()
     recorded_policy = None
 
-    def fake_get_radical_resonances(omol, *, traversal_policy=None, max_depth=2):
+    def fake_walk_radical_resonances(
+        omol,
+        *,
+        traversal_policy=None,
+        max_depth=2,
+        visit=None,
+    ):
+        del omol, max_depth, visit
         nonlocal recorded_policy
         recorded_policy = traversal_policy
-        return []
 
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "get_radical_resonances",
-        fake_get_radical_resonances,
+        "walk_radical_resonances",
+        fake_walk_radical_resonances,
     )
 
-    candidates = no_metal_resonance_module._recover_resonance_candidates(
-        state,
+    candidates = no_metal_resonance_module.search_resonance_candidates(
+        [state],
         resonance_traversal_policy=policy,
     )
 

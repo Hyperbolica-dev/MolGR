@@ -5,6 +5,7 @@ from openbabel import pybel
 from rdkit import Chem
 
 from molgr import _core as core
+from molgr.fallback.utils.consts import NON_METAL_DICT
 
 
 OB_RDKIT_BOND_ORDER_MAPPING = {
@@ -14,6 +15,45 @@ OB_RDKIT_BOND_ORDER_MAPPING = {
     4: Chem.BondType.QUADRUPLE,
     5: Chem.BondType.AROMATIC,
 }
+
+METAL_UNPAIRED_ELECTRONS_PROP = "MOLGR_METAL_UNPAIRED_ELECTRONS"
+
+
+def _is_metal_atomic_num(atomic_num: int) -> bool:
+    return atomic_num not in NON_METAL_DICT
+
+
+def _set_rdkit_unpaired_electrons(atom: Chem.Atom, unpaired_electrons: int) -> None:
+    if _is_metal_atomic_num(int(atom.GetAtomicNum())):
+        atom.SetIntProp(METAL_UNPAIRED_ELECTRONS_PROP, int(unpaired_electrons))
+        atom.SetNumRadicalElectrons(0)
+        return
+    atom.SetNumRadicalElectrons(int(unpaired_electrons))
+
+
+def _finalize_metal_unpaired_electrons(rdmol: Chem.Mol) -> None:
+    has_metal = False
+    for atom in rdmol.GetAtoms():  # pyright: ignore[reportCallIssue]
+        if not _is_metal_atomic_num(int(atom.GetAtomicNum())):
+            continue
+        has_metal = True
+        atom.SetNumRadicalElectrons(0)
+    if has_metal:
+        Chem.CreateAtomIntPropertyList(rdmol, METAL_UNPAIRED_ELECTRONS_PROP)
+    rdmol.UpdatePropertyCache(strict=False)
+
+
+def get_atom_unpaired_electrons(atom: Chem.Atom) -> int:
+    """Return MolGR's unpaired-electron count for an RDKit atom."""
+
+    if _is_metal_atomic_num(int(atom.GetAtomicNum())) and atom.HasProp(
+        METAL_UNPAIRED_ELECTRONS_PROP
+    ):
+        try:
+            return int(atom.GetIntProp(METAL_UNPAIRED_ELECTRONS_PROP))
+        except (RuntimeError, TypeError, ValueError):
+            return int(atom.GetProp(METAL_UNPAIRED_ELECTRONS_PROP))
+    return int(atom.GetNumRadicalElectrons())
 
 
 def mol_data_to_pybel(mol_data: core.utils.MoleculeData) -> pybel.Molecule:
@@ -45,9 +85,10 @@ def mol_data_to_rdkit(
     rwmol = Chem.RWMol()
     for atom in mol_data.atoms:
         atom_id = rwmol.AddAtom(Chem.Atom(atom.atomic_num))
-        rwmol.GetAtomWithIdx(atom_id).SetNoImplicit(True)
-        rwmol.GetAtomWithIdx(atom_id).SetFormalCharge(atom.formal_charge)
-        rwmol.GetAtomWithIdx(atom_id).SetNumRadicalElectrons(atom.radical_num)
+        rd_atom = rwmol.GetAtomWithIdx(atom_id)
+        rd_atom.SetNoImplicit(True)
+        rd_atom.SetFormalCharge(atom.formal_charge)
+        _set_rdkit_unpaired_electrons(rd_atom, atom.radical_num)
     for bond_data in mol_data.bonds:
         rwmol.AddBond(
             bond_data.begin_atom_idx - 1,
@@ -65,6 +106,7 @@ def mol_data_to_rdkit(
         Chem.SanitizeMol(rdmol)
     if kekulize:
         Chem.Kekulize(rdmol)
+    _finalize_metal_unpaired_electrons(rdmol)
     return rdmol
 
 
@@ -99,11 +141,21 @@ def pybel_to_rdmol(
         atom = rwmol.GetAtomWithIdx(atom_id)
         atom.SetNoImplicit(True)
         atom.SetFormalCharge(charge)
-        atom.SetNumRadicalElectrons(radical)
+        _set_rdkit_unpaired_electrons(atom, radical)
     rdmol = rwmol.GetMol()
     rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
         Chem.SanitizeMol(rdmol)
     if kekulize:
         Chem.Kekulize(rdmol)
+    _finalize_metal_unpaired_electrons(rdmol)
     return rdmol
+
+
+__all__ = [
+    "METAL_UNPAIRED_ELECTRONS_PROP",
+    "get_atom_unpaired_electrons",
+    "mol_data_to_pybel",
+    "mol_data_to_rdkit",
+    "pybel_to_rdmol",
+]

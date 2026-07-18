@@ -31,32 +31,11 @@ from rdkit import RDLogger
 
 from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_without_metals
-from molgr.fallback.stages.break_bond import break_deformed_ene, break_one_bond
-from molgr.fallback.stages.clean import (
-    clean_carbene_neighbor_unsaturated,
-    clean_neighbor_radicals,
-    clean_resonances,
-)
-from molgr.fallback.stages.eliminate import (
-    eliminate_1_3_dipole,
-    eliminate_carbene_neighbor_heteroatom,
-    eliminate_carboxyl,
-    eliminate_charge_spliting,
-    eliminate_CN_in_doubt,
-    eliminate_cp_like_radical_anion,
-    eliminate_high_positive_charge_atoms,
-    eliminate_negative_charges,
-    eliminate_NNN,
-    eliminate_positive_charges,
-)
-from molgr.fallback.stages.fresh import fresh_omol_charge_radical
-from molgr.fallback.stages.preprocess import make_connections, pre_clean, validate_omol
-from molgr.fallback.state import MetalCandidateState, OmolStateMachine, ReconstructionState
-from molgr.fallback.utils import resonance as resonance_utils
+from molgr.fallback.stages.preprocess import validate_omol
+from molgr.fallback.state import MetalCandidateState, ReconstructionState
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
 from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
-from molgr.fallback.utils.no_metals import resonance as no_metal_resonance
 from molgr.fallback.utils.no_metals import selection as no_metal_selection
 from molgr.utils.converter import pybel_to_rdmol
 
@@ -95,15 +74,6 @@ class DofRenderContext:
     @property
     def use_svg(self) -> bool:
         return self.image_format == "svg"
-
-
-@dataclasses.dataclass
-class _LinearBranchTrace:
-    branch_index: int
-    branch_label: str
-    state: ReconstructionState
-    steps: list[dict[str, Any]]
-    animation_items: list[tuple[pybel.Molecule, str]]
 
 
 _SCORE_DETAIL_PREFIXES = (
@@ -1159,90 +1129,7 @@ def _collect_html_image_items(output: dict[str, Any]) -> list[dict[str, Any]]:
             selected=True,
             metadata=selected,
         )
-        linear_branches = [
-            branch
-            for branch in cast(List[Any], no_metal_trace.get("linear_branches", []))
-            if isinstance(branch, dict)
-        ]
-        if linear_branches:
-            for branch in linear_branches:
-                for step in cast(List[Any], branch.get("linear_steps", [])):
-                    if not isinstance(step, dict):
-                        continue
-                    state = cast(Dict[str, Any], step.get("state", {}))
-                    step_metadata = dict(step)
-                    step_metadata["linear_branch_index"] = branch.get("branch_index", "")
-                    step_metadata["linear_branch"] = branch.get("branch", "")
-                    add_item(
-                        case=case,
-                        title=(
-                            f"branch {branch.get('branch_index', '')} "
-                            f"step {step.get('step_index', '')}: {step.get('phase', '')}"
-                        ),
-                        image=state.get("dof_image"),
-                        group="step",
-                        metadata=step_metadata,
-                    )
-        else:
-            for step in cast(List[Any], no_metal_trace.get("linear_steps", [])):
-                if not isinstance(step, dict):
-                    continue
-                state = cast(Dict[str, Any], step.get("state", {}))
-                add_item(
-                    case=case,
-                    title=f"step {step.get('step_index', '')}: {step.get('phase', '')}",
-                    image=state.get("dof_image"),
-                    group="step",
-                    metadata=step,
-                )
-        direct = cast(Dict[str, Any], no_metal_trace.get("direct_candidate", {}))
-        direct_state = cast(Dict[str, Any], direct.get("state", {}))
         add_item(
-            case=case,
-            title="direct candidate",
-            image=direct_state.get("dof_image"),
-            group="candidate",
-            selected=bool(direct.get("selected")),
-            metadata=direct,
-        )
-        resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
-        add_item(
-            case=case,
-            title="resonance candidate grid",
-            image=resonance.get("dof_grid_image"),
-            group="grid",
-            metadata=resonance,
-        )
-        for candidate in cast(List[Any], resonance.get("candidates", [])):
-            if not isinstance(candidate, dict):
-                continue
-            state = cast(Dict[str, Any], candidate.get("state", {}))
-            add_item(
-                case=case,
-                title=f"resonance {candidate.get('resonance_index', '')}",
-                image=candidate.get("dof_image"),
-                group="candidate",
-                selected=bool(candidate.get("selected")),
-                metadata=candidate,
-            )
-            for step in cast(List[Any], candidate.get("process_steps", [])):
-                if not isinstance(step, dict):
-                    continue
-                step_state = cast(Dict[str, Any], step.get("state", {}))
-                add_item(
-                    case=case,
-                    title=(
-                        f"resonance B{candidate.get('linear_branch_index', '')}/"
-                        f"R{candidate.get('resonance_index', '')} process "
-                        f"{step.get('step_index', '')}: {step.get('phase', '')}"
-                    ),
-                    image=step_state.get("dof_image"),
-                    group="step",
-                    metadata=step,
-                )
-
-        add_item(
-            case=case,
             title="metal candidate grid",
             image=case.get("dof_candidate_grid"),
             group="grid",
@@ -1288,348 +1175,47 @@ def _collect_html_image_items(output: dict[str, Any]) -> list[dict[str, Any]]:
 def _html_no_metal_trace(no_metal_trace: dict[str, Any]) -> str:
     if not no_metal_trace:
         return '<p class="empty-inline">无</p>'
+
     target = cast(Dict[str, Any], no_metal_trace.get("target", {}))
     selected = cast(Dict[str, Any], no_metal_trace.get("selected_candidate", {}))
     selected_state = cast(Dict[str, Any], selected.get("state", {}))
+    resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
+    actions = cast(List[Any], no_metal_trace.get("neighbor_radical_actions", []))
     sections = [
         _html_kv_table(
             (
                 ("状态", no_metal_trace.get("status", "")),
                 ("目标电荷", target.get("total_charge", "")),
                 ("目标自由基电子", target.get("total_radical_electrons", "")),
-                ("线性后直接有效", no_metal_trace.get("direct_validation", "")),
-                ("选中线性分支", no_metal_trace.get("selected_linear_branch", "")),
+                ("邻位自由基动作", actions),
+                ("恢复层", no_metal_trace.get("recovery_tier", 0)),
+                ("共振种子序号", resonance.get("seed_index", "")),
+                ("共振序号", resonance.get("resonance_index", "")),
+                ("raw 共振序号", resonance.get("raw_index", "")),
+                ("归一化方式", resonance.get("normalization", "")),
                 ("选中 canonical SMILES", selected_state.get("canonical_smiles", "")),
                 ("选中分数", selected.get("score", "")),
                 ("选中选择键", selected.get("organic_topology_selection_key", "")),
             )
         )
     ]
-    if selected:
-        sections.append(_html_details("选中候选完整 JSON", _html_json_block(selected)))
-    linear_branches = cast(List[Any], no_metal_trace.get("linear_branches", []))
-    if linear_branches:
-        branch_rows = []
-        for branch in linear_branches:
-            if not isinstance(branch, dict):
-                continue
-            linear_result = cast(Dict[str, Any], branch.get("linear_result", {}))
-            state = cast(Dict[str, Any], linear_result.get("state", {}))
-            direct_candidate = cast(Dict[str, Any], branch.get("direct_candidate", {}))
-            resonance = cast(Dict[str, Any], branch.get("resonance", {}))
-            branch_rows.append(
-                (
-                    branch.get("branch_index", ""),
-                    branch.get("branch", ""),
-                    "是"
-                    if branch.get("branch_index")
-                    == no_metal_trace.get("selected_linear_branch_index")
-                    else "",
-                    branch.get("direct_validation", ""),
-                    state.get("canonical_smiles", state.get("smiles", "")),
-                    state.get("formal_charge_sum", ""),
-                    state.get("spin_multiplicity_sum", ""),
-                    direct_candidate.get("score", ""),
-                    resonance.get("candidate_count", ""),
-                    resonance.get("valid_unique_candidate_count", ""),
-                )
-            )
-        sections.append(
-            _html_details(
-                f"线性分支摘要 ({len(branch_rows)})",
-                _html_table(
-                    (
-                        "分支序号",
-                        "分支",
-                        "选中",
-                        "直接有效",
-                        "线性结果 canonical SMILES",
-                        "形式电荷",
-                        "自由基和",
-                        "直接候选分数",
-                        "共振候选数",
-                        "有效共振候选数",
-                    ),
-                    branch_rows,
-                ),
-                open_=True,
-            )
-        )
-    if no_metal_trace.get("linear_result"):
-        sections.append(
-            _html_details("线性阶段结果 JSON", _html_json_block(no_metal_trace["linear_result"]))
-        )
-    selected_step_rows = []
-    for step in cast(List[Any], no_metal_trace.get("linear_steps", [])):
-        if not isinstance(step, dict):
-            continue
-        state = cast(Dict[str, Any], step.get("state", {}))
-        selected_step_rows.append(
-            (
-                step.get("step_index", ""),
-                step.get("phase", ""),
-                step.get("kind", ""),
-                step.get("hit", ""),
-                step.get("omol_revision", ""),
-                state.get("canonical_smiles", state.get("smiles", "")),
-                state.get("formal_charge_sum", ""),
-                state.get("spin_multiplicity_sum", ""),
-                state.get("spin_multiplicity_singlet_sum", ""),
-                state.get("given_charge", ""),
-                state.get("valid_for_target", ""),
-                state.get("charged_atom_counts", ""),
-                state.get("radical_atom_counts", ""),
-                _dof_image_path_text(state.get("dof_image")),
-            )
-        )
-    selected_steps_title = (
-        "选中线性分支步骤" if linear_branches else "线性阶段"
-    )
+
+    step_rows = [
+        (step.get("step_index", ""), step.get("phase", ""), step.get("kind", ""))
+        for step in cast(List[Any], no_metal_trace.get("pipeline_steps", []))
+        if isinstance(step, dict)
+    ]
     sections.append(
         _html_details(
-            f"{selected_steps_title} ({len(selected_step_rows)})",
-            _html_table(
-                (
-                    "步骤",
-                    "阶段",
-                    "类型",
-                    "命中",
-                    "修订",
-                    "canonical SMILES",
-                    "形式电荷",
-                    "自由基和",
-                    "自由基奇偶和",
-                    "剩余电荷预算",
-                    "匹配目标",
-                    "带电原子",
-                    "自由基原子",
-                    "DOF 图像",
-                ),
-                selected_step_rows,
-            ),
+            f"生产管线阶段 ({len(step_rows)})",
+            _html_table(("步骤", "阶段", "类型"), step_rows),
             open_=True,
         )
     )
-    if linear_branches:
-        branch_step_sections = []
-        for branch in linear_branches:
-            if not isinstance(branch, dict):
-                continue
-            branch_step_rows = []
-            for step in cast(List[Any], branch.get("linear_steps", [])):
-                if not isinstance(step, dict):
-                    continue
-                state = cast(Dict[str, Any], step.get("state", {}))
-                branch_step_rows.append(
-                    (
-                        step.get("step_index", ""),
-                        step.get("phase", ""),
-                        step.get("kind", ""),
-                        step.get("hit", ""),
-                        step.get("omol_revision", ""),
-                        state.get("canonical_smiles", state.get("smiles", "")),
-                        state.get("formal_charge_sum", ""),
-                        state.get("spin_multiplicity_sum", ""),
-                        state.get("spin_multiplicity_singlet_sum", ""),
-                        state.get("given_charge", ""),
-                        state.get("valid_for_target", ""),
-                        state.get("charged_atom_counts", ""),
-                        state.get("radical_atom_counts", ""),
-                        _dof_image_path_text(state.get("dof_image")),
-                    )
-                )
-            branch_step_sections.append(
-                _html_details(
-                    (
-                        f"分支 {branch.get('branch_index', '')}: "
-                        f"{branch.get('branch', '')} ({len(branch_step_rows)})"
-                    ),
-                    _html_table(
-                        (
-                            "步骤",
-                            "阶段",
-                            "类型",
-                            "命中",
-                            "修订",
-                            "canonical SMILES",
-                            "形式电荷",
-                            "自由基和",
-                            "自由基奇偶和",
-                            "剩余电荷预算",
-                            "匹配目标",
-                            "带电原子",
-                            "自由基原子",
-                            "DOF 图像",
-                        ),
-                        branch_step_rows,
-                    ),
-                    open_=branch.get("branch_index")
-                    == no_metal_trace.get("selected_linear_branch_index"),
-                )
-            )
-        sections.append(
-            _html_details(
-                f"各线性分支步骤 ({len(branch_step_sections)})",
-                "".join(branch_step_sections),
-                open_=True,
-            )
-        )
-
-    resonance = cast(Dict[str, Any], no_metal_trace.get("resonance", {}))
+    if selected:
+        sections.append(_html_details("选中候选完整 JSON", _html_json_block(selected)))
     if resonance:
-        resonance_rows = []
-        for candidate in cast(List[Any], resonance.get("candidates", [])):
-            if not isinstance(candidate, dict):
-                continue
-            state = cast(Dict[str, Any], candidate.get("state", {}))
-            resonance_rows.append(
-                (
-                    candidate.get("linear_branch_index", ""),
-                    candidate.get("linear_branch", ""),
-                    candidate.get("resonance_index", ""),
-                    candidate.get("raw_state_key_hash", ""),
-                    candidate.get("processed_state_key_hash", ""),
-                    candidate.get("process_resonance_hit", ""),
-                    candidate.get(
-                        "process_step_count",
-                        len(cast(List[Any], candidate.get("process_steps", []))),
-                    ),
-                    candidate.get("duplicate_processed_state", ""),
-                    candidate.get("valid_for_target", ""),
-                    candidate.get("score", ""),
-                    candidate.get("organic_topology_selection_key", ""),
-                    state.get("canonical_smiles", state.get("smiles", "")),
-                    state.get("formal_charge_sum", ""),
-                    state.get("spin_multiplicity_sum", ""),
-                    state.get("charged_atom_counts", ""),
-                    state.get("radical_atom_counts", ""),
-                    candidate.get("score_error", ""),
-                    _dof_image_path_text(candidate.get("dof_image")),
-                )
-            )
-        sections.append(
-            _html_details(
-                f"共振枚举 ({resonance.get('candidate_count', len(resonance_rows))})",
-                _html_kv_table(
-                    (
-                        ("遍历策略", resonance.get("traversal_policy", "")),
-                        ("最大深度", resonance.get("max_depth", "")),
-                        ("候选数", resonance.get("candidate_count", "")),
-                        ("有效去重候选数", resonance.get("valid_unique_candidate_count", "")),
-                        ("DOF grid", _dof_image_path_text(resonance.get("dof_grid_image"))),
-                    )
-                )
-                + _html_table(
-                    (
-                        "线性分支序号",
-                        "线性分支",
-                        "共振序号",
-                        "raw key",
-                        "processed key",
-                        "process 命中",
-                        "process 步骤数",
-                        "重复",
-                        "匹配目标",
-                        "分数",
-                        "选择键",
-                        "canonical SMILES",
-                        "形式电荷",
-                        "自由基和",
-                        "带电原子",
-                        "自由基原子",
-                        "评分错误",
-                        "DOF 图像",
-                    ),
-                    resonance_rows,
-                ),
-            )
-        )
-        process_step_sections = []
-        for candidate in cast(List[Any], resonance.get("candidates", [])):
-            if not isinstance(candidate, dict):
-                continue
-            process_step_rows = []
-            for step in cast(List[Any], candidate.get("process_steps", [])):
-                if not isinstance(step, dict):
-                    continue
-                state = cast(Dict[str, Any], step.get("state", {}))
-                process_step_rows.append(
-                    (
-                        step.get("step_index", ""),
-                        step.get("phase", ""),
-                        step.get("kind", ""),
-                        step.get("hit", ""),
-                        step.get("omol_revision", ""),
-                        state.get("canonical_smiles", state.get("smiles", "")),
-                        state.get("formal_charge_sum", ""),
-                        state.get("spin_multiplicity_sum", ""),
-                        state.get("spin_multiplicity_singlet_sum", ""),
-                        state.get("given_charge", ""),
-                        state.get("valid_for_target", ""),
-                        state.get("charged_atom_counts", ""),
-                        state.get("radical_atom_counts", ""),
-                        _dof_image_path_text(state.get("dof_image")),
-                    )
-                )
-            if process_step_rows:
-                process_step_sections.append(
-                    _html_details(
-                        (
-                            f"分支 {candidate.get('linear_branch_index', '')}/"
-                            f"共振 {candidate.get('resonance_index', '')} "
-                            f"process ({len(process_step_rows)})"
-                        ),
-                        _html_table(
-                            (
-                                "步骤",
-                                "阶段",
-                                "类型",
-                                "命中",
-                                "修订",
-                                "canonical SMILES",
-                                "形式电荷",
-                                "自由基和",
-                                "自由基奇偶和",
-                                "剩余电荷预算",
-                                "匹配目标",
-                                "带电原子",
-                                "自由基原子",
-                                "DOF 图像",
-                            ),
-                            process_step_rows,
-                        ),
-                        open_=bool(candidate.get("selected")),
-                    )
-                )
-        if process_step_sections:
-            sections.append(
-                _html_details(
-                    f"共振处理步骤 ({len(process_step_sections)})",
-                    "".join(process_step_sections),
-                    open_=True,
-                )
-            )
-        sections.append(_html_details("共振完整 JSON", _html_json_block(resonance)))
-    direct_candidate = cast(Dict[str, Any], no_metal_trace.get("direct_candidate", {}))
-    if direct_candidate:
-        sections.append(
-            _html_details(
-                "直接候选",
-                _html_kv_table(
-                    (
-                        ("clean_resonances 命中", direct_candidate.get("clean_resonances_hit", "")),
-                        ("线性分支", direct_candidate.get("linear_branch", "")),
-                        ("评分错误", direct_candidate.get("score_error", "")),
-                        ("分数", direct_candidate.get("score", "")),
-                        ("选择键", direct_candidate.get("organic_topology_selection_key", "")),
-                    )
-                )
-                + _html_details(
-                    "直接候选完整 JSON",
-                    _html_json_block(direct_candidate),
-                ),
-            )
-        )
+        sections.append(_html_details("共振选择元数据", _html_json_block(resonance)))
     sections.append(_html_details("完整 no-metal trace JSON", _html_json_block(no_metal_trace)))
     return "".join(sections)
 
@@ -2342,168 +1928,60 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const target = traceData.target || {};
         const selected = traceData.selected_candidate || {};
         const selectedState = selected.state || {};
+        const resonance = traceData.resonance || {};
         const children = [];
-        const selectedPathAnimation = buildSelectedPathAnimation(caseId, traceData, selected, "无金属最终路径动画");
+        const selectedPathAnimation = buildSelectedPathAnimation(
+          caseId,
+          traceData,
+          selected,
+          "无金属最终路径动画",
+        );
         if (selectedPathAnimation) children.push(selectedPathAnimation);
-        (traceData.linear_branches || []).forEach(branch => {
-          const linearResult = branch.linear_result || {};
-          const state = linearResult.state || {};
-          const direct = branch.direct_candidate || {};
-          const resonance = branch.resonance || {};
-          const branchSelected = String(branch.branch_index) === String(traceData.selected_linear_branch_index);
-          const branchChildren = [];
-          (branch.linear_steps || []).forEach(step => {
-            const stepState = step.state || {};
-            branchChildren.push(makeNode({
-              label: `${step.step_index}. ${step.phase}`,
-              kind: "无金属线性步骤",
-              caseId,
-              summary: [
-                ["分支", branch.branch],
-                ["分支序号", branch.branch_index],
-                ["阶段", step.phase],
-                ["类型", step.kind],
-                ["命中", step.hit],
-                ["修订", step.omol_revision],
-                ...stateSummary(stepState),
-              ],
-              metadata: {
-                ...step,
-                linear_branch_index: branch.branch_index,
-                linear_branch: branch.branch,
-              },
-              image: stepState.dof_image,
-            }));
-          });
+
+        (traceData.pipeline_steps || []).forEach(step => {
           children.push(makeNode({
-            label: `线性分支 ${branch.branch_index}: ${branch.branch}`,
-            kind: "无金属线性分支",
+            label: `${step.step_index}. ${step.phase}`,
+            kind: "无金属生产管线阶段",
             caseId,
             summary: [
-              ["分支序号", branch.branch_index],
-              ["分支", branch.branch],
-              ["选中", branchSelected],
-              ["直接有效", branch.direct_validation],
-              ["直接候选分数", direct.score],
-              ["共振候选数", resonance.candidate_count],
-              ["有效共振候选数", resonance.valid_unique_candidate_count],
-              ...stateSummary(state),
+              ["阶段", step.phase],
+              ["类型", step.kind],
             ],
-            metadata: branch,
-            image: state.dof_image,
-            selected: branchSelected,
-            children: branchChildren,
+            metadata: step,
           }));
         });
-        if (!(traceData.linear_branches || []).length) {
-          (traceData.linear_steps || []).forEach(step => {
-            const state = step.state || {};
-            children.push(makeNode({
-              label: `${step.step_index}. ${step.phase}`,
-              kind: "无金属线性步骤",
-              caseId,
-              summary: [
-                ["阶段", step.phase],
-                ["类型", step.kind],
-                ["命中", step.hit],
-                ["修订", step.omol_revision],
-                ...stateSummary(state),
-              ],
-              metadata: step,
-              image: state.dof_image,
-            }));
-          });
-        }
-        const direct = traceData.direct_candidate || {};
-        if (Object.keys(direct).length) {
-          const state = direct.state || {};
+
+        if (Object.keys(resonance).length) {
           children.push(makeNode({
-            label: "直接候选",
+            label: "共振选择",
+            kind: "无金属共振元数据",
+            caseId,
+            summary: [
+              ["种子序号", resonance.seed_index],
+              ["共振序号", resonance.resonance_index],
+              ["raw 共振序号", resonance.raw_index],
+              ["归一化方式", resonance.normalization],
+            ],
+            metadata: resonance,
+          }));
+        }
+
+        if (Object.keys(selected).length) {
+          children.push(makeNode({
+            label: "选中 no-metal 候选",
             kind: "无金属候选",
             caseId,
             summary: [
-              ["线性分支", direct.linear_branch],
-              ["clean_resonances 命中", direct.clean_resonances_hit],
-              ["评分错误", direct.score_error],
-              ["分数", direct.score],
-              ["选择键", direct.organic_topology_selection_key],
-              ...stateSummary(state),
+              ["分数", selected.score],
+              ["选择键", selected.organic_topology_selection_key],
+              ...stateSummary(selectedState),
             ],
-            metadata: direct,
-            image: state.dof_image,
-            selected: Boolean(direct.selected),
+            metadata: selected,
+            image: selectedState.dof_image,
+            selected: true,
           }));
         }
-        const resonance = traceData.resonance || {};
-        if (Object.keys(resonance).length) {
-          const resonanceChildren = [];
-          (resonance.candidates || []).forEach(candidate => {
-            const state = candidate.state || {};
-            const processChildren = [];
-            (candidate.process_steps || []).forEach(step => {
-              const stepState = step.state || {};
-              processChildren.push(makeNode({
-                label: `${step.step_index}. ${step.phase}`,
-                kind: "无金属共振处理步骤",
-                caseId,
-                summary: [
-                  ["线性分支", candidate.linear_branch],
-                  ["线性分支序号", candidate.linear_branch_index],
-                  ["共振序号", candidate.resonance_index],
-                  ["阶段", step.phase],
-                  ["类型", step.kind],
-                  ["命中", step.hit],
-                  ["修订", step.omol_revision],
-                  ...stateSummary(stepState),
-                ],
-                metadata: {
-                  ...step,
-                  linear_branch_index: candidate.linear_branch_index,
-                  linear_branch: candidate.linear_branch,
-                  resonance_index: candidate.resonance_index,
-                },
-                image: stepState.dof_image,
-              }));
-            });
-            resonanceChildren.push(makeNode({
-              label: `共振候选 B${candidate.linear_branch_index}/R${candidate.resonance_index}`,
-              kind: "无金属共振候选",
-              caseId,
-              summary: [
-                ["线性分支", candidate.linear_branch],
-                ["共振序号", candidate.resonance_index],
-                ["raw key", candidate.raw_state_key_hash],
-                ["processed key", candidate.processed_state_key_hash],
-                ["process 命中", candidate.process_resonance_hit],
-                ["process 步骤数", candidate.process_step_count],
-                ["重复", candidate.duplicate_processed_state],
-                ["匹配目标", candidate.valid_for_target],
-                ["分数", candidate.score],
-                ["选择键", candidate.organic_topology_selection_key],
-                ["评分错误", candidate.score_error],
-                ...stateSummary(state),
-              ],
-              metadata: candidate,
-              image: candidate.dof_image,
-              selected: Boolean(candidate.selected),
-              children: processChildren,
-            }));
-          });
-          children.push(makeNode({
-            label: "共振枚举",
-            kind: "无金属共振",
-            caseId,
-            summary: [
-              ["遍历策略", resonance.traversal_policy],
-              ["最大深度", resonance.max_depth],
-              ["候选数", resonance.candidate_count],
-              ["有效去重候选数", resonance.valid_unique_candidate_count],
-            ],
-            metadata: resonance,
-            image: resonance.dof_grid_image,
-            children: resonanceChildren,
-          }));
-        }
+
         return makeNode({
           label,
           kind: "无金属重建",
@@ -2512,14 +1990,15 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             ["状态", traceData.status],
             ["目标电荷", target.total_charge],
             ["目标自由基电子", target.total_radical_electrons],
-            ["线性后直接有效", traceData.direct_validation],
-            ["选中线性分支", traceData.selected_linear_branch],
+            ["邻位自由基动作", traceData.neighbor_radical_actions],
+            ["恢复层", traceData.recovery_tier],
+            ["归一化方式", resonance.normalization],
             ["选中 canonical SMILES", selectedState.canonical_smiles],
             ["选中分数", selected.score],
             ["选中选择键", selected.organic_topology_selection_key],
           ],
           metadata: traceData,
-          image: selectedState.dof_image || stateImage(direct),
+          image: selectedState.dof_image,
           children,
         });
       }
@@ -3006,399 +2485,6 @@ def _copy_metadata_by_identity(
     return copied
 
 
-def _record_no_metal_stage(
-    steps: list[dict[str, Any]],
-    animation_items: list[tuple[pybel.Molecule, str]] | None,
-    machine: OmolStateMachine,
-    *,
-    phase: str,
-    hit: bool | None,
-    target_charge: int,
-    target_radical_electrons: int,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-    kind: str = "stage",
-) -> None:
-    state = _omol_state_snapshot(
-        machine.omol,
-        given_charge=machine.given_charge,
-        target_charge=target_charge,
-        target_radical_electrons=target_radical_electrons,
-    )
-    image = _render_dof_molecule(
-        machine.omol,
-        render_context=render_context,
-        case_id=case_id,
-        label=f"{len(steps):02d}_{phase}",
-        kind="no_metal_step",
-    )
-    if image is not None:
-        state["dof_image"] = image
-    if animation_items is not None:
-        animation_items.append((_copy_omol(machine.omol), f"{len(steps):02d} {phase}"))
-    steps.append(
-        {
-            "step_index": len(steps),
-            "phase": phase,
-            "kind": kind,
-            "hit": hit,
-            "omol_revision": int(machine.omol_revision),
-            "phase_history_length": len(machine.phase_history),
-            "state": state,
-        }
-    )
-
-
-def _record_resonance_process_step(
-    steps: list[dict[str, Any]],
-    machine: OmolStateMachine,
-    *,
-    phase: str,
-    hit: bool | None,
-    target_charge: int,
-    target_radical_electrons: int,
-    branch_index: int,
-    resonance_index: int,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-    kind: str = "stage",
-) -> None:
-    state = _omol_state_snapshot(
-        machine.omol,
-        given_charge=machine.given_charge,
-        target_charge=target_charge,
-        target_radical_electrons=target_radical_electrons,
-    )
-    image = _render_dof_molecule(
-        machine.omol,
-        render_context=render_context,
-        case_id=case_id,
-        label=(
-            f"branch_{branch_index}_resonance_{resonance_index}_"
-            f"process_{len(steps):02d}_{phase}"
-        ),
-        kind="no_metal_resonance_process_step",
-    )
-    if image is not None:
-        state["dof_image"] = image
-    steps.append(
-        {
-            "step_index": len(steps),
-            "phase": phase,
-            "kind": kind,
-            "hit": hit,
-            "omol_revision": int(machine.omol_revision),
-            "phase_history_length": len(machine.phase_history),
-            "state": state,
-        }
-    )
-
-
-def _trace_process_resonance(
-    machine: OmolStateMachine,
-    *,
-    target_charge: int,
-    target_radical_electrons: int,
-    branch_index: int,
-    resonance_index: int,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-) -> tuple[bool, list[dict[str, Any]]]:
-    process_steps: list[dict[str, Any]] = []
-    _record_resonance_process_step(
-        process_steps,
-        machine,
-        phase="raw_resonance_candidate",
-        hit=None,
-        target_charge=target_charge,
-        target_radical_electrons=target_radical_electrons,
-        branch_index=branch_index,
-        resonance_index=resonance_index,
-        render_context=render_context,
-        case_id=case_id,
-        kind="seed",
-    )
-
-    # Keep this order identical to molgr.fallback.utils.resonance.process_resonance.
-    process_stages: tuple[tuple[str, Any, bool], ...] = (
-        ("eliminate_1_3_dipole", eliminate_1_3_dipole, True),
-        ("eliminate_cp_like_radical_anion", eliminate_cp_like_radical_anion, True),
-        ("eliminate_positive_charges_first", eliminate_positive_charges, True),
-        ("eliminate_negative_charges", eliminate_negative_charges, True),
-        ("eliminate_positive_charges_second", eliminate_positive_charges, True),
-        ("clean_neighbor_radicals", clean_neighbor_radicals, False),
-        ("clean_resonances", clean_resonances, False),
-    )
-    process_hit = False
-    for phase, stage, is_charge_stage in process_stages:
-        if is_charge_stage:
-            hit = machine.run_omol_charge_stage(None, stage)
-        else:
-            hit = machine.run_omol_stage(None, stage)
-        process_hit = hit or process_hit
-        _record_resonance_process_step(
-            process_steps,
-            machine,
-            phase=phase,
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radical_electrons,
-            branch_index=branch_index,
-            resonance_index=resonance_index,
-            render_context=render_context,
-            case_id=case_id,
-        )
-
-    machine.annotate("process_resonance")
-    return process_hit, process_steps
-
-
-def _run_no_metal_linear_trace(
-    seed_state: ReconstructionState,
-    *,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-) -> tuple[ReconstructionState, list[dict[str, Any]], list[tuple[pybel.Molecule, str]]]:
-    branch = _run_no_metal_linear_branch_traces(
-        seed_state,
-        render_context=render_context,
-        case_id=case_id,
-    )[0]
-    return branch.state, branch.steps, branch.animation_items
-
-
-def _run_no_metal_linear_branch_traces(
-    seed_state: ReconstructionState,
-    *,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-) -> list[_LinearBranchTrace]:
-    machine = OmolStateMachine.from_reconstruction_state(seed_state)
-    steps: list[dict[str, Any]] = []
-    animation_items: list[tuple[pybel.Molecule, str]] = []
-    target_charge = seed_state.total_charge
-    target_radicals = seed_state.total_radical_electrons
-    _record_no_metal_stage(
-        steps,
-        animation_items,
-        machine,
-        phase="read_xyz",
-        hit=None,
-        target_charge=target_charge,
-        target_radical_electrons=target_radicals,
-        render_context=render_context,
-        case_id=case_id,
-        kind="seed",
-    )
-
-    for phase, stage, args in (
-        ("make_connections", make_connections, ()),
-        ("pre_clean", pre_clean, ()),
-        ("fresh_omol_charge_radical_initial", fresh_omol_charge_radical, ()),
-    ):
-        hit = machine.run_omol_stage(phase, stage, *args)
-        _record_no_metal_stage(
-            steps,
-            animation_items,
-            machine,
-            phase=phase,
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-
-    initial_given_charge = target_charge - sum(
-        cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in machine.omol.atoms
-    )
-    machine.set_given_charge("initialize_charge_budget", initial_given_charge)
-    _record_no_metal_stage(
-        steps,
-        animation_items,
-        machine,
-        phase="initialize_charge_budget",
-        hit=None,
-        target_charge=target_charge,
-        target_radical_electrons=target_radicals,
-        render_context=render_context,
-        case_id=case_id,
-        kind="charge_budget",
-    )
-
-    charge_stages: tuple[tuple[str, Any, tuple[Any, ...]], ...] = (
-        ("eliminate_NNN_negative", eliminate_NNN, (False,)),
-        ("eliminate_high_positive_charge_atoms", eliminate_high_positive_charge_atoms, ()),
-        ("eliminate_CN_in_doubt", eliminate_CN_in_doubt, ()),
-        ("eliminate_NNN_positive", eliminate_NNN, (True,)),
-        ("eliminate_carboxyl", eliminate_carboxyl, ()),
-    )
-    for phase, stage, args in charge_stages:
-        hit = machine.run_omol_charge_stage(phase, stage, *args)
-        _record_no_metal_stage(
-            steps,
-            animation_items,
-            machine,
-            phase=phase,
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-
-    hit = machine.run_omol_stage(
-        "clean_carbene_neighbor_unsaturated_first",
-        clean_carbene_neighbor_unsaturated,
-    )
-    _record_no_metal_stage(
-        steps,
-        animation_items,
-        machine,
-        phase="clean_carbene_neighbor_unsaturated_first",
-        hit=hit,
-        target_charge=target_charge,
-        target_radical_electrons=target_radicals,
-        render_context=render_context,
-        case_id=case_id,
-    )
-    hit = machine.run_omol_charge_stage(
-        "eliminate_carbene_neighbor_heteroatom",
-        eliminate_carbene_neighbor_heteroatom,
-    )
-    _record_no_metal_stage(
-        steps,
-        animation_items,
-        machine,
-        phase="eliminate_carbene_neighbor_heteroatom",
-        hit=hit,
-        target_charge=target_charge,
-        target_radical_electrons=target_radicals,
-        render_context=render_context,
-        case_id=case_id,
-    )
-
-    has_neighbor_radical_pairs = bool(
-        no_metal_preparation._neighbor_radical_bond_pairs(machine.omol)
-    )
-    branch_machines = no_metal_preparation._enumerate_neighbor_radical_resolution_machines(machine)
-    branch_traces: list[_LinearBranchTrace] = []
-    for branch_index, branch_machine in enumerate(branch_machines):
-        branch_steps = deepcopy(steps)
-        branch_animation_items = list(animation_items)
-        branch_label = str(
-            branch_machine.metadata.get(
-                no_metal_preparation.NEIGHBOR_RADICAL_RESOLUTION_STRATEGY_KEY,
-                "direct",
-            )
-        )
-        branch_phase = branch_machine.phase_history[-1]
-        branch_hit = has_neighbor_radical_pairs
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase=branch_phase,
-            hit=branch_hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-            kind="branch",
-        )
-
-        hit = branch_machine.run_omol_stage(
-            "clean_carbene_neighbor_unsaturated_second",
-            clean_carbene_neighbor_unsaturated,
-        )
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase="clean_carbene_neighbor_unsaturated_second",
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        hit = branch_machine.run_omol_charge_stage(
-            "eliminate_charge_spliting",
-            eliminate_charge_spliting,
-        )
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase="eliminate_charge_spliting",
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        hit = branch_machine.run_omol_stage(
-            "break_deformed_ene",
-            break_deformed_ene,
-            branch_machine.given_charge,
-            target_radicals,
-            5.0,
-        )
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase="break_deformed_ene",
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        hit = branch_machine.run_omol_charge_stage(
-            "break_one_bond",
-            break_one_bond,
-            target_radicals,
-        )
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase="break_one_bond",
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        hit = branch_machine.run_omol_stage(
-            "fresh_omol_charge_radical_final",
-            fresh_omol_charge_radical,
-        )
-        _record_no_metal_stage(
-            branch_steps,
-            branch_animation_items,
-            branch_machine,
-            phase="fresh_omol_charge_radical_final",
-            hit=hit,
-            target_charge=target_charge,
-            target_radical_electrons=target_radicals,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        branch_traces.append(
-            _LinearBranchTrace(
-                branch_index=branch_index,
-                branch_label=branch_label,
-                state=branch_machine.freeze_like(seed_state),
-                steps=branch_steps,
-                animation_items=branch_animation_items,
-            )
-        )
-
-    return branch_traces
-
-
 def _no_metal_candidate_trace(
     candidate: ReconstructionState,
     *,
@@ -3435,134 +2521,21 @@ def _no_metal_candidate_trace(
     }
 
 
-def _linear_branch_result_trace(
-    branch: _LinearBranchTrace,
-    *,
-    total_charge: int,
-    total_radical_electrons: int,
-) -> dict[str, Any]:
-    return {
-        "branch_index": branch.branch_index,
-        "branch": branch.branch_label,
-        "phase_history": list(branch.state.phase_history),
-        "state": _omol_state_snapshot(
-            branch.state.omol,
-            given_charge=branch.state.given_charge,
-            target_charge=total_charge,
-            target_radical_electrons=total_radical_electrons,
-        ),
-    }
+def _production_phase_steps(state: ReconstructionState) -> list[dict[str, Any]]:
+    """Expose the phases recorded by the production no-metal state machine."""
 
-
-def _trace_no_metal_resonance_branch(
-    linear_state: ReconstructionState,
-    *,
-    branch_index: int,
-    branch_label: str,
-    total_charge: int,
-    total_radical_electrons: int,
-    traversal_policy: no_metal_resonance.ResonanceTraversalPolicy,
-    resonance_max_depth: int,
-    render_context: DofRenderContext | None = None,
-    case_id: str = "",
-    config: MolGRConfig | None = None,
-) -> tuple[dict[str, Any], list[tuple[ReconstructionState, dict[str, Any]]]]:
-    resonance_iterable = no_metal_resonance.get_radical_resonances(
-        linear_state.omol,
-        max_depth=resonance_max_depth,
-        traversal_policy=traversal_policy,
-    )
-
-    resonance_entries: list[tuple[ReconstructionState, dict[str, Any]]] = []
-    resonance_reports: list[dict[str, Any]] = []
-    seen_processed_states = set()
-    base_machine = OmolStateMachine.from_reconstruction_state(linear_state)
-    for resonance_index, resonance in enumerate(resonance_iterable):
-        raw_state_key = resonance_utils.build_resonance_state_key(resonance)
-        candidate_machine = base_machine.branch("branch_resonance_candidate", omol=resonance)
-        process_hit, process_steps = _trace_process_resonance(
-            candidate_machine,
-            target_charge=total_charge,
-            target_radical_electrons=total_radical_electrons,
-            branch_index=branch_index,
-            resonance_index=resonance_index,
-            render_context=render_context,
-            case_id=case_id,
-        )
-        processed_state_key = candidate_machine.get_cached_omol_value(
-            "resonance_state_key",
-            resonance_utils.build_processed_resonance_key,
-        )
-        duplicate = processed_state_key in seen_processed_states
-        if not duplicate:
-            seen_processed_states.add(processed_state_key)
-        valid = validate_omol(
-            candidate_machine.omol,
-            total_charge,
-            total_radical_electrons,
-        )
-        report: dict[str, Any] = {
-            "linear_branch_index": branch_index,
-            "linear_branch": branch_label,
-            "resonance_index": resonance_index,
-            "raw_state_key_hash": _short_hash(raw_state_key),
-            "processed_state_key_hash": _short_hash(processed_state_key),
-            "process_resonance_hit": process_hit,
-            "process_step_count": len(process_steps),
-            "process_steps": process_steps,
-            "duplicate_processed_state": duplicate,
-            "valid_for_target": valid,
-            "selected": False,
-            "state": _omol_state_snapshot(
-                candidate_machine.omol,
-                given_charge=candidate_machine.given_charge,
-                target_charge=total_charge,
-                target_radical_electrons=total_radical_electrons,
-            ),
-        }
-        if duplicate or not valid:
-            resonance_reports.append(report)
-            continue
-
-        candidate_machine.annotate("validate_resonance_candidate", resonance_index=resonance_index)
-        candidate = candidate_machine.freeze_like(linear_state)
-        try:
-            if config is None:
-                candidate.score("organic_core")
-            else:
-                candidate.score("organic_core", config=config)
-            no_metal_selection._score_reconstruction_candidate(candidate, config=config)
-            no_metal_selection._annotate_no_metal_candidate_topology(candidate, config=config)
-            report["score"] = candidate.metadata.get("score")
-            report["organic_topology_selection_key"] = (
-                no_metal_selection._no_metal_candidate_selection_key(candidate, config=config)
-            )
-            report["phase_history"] = list(candidate.phase_history)
-            report["metadata"] = _jsonable(candidate.metadata)
-            image = _render_dof_molecule(
-                candidate.omol,
-                render_context=render_context,
-                case_id=case_id,
-                label=f"branch_{branch_index}_resonance_{resonance_index}",
-                kind="no_metal_resonance_candidate",
-            )
-            if image is not None:
-                report["dof_image"] = image
-            resonance_entries.append((candidate, report))
-        except ValueError as exc:
-            report["score_error"] = str(exc)
-        resonance_reports.append(report)
-
-    resonance_trace = {
-        "linear_branch_index": branch_index,
-        "linear_branch": branch_label,
-        "traversal_policy": type(traversal_policy).__name__,
-        "max_depth": resonance_max_depth,
-        "candidate_count": len(resonance_reports),
-        "valid_unique_candidate_count": len(resonance_entries),
-        "candidates": resonance_reports,
-    }
-    return resonance_trace, resonance_entries
+    steps: list[dict[str, Any]] = []
+    for step_index, phase in enumerate(state.phase_history):
+        if phase.startswith("recover_"):
+            kind = "recovery"
+        elif phase.startswith("resolve_neighbor_radicals"):
+            kind = "neighbor_radical_seed"
+        elif "resonance" in phase:
+            kind = "resonance"
+        else:
+            kind = "stage"
+        steps.append({"step_index": step_index, "phase": phase, "kind": kind})
+    return steps
 
 
 def _trace_no_metal_reconstruction(
@@ -3574,11 +2547,6 @@ def _trace_no_metal_reconstruction(
     case_id: str = "",
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
-    seed_state = no_metal_preparation._seed_state(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-    )
     trace: dict[str, Any] = {
         "target": {
             "total_charge": total_charge,
@@ -3586,213 +2554,48 @@ def _trace_no_metal_reconstruction(
         },
         "status": "pending",
     }
-    if seed_state.total_radical_electrons < 0:
+    if total_radical_electrons < 0:
         trace["status"] = "invalid_negative_radicals"
         return trace
 
-    linear_branches = _run_no_metal_linear_branch_traces(
-        seed_state,
-        render_context=render_context,
-        case_id=case_id,
+    selected = reconstruct_without_metals.xyz_to_omol_no_metal_state(
+        xyz_block,
+        total_charge,
+        total_radical_electrons,
+        config=config,
     )
-    traversal_policy = no_metal_resonance._default_resonance_traversal_policy(config)
-    resonance_max_depth = no_metal_resonance._resonance_max_depth(config)
-
-    branch_reports: list[dict[str, Any]] = []
-    direct_entries: list[tuple[ReconstructionState, dict[str, Any], _LinearBranchTrace]] = []
-    resonance_entries_all: list[
-        tuple[ReconstructionState, dict[str, Any], _LinearBranchTrace]
-    ] = []
-    all_resonance_reports: list[dict[str, Any]] = []
-
-    for branch in linear_branches:
-        linear_state = branch.state
-        branch_report: dict[str, Any] = {
-            "branch_index": branch.branch_index,
-            "branch": branch.branch_label,
-            "linear_steps": branch.steps,
-            "linear_result": _linear_branch_result_trace(
-                branch,
-                total_charge=total_charge,
-                total_radical_electrons=total_radical_electrons,
-            ),
-        }
-
-        direct_valid = validate_omol(
-            linear_state.omol,
-            total_charge,
-            total_radical_electrons,
-        )
-        branch_report["direct_validation"] = direct_valid
-        if direct_valid:
-            result_machine = OmolStateMachine.from_reconstruction_state(linear_state).branch(
-                None,
-                omol=no_metal_preparation._clone_omol(linear_state.omol),
-            )
-            result_machine.annotate("validate_direct_candidate")
-            clean_hit = result_machine.run_omol_stage("clean_resonances", clean_resonances)
-            direct_candidate = result_machine.freeze_like(linear_state)
-            direct_trace: dict[str, Any] = {
-                "linear_branch_index": branch.branch_index,
-                "linear_branch": branch.branch_label,
-                "clean_resonances_hit": clean_hit,
-                "score_error": None,
-            }
-            try:
-                no_metal_selection._score_reconstruction_candidate(
-                    direct_candidate,
-                    config=config,
-                )
-                no_metal_selection._annotate_no_metal_candidate_topology(
-                    direct_candidate,
-                    config=config,
-                )
-            except ValueError as exc:
-                direct_trace["score_error"] = str(exc)
-            else:
-                direct_trace.update(
-                    _no_metal_candidate_trace(
-                        direct_candidate,
-                        selected=False,
-                        render_context=render_context,
-                        case_id=case_id,
-                        image_label=f"branch_{branch.branch_index}_direct_candidate",
-                        config=config,
-                    )
-                )
-                direct_entries.append((direct_candidate, direct_trace, branch))
-            branch_report["direct_candidate"] = direct_trace
-
-        resonance_trace, resonance_entries = _trace_no_metal_resonance_branch(
-            linear_state,
-            branch_index=branch.branch_index,
-            branch_label=branch.branch_label,
-            total_charge=total_charge,
-            total_radical_electrons=total_radical_electrons,
-            traversal_policy=traversal_policy,
-            resonance_max_depth=resonance_max_depth,
-            render_context=render_context,
-            case_id=case_id,
-            config=config,
-        )
-        branch_report["resonance"] = resonance_trace
-        all_resonance_reports.extend(cast(List[Dict[str, Any]], resonance_trace["candidates"]))
-        for candidate, report in resonance_entries:
-            resonance_entries_all.append((candidate, report, branch))
-
-        branch_reports.append(branch_report)
-
-    trace["linear_branches"] = branch_reports
-    trace["direct_validation"] = any(
-        bool(branch.get("direct_validation")) for branch in branch_reports
-    )
-    if direct_entries:
-        trace["direct_candidate"] = direct_entries[0][1]
-    if all_resonance_reports:
-        trace["resonance"] = {
-            "traversal_policy": type(traversal_policy).__name__,
-            "max_depth": resonance_max_depth,
-            "candidate_count": len(all_resonance_reports),
-            "valid_unique_candidate_count": len(resonance_entries_all),
-            "candidates": all_resonance_reports,
-        }
-        resonance_grid = _render_dof_grid(
-            (
-                (
-                    candidate.omol,
-                    f"B{report.get('linear_branch_index')}/R{report.get('resonance_index')} "
-                    f"score={_format_value(candidate.metadata.get('score'))}",
-                )
-                for candidate, report, _branch in resonance_entries_all
-            ),
-            render_context=render_context,
-            case_id=case_id,
-            label="resonance_candidates",
-            kind="no_metal_resonance_grid",
-        )
-        if resonance_grid is not None:
-            trace["resonance"]["dof_grid_image"] = resonance_grid
-
-    if resonance_entries_all:
-        candidate_pool: list[
-            tuple[ReconstructionState, dict[str, Any], _LinearBranchTrace, str]
-        ] = [
-            (candidate, report, branch, "resonance")
-            for candidate, report, branch in resonance_entries_all
-        ]
-    else:
-        candidate_pool = [
-            (candidate, report, branch, "direct")
-            for candidate, report, branch in direct_entries
-        ]
-
-    if not candidate_pool:
+    if selected is None:
         trace["status"] = "no_valid_no_metal_candidate"
-        if linear_branches:
-            trace["linear_steps"] = linear_branches[0].steps
-            trace["linear_result"] = _linear_branch_result_trace(
-                linear_branches[0],
-                total_charge=total_charge,
-                total_radical_electrons=total_radical_electrons,
-            )
         return trace
 
-    best_entry: tuple[ReconstructionState, dict[str, Any], _LinearBranchTrace, str] | None = None
-    best_selection_key: Optional[tuple[float, int, float, float, float, float]] = None
-    for entry in candidate_pool:
-        candidate = entry[0]
-        selection_key = no_metal_selection._no_metal_candidate_selection_key(
-            candidate,
-            config=config,
-        )
-        if best_selection_key is not None and selection_key >= best_selection_key:
-            continue
-        best_selection_key = selection_key
-        best_entry = entry
-
-    if best_entry is None:
-        trace["status"] = "no_best_no_metal_candidate"
-        return trace
-
-    best_candidate, best_report, best_branch, best_kind = best_entry
-    best_report["selected"] = True
-    trace["selected_linear_branch_index"] = best_branch.branch_index
-    trace["selected_linear_branch"] = best_branch.branch_label
-    trace["linear_steps"] = best_branch.steps
-    trace["linear_result"] = _linear_branch_result_trace(
-        best_branch,
-        total_charge=total_charge,
-        total_radical_electrons=total_radical_electrons,
-    )
-
-    if best_kind == "resonance":
-        result_machine = OmolStateMachine.from_reconstruction_state(best_candidate)
-        result_machine.annotate("select_best_resonance_candidate")
-        selected = result_machine.freeze_like(best_candidate)
-        trace["status"] = "resonance_selected"
-        selected_label = "selected_resonance_candidate"
-        animation_label = "selected resonance candidate"
-    else:
-        selected = best_candidate
-        trace["status"] = "direct_valid"
-        trace["direct_candidate"] = best_report
-        selected_label = "selected_direct_candidate"
-        animation_label = "selected direct candidate"
-
+    trace["status"] = "selected"
+    trace["pipeline_steps"] = _production_phase_steps(selected)
+    trace["neighbor_radical_actions"] = list(selected.metadata.get("neighbor_radical_actions", ()))
+    trace["recovery_tier"] = int(selected.metadata.get("recovery_tier", 0))
+    trace["resonance"] = {
+        "seed_index": selected.metadata.get("resonance_seed_index"),
+        "resonance_index": selected.metadata.get("resonance_index"),
+        "raw_index": selected.metadata.get("resonance_raw_index"),
+        "normalization": selected.metadata.get("resonance_normalization"),
+    }
     trace["selected_candidate"] = _no_metal_candidate_trace(
         selected,
         selected=True,
         render_context=render_context,
         case_id=case_id,
-        image_label=selected_label,
+        image_label="selected_no_metal_candidate",
         config=config,
     )
-    trace["selected_candidate"]["linear_branch_index"] = best_branch.branch_index
-    trace["selected_candidate"]["linear_branch"] = best_branch.branch_label
+
+    seed_state = no_metal_preparation._seed_state(
+        xyz_block,
+        total_charge,
+        total_radical_electrons,
+    )
     animation = _render_dof_animation(
         [
-            *best_branch.animation_items,
-            (_copy_omol(selected.omol), animation_label),
+            (_copy_omol(seed_state.omol), "normalized input seed"),
+            (_copy_omol(selected.omol), "selected no-metal candidate"),
         ],
         render_context=render_context,
         case_id=case_id,
@@ -3818,7 +2621,6 @@ def _render_selected_metal_path_animation(
         selected_candidate.no_metal_charge_target,
         selected_candidate.no_metal_radical_target,
     )
-    _linear_state, _linear_steps, animation_items = _run_no_metal_linear_trace(seed_state)
     try:
         combined_omol = selected_candidate.materialize_combined_omol(
             preparation.combine_metal_with_omol
@@ -3836,7 +2638,7 @@ def _render_selected_metal_path_animation(
         return error
     return _render_dof_animation(
         [
-            *animation_items,
+            (_copy_omol(seed_state.omol), "normalized organic seed"),
             (_copy_omol(selected_candidate.no_metal_state.omol), "selected organic part"),
             (combined_omol, "selected metal candidate"),
         ],

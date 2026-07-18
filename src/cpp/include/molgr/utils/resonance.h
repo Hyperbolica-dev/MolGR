@@ -44,6 +44,7 @@ namespace molgr
             const OpenBabel::OBMol &omol;
             const ResonanceStateKey &state_key;
             int depth;
+            int discrepancy;
         };
 
         struct IndexedResonanceTraversalMove

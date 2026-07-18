@@ -365,10 +365,10 @@ def eliminate_NNN(
     return omol, given_charge, hit
 
 
-def eliminate_charge_spliting(
-    omol: pybel.Molecule, given_charge: int
+def assign_negative_charges_from_radicals(
+    omol: pybel.Molecule, remaining_charge: int
 ) -> tuple[pybel.Molecule, int, bool]:
-    """Reduce overly split radical charge patterns before resonance expansion."""
+    """Convert selected single radicals into anions and update the charge budget."""
 
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
@@ -384,11 +384,11 @@ def eliminate_charge_spliting(
             if cast(ob.OBAtom, atom).GetSpinMultiplicity() == 1
         ]
         total_radicals = sum(cast(ob.OBAtom, atom).GetSpinMultiplicity() for atom in radical_atoms)
-        while total_radicals > abs(given_charge):
+        while total_radicals > abs(remaining_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() in (8, 9, 17, 35, 53):
                     atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
-                    given_charge += atom.GetSpinMultiplicity()
+                    remaining_charge += atom.GetSpinMultiplicity()
                     total_radicals -= atom.GetSpinMultiplicity()
                     atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
@@ -396,11 +396,11 @@ def eliminate_charge_spliting(
                     break
             else:
                 break
-        while total_radicals > abs(given_charge):
+        while total_radicals > abs(remaining_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 16:
                     atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
-                    given_charge += atom.GetSpinMultiplicity()
+                    remaining_charge += atom.GetSpinMultiplicity()
                     total_radicals -= atom.GetSpinMultiplicity()
                     atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
@@ -408,11 +408,11 @@ def eliminate_charge_spliting(
                     break
             else:
                 break
-        while total_radicals > abs(given_charge):
+        while total_radicals > abs(remaining_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 7:
                     atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
-                    given_charge += atom.GetSpinMultiplicity()
+                    remaining_charge += atom.GetSpinMultiplicity()
                     total_radicals -= atom.GetSpinMultiplicity()
                     atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
@@ -420,7 +420,7 @@ def eliminate_charge_spliting(
                     break
             else:
                 break
-        while total_radicals > abs(given_charge):
+        while total_radicals > abs(remaining_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 6 and not any(
                     _atom
@@ -428,7 +428,7 @@ def eliminate_charge_spliting(
                     if cast(ob.OBAtom, _atom).GetAtomicNum() in consts.HETEROATOM
                 ):
                     atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
-                    given_charge += atom.GetSpinMultiplicity()
+                    remaining_charge += atom.GetSpinMultiplicity()
                     total_radicals -= atom.GetSpinMultiplicity()
                     atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
@@ -436,11 +436,11 @@ def eliminate_charge_spliting(
                     break
             else:
                 break
-        while total_radicals > abs(given_charge):
+        while total_radicals > abs(remaining_charge):
             for atom in radical_atoms:
                 if atom.GetAtomicNum() == 6:
                     atom.SetFormalCharge(atom.GetFormalCharge() - atom.GetSpinMultiplicity())
-                    given_charge += atom.GetSpinMultiplicity()
+                    remaining_charge += atom.GetSpinMultiplicity()
                     total_radicals -= atom.GetSpinMultiplicity()
                     atom.SetSpinMultiplicity(0)
                     radical_atoms.remove(atom)
@@ -448,7 +448,7 @@ def eliminate_charge_spliting(
                     break
             else:
                 break
-    return omol, given_charge, hit
+    return omol, remaining_charge, hit
 
 
 def eliminate_1_3_dipole(
@@ -544,7 +544,7 @@ __all__ = [
     "eliminate_NNN",
     "eliminate_carboxyl",
     "eliminate_carbene_neighbor_heteroatom",
-    "eliminate_charge_spliting",
+    "assign_negative_charges_from_radicals",
     "eliminate_cp_like_radical_anion",
     "eliminate_high_positive_charge_atoms",
     "eliminate_negative_charges",

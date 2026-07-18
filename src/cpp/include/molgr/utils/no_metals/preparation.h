@@ -35,10 +35,7 @@ namespace molgr
                 int total_charge,
                 int total_radical_electrons);
 
-            molgr::state::ReconstructionState RunLinearPipeline(
-                const molgr::state::ReconstructionState &state);
-
-            std::vector<molgr::state::ReconstructionState> EnumerateNoMetalCandidateStates(
+            molgr::state::ReconstructionState PrepareNoMetalSeed(
                 const molgr::state::ReconstructionState &state);
         }
     }

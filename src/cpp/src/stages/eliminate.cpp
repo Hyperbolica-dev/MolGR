@@ -540,7 +540,7 @@ namespace molgr
             return hit;
         }
 
-        bool EliminateChargeSpliting(OBMol &mol, int &charge)
+        bool AssignNegativeChargesFromRadicals(OBMol &mol, int &remaining_charge)
         {
             bool hit = false;
             bool all_neutral = true;
@@ -570,7 +570,7 @@ namespace molgr
                 }
                 auto process = [&](int atomic_num, bool check_hetero_neighbor)
                 {
-                    while (total_radicals > std::abs(charge))
+                    while (total_radicals > std::abs(remaining_charge))
                     {
                         bool found = false;
                         for (auto it = radical_atoms.begin(); it != radical_atoms.end(); ++it)
@@ -591,7 +591,7 @@ namespace molgr
                             const int charge_delta = atom->GetSpinMultiplicity();
                             atom->SetFormalCharge(atom->GetFormalCharge() - charge_delta);
                             atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - charge_delta);
-                            charge += charge_delta;
+                            remaining_charge += charge_delta;
                             total_radicals -= charge_delta;
                             radical_atoms.erase(it);
                             hit = true;

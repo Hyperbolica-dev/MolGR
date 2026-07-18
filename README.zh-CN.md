@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-MolGR 名称来源于 Moleculer Graph Reconstructer。
+MolGR 名称来源于 Moleculer Graph Reconstructor。
 
 MolGR 是一个从 XYZ 坐标重建分子图的 Python 包。它接收 XYZ 文本、总电荷和自旋多重度，
 输出带有键级、三维构象、可选配位键和可选立体化学信息的 `rdkit.Chem.Mol`。
@@ -119,7 +119,8 @@ MolGR 把 Python fallback 作为语义参考，把 C++ 后端作为加速路径�
 
 1. 解析 XYZ 输入，并根据总电荷、自旋多重度和运行时配置确定重建目标。
 2. 根据 `backend="cpp"` 或 `backend="python"` 分发到对应后端。
-3. 对不含金属的结构，执行有机骨架重建流程；如果直接候选无效，则进入共振候选恢复。
+3. 对不含金属的结构，按电荷分离动作数递增搜索邻位自由基种子层；各层共享共振去重状态，并在首个有效层停止。
+   只有全部主层为空时，才进入畸变 pi 键和断键恢复层。
 4. 对含金属的结构，先把金属从有机骨架中临时分离，枚举可能的金属状态，并把这些状态按照
    诱导出的有机部分电荷和自由基目标分桶。
 5. 每个有机目标桶只重建一次，然后复用于对应的金属候选组合。
@@ -149,6 +150,7 @@ uv pip install -e . -v --no-build-isolation
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
+uv run pyright
 uv run pytest
 ```
 
@@ -163,7 +165,7 @@ uv build
 - `make format`：运行 Ruff formatter，会修改文件。
 - `make lint`：运行 `ruff check . --fix`，会修改文件。
 - `make test`：运行 pytest。
-- `make type-check`：对 `src` 运行 MyPy。
+- `make type-check`：对 `src` 运行 MyPy 和 Pyright。
 - `make cpp-build`：重新构建可编辑 C++ 扩展，并刷新 C++ IDE 配置。
 - `make stubs`：重新生成编译扩展的类型存根。
 

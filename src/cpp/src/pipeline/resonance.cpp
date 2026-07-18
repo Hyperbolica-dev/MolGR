@@ -62,6 +62,7 @@ namespace molgr
                     *current,
                     current_key,
                     depth,
+                    0,
                 });
                 if (depth >= max_depth || !should_expand)
                 {
@@ -129,6 +130,7 @@ namespace molgr
                         *current_entry.omol,
                         current_entry.state_key,
                         current_entry.depth,
+                        current_entry.discrepancy,
                     });
                 }
 
@@ -137,10 +139,15 @@ namespace molgr
                     continue;
                 }
 
-                const auto moves =
-                    EnumerateOneStepResonanceMoves(*current_entry.omol, current_entry.state_key, bond_index_map);
-                const auto selected_moves =
-                    SelectLimitedDiscrepancyMoves(*current_entry.omol, moves, traversal_config, config);
+                const auto moves = EnumerateOneStepResonanceMoves(
+                    *current_entry.omol,
+                    current_entry.state_key,
+                    bond_index_map);
+                const auto selected_moves = SelectLimitedDiscrepancyMoves(
+                    *current_entry.omol,
+                    moves,
+                    traversal_config,
+                    config);
                 for (std::size_t move_rank = 0; move_rank < selected_moves.size(); ++move_rank)
                 {
                     const int next_discrepancy =

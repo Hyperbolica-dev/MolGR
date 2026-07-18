@@ -32,6 +32,7 @@ namespace molgr
                 double adjusted_max_conjugated_component_size = 0.0;
                 double adjusted_conjugated_atom_count = 0.0;
                 double adjusted_conjugated_bond_count = 0.0;
+                int excess_radical_labels = 0;
             };
 
             std::optional<molgr::state::ReconstructionState> XyzToOmolNoMetalState(

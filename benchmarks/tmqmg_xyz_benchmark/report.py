@@ -37,7 +37,9 @@ def _load_results(path: Path) -> pd.DataFrame:
     return df
 
 
-def _normalize_results(paths: list[Path], labels: list[str] | None) -> list[tuple[str, pd.DataFrame]]:
+def _normalize_results(
+    paths: list[Path], labels: list[str] | None
+) -> list[tuple[str, pd.DataFrame]]:
     if labels is not None and len(labels) != len(paths):
         raise ValueError("--labels must match --results length")
     normalized: list[tuple[str, pd.DataFrame]] = []
@@ -49,9 +51,9 @@ def _normalize_results(paths: list[Path], labels: list[str] | None) -> list[tupl
 
 def _truthy_series(series: pd.Series) -> pd.Series:
     return series.fillna(False).map(
-        lambda value: value
-        if isinstance(value, bool)
-        else str(value).strip().lower() in {"1", "true", "yes"}
+        lambda value: (
+            value if isinstance(value, bool) else str(value).strip().lower() in {"1", "true", "yes"}
+        )
     )
 
 
@@ -74,18 +76,21 @@ def _accuracy_by_method(df: pd.DataFrame) -> pd.DataFrame:
 
 def _plot_accuracy(datasets: list[tuple[str, pd.DataFrame]], out_path: Path) -> None:
     method_ids = sorted({method_id for _, df in datasets for method_id in df["method_id"].unique()})
-    summary = {
-        label: _accuracy_by_method(df).set_index("method_id")
-        for label, df in datasets
-    }
+    summary = {label: _accuracy_by_method(df).set_index("method_id") for label, df in datasets}
 
     fig, ax = plt.subplots(figsize=(11, 4.8))
     width = 0.8 / max(len(datasets), 1)
     offsets = [(-0.4 + width / 2.0) + i * width for i in range(len(datasets))]
     colors = ["#2F6FDF", "#D95F02", "#1B9E77", "#7570B3"]
     for index, (label, _) in enumerate(datasets):
-        values = [float(summary[label].loc[m, "accuracy"]) if m in summary[label].index else 0.0 for m in method_ids]
-        counts = [int(summary[label].loc[m, "count"]) if m in summary[label].index else 0 for m in method_ids]
+        values = [
+            float(summary[label].loc[m, "accuracy"]) if m in summary[label].index else 0.0
+            for m in method_ids
+        ]
+        counts = [
+            int(summary[label].loc[m, "count"]) if m in summary[label].index else 0
+            for m in method_ids
+        ]
         positions = [i + offsets[index] for i in range(len(method_ids))]
         bars = ax.bar(
             positions,
@@ -179,13 +184,17 @@ def _plot_timing_recall_boxplot(datasets: list[tuple[str, pd.DataFrame]], out_pa
         counts: dict[str, int] = {}
         for method_id in method_ids:
             method_df = df.loc[(df["method_id"] == method_id) & (df["status"] != "skipped")]
-            timing = method_df.loc[method_df["timing_ms_total"].notna(), "timing_ms_total"].astype(float)
+            timing = method_df.loc[method_df["timing_ms_total"].notna(), "timing_ms_total"].astype(
+                float
+            )
             timing = timing.loc[timing > 0.0]
             values = timing.tolist()
             series.append(values)
             all_positive_timings.extend(values)
             denominator = method_df.loc[_comparable_mask(method_df)]
-            recalls[method_id] = float(_truthy_series(denominator["equivalent"]).mean()) if len(denominator) else 0.0
+            recalls[method_id] = (
+                float(_truthy_series(denominator["equivalent"]).mean()) if len(denominator) else 0.0
+            )
             counts[method_id] = len(denominator)
 
         boxplot = ax.boxplot(

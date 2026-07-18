@@ -1,13 +1,4 @@
-"""No-metal reconstruction pipeline for fallback.
-
-The deterministic direct path stays linear; alternative neighbor-radical
-resolutions are exposed only as candidate states:
-1. Build no-metal candidate states from deterministic stages plus explicit
-   neighbor-radical strategies.
-2. Validate every candidate directly, but still run resonance recovery for each one.
-3. Prefer the best resonance candidate; fall back to direct-valid candidates only
-   if no resonance candidate survives.
-"""
+"""No-metal reconstruction through unified resonance seeds and recovery tiers."""
 
 from __future__ import annotations
 
@@ -18,10 +9,7 @@ from openbabel import pybel
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
-from molgr.fallback.utils.no_metals import (
-    preparation,
-    selection,
-)
+from molgr.fallback.utils.no_metals import neighbor_radicals, preparation, recovery, selection
 from molgr.fallback.utils.no_metals import (
     resonance as no_metal_resonance,
 )
@@ -49,47 +37,59 @@ def _run_no_metal_pipeline_from_state(
     if seed_state.total_radical_electrons < 0:
         return None
 
-    direct_candidates: list[ReconstructionState] = []
-    resonance_candidates: list[ReconstructionState] = []
-    for state in preparation._enumerate_no_metal_candidate_states(seed_state):
-        if preparation.validate_omol(
-            state.omol,
-            seed_state.total_charge,
-            seed_state.total_radical_electrons,
-        ):
-            result_machine = OmolStateMachine.from_reconstruction_state(state).branch(
-                None,
-                omol=preparation._clone_omol(state.omol),
-            )
-            result_machine.annotate("validate_direct_candidate")
-            result_machine.run_omol_stage("clean_resonances", preparation.clean_resonances)
-            result = result_machine.freeze_like(state)
-            try:
-                selection._score_reconstruction_candidate(result, config=config)
-            except ValueError:
-                pass
-            else:
-                selection._annotate_no_metal_candidate_topology(result, config=config)
-                direct_candidates.append(result)
+    prepared_seed = preparation.prepare_no_metal_seed(seed_state)
+    traversal_policy = no_metal_resonance._default_resonance_traversal_policy(config)
+    resolved_config = CONFIG if config is None else config
+    max_discrepancy = max(
+        0,
+        int(resolved_config.resonance.limited_discrepancy_max_discrepancy),
+    )
+    resonance_seeds: list[ReconstructionState] = []
+    candidate_pool: list[ReconstructionState] = []
+    search_session = no_metal_resonance._ResonanceSearchSession()
+    for discrepancy in range(max_discrepancy + 1):
+        neighbor_seeds = neighbor_radicals.enumerate_neighbor_radical_seeds(
+            prepared_seed,
+            exact_discrepancy=discrepancy,
+        )
+        layer_seeds = no_metal_resonance.build_resonance_seed_pool(neighbor_seeds)
+        resonance_seeds.extend(layer_seeds)
+        candidate_pool = no_metal_resonance.search_resonance_candidates(
+            layer_seeds,
+            resonance_traversal_policy=traversal_policy,
+            config=config,
+            session=search_session,
+        )
+        if candidate_pool:
+            break
 
-        resonance_candidates.extend(
-            no_metal_resonance._recover_resonance_candidates(
-                state,
-                resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(
-                    config
-                ),
+    deformed_pi_seeds: list[ReconstructionState] = []
+    if not candidate_pool:
+        deformed_pi_seeds = recovery.enumerate_deformed_pi_recovery_seeds(resonance_seeds)
+        if deformed_pi_seeds:
+            candidate_pool = no_metal_resonance.search_resonance_candidates(
+                no_metal_resonance.build_resonance_seed_pool(deformed_pi_seeds),
+                resonance_traversal_policy=traversal_policy,
                 config=config,
             )
-        )
 
-    candidate_pool = resonance_candidates if resonance_candidates else direct_candidates
+    if not candidate_pool:
+        bond_break_seeds = recovery.enumerate_bond_break_recovery_seeds(
+            (*resonance_seeds, *deformed_pi_seeds)
+        )
+        if bond_break_seeds:
+            candidate_pool = no_metal_resonance.search_resonance_candidates(
+                no_metal_resonance.build_resonance_seed_pool(bond_break_seeds),
+                resonance_traversal_policy=traversal_policy,
+                config=config,
+            )
+
     if not candidate_pool:
         return None
 
     best_candidate: Optional[ReconstructionState] = None
-    best_selection_key: Optional[tuple[float, int, float, float, float, float]] = None
+    best_selection_key: Optional[tuple[float, int, float, float, float, int, float]] = None
     for candidate in candidate_pool:
-        selection._score_reconstruction_candidate(candidate, config=config)
         selection_key = selection._no_metal_candidate_selection_key(candidate, config=config)
         if best_selection_key is not None and selection_key >= best_selection_key:
             continue
@@ -99,11 +99,8 @@ def _run_no_metal_pipeline_from_state(
     if best_candidate is None:
         return None
 
-    if "validate_resonance_candidate" not in best_candidate.phase_history:
-        return best_candidate
-
     result_machine = OmolStateMachine.from_reconstruction_state(best_candidate)
-    result_machine.annotate("select_best_resonance_candidate")
+    result_machine.annotate("select_best_no_metal_candidate")
     return result_machine.freeze_like(best_candidate)
 
 

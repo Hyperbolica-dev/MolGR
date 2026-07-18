@@ -36,23 +36,23 @@ MolGR 的统一算法可以按七层理解：
 
 4. 无金属重建
    - 从 no-metal XYZ 创建 `ReconstructionState`
-   - 为普通路径运行确定性 direct 线性 pipeline
-   - 当邻位自由基有多个合理处理方式时，显式枚举 no-metal candidate states
-   - 对 direct candidate 做验证、`clean_resonances` 和评分，作为兜底候选池
-   - 对每个 no-metal candidate state 都执行自由基共振恢复
+   - 运行到邻位自由基处理之前的确定性准备步骤
+   - 按电荷分离动作数精确枚举完整局部消除方案
+   - 先搜索纯键级层，再逐层引入含电荷分离的种子
 
 5. 共振恢复
-   - 按配置的 `resonance.max_depth` 和 `resonance.traversal_score` 遍历候选
-   - 对候选执行 `process_resonance`
-   - 用 processed resonance key 去重
+   - 按配置的深度和遍历策略搜索每个差异层
+   - 对每个原始共振态同时保留轻量清理和完整归一化两类变体
+   - 各层共享 raw 状态、遍历标签和 processed 状态去重
+   - 首个产生有效候选的层结束后续扩展
    - 验证电荷和自由基数是否满足目标
+   - 主池为空时，才依次尝试畸变 pi 键恢复和最终断键恢复
    - 按有机拓扑和力场能量选择 no-metal 赢家
-   - 只要 resonance 候选池非空，就优先从 resonance 候选中选；direct-valid 候选只做兜底
 
 6. 金属候选评分和选择
    - 同一个 no-metal 目标桶只重建一次，然后共享给桶内所有金属态候选
    - 候选先继承共享有机骨架力场分数
-   - 选择时依次比较金属失谐计数、有机骨架力场分数和 `combination_index`
+   - 选择时依次比较结构金属失谐、有机骨架力场分数和 `combination_index`
    - 只为最终赢家执行金属回插
 
 7. RDKit 输出后处理
@@ -96,16 +96,18 @@ flowchart TD
     Buckets --> NoMetal["xyz_to_omol_no_metal_state / XyzToOmolNoMetalState<br/>run once per target bucket"]
     CppNoMetal --> Seed["seed no-metal ReconstructionState"]
     NoMetal --> Seed
-    Seed --> Linear["direct linear no-metal pipeline:<br/>make connections, clean, eliminate, break bonds, fresh charges/radicals"]
-    Seed --> CandidateEnum["enumerate no-metal candidate states:<br/>explicit neighbor-radical resolution strategies"]
-    CandidateEnum --> Valid{"validate_omol"}
-    CandidateEnum --> Resonance["recover resonance candidates"]
-
-    Valid -->|"valid"| Direct["clean_resonances + score direct candidate"]
+    Seed --> Prepare["prepare no-metal seed:<br/>连接与确定性清理"]
+    Prepare --> CandidateEnum["枚举精确差异层:<br/>0，然后 1，..."]
+    CandidateEnum --> SeedPool["构建当前层共振种子池:<br/>原始态 + 电子态变体"]
+    SeedPool --> Resonance["使用共享 session 搜索"]
     Resonance --> Walk["limited-discrepancy radical resonance traversal"]
-    Walk --> Process["process_resonance + dedupe + validate"]
-    Process --> NoMetalSelect["select no-metal candidate<br/>resonance pool first, direct fallback"]
-    Direct --> NoMetalSelect
+    Walk --> Process["双路径归一化 + 全局去重 + 验证"]
+    Process -->|"为空且仍有主层"| CandidateEnum
+    Process -->|"所有主层为空"| Recovery1["第一层恢复: 畸变 pi 键"]
+    Recovery1 -->|"仍为空"| Recovery2["第二层恢复: 最终断键"]
+    Process --> NoMetalSelect["选择 no-metal 候选"]
+    Recovery1 --> NoMetalSelect
+    Recovery2 --> NoMetalSelect
 
     NoMetalSelect --> ScoreMetal["score metal candidates with shared no-metal state"]
     ScoreMetal --> MetalSelect["select_best_candidate"]
@@ -140,15 +142,17 @@ sequenceDiagram
     IF->>IF: total_radical_electrons = spin_multiplicity - 1
     IF->>BE: route to cpp or python backend
 
-    alt no metal fast/direct path
+    alt 无金属快速路径
         BE->>NM: reconstruct full XYZ as no-metal target
         NM->>NM: seed ReconstructionState
-        NM->>NM: run direct linear path and candidate-state enumeration
-        NM->>SC: validate, clean, and score direct candidates
-        NM->>RS: enumerate radical resonance candidates for every candidate state
-        RS->>RS: traverse, process, dedupe, validate
+        NM->>NM: 准备种子并枚举差异层 0
+        NM->>RS: 使用共享去重 session 搜索当前层
+        RS->>RS: 仅在当前层为空时继续扩层
+        opt 所有主层为空
+            NM->>RS: 依次用第一层和第二层恢复种子重试
+        end
         RS->>SC: return valid no-metal candidates
-        SC->>SC: prefer resonance pool; fall back to direct candidates
+        SC->>SC: 选择最佳 no-metal 候选
         SC->>CV: selected no-metal molecule data
     else metal-containing path
         BE->>MP: prepare_metal_state(xyz, charge, radicals)
@@ -159,12 +163,11 @@ sequenceDiagram
         MS->>MS: meet-in-the-middle DP grouping by target bucket
         loop per target bucket
             MS->>NM: reconstruct no_metal_xyz_block with target charge/radicals
-            NM->>NM: run direct linear path and candidate-state enumeration
-            NM->>SC: validate, clean, and score direct candidates
-            NM->>RS: enumerate radical resonance candidates for every candidate state
-            RS->>RS: traverse, process, dedupe, validate
+            NM->>NM: 准备并枚举邻位自由基差异层
+            NM->>RS: 使用同一个 session 逐层搜索
+            RS->>RS: 仅在所有主层为空时进入恢复层
             RS->>SC: return valid no-metal candidates
-            SC->>SC: prefer resonance pool; fall back to direct candidates
+            SC->>SC: 选择最佳 no-metal 候选
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
@@ -181,9 +184,9 @@ sequenceDiagram
     CV-->>User: Chem.Mol
 ```
 
-## 无金属线性 Pipeline 与候选枚举
+## 无金属准备、种子枚举与恢复层
 
-无金属重建的确定性阶段由
+无金属重建的确定性准备阶段由
 [`src/molgr/fallback/utils/no_metals/preparation.py`](../../src/molgr/fallback/utils/no_metals/preparation.py)
 和 [`src/cpp/src/utils/no_metals/preparation.cpp`](../../src/cpp/src/utils/no_metals/preparation.cpp)
 对齐实现。主要顺序是：
@@ -193,27 +196,23 @@ sequenceDiagram
 3. `fresh_omol_charge_radical_initial`
 4. 初始化剩余电荷预算：目标总电荷减去当前原子形式电荷
 5. 依次执行 NNN、强正电中心、CN 疑难键、羧基、卡宾邻位等消除/清理阶段
-6. direct 线性路径用 `clean_neighbor_radicals` 处理邻位自由基
-7. 执行电荷分离和断键清理
-8. `break_deformed_ene`
-9. `break_one_bond`
-10. `fresh_omol_charge_radical_final`
 
-direct 线性 pipeline 保持单一路径。候选枚举是单独一层：当存在邻位自由基对时，MolGR
-额外枚举两种电荷分离处理策略（`charge_begin_positive` 和
-`charge_begin_negative`），并对每种策略继续执行同一套后续确定性阶段。
+确定性准备在邻位自由基处理之前结束。`enumerate_neighbor_radical_seeds(...)`
+随后枚举完整的局部动作序列：每一对邻位自由基可以提高键级，也可以按两个方向之一发生
+电荷分离。互不相交或彼此重叠的自由基对可以组合出混合策略，不再用一个全局策略控制整条分支。
 
-每个枚举出的 no-metal candidate state 都会进入两套检查：
+生产流水线使用精确差异预算调用 `enumerate_neighbor_radical_seeds(...)`：第 0 层只包含提高
+键级的消除方案，后续层分别包含一次或多次电荷分离动作。`build_resonance_seed_pool(...)`
+为当前层保留原始分叉态，并加入由卡宾自由基迁移、基于自由基标记分配负电荷、刷新电子标记
+产生的非重复变体。
 
-- direct 候选池：如果 `validate_omol(...)` 通过，就执行 `clean_resonances`、评分，并保留为兜底候选。
-- resonance 候选池：无论 direct 形态是否已经有效，都继续执行共振恢复。
-
-只要 resonance 候选池非空，no-metal selection 就从 resonance 候选中选；direct-valid
-候选只在 resonance 候选池为空时使用。
+所有主层复用同一个共振搜索 session，前一层已经发现的 raw 共振态、Pareto 遍历标签和
+processed 状态不会重复计算。首个产生有效候选的层会终止后续扩展；此后也不存在独立的
+direct 候选路径。
 
 ## 共振恢复策略
 
-共振恢复会对每个枚举出的 no-metal candidate state 执行。当前策略是：
+共振搜索逐层消费种子，并通过共享 session 在所有已搜索层之间全局去重。当前策略是：
 
 - 构建 resonance state key 和 bond index map。
 - 枚举一步自由基共振迁移。
@@ -221,14 +220,16 @@ direct 线性 pipeline 保持单一路径。候选枚举是单独一层：当存
   - `uff_lite_gain`
   - `input_order`
 - 默认使用 limited-discrepancy traversal，限制偏离最高优先级迁移的总 discrepancy。
-- 对每个候选执行 `process_resonance`，再构建 processed resonance key 去重。
+- 在不同种子之间先按 raw resonance key 全局去重。
+- 每个 raw state 分别执行 `clean_resonances` 和完整 `process_resonance`，再按 processed key 全局去重。
 - 只保留通过 `validate_omol(...)` 的候选。
+- 如果没有候选存活，生成第一层畸变 pi 键恢复种子并重新搜索。
+- 如果仍为空，生成第二层断键恢复种子并做最后一次搜索。
 - no-metal 候选选择优先级是：
-  1. 更多芳香原子
-  2. 更大的最大共轭连通分量
-  3. 更多共轭原子
-  4. 更多共轭键
-  5. 更低 force-field 分数
+  1. 更高芳香稳定性，其次是更多芳香原子
+  2. 更大的电荷惩罚后共轭拓扑
+  3. 更少的多余自由基标记
+  4. 更低 force-field 分数
 
 ## 金属搜索与选择
 
@@ -274,7 +275,8 @@ DP 合并后的 target bucket key 是：
 - 由有机电子态指标派生的金属失谐特征：
   - 芳香原子/环数量
     - 芳香环先由 OpenBabel 标记，再额外过滤：如果环上形式电荷之和的绝对值大于等于 4，该环不计入芳香环，也不贡献芳香原子数。
-    - 该过滤避免高度电荷分离的环仅因形式上满足 `4n+2` 电子数而被当成芳环，从而让芳环损失进入失谐度判定。
+    - 该过滤避免高度电荷分离的环仅因形式上满足 `4n+2` 电子数而被当成芳环。
+    - 芳香环和芳香稳定性损失仅保留为诊断 metadata，不计入硬失谐。
   - 共轭原子/键数量
   - 最大共轭连通分量
   - 电荷局域化惩罚
@@ -336,11 +338,32 @@ DP 合并后的 target bucket key 是：
    - 化学含义：孤立负价金属在绝大多数普通候选中不合理，除非体系中有明确的外圈质子酸或金属阳离子提供整体电荷平衡。
    - 判定作用：标记当前金属价态候选的全局电荷平衡失谐；不直接删除该候选。
 
-最终选择只保留失谐度和有机分：
+7. 构造重复片段的净电荷不对称
+   - 按元素和连接关系对断开的有机片段分组；该签名有意忽略形式电荷和键级。
+   - 同一重复片段组中成员的净形式电荷不一致时，该组贡献 1 个失谐计数。
+   - 该特征识别把等价配体片段强行分配成不一致氧化/还原态的候选。
 
-- 对每个金属候选先绑定共享 no-metal state，计算有机骨架 force-field score 和 `metal_discordance_count`。
+8. 内圈可见多齿环配体中的还原型非芳香碳
+   - 一个有机片段必须至少有 3 个碳原子通过内圈可见性判据暴露给同一金属中心。
+   - 该片段中每个带负电、处于环内且非芳香的碳原子贡献 1 个失谐计数。
+   - 该特征针对过高金属价态导致的离域环形式损失，而不使用全局芳香性奖励。
+
+9. 两个内圈可见杂原子之间的多键
+   - 两个内圈可见 `N/O/P/S` 原子之间出现二级或更高键时，每条键贡献 1 个失谐计数。
+   - 该特征识别通过局域化杂原子多键消耗两个配位 donor 位点的候选。
+
+10. 强配位几何失谐
+    - 平面四方配位的 Pd/Pt 若形式价态不低于 IV，贡献 1 个失谐计数。
+    - 线性配位的 Ag/Au 若形式价态不低于 III，贡献 1 个失谐计数。
+    - 当前只处理这两类强几何/氧化态矛盾；其它几何不作硬判定。
+
+最终选择显式区分不同特征层：
+
+- 对每个金属候选先绑定共享 no-metal state，计算有机骨架 force-field score。
+- `metal_discordance_structural_count` 是结构失谐之和，包括负价金属的分数型惩罚。
+- `metal_discordance_count` 与结构失谐总数相同；芳香性损失和金属价态列表归属均不包含在内。
 - 先比较 `metal_discordance_count`，只保留失谐分最低的候选。
-- 如果多个候选并列最低失谐计数，则直接比较有机骨架 force-field score。
+- 如果多个候选并列，则直接比较有机骨架 force-field score；配置中的金属价态列表顺序不是化学评分。
 - 如果有机分仍然并列，则按 `combination_index` 做稳定的确定性打破平局。
 - 入选候选仍会记录用于派生失谐度的有机电子态指标；已移除的金属环境评分指标不再存在于运行时 metadata。
 
@@ -422,7 +445,7 @@ C++ 后端是 Python fallback 语义的加速实现。下面这些优化可以�
 实现状态说明：
 
 - resonance candidate parallelism 的调度成本高于收益，当前版本不再保留对应 C++ 配置项。
-- `RecoverResonanceCandidates(...)` 仍按串行流程准备 resonance candidates。
+- `SearchResonanceCandidates(...)` 仍按串行流程准备 resonance candidates。
 
 ## C++/Python 后端一致性护栏
 

@@ -4,7 +4,9 @@
 #include "molgr/stages/clean.h"
 #include "molgr/stages/preprocess.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/no_metals/neighbor_radicals.h"
 #include "molgr/utils/no_metals/preparation.h"
+#include "molgr/utils/no_metals/recovery.h"
 #include "molgr/utils/no_metals/resonance.h"
 #include "molgr/utils/no_metals/selection.h"
 #include "molgr/utils/perf.h"
@@ -73,8 +75,7 @@ namespace molgr
                     return std::nullopt;
                 }
                 const auto linear_started = std::chrono::steady_clock::now();
-                auto candidate_states =
-                    molgr::no_metals::preparation::EnumerateNoMetalCandidateStates(state);
+                auto prepared_seed = molgr::no_metals::preparation::PrepareNoMetalSeed(state);
                 if (timing_reducer != nullptr)
                 {
                     const auto linear_now = std::chrono::steady_clock::now();
@@ -82,98 +83,105 @@ namespace molgr
                         std::chrono::duration<double, std::milli>(linear_now - linear_started).count());
                 }
 
-                std::vector<molgr::state::ReconstructionState> direct_candidates;
-                std::vector<molgr::state::ReconstructionState> resonance_candidates;
                 const auto resonance_started = std::chrono::steady_clock::now();
-                bool recovered_any_resonance = false;
-                for (auto &linear_state : candidate_states)
+                std::vector<molgr::state::ReconstructionState> resonance_seeds;
+                std::vector<molgr::state::ReconstructionState> candidate_pool;
+                molgr::no_metals::resonance::ResonanceSearchSession search_session;
+                const int max_discrepancy = std::max(
+                    0,
+                    config.resonance.limited_discrepancy_max_discrepancy);
+                for (int discrepancy = 0; discrepancy <= max_discrepancy; ++discrepancy)
                 {
-                    const auto validate_started = std::chrono::steady_clock::now();
-                    const bool direct_candidate_valid =
-                        reconstruct::ValidateOmol(
-                            linear_state.MutableMol(),
-                            linear_state.total_charge,
-                            linear_state.total_radical_electrons);
+                    const auto layer_started = std::chrono::steady_clock::now();
+                    auto neighbor_seeds =
+                        molgr::no_metals::neighbor_radicals::EnumerateNeighborRadicalSeeds(
+                            prepared_seed,
+                            discrepancy);
+                    auto layer_seeds =
+                        molgr::no_metals::resonance::BuildResonanceSeedPool(
+                            std::move(neighbor_seeds));
                     if (timing_reducer != nullptr)
                     {
-                        const auto validate_now = std::chrono::steady_clock::now();
-                        timing_reducer->AddNoMetalValidateMs(
+                        const auto layer_now = std::chrono::steady_clock::now();
+                        timing_reducer->AddNoMetalLinearPipelineMs(
                             std::chrono::duration<double, std::milli>(
-                                validate_now - validate_started)
+                                layer_now - layer_started)
                                 .count());
                     }
-                    if (direct_candidate_valid)
-                    {
-                        auto result_machine =
-                            molgr::state::OmolStateMachine::FromReconstructionState(linear_state);
-                        auto result_mol = std::make_shared<OpenBabel::OBMol>(
-                            molgr::utils::CloneMolTopologyOnly(linear_state.Mol()));
-                        result_machine = result_machine.Branch(
-                            std::nullopt,
-                            std::move(result_mol));
-                        result_machine.Annotate("validate_direct_candidate");
-                        result_machine.RunOmolStage("clean_resonances", reconstruct::CleanResonances);
-                        auto result_state = result_machine.FreezeLike(linear_state);
-                        bool direct_candidate_scored = false;
-                        try
-                        {
-                            molgr::no_metals::selection::ScoreReconstructionCandidate(
-                                result_state,
-                                config);
-                            direct_candidate_scored = true;
-                        }
-                        catch (const std::exception &)
-                        {
-                            // Drop only the direct fallback; this branch still enters resonance recovery.
-                        }
-                        if (direct_candidate_scored)
-                        {
-                            molgr::no_metals::selection::AnnotateNoMetalCandidateTopology(
-                                result_state,
-                                config);
-                            direct_candidates.push_back(std::move(result_state));
-                        }
-                    }
-
-                    auto recovered_resonances =
-                        molgr::no_metals::resonance::RecoverResonanceCandidates(
-                            linear_state,
+                    candidate_pool =
+                        molgr::no_metals::resonance::SearchResonanceCandidates(
+                            layer_seeds,
                             config,
-                            timing_reducer);
-                    recovered_any_resonance = true;
-                    for (auto &candidate : recovered_resonances)
+                            timing_reducer,
+                            &search_session);
+                    for (auto &layer_seed : layer_seeds)
                     {
-                        resonance_candidates.push_back(std::move(candidate));
+                        resonance_seeds.push_back(std::move(layer_seed));
                     }
-                }
-                std::vector<molgr::state::ReconstructionState> *candidate_pool = nullptr;
-                if (!resonance_candidates.empty())
-                {
-                    candidate_pool = &resonance_candidates;
-                }
-                else if (!direct_candidates.empty())
-                {
-                    candidate_pool = &direct_candidates;
+                    if (!candidate_pool.empty())
+                    {
+                        break;
+                    }
                 }
 
-                if (candidate_pool == nullptr)
+                std::vector<molgr::state::ReconstructionState> deformed_pi_seeds;
+                if (candidate_pool.empty())
                 {
-                    if (recovered_any_resonance)
+                    deformed_pi_seeds =
+                        molgr::no_metals::recovery::EnumerateDeformedPiRecoverySeeds(
+                            resonance_seeds);
+                    if (!deformed_pi_seeds.empty())
                     {
-                        RecordResonanceElapsed(resonance_started, timing_reducer);
+                        auto recovery_pool =
+                            molgr::no_metals::resonance::BuildResonanceSeedPool(
+                                deformed_pi_seeds);
+                        candidate_pool =
+                            molgr::no_metals::resonance::SearchResonanceCandidates(
+                                recovery_pool,
+                                config,
+                                timing_reducer);
                     }
+                }
+
+                if (candidate_pool.empty())
+                {
+                    std::vector<molgr::state::ReconstructionState> bond_break_sources =
+                        resonance_seeds;
+                    for (auto &deformed_seed : deformed_pi_seeds)
+                    {
+                        bond_break_sources.push_back(std::move(deformed_seed));
+                    }
+                    auto bond_break_seeds =
+                        molgr::no_metals::recovery::EnumerateBondBreakRecoverySeeds(
+                            bond_break_sources);
+                    if (!bond_break_seeds.empty())
+                    {
+                        auto recovery_pool =
+                            molgr::no_metals::resonance::BuildResonanceSeedPool(
+                                std::move(bond_break_seeds));
+                        candidate_pool =
+                            molgr::no_metals::resonance::SearchResonanceCandidates(
+                                recovery_pool,
+                                config,
+                                timing_reducer);
+                    }
+                }
+
+                RecordResonanceElapsed(resonance_started, timing_reducer);
+                if (candidate_pool.empty())
+                {
                     RecordNoMetalElapsed(no_metal_started, timing_reducer);
                     return std::nullopt;
                 }
 
                 std::size_t best_idx = 0;
-                std::optional<std::tuple<double, int, double, double, double, double>>
+                std::optional<std::tuple<double, int, double, double, double, int, double>>
                     best_selection_key;
-                for (std::size_t i = 0; i < candidate_pool->size(); ++i)
+                for (std::size_t i = 0; i < candidate_pool.size(); ++i)
                 {
                     const auto selection_key =
                         molgr::no_metals::selection::NoMetalCandidateSelectionKey(
-                            (*candidate_pool)[i],
+                            candidate_pool[i],
                             config);
                     if (!best_selection_key.has_value() || selection_key < *best_selection_key)
                     {
@@ -184,30 +192,15 @@ namespace molgr
 
                 if (!best_selection_key.has_value())
                 {
-                    if (recovered_any_resonance)
-                    {
-                        RecordResonanceElapsed(resonance_started, timing_reducer);
-                    }
                     RecordNoMetalElapsed(no_metal_started, timing_reducer);
                     return std::nullopt;
                 }
 
-                auto result_state = std::move((*candidate_pool)[best_idx]);
-                if (std::find(
-                        result_state.phase_history.begin(),
-                        result_state.phase_history.end(),
-                        "validate_resonance_candidate") != result_state.phase_history.end())
-                {
-                    auto result_machine =
-                        molgr::state::OmolStateMachine::FromReconstructionState(result_state);
-                    result_machine.Annotate("select_best_resonance_candidate");
-                    result_state = result_machine.FreezeLike(result_state);
-                }
-
-                if (recovered_any_resonance)
-                {
-                    RecordResonanceElapsed(resonance_started, timing_reducer);
-                }
+                auto result_state = std::move(candidate_pool[best_idx]);
+                auto result_machine =
+                    molgr::state::OmolStateMachine::FromReconstructionState(result_state);
+                result_machine.Annotate("select_best_no_metal_candidate");
+                result_state = result_machine.FreezeLike(result_state);
                 if (preheat_score_bundle)
                 {
                     result_state.PreheatScoreBundle(config);
@@ -325,20 +318,17 @@ namespace molgr
                 {
                     return summaries;
                 }
-                auto linear_states =
-                    molgr::no_metals::preparation::EnumerateNoMetalCandidateStates(state);
-                std::vector<molgr::state::ReconstructionState> candidates;
-                for (auto &linear_state : linear_states)
-                {
-                    auto branch_candidates =
-                        molgr::no_metals::resonance::RecoverResonanceCandidates(
-                            linear_state,
-                            config);
-                    for (auto &candidate : branch_candidates)
-                    {
-                        candidates.push_back(std::move(candidate));
-                    }
-                }
+                auto prepared = molgr::no_metals::preparation::PrepareNoMetalSeed(state);
+                auto neighbor_seeds =
+                    molgr::no_metals::neighbor_radicals::EnumerateNeighborRadicalSeeds(
+                        prepared);
+                auto resonance_seeds =
+                    molgr::no_metals::resonance::BuildResonanceSeedPool(
+                        std::move(neighbor_seeds));
+                auto candidates =
+                    molgr::no_metals::resonance::SearchResonanceCandidates(
+                        resonance_seeds,
+                        config);
                 summaries.reserve(candidates.size());
                 for (auto &candidate : candidates)
                 {
@@ -392,6 +382,7 @@ namespace molgr
                         get_double("organic_adjusted_max_conjugated_component_size"),
                         get_double("organic_adjusted_conjugated_atom_count"),
                         get_double("organic_adjusted_conjugated_bond_count"),
+                        get_int("organic_excess_radical_labels"),
                     });
                 }
                 return summaries;

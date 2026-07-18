@@ -45,6 +45,7 @@ _MOLFILE_CASES_SPEC = importlib.util.spec_from_file_location(
     "molgr_cases_molfile",
     Path("scripts/molgr_cases_molfile.py").resolve(),
 )
+assert _MOLFILE_CASES_SPEC is not None
 _MOLFILE_CASES_MODULE = importlib.util.module_from_spec(_MOLFILE_CASES_SPEC)
 assert _MOLFILE_CASES_SPEC.loader is not None
 _MOLFILE_CASES_SPEC.loader.exec_module(_MOLFILE_CASES_MODULE)
@@ -836,7 +837,7 @@ O 3.2 0.0 0.0
     assert second.score == 1.25
 
 
-def test_xyz2omol_state_prefers_lower_total_discordance_after_aromatic_ring_loss(
+def test_xyz2omol_state_uses_organic_score_when_only_aromatic_diagnostics_differ(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -931,13 +932,13 @@ O 3.2 0.0 0.0
     )
 
     assert result is not None
-    assert result.score == 1.9
+    assert result.score == 1.0
     assert calls == {"count": 2}
     assert "organic_electronic_state_key" not in result.metadata
-    assert result.combined_omol == {"valence": 1}
+    assert result.combined_omol == {"valence": 2}
 
 
-def test_xyz2omol_state_ignores_metal_heuristics_when_organic_score_differs(
+def test_xyz2omol_state_uses_organic_score_after_discordance_tie(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -1037,7 +1038,7 @@ O 3.2 0.0 0.0
     assert "weighted_selection_score" not in result.metadata
 
 
-def test_xyz2omol_state_records_aromatic_ring_loss_in_total_discordance(
+def test_xyz2omol_state_records_aromatic_ring_loss_without_hard_filtering(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -1129,11 +1130,11 @@ O 3.2 0.0 0.0
     )
 
     assert result is not None
-    assert result.score == 2.1
+    assert result.score == 1.0
     assert "passes_organic_force_field_guard" not in result.metadata
     assert result.metadata["metal_discordance_structural_count"] == 0
-    assert result.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
-    assert result.combined_omol == {"valence": 1}
+    assert result.metadata["metal_discordance_aromatic_ring_deficit_count"] == 1
+    assert result.combined_omol == {"valence": 2}
 
 
 def test_xyz2omol_state_uses_combination_index_to_break_organic_score_ties(
@@ -1209,7 +1210,7 @@ O 3.2 0.0 0.0
     assert result.combined_omol == {"valence": 1}
 
 
-def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> None:
+def test_select_best_candidate_records_aromatic_deficit_without_hard_filtering() -> None:
     preferred = make_metal_candidate_state(
         (),
         (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
@@ -1259,7 +1260,7 @@ def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> No
 
     result = metal_scoring_module.select_best_candidate([preferred, fallback])
 
-    assert result is preferred
+    assert result is fallback
     assert preferred.metadata["metal_discordance_structural_count"] == 0
     assert preferred.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
     assert preferred.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(0.0)
@@ -1271,12 +1272,12 @@ def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> No
     assert fallback.metadata["metal_discordance_structural_count"] == 0
     assert fallback.metadata["metal_discordance_aromatic_ring_deficit_count"] == 2
     assert fallback.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(1.6)
-    assert fallback.metadata["metal_discordance_count"] == pytest.approx(1.6)
+    assert fallback.metadata["metal_discordance_count"] == pytest.approx(0.0)
     assert fallback.metadata["metal_discordance_max_aromatic_ring_count"] == 2
     assert fallback.metadata["metal_discordance_max_aromatic_stability_score"] == pytest.approx(1.6)
 
 
-def test_select_best_candidate_uses_aromatic_stability_deficit_not_ring_count() -> None:
+def test_select_best_candidate_does_not_hard_filter_aromatic_stability_deficit() -> None:
     benzene_like = make_metal_candidate_state(
         (),
         (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
@@ -1326,7 +1327,7 @@ def test_select_best_candidate_uses_aromatic_stability_deficit_not_ring_count() 
 
     result = metal_scoring_module.select_best_candidate([benzene_like, hetero_like])
 
-    assert result is benzene_like
+    assert result is hetero_like
     assert benzene_like.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
     assert hetero_like.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
     assert hetero_like.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(
@@ -1386,6 +1387,95 @@ def test_select_best_candidate_preserves_fractional_discordance() -> None:
     assert fractional.metadata["passes_metal_discordance_filter"] is True
     assert full.metadata["passes_metal_discordance_filter"] is False
     assert fractional.metadata["metal_discordance_count"] == pytest.approx(0.5)
+
+
+def test_metal_discordance_counts_charge_asymmetry_only_for_repeated_components() -> None:
+    asymmetric = pybel.readstring("smi", "[CH3-].[CH3]")
+    symmetric = pybel.readstring("smi", "[CH3-].[CH3-]")
+    unrelated = pybel.readstring("smi", "[CH3-].N")
+
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(asymmetric.OBMol) == 1
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(symmetric.OBMol) == 0
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(unrelated.OBMol) == 0
+
+
+def test_metal_discordance_haptic_ring_reduction_requires_three_visible_carbons() -> None:
+    ring = pybel.readstring("smi", "C1CCCCC1")
+    ring.OBMol.GetAtom(1).SetFormalCharge(-1)
+
+    assert metal_scoring_module._haptic_arene_reduction_count(ring.OBMol, {1, 2}) == 0
+    assert metal_scoring_module._haptic_arene_reduction_count(ring.OBMol, {1, 2, 3}) == 1
+
+
+def test_metal_discordance_visible_donor_multiple_bond_requires_both_visible() -> None:
+    donor_pair = pybel.readstring("smi", "N=N")
+
+    assert (
+        metal_scoring_module._visible_donor_multiple_bond_count(
+            donor_pair.OBMol,
+            {1},
+        )
+        == 0
+    )
+    assert (
+        metal_scoring_module._visible_donor_multiple_bond_count(
+            donor_pair.OBMol,
+            {1, 2},
+        )
+        == 1
+    )
+
+
+def test_metal_discordance_coordination_geometry_is_metal_state_specific() -> None:
+    square_planar = pybel.readstring(
+        "xyz",
+        """4
+square planar donors
+N 1.0 0.0 0.0
+N -1.0 0.0 0.0
+N 0.0 1.0 0.0
+N 0.0 -1.0 0.0
+""",
+    )
+    linear = pybel.readstring(
+        "xyz",
+        """2
+linear donors
+S 1.0 0.0 0.0
+S -1.0 0.0 0.0
+""",
+    )
+    square_planar_atoms = tuple(square_planar.OBMol.GetAtom(idx) for idx in range(1, 5))
+    linear_atoms = tuple(linear.OBMol.GetAtom(idx) for idx in range(1, 3))
+
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (square_planar_atoms,),
+            (MetalAtomPosition(1, "Pd", 46, 4, 0, 0.0, 0.0, 0.0),),
+        )
+        == 1
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (square_planar_atoms,),
+            (MetalAtomPosition(1, "Pd", 46, 2, 0, 0.0, 0.0, 0.0),),
+        )
+        == 0
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (linear_atoms,),
+            (MetalAtomPosition(1, "Au", 79, 3, 0, 0.0, 0.0, 0.0),),
+        )
+        == 1
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (linear_atoms,),
+            (MetalAtomPosition(1, "Au", 79, 1, 0, 0.0, 0.0, 0.0),),
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize(
@@ -2468,7 +2558,7 @@ S 0.0 0.0 0.0
     ) == pytest.approx(0.0)
 
 
-def test_xyz2omol_state_uses_organic_score_before_metal_consistency(monkeypatch) -> None:
+def test_xyz2omol_state_does_not_treat_nonprior_valence_as_discordance(monkeypatch) -> None:
     no_metal = pybel.readstring(
         "xyz",
         """2

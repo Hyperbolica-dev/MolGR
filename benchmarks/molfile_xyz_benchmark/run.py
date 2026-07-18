@@ -24,6 +24,7 @@ from scripts.molgr_cases_molfile import load_molfile_cases
 try:
     from tqdm import tqdm as _tqdm_impl
 except ModuleNotFoundError:
+
     def _tqdm_impl(iterable, **_kwargs):
         return iterable
 

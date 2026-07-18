@@ -20,6 +20,7 @@ namespace molgr
                 double resonance_score_ms = 0.0;
                 double resonance_topology_ms = 0.0;
                 double resonance_raw_candidates = 0.0;
+                double resonance_pruned_expansions = 0.0;
                 double resonance_prepared_candidates = 0.0;
                 double resonance_valid_candidates = 0.0;
                 double resonance_dedup_candidates = 0.0;
@@ -46,6 +47,7 @@ namespace molgr
                 void AddResonanceScoreMs(double delta_ms);
                 void AddResonanceTopologyMs(double delta_ms);
                 void AddResonanceRawCandidates(double delta_count);
+                void AddResonancePrunedExpansions(double delta_count);
                 void AddResonancePreparedCandidates(double delta_count);
                 void AddResonanceValidCandidates(double delta_count);
                 void AddResonanceDedupCandidates(double delta_count);

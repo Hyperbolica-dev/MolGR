@@ -70,9 +70,7 @@ class EquivalenceInfo:
     resonance: Optional[ResonanceDetail] = None
 
 
-_NON_METAL_ATOMIC_NUMBERS = frozenset(
-    {1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 34, 35, 51, 52, 53}
-)
+_NON_METAL_ATOMIC_NUMBERS = frozenset({1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 34, 35, 51, 52, 53})
 
 _SULFIMIDE_RESONANCE_PATTERN = Chem.MolFromSmarts("[N:1]=[S:2](=[O:3])([O-:4])[!#1:5]")
 _THIOSEMICARBAZONE_RESONANCE_PATTERNS = tuple(
@@ -99,9 +97,7 @@ def _total_radical_electrons(mol: Chem.Mol) -> int:
 
 def _formula_key(mol: Chem.Mol, *, include_hydrogen: bool) -> str:
     counts = Counter(
-        atom.GetSymbol()
-        for atom in mol.GetAtoms()
-        if include_hydrogen or atom.GetAtomicNum() != 1
+        atom.GetSymbol() for atom in mol.GetAtoms() if include_hydrogen or atom.GetAtomicNum() != 1
     )
     if not counts:
         return ""
@@ -111,7 +107,9 @@ def _formula_key(mol: Chem.Mol, *, include_hydrogen: bool) -> str:
     if include_hydrogen and "H" in counts:
         ordered_symbols.append("H")
     ordered_symbols.extend(symbol for symbol in sorted(counts) if symbol not in ordered_symbols)
-    return "".join(f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols)
+    return "".join(
+        f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols
+    )
 
 
 def _safe_copy(mol: Chem.Mol) -> Chem.Mol:
@@ -420,12 +418,14 @@ def _check_equivalence_impl(
         heavy_atom_formula=PropertyCheck(
             _formula_key(organic_1, include_hydrogen=False),
             _formula_key(organic_2, include_hydrogen=False),
-            _formula_key(organic_1, include_hydrogen=False) == _formula_key(organic_2, include_hydrogen=False),
+            _formula_key(organic_1, include_hydrogen=False)
+            == _formula_key(organic_2, include_hydrogen=False),
         ),
         explicit_h_formula=PropertyCheck(
             _formula_key(organic_1, include_hydrogen=True),
             _formula_key(organic_2, include_hydrogen=True),
-            _formula_key(organic_1, include_hydrogen=True) == _formula_key(organic_2, include_hydrogen=True),
+            _formula_key(organic_1, include_hydrogen=True)
+            == _formula_key(organic_2, include_hydrogen=True),
         ),
     )
     info = EquivalenceInfo(checks=checks)
@@ -459,7 +459,9 @@ def _check_equivalence_impl(
             info.reason = "Not equivalent: stereochemistry differs."
             return False, info
     except Exception as exc:  # noqa: BLE001
-        info.reason = f"Not equivalent: canonical SMILES comparison failed: {type(exc).__name__}: {exc}"
+        info.reason = (
+            f"Not equivalent: canonical SMILES comparison failed: {type(exc).__name__}: {exc}"
+        )
 
     inchi_key_1 = _inchi_key(organic_1)
     inchi_key_2 = _inchi_key(organic_2)

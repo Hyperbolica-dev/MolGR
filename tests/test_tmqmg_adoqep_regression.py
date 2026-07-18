@@ -15,20 +15,17 @@ from molgr.interface import xyz_to_rdmol
 from molgr.utils.equivalence import EquivalenceMethod, check_equivalence
 from scripts.reconstruction_trace import (
     TraceInputCase,
+    _html_no_metal_trace,
     _render_html_browser_report,
     trace_reconstruction_case,
 )
 
 
-ADOQEP_REFERENCE_SMILES = (
-    "CC1c2ccccn2->[Cu+]23<-N=1N=C(C(=NN->2=C(C)c1ccccn->31)c1ccccc1)c1ccccc1"
-)
+ADOQEP_REFERENCE_SMILES = "CC1c2ccccn2->[Cu+]23<-N=1N=C(C(=NN->2=C(C)c1ccccn->31)c1ccccc1)c1ccccc1"
 
 
 def _adoqep_xyz_block() -> str:
-    return (Path(__file__).parent / "data" / "xyz" / "ADOQEP.xyz").read_text(
-        encoding="utf-8"
-    )
+    return (Path(__file__).parent / "data" / "xyz" / "ADOQEP.xyz").read_text(encoding="utf-8")
 
 
 def test_adoqep_cpp_molecule_data_is_closed_shell() -> None:
@@ -70,7 +67,7 @@ def test_adoqep_cpp_matches_reference_under_nonchiral_tmqmg_equivalence() -> Non
     assert info.method == EquivalenceMethod.IDEAL
 
 
-def test_adoqep_trace_keeps_no_metal_bucket_linear_steps() -> None:
+def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
     trace = trace_reconstruction_case(
         TraceInputCase(
             id="ADOQEP",
@@ -90,31 +87,21 @@ def test_adoqep_trace_keeps_no_metal_bucket_linear_steps() -> None:
     for bucket in buckets:
         no_metal_trace = bucket.get("no_metal_trace") or {}
         assert no_metal_trace.get("status") != "trace_error"
-        branches = no_metal_trace.get("linear_branches") or []
-        assert branches
-        assert all(branch.get("linear_steps") for branch in branches)
+        assert no_metal_trace.get("status") == "selected"
+        phases = [step["phase"] for step in no_metal_trace.get("pipeline_steps", [])]
+        assert "prepare_no_metal_seed" in phases
+        assert phases[-1] == "select_best_no_metal_candidate"
+        assert not no_metal_trace.get("linear_branches")
 
-    expected_process_phases = [
-        "raw_resonance_candidate",
-        "eliminate_1_3_dipole",
-        "eliminate_cp_like_radical_anion",
-        "eliminate_positive_charges_first",
-        "eliminate_negative_charges",
-        "eliminate_positive_charges_second",
-        "clean_neighbor_radicals",
-        "clean_resonances",
-    ]
-    resonance_candidates = [
-        candidate
-        for bucket in buckets
-        for candidate in (
-            (bucket.get("no_metal_trace") or {}).get("resonance", {}).get("candidates", [])
-        )
-    ]
-    assert resonance_candidates
-    for candidate in resonance_candidates:
-        process_steps = candidate.get("process_steps") or []
-        assert [step.get("phase") for step in process_steps] == expected_process_phases
+        resonance = no_metal_trace.get("resonance") or {}
+        assert resonance.get("normalization") in {
+            "resonance_rule_normalization",
+            "full_resonance_normalization",
+        }
+
+    static_html = _html_no_metal_trace(buckets[0]["no_metal_trace"])
+    assert "生产管线阶段" in static_html
+    assert "线性分支" not in static_html
 
     html = _render_html_browser_report(
         {
@@ -131,3 +118,5 @@ def test_adoqep_trace_keeps_no_metal_bucket_linear_steps() -> None:
     assert "tree-toggle" in html
     assert "tree-children" in html
     assert "is-collapsed" in html
+    assert "无金属生产管线阶段" in html
+    assert "无金属线性分支" not in html

@@ -63,6 +63,7 @@ class ResonanceSearchNode:
     omol: pybel.Molecule
     state_key: ResonanceStateKey
     depth: int
+    discrepancy: int = 0
 
 
 @dataclass(frozen=True)

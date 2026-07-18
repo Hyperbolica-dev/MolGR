@@ -52,10 +52,7 @@ def test_tmqmg_run_writes_results_for_selected_subset(tmp_path: Path, monkeypatc
     xyz_dir.mkdir()
 
     csv_path.write_text(
-        "id,smiles,charge\n"
-        "A,C,0\n"
-        "B,CC,0\n"
-        "C,CCC,0\n",
+        "id,smiles,charge\nA,C,0\nB,CC,0\nC,CCC,0\n",
         encoding="utf-8",
     )
     (xyz_dir / "B.xyz").write_text("1\nB\nB 0 0 0\n", encoding="utf-8")
@@ -334,9 +331,7 @@ def test_tmqmg_method_subprocesses_split_cases_across_process_workers(
             self.returncode = 0
             self._out_path = Path(env["MOLGR_TMQMG_SUBPROCESS_OUT"])
             payload = json.loads(
-                Path(env["MOLGR_TMQMG_SUBPROCESS_PAYLOAD_PATH"]).read_text(
-                    encoding="utf-8"
-                )
+                Path(env["MOLGR_TMQMG_SUBPROCESS_PAYLOAD_PATH"]).read_text(encoding="utf-8")
             )
             with self._out_path.open("w", encoding="utf-8") as fh:
                 for item in payload["cases"]:
@@ -382,10 +377,7 @@ def test_tmqmg_method_subprocesses_split_cases_across_process_workers(
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
-    cases = [
-        TmqmgBenchmarkInput(row_index=idx, row={"id": f"C{idx}"})
-        for idx in range(1, 6)
-    ]
+    cases = [TmqmgBenchmarkInput(row_index=idx, row={"id": f"C{idx}"}) for idx in range(1, 6)]
     results = _run_method_subprocesses(
         method_id="molgr_cpp",
         cases=cases,
@@ -535,9 +527,7 @@ def test_reference_element_mismatch_skips_only_comparison_not_method(
     assert result.equivalent is None
     assert result.equivalence_method is None
     assert result.comparison_skipped is True
-    assert "Reference SMILES element counts differ from XYZ" in str(
-        result.comparison_skip_reason
-    )
+    assert "Reference SMILES element counts differ from XYZ" in str(result.comparison_skip_reason)
 
 
 def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(
@@ -562,15 +552,10 @@ def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(
         json.dumps(
             {
                 "method_id": "molgr_cpp",
-                "cases": [
-                    {"row_index": 5, "row": case_row}
-                    for _ in range(repeats)
-                ],
+                "cases": [{"row_index": 5, "row": case_row} for _ in range(repeats)],
                 "xyz_dir": str(xyz_dir),
                 "case_timeout_seconds": 2.0,
-                "cpp_backend_config": _build_cpp_backend_config_payload(
-                    use_all_accelerations=True
-                ),
+                "cpp_backend_config": _build_cpp_backend_config_payload(use_all_accelerations=True),
             },
             ensure_ascii=True,
         ),

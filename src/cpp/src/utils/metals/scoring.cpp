@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -65,6 +66,8 @@ namespace
     };
 
     constexpr double kNegativeMetalDiscordancePenalty = 0.5;
+    constexpr std::uint64_t kConnectivityHashOffset = 1469598103934665603ULL;
+    constexpr std::uint64_t kConnectivityHashPrime = 1099511628211ULL;
 
     std::optional<double> LookupMapValue(
         const std::map<int, double> &values,
@@ -138,6 +141,215 @@ namespace
             }
         }
         return nullptr;
+    }
+
+    std::vector<std::vector<int>> ComponentAtomIndexGroups(OpenBabel::OBMol &mol)
+    {
+        std::set<int> unseen;
+        FOR_ATOMS_OF_MOL(atom_iter, mol)
+        {
+            unseen.insert(static_cast<int>(atom_iter->GetIdx()));
+        }
+
+        std::vector<std::vector<int>> components;
+        while (!unseen.empty())
+        {
+            const int start_idx = *unseen.begin();
+            unseen.erase(start_idx);
+            std::vector<int> stack{start_idx};
+            std::vector<int> component{start_idx};
+            while (!stack.empty())
+            {
+                const int atom_idx = stack.back();
+                stack.pop_back();
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom == nullptr)
+                {
+                    continue;
+                }
+                FOR_BONDS_OF_ATOM(bond_iter, atom)
+                {
+                    OpenBabel::OBAtom *neighbor = OtherBondAtom(*bond_iter, *atom);
+                    if (neighbor == nullptr)
+                    {
+                        continue;
+                    }
+                    const int neighbor_idx = static_cast<int>(neighbor->GetIdx());
+                    const auto unseen_it = unseen.find(neighbor_idx);
+                    if (unseen_it == unseen.end())
+                    {
+                        continue;
+                    }
+                    unseen.erase(unseen_it);
+                    stack.push_back(neighbor_idx);
+                    component.push_back(neighbor_idx);
+                }
+            }
+            std::sort(component.begin(), component.end());
+            components.push_back(std::move(component));
+        }
+        return components;
+    }
+
+    std::uint64_t ConnectivityHash(const std::vector<std::uint64_t> &values)
+    {
+        std::uint64_t hash = kConnectivityHashOffset;
+        for (const std::uint64_t value : values)
+        {
+            hash ^= value;
+            hash *= kConnectivityHashPrime;
+        }
+        return hash;
+    }
+
+    std::vector<std::uint64_t> ComponentConnectivitySignature(
+        OpenBabel::OBMol &mol,
+        const std::vector<int> &atom_indices)
+    {
+        std::map<int, std::uint64_t> labels;
+        for (const int atom_idx : atom_indices)
+        {
+            OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            labels[atom_idx] =
+                atom == nullptr ? 0U : static_cast<std::uint64_t>(atom->GetAtomicNum());
+        }
+        for (int iteration = 0; iteration < 4; ++iteration)
+        {
+            std::map<int, std::uint64_t> next_labels;
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom == nullptr)
+                {
+                    next_labels[atom_idx] = 0U;
+                    continue;
+                }
+                std::vector<std::uint64_t> neighbor_labels;
+                FOR_BONDS_OF_ATOM(bond_iter, atom)
+                {
+                    OpenBabel::OBAtom *neighbor = OtherBondAtom(*bond_iter, *atom);
+                    if (neighbor != nullptr)
+                    {
+                        neighbor_labels.push_back(labels[static_cast<int>(neighbor->GetIdx())]);
+                    }
+                }
+                std::sort(neighbor_labels.begin(), neighbor_labels.end());
+                std::vector<std::uint64_t> values{
+                    labels[atom_idx],
+                    static_cast<std::uint64_t>(neighbor_labels.size())};
+                values.insert(values.end(), neighbor_labels.begin(), neighbor_labels.end());
+                next_labels[atom_idx] = ConnectivityHash(values);
+            }
+            labels = std::move(next_labels);
+        }
+
+        std::vector<std::uint64_t> signature;
+        signature.reserve(atom_indices.size());
+        for (const int atom_idx : atom_indices)
+        {
+            signature.push_back(labels[atom_idx]);
+        }
+        std::sort(signature.begin(), signature.end());
+        return signature;
+    }
+
+    int RepeatedComponentChargeAsymmetryCount(OpenBabel::OBMol &mol)
+    {
+        std::map<std::vector<std::uint64_t>, std::vector<int>> charges_by_connectivity;
+        for (const auto &atom_indices : ComponentAtomIndexGroups(mol))
+        {
+            int total_charge = 0;
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom != nullptr)
+                {
+                    total_charge += static_cast<int>(atom->GetFormalCharge());
+                }
+            }
+            charges_by_connectivity[ComponentConnectivitySignature(mol, atom_indices)]
+                .push_back(total_charge);
+        }
+
+        int count = 0;
+        for (const auto &entry : charges_by_connectivity)
+        {
+            const auto &charges = entry.second;
+            if (charges.size() > 1 &&
+                *std::min_element(charges.begin(), charges.end()) !=
+                    *std::max_element(charges.begin(), charges.end()))
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    int HapticAreneReductionCount(
+        OpenBabel::OBMol &mol,
+        const std::set<int> &visible_inner_atom_indices)
+    {
+        int count = 0;
+        for (const auto &atom_indices : ComponentAtomIndexGroups(mol))
+        {
+            int visible_carbon_count = 0;
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom != nullptr && atom->GetAtomicNum() == 6 &&
+                    visible_inner_atom_indices.find(atom_idx) != visible_inner_atom_indices.end())
+                {
+                    ++visible_carbon_count;
+                }
+            }
+            if (visible_carbon_count < 3)
+            {
+                continue;
+            }
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom != nullptr && atom->GetAtomicNum() == 6 &&
+                    atom->GetFormalCharge() < 0 && atom->IsInRing() &&
+                    !molgr::vendor::openbabel_threading::AtomIsAromatic(*atom))
+                {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    }
+
+    int VisibleDonorMultipleBondCount(
+        OpenBabel::OBMol &mol,
+        const std::set<int> &visible_inner_atom_indices)
+    {
+        const std::set<int> donor_atomic_numbers{7, 8, 15, 16};
+        int count = 0;
+        FOR_BONDS_OF_MOL(bond_iter, mol)
+        {
+            OpenBabel::OBAtom *begin_atom = bond_iter->GetBeginAtom();
+            OpenBabel::OBAtom *end_atom = bond_iter->GetEndAtom();
+            if (begin_atom == nullptr || end_atom == nullptr || bond_iter->GetBondOrder() < 2)
+            {
+                continue;
+            }
+            if (visible_inner_atom_indices.find(static_cast<int>(begin_atom->GetIdx())) ==
+                    visible_inner_atom_indices.end() ||
+                visible_inner_atom_indices.find(static_cast<int>(end_atom->GetIdx())) ==
+                    visible_inner_atom_indices.end())
+            {
+                continue;
+            }
+            if (donor_atomic_numbers.find(static_cast<int>(begin_atom->GetAtomicNum())) !=
+                    donor_atomic_numbers.end() &&
+                donor_atomic_numbers.find(static_cast<int>(end_atom->GetAtomicNum())) !=
+                    donor_atomic_numbers.end())
+            {
+                ++count;
+            }
+        }
+        return count;
     }
 
     bool HasConjugatedBridgeBetweenChargedCarbons(
@@ -388,7 +600,10 @@ namespace
         return (is_conjugated || is_aromatic ? 1.2 : 2.5) * magnitude;
     }
 
-    std::string SelectionKeyString(double discordance_count, double score_value, int combination_index)
+    std::string SelectionKeyString(
+        double discordance_count,
+        double score_value,
+        int combination_index)
     {
         std::ostringstream out;
         out << std::setprecision(17) << discordance_count << "," << score_value << ","
@@ -473,6 +688,120 @@ namespace
         const double dy = static_cast<double>(atom.GetY()) - metal_state.position_y;
         const double dz = static_cast<double>(atom.GetZ()) - metal_state.position_z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    double VectorNorm(const Point3D &vector)
+    {
+        return std::sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+    }
+
+    double DotProduct(const Point3D &lhs, const Point3D &rhs)
+    {
+        return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+    }
+
+    Point3D CrossProduct(const Point3D &lhs, const Point3D &rhs)
+    {
+        return {
+            lhs.y * rhs.z - lhs.z * rhs.y,
+            lhs.z * rhs.x - lhs.x * rhs.z,
+            lhs.x * rhs.y - lhs.y * rhs.x};
+    }
+
+    std::string CoordinationGeometry(
+        const std::vector<OpenBabel::OBAtom *> &visible_atoms,
+        const molgr::MetalAtomPosition &metal_state,
+        const molgr::config::MetalRadicalInferenceConfig &config)
+    {
+        std::vector<Point3D> vectors;
+        vectors.reserve(visible_atoms.size());
+        for (const OpenBabel::OBAtom *atom : visible_atoms)
+        {
+            if (atom != nullptr)
+            {
+                vectors.push_back(
+                    Point3D{
+                        atom->GetX() - metal_state.position_x,
+                        atom->GetY() - metal_state.position_y,
+                        atom->GetZ() - metal_state.position_z});
+            }
+        }
+        if (vectors.size() == 2)
+        {
+            const double denominator = VectorNorm(vectors[0]) * VectorNorm(vectors[1]);
+            if (denominator <= 1.0e-8)
+            {
+                return "bent";
+            }
+            const double cosine = std::max(
+                -1.0,
+                std::min(1.0, DotProduct(vectors[0], vectors[1]) / denominator));
+            const double angle_degrees = std::acos(cosine) * 180.0 / std::acos(-1.0);
+            return angle_degrees >= config.linear_angle_min_degrees ? "linear" : "bent";
+        }
+        if (vectors.size() != 4)
+        {
+            return "other";
+        }
+
+        std::optional<Point3D> best_normal;
+        double best_norm = 0.0;
+        for (std::size_t i = 0; i < vectors.size(); ++i)
+        {
+            for (std::size_t j = i + 1; j < vectors.size(); ++j)
+            {
+                const Point3D normal = CrossProduct(vectors[i], vectors[j]);
+                const double normal_norm = VectorNorm(normal);
+                if (normal_norm > best_norm)
+                {
+                    best_normal = normal;
+                    best_norm = normal_norm;
+                }
+            }
+        }
+        if (!best_normal.has_value() || best_norm <= 1.0e-8)
+        {
+            return "other";
+        }
+        const Point3D unit_normal{
+            best_normal->x / best_norm,
+            best_normal->y / best_norm,
+            best_normal->z / best_norm};
+        double planarity_distance = 0.0;
+        for (const Point3D &vector : vectors)
+        {
+            planarity_distance += std::abs(DotProduct(vector, unit_normal));
+        }
+        planarity_distance /= static_cast<double>(vectors.size());
+        return planarity_distance <= config.square_planar_planarity_tolerance_angstrom
+                   ? "square_planar"
+                   : "tetrahedral";
+    }
+
+    int CoordinationGeometryDiscordanceCount(
+        const std::vector<std::vector<OpenBabel::OBAtom *>> &visible_atoms_by_metal,
+        const std::vector<molgr::MetalAtomPosition> &metal_states,
+        const molgr::config::MetalRadicalInferenceConfig &config)
+    {
+        int count = 0;
+        const std::size_t pair_count = std::min(visible_atoms_by_metal.size(), metal_states.size());
+        for (std::size_t idx = 0; idx < pair_count; ++idx)
+        {
+            const auto &metal_state = metal_states[idx];
+            const std::string geometry =
+                CoordinationGeometry(visible_atoms_by_metal[idx], metal_state, config);
+            const bool high_valent_square_planar_group_ten =
+                (metal_state.symbol == "Pd" || metal_state.symbol == "Pt") &&
+                metal_state.valence >= 4 && geometry == "square_planar";
+            const bool high_valent_linear_group_eleven =
+                (metal_state.symbol == "Ag" || metal_state.symbol == "Au") &&
+                metal_state.valence >= 3 && geometry == "linear";
+            if (high_valent_square_planar_group_ten || high_valent_linear_group_eleven)
+            {
+                ++count;
+            }
+        }
+        return count;
     }
 
     int ChargeSign(int charge)
@@ -828,10 +1157,12 @@ namespace
         int outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count = 0;
         int inner_visible_adjacent_carbanion_pair_count = 0;
         std::set<int> visible_inner_atom_indices;
+        std::vector<std::vector<OpenBabel::OBAtom *>> visible_atoms_by_metal;
 
         for (const auto &metal_state : candidate->metal_states)
         {
             const int metal_charge_sign = ChargeSign(metal_state.valence);
+            std::vector<OpenBabel::OBAtom *> visible_atoms;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OpenBabel::OBAtom &atom = *atom_iter;
@@ -850,6 +1181,7 @@ namespace
 
                 const int atom_idx = static_cast<int>(atom.GetIdx());
                 visible_inner_atom_indices.insert(atom_idx);
+                visible_atoms.push_back(&atom);
                 if (IsInnerVisibleDiradicalDiscordanceAtom(atom))
                 {
                     ++inner_visible_diradical_count;
@@ -861,11 +1193,14 @@ namespace
                     (metal_charge_sign == 0 && formal_charge > 0) ||
                     (metal_charge_sign != 0 && atom_charge_sign == metal_charge_sign);
                 if (has_inner_same_sign_charge &&
+                    !(formal_charge > 0 &&
+                      molgr::vendor::openbabel_threading::AtomIsAromatic(atom)) &&
                     !HasAdjacentFormalChargeCancellation(atom))
                 {
                     ++inner_visible_same_sign_charge_count;
                 }
             }
+            visible_atoms_by_metal.push_back(std::move(visible_atoms));
         }
 
         int outer_or_invisible_adjacent_double_charge_count = 0;
@@ -914,11 +1249,19 @@ namespace
                 begin_atom->GetAtomicNum() == 6 &&
                 end_atom->GetAtomicNum() == 6 &&
                 begin_charge_sign == end_charge_sign;
+            const bool is_resonance_mobile_outer_ring_carbanion_pair =
+                !pair_both_inner_visible &&
+                visible_inner_atom_indices.find(begin_idx) == visible_inner_atom_indices.end() &&
+                visible_inner_atom_indices.find(end_idx) == visible_inner_atom_indices.end() &&
+                begin_atom->GetAtomicNum() == 6 && end_atom->GetAtomicNum() == 6 &&
+                begin_charge < 0 && end_charge < 0 && begin_atom->IsInRing() &&
+                end_atom->IsInRing();
             if (is_inner_visible_adjacent_carbanion_pair)
             {
                 ++inner_visible_adjacent_carbanion_pair_count;
             }
-            else if (!pair_both_inner_visible)
+            else if (!pair_both_inner_visible &&
+                     !is_resonance_mobile_outer_ring_carbanion_pair)
             {
                 ++outer_or_invisible_adjacent_double_charge_count;
                 const int metal_charge_sign = NearestNonzeroMetalChargeSignToBond(
@@ -940,9 +1283,20 @@ namespace
             }
         }
 
+        const int repeated_component_charge_asymmetry_count =
+            RepeatedComponentChargeAsymmetryCount(mol);
+        const int haptic_arene_reduction_count =
+            HapticAreneReductionCount(mol, visible_inner_atom_indices);
+        const int visible_donor_multiple_bond_count =
+            VisibleDonorMultipleBondCount(mol, visible_inner_atom_indices);
+        const int coordination_geometry_discordance_count =
+            CoordinationGeometryDiscordanceCount(
+                visible_atoms_by_metal,
+                candidate->metal_states,
+                config.metal_radical_inference);
         const double negative_metal_penalty =
             kNegativeMetalDiscordancePenalty * static_cast<double>(negative_metal_discordance.count);
-        const double discordance_count =
+        const double structural_discordance_count =
             static_cast<double>(
                 inner_visible_diradical_count +
                 outer_or_invisible_adjacent_double_charge_count +
@@ -950,9 +1304,15 @@ namespace
                 inner_visible_conjugated_carbanion_pair_count +
                 inner_visible_same_sign_charge_count +
                 zero_valent_metals_with_organic_cation_count +
-                nonnegative_metal_unsaturated_organic_cation_count) +
+                nonnegative_metal_unsaturated_organic_cation_count +
+                repeated_component_charge_asymmetry_count +
+                haptic_arene_reduction_count +
+                visible_donor_multiple_bond_count +
+                coordination_geometry_discordance_count) +
             negative_metal_penalty;
-        candidate->metadata["metal_discordance_structural_count"] = discordance_count;
+        const double discordance_count = structural_discordance_count;
+        candidate->metadata["metal_discordance_structural_count"] =
+            structural_discordance_count;
         candidate->metadata["metal_discordance_aromatic_ring_deficit_count"] = 0;
         candidate->metadata["metal_discordance_count"] = discordance_count;
         candidate->metadata["metal_discordance_inner_visible_diradical_count"] =
@@ -983,6 +1343,14 @@ namespace
             zero_valent_metals_with_organic_cation_count;
         candidate->metadata["metal_discordance_nonnegative_metal_unsaturated_organic_cation_count"] =
             nonnegative_metal_unsaturated_organic_cation_count;
+        candidate->metadata["metal_discordance_repeated_component_charge_asymmetry_count"] =
+            repeated_component_charge_asymmetry_count;
+        candidate->metadata["metal_discordance_haptic_arene_reduction_count"] =
+            haptic_arene_reduction_count;
+        candidate->metadata["metal_discordance_visible_donor_multiple_bond_count"] =
+            visible_donor_multiple_bond_count;
+        candidate->metadata["metal_discordance_coordination_geometry_count"] =
+            coordination_geometry_discordance_count;
         return discordance_count;
     }
 
@@ -1179,8 +1547,7 @@ namespace molgr
                         aromatic_ring_deficit_count;
                     candidate.metadata["metal_discordance_aromatic_stability_deficit"] =
                         aromatic_stability_deficit;
-                    candidate.metadata["metal_discordance_count"] =
-                        structural_discordance_count + aromatic_stability_deficit;
+                    candidate.metadata["metal_discordance_count"] = structural_discordance_count;
                 }
 
                 double min_discordance_count = std::numeric_limits<double>::infinity();

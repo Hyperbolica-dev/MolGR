@@ -24,8 +24,8 @@ from molgr.fallback.pipeline.reconstruct_without_metals import (
 )
 from molgr.fallback.stages.clean import clean_neighbor_radicals, clean_resonances
 from molgr.fallback.stages.eliminate import (
+    assign_negative_charges_from_radicals,
     eliminate_carbene_neighbor_heteroatom,
-    eliminate_charge_spliting,
     eliminate_CN_in_doubt,
     eliminate_cp_like_radical_anion,
     eliminate_high_positive_charge_atoms,
@@ -37,7 +37,9 @@ from molgr.fallback.stages.fresh import fresh_omol_charge_radical
 from molgr.fallback.stages.preprocess import make_connections
 from molgr.fallback.state import ReconstructionState
 from molgr.fallback.utils import resonance as resonance_utils
+from molgr.fallback.utils.no_metals import neighbor_radicals as neighbor_radical_module
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation_module
+from molgr.fallback.utils.no_metals import recovery as no_metal_recovery_module
 from molgr.fallback.utils.no_metals import resonance as no_metal_resonance_module
 from molgr.fallback.utils.no_metals import selection as no_metal_selection_module
 from molgr.fallback.utils.tools import typed_lru_cache
@@ -162,8 +164,8 @@ H 0.0 0.0 0.74
         "initialize_charge_budget",
         "eliminate_NNN_negative",
     )
-    assert "break_one_bond" in state.phase_history
-    assert state.phase_history[-1] in {"clean_resonances", "select_best_resonance_candidate"}
+    assert "prepare_no_metal_seed" in state.phase_history
+    assert state.phase_history[-1] == "select_best_no_metal_candidate"
 
 
 def test_seed_state_normalizes_openbabel_charge_and_spin_labels_for_python_and_cpp() -> None:
@@ -177,18 +179,19 @@ def test_seed_state_normalizes_openbabel_charge_and_spin_labels_for_python_and_c
     assert state.phase_history[:2] == ("read_xyz", "normalize_seed_electronic_labels")
     assert all(atom.OBAtom.GetFormalCharge() == 0 for atom in state.omol)
     assert all(atom.OBAtom.GetSpinMultiplicity() == 0 for atom in state.omol)
+    prepared = no_metal_preparation_module.prepare_no_metal_seed(state)
 
     from molgr import _core  # type: ignore
 
-    cpp_trace = _core.dev.pipeline.reconstruct_without_metals.debug_linear_pipeline_trace(
+    cpp_prepared = _core.dev.pipeline.reconstruct_without_metals.debug_prepared_no_metal_seed(
         _SEED_LABEL_NORMALIZATION_XYZ,
         0,
         0,
     )
-    assert cpp_trace is not None
-    assert cpp_trace[0]["phase"] == "read_xyz"
-    assert "[N+]" not in cpp_trace[0]["smiles"]
-    assert "[O-]" not in cpp_trace[0]["smiles"]
+    assert cpp_prepared is not None
+    assert "[N+]" not in cpp_prepared["smiles"]
+    assert "[O-]" not in cpp_prepared["smiles"]
+    assert tuple(cpp_prepared["phase_history"]) == prepared.phase_history
 
 
 def test_make_connections_reconnects_current_donor_for_python_and_cpp() -> None:
@@ -1042,9 +1045,7 @@ def test_clean_neighbor_radicals_refreshes_atom_state_for_python_and_cpp() -> No
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
-def test_enumerate_no_metal_candidate_states_resolves_neighbor_radicals(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_enumerate_neighbor_radical_seeds_resolves_neighbor_radicals() -> None:
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
         obmol.BeginModify()
@@ -1065,73 +1066,15 @@ def test_enumerate_no_metal_candidate_states_resolves_neighbor_radicals(
         phase_history=("read_xyz",),
     )
 
-    monkeypatch.setattr(no_metal_preparation_module, "make_connections", lambda omol: (omol, False))
-    monkeypatch.setattr(no_metal_preparation_module, "pre_clean", lambda omol: (omol, False))
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "fresh_omol_charge_radical",
-        lambda omol: (omol, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_NNN",
-        lambda omol, given_charge, positive: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_high_positive_charge_atoms",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_CN_in_doubt",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_carboxyl",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_carbene_neighbor_heteroatom",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "clean_carbene_neighbor_unsaturated",
-        lambda omol: (omol, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_charge_spliting",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "break_deformed_ene",
-        lambda *args: (args[0], False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "break_one_bond",
-        lambda omol, given_charge, total_radical_electrons: (omol, given_charge, False),
-    )
-
-    candidates = no_metal_preparation_module._enumerate_no_metal_candidate_states(state)
+    candidates = neighbor_radical_module.enumerate_neighbor_radical_seeds(state)
 
     assert len(candidates) == 3
-    assert [
-        candidate.metadata["neighbor_radical_resolution_strategy"] for candidate in candidates
-    ] == [
-        "direct",
-        "charge_begin_positive",
-        "charge_begin_negative",
+    assert [candidate.metadata["neighbor_radical_resolution"] for candidate in candidates] == [
+        "bond_order",
+        "charge_separation",
+        "charge_separation",
     ]
-    assert [
-        _pybel_stage_signature(candidate.omol)
-        for candidate in candidates
-    ] == [
+    assert [_pybel_stage_signature(candidate.omol) for candidate in candidates] == [
         (((1, 0, 0), (2, 0, 0)), ((1, 2, 2),)),
         (((1, 1, 0), (2, -1, 0)), ((1, 2, 1),)),
         (((1, -1, 0), (2, 1, 0)), ((1, 2, 1),)),
@@ -1144,23 +1087,68 @@ OO
 O 0.0 0.0 0.0
 O 1.48 0.0 0.0
     """
-    cpp_candidates = (
-        _core.dev.pipeline.reconstruct_without_metals.debug_no_metal_candidate_states(
+    cpp_candidates = _core.dev.pipeline.reconstruct_without_metals.debug_neighbor_radical_seeds(
+        xyz_block,
+        0,
+        0,
+    )
+    assert [candidate["neighbor_radical_resolution"] for candidate in cpp_candidates] == [
+        "bond_order",
+        "charge_separation",
+        "charge_separation",
+    ]
+    assert [candidate.get("positive_atom_idx") for candidate in cpp_candidates] == [None, 1, 2]
+    assert [candidate.get("neighbor_radical_actions") for candidate in cpp_candidates] == [
+        "bond_order:1-2",
+        "charge_separation:1+2-",
+        "charge_separation:2+1-",
+    ]
+    assert (
+        len(
+            _core.dev.pipeline.reconstruct_without_metals.debug_neighbor_radical_seeds(
+                xyz_block,
+                0,
+                0,
+                0,
+            )
+        )
+        == len(
+            neighbor_radical_module.enumerate_neighbor_radical_seeds(
+                state,
+                exact_discrepancy=0,
+            )
+        )
+        == 1
+    )
+    assert (
+        len(
+            _core.dev.pipeline.reconstruct_without_metals.debug_neighbor_radical_seeds(
+                xyz_block,
+                0,
+                0,
+                1,
+            )
+        )
+        == len(
+            neighbor_radical_module.enumerate_neighbor_radical_seeds(
+                state,
+                exact_discrepancy=1,
+            )
+        )
+        == 2
+    )
+    assert (
+        _core.dev.pipeline.reconstruct_without_metals.debug_neighbor_radical_seeds(
             xyz_block,
             0,
             0,
+            2,
         )
-    )
-    assert [
-        candidate["neighbor_radical_resolution_strategy"] for candidate in cpp_candidates
-    ] == [
-        "direct",
-        "charge_begin_positive",
-        "charge_begin_negative",
-    ]
-    assert any(
-        "clean_neighbor_radicals_charge_begin_positive" in candidate["phase_history"]
-        for candidate in cpp_candidates
+        == neighbor_radical_module.enumerate_neighbor_radical_seeds(
+            state,
+            exact_discrepancy=2,
+        )
+        == []
     )
 
 
@@ -1218,7 +1206,7 @@ def test_eliminate_carbene_neighbor_heteroatom_skips_radical_neighbors_for_pytho
 
 
 @pytest.mark.parametrize("atomic_num", [8, 16, 7])
-def test_eliminate_charge_spliting_ignores_spin2_radical_candidates_for_python_and_cpp(
+def test_assign_negative_charges_from_radicals_ignores_spin2_candidates_for_python_and_cpp(
     atomic_num: int,
 ) -> None:
     def make_omol() -> pybel.Molecule:
@@ -1237,7 +1225,7 @@ def test_eliminate_charge_spliting_ignores_spin2_radical_candidates_for_python_a
 
     omol = make_omol()
 
-    omol, given_charge, hit = eliminate_charge_spliting(omol, 0)
+    omol, given_charge, hit = assign_negative_charges_from_radicals(omol, 0)
 
     assert hit
     assert given_charge == 1
@@ -1250,7 +1238,7 @@ def test_eliminate_charge_spliting_ignores_spin2_radical_candidates_for_python_a
 
     cpp_omol = make_omol()
 
-    given_charge, hit = _core.dev.stages.eliminate.eliminate_charge_spliting_ptr(
+    given_charge, hit = _core.dev.stages.eliminate.assign_negative_charges_from_radicals_ptr(
         _get_ptr(cpp_omol.OBMol),
         0,
     )
@@ -1263,7 +1251,7 @@ def test_eliminate_charge_spliting_ignores_spin2_radical_candidates_for_python_a
     ] == [(atomic_num, 0, 2), (6, -1, 0)]
 
 
-def test_run_linear_pipeline_passes_current_charge_into_break_stages(
+def test_recovery_tiers_pass_current_charge_into_break_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     xyz_block = """2
@@ -1278,74 +1266,32 @@ H 0.0 0.0 0.74
         total_radical_electrons=3,
         phase_history=("read_xyz",),
     )
+    state.given_charge = 7
     recorded: dict[str, tuple[int, ...]] = {}
-
-    monkeypatch.setattr(no_metal_preparation_module, "make_connections", lambda omol: (omol, False))
-    monkeypatch.setattr(no_metal_preparation_module, "pre_clean", lambda omol: (omol, False))
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "fresh_omol_charge_radical",
-        lambda omol: (omol, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_NNN",
-        lambda omol, given_charge, positive: (omol, 7 if not positive else given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_high_positive_charge_atoms",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_CN_in_doubt",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_carboxyl",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_carbene_neighbor_heteroatom",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "clean_carbene_neighbor_unsaturated",
-        lambda omol: (omol, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "clean_neighbor_radicals",
-        lambda omol: (omol, False),
-    )
-    monkeypatch.setattr(
-        no_metal_preparation_module,
-        "eliminate_charge_spliting",
-        lambda omol, given_charge: (omol, given_charge, False),
-    )
 
     def record_break_deformed_ene(omol, given_charge, total_radical_electrons, tolerance):
         recorded["break_deformed_ene"] = (given_charge, total_radical_electrons, tolerance)
-        return omol, False
+        return omol, True
 
     def record_break_one_bond(omol, given_charge, total_radical_electrons):
         recorded["break_one_bond"] = (given_charge, total_radical_electrons)
-        return omol, given_charge, False
+        return omol, given_charge, True
 
+    monkeypatch.setattr(no_metal_recovery_module, "break_deformed_ene", record_break_deformed_ene)
+    monkeypatch.setattr(no_metal_recovery_module, "break_one_bond", record_break_one_bond)
     monkeypatch.setattr(
-        no_metal_preparation_module, "break_deformed_ene", record_break_deformed_ene
+        no_metal_recovery_module,
+        "fresh_omol_charge_radical",
+        lambda omol: (omol, False),
     )
-    monkeypatch.setattr(no_metal_preparation_module, "break_one_bond", record_break_one_bond)
 
-    next_state = no_metal_preparation_module._run_linear_pipeline(state)
+    deformed = no_metal_recovery_module.enumerate_deformed_pi_recovery_seeds([state])
+    broken = no_metal_recovery_module.enumerate_bond_break_recovery_seeds([state])
 
     assert recorded["break_deformed_ene"] == (7, 3, 5.0)
     assert recorded["break_one_bond"] == (7, 3)
-    assert next_state.given_charge == 7
+    assert deformed[0].given_charge == 7
+    assert broken[0].given_charge == 7
 
 
 def test_fallback_no_metal_reuses_resonance_score_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1378,16 +1324,25 @@ def test_fallback_no_metal_reuses_resonance_score_metadata(monkeypatch: pytest.M
     monkeypatch.setattr(
         no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
     )
-    monkeypatch.setattr(no_metal_preparation_module, "_run_linear_pipeline", lambda state: state)
     monkeypatch.setattr(
         no_metal_preparation_module,
-        "validate_omol",
-        lambda *args, **kwargs: False,
+        "prepare_no_metal_seed",
+        lambda state: state,
+    )
+    monkeypatch.setattr(
+        neighbor_radical_module,
+        "enumerate_neighbor_radical_seeds",
+        lambda state, **kwargs: [state],
     )
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "_recover_resonance_candidates",
-        lambda state, **kwargs: [weaker_candidate, stronger_candidate],
+        "build_resonance_seed_pool",
+        lambda states: list(states),
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "search_resonance_candidates",
+        lambda states, **kwargs: [weaker_candidate, stronger_candidate],
     )
     monkeypatch.setattr(
         no_metal_selection_module,
@@ -1399,10 +1354,10 @@ def test_fallback_no_metal_reuses_resonance_score_metadata(monkeypatch: pytest.M
 
     assert result is not None
     assert result.metadata["score"] == 2.0
-    assert result.phase_history[-1] == "select_best_resonance_candidate"
+    assert result.phase_history[-1] == "select_best_no_metal_candidate"
 
 
-def test_no_metal_pipeline_enumerates_resonance_for_all_linear_branches(
+def test_no_metal_pipeline_searches_all_neighbor_seeds_in_one_pool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     no_metal_module._run_no_metal_pipeline_cached.cache_clear()
@@ -1479,20 +1434,31 @@ def test_no_metal_pipeline_enumerates_resonance_for_all_linear_branches(
     )
     monkeypatch.setattr(
         no_metal_preparation_module,
-        "_enumerate_no_metal_candidate_states",
-        lambda state: branch_states,
+        "prepare_no_metal_seed",
+        lambda state: state,
     )
     monkeypatch.setattr(
-        no_metal_preparation_module,
-        "validate_omol",
-        lambda omol, total_charge, total_radical_electrons: omol.write("can").strip()
-        == branch_states[0].omol.write("can").strip(),
+        neighbor_radical_module,
+        "enumerate_neighbor_radical_seeds",
+        lambda state, **kwargs: branch_states,
     )
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "_recover_resonance_candidates",
-        lambda state, **kwargs: resonance_calls.append(int(state.metadata["branch"]))
-        or resonance_map[int(state.metadata["branch"])],
+        "build_resonance_seed_pool",
+        lambda states: list(states),
+    )
+
+    def search_all(states, **kwargs):
+        del kwargs
+        resonance_calls.extend(int(state.metadata["branch"]) for state in states)
+        return [
+            candidate for state in states for candidate in resonance_map[state.metadata["branch"]]
+        ]
+
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "search_resonance_candidates",
+        search_all,
     )
     monkeypatch.setattr(
         no_metal_selection_module,
@@ -1516,15 +1482,14 @@ def test_no_metal_pipeline_enumerates_resonance_for_all_linear_branches(
 
     assert result is not None
     assert resonance_calls == [0, 1, 2]
-    assert result.phase_history[-1] == "select_best_resonance_candidate"
+    assert result.phase_history[-1] == "select_best_no_metal_candidate"
     assert result.metadata["branch"] == 0
     assert result.metadata["priority"] == 1
 
 
-def test_no_metal_direct_candidate_is_isolated_from_resonance_side_effects(
+def test_unified_resonance_pool_isolates_seed_from_normalization_side_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    no_metal_module._run_no_metal_pipeline_cached.cache_clear()
     obmol = ob.OBMol()
     obmol.BeginModify()
     atom = obmol.NewAtom()
@@ -1532,62 +1497,65 @@ def test_no_metal_direct_candidate_is_isolated_from_resonance_side_effects(
     atom.SetFormalCharge(0)
     atom.SetSpinMultiplicity(1)
     obmol.EndModify()
-    linear_state = ReconstructionState(
+    seed_state = ReconstructionState(
         omol=pybel.Molecule(obmol),
         given_charge=0,
         total_charge=0,
         total_radical_electrons=1,
-        phase_history=("read_xyz", "linear"),
+        phase_history=("read_xyz", "seed"),
         metadata={"priority": 0},
     )
-    seed_state = ReconstructionState(
-        omol=pybel.readstring("smi", "[N]"),
-        given_charge=0,
-        total_charge=0,
-        total_radical_electrons=1,
-        phase_history=("read_xyz",),
-    )
 
-    def mutate_linear_state(state: ReconstructionState, **kwargs: object) -> list[ReconstructionState]:
-        del kwargs
-        atom = state.omol.OBMol.GetAtom(1)
+    def mutate_candidate(omol, remaining_charge):
+        atom = omol.OBMol.GetAtom(1)
         atom.SetFormalCharge(-1)
         atom.SetSpinMultiplicity(0)
-        return []
+        return omol, remaining_charge, True
+
+    def walk_resonances(omol, *, visit, **kwargs):
+        del kwargs
+        visit(
+            resonance_utils.ResonanceSearchNode(
+                omol,
+                resonance_utils.build_resonance_state_key(omol),
+                0,
+                0,
+            )
+        )
 
     monkeypatch.setattr(
-        no_metal_preparation_module,
-        "_enumerate_no_metal_candidate_states",
-        lambda state: [linear_state],
+        no_metal_resonance_module,
+        "walk_radical_resonances",
+        walk_resonances,
     )
     monkeypatch.setattr(
-        no_metal_preparation_module,
+        no_metal_resonance_module,
         "clean_resonances",
         lambda omol: (omol, False),
     )
     monkeypatch.setattr(
-        no_metal_resonance_module,
-        "_recover_resonance_candidates",
-        mutate_linear_state,
+        no_metal_resonance_module.resonance_utils,
+        "process_resonance",
+        mutate_candidate,
     )
+    monkeypatch.setattr(no_metal_resonance_module, "validate_omol", lambda *args: True)
     monkeypatch.setattr(
-        no_metal_selection_module,
+        no_metal_resonance_module,
         "_score_reconstruction_candidate",
         lambda candidate, **kwargs: 0.0,
     )
     monkeypatch.setattr(
-        no_metal_selection_module,
-        "_no_metal_candidate_selection_key",
-        lambda candidate, **kwargs: (0.0, 0, 0.0, 0.0, 0.0, 0.0),
+        no_metal_resonance_module,
+        "_annotate_no_metal_candidate_topology",
+        lambda candidate, **kwargs: None,
     )
 
-    result = no_metal_module._run_no_metal_pipeline_from_state(seed_state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([seed_state])
 
-    assert result is not None
-    result_atom = result.omol.OBMol.GetAtom(1)
-    assert result_atom.GetFormalCharge() == 0
-    assert result_atom.GetSpinMultiplicity() == 1
-    assert linear_state.omol.OBMol.GetAtom(1).GetFormalCharge() == -1
+    assert candidates
+    source_atom = seed_state.omol.OBMol.GetAtom(1)
+    assert source_atom.GetFormalCharge() == 0
+    assert source_atom.GetSpinMultiplicity() == 1
 
 
 def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_field(
@@ -1622,16 +1590,25 @@ def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_fie
     monkeypatch.setattr(
         no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
     )
-    monkeypatch.setattr(no_metal_preparation_module, "_run_linear_pipeline", lambda state: state)
     monkeypatch.setattr(
         no_metal_preparation_module,
-        "validate_omol",
-        lambda *args, **kwargs: False,
+        "prepare_no_metal_seed",
+        lambda state: state,
+    )
+    monkeypatch.setattr(
+        neighbor_radical_module,
+        "enumerate_neighbor_radical_seeds",
+        lambda state, **kwargs: [state],
     )
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "_recover_resonance_candidates",
-        lambda state, **kwargs: [lower_force_field_candidate, aromatic_candidate],
+        "build_resonance_seed_pool",
+        lambda states: list(states),
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "search_resonance_candidates",
+        lambda states, **kwargs: [lower_force_field_candidate, aromatic_candidate],
     )
     monkeypatch.setattr(
         no_metal_selection_module,
@@ -1646,7 +1623,7 @@ def test_no_metal_resonance_selection_prefers_aromatic_topology_before_force_fie
     assert result.metadata["organic_aromatic_atom_count"] == 6
     assert result.metadata["organic_aromatic_stability_score"] == pytest.approx(1.0)
     assert result.metadata["organic_topology_selection_key"][:5] == (-1.0, -6, -6, -6, -6)
-    assert result.phase_history[-1] == "select_best_resonance_candidate"
+    assert result.phase_history[-1] == "select_best_no_metal_candidate"
 
 
 def test_no_metal_resonance_selection_penalizes_charge_separated_extra_conjugation(
@@ -1687,16 +1664,25 @@ def test_no_metal_resonance_selection_penalizes_charge_separated_extra_conjugati
     monkeypatch.setattr(
         no_metal_preparation_module, "_seed_state", lambda *args, **kwargs: base_state
     )
-    monkeypatch.setattr(no_metal_preparation_module, "_run_linear_pipeline", lambda state: state)
     monkeypatch.setattr(
         no_metal_preparation_module,
-        "validate_omol",
-        lambda *args, **kwargs: False,
+        "prepare_no_metal_seed",
+        lambda state: state,
+    )
+    monkeypatch.setattr(
+        neighbor_radical_module,
+        "enumerate_neighbor_radical_seeds",
+        lambda state, **kwargs: [state],
     )
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "_recover_resonance_candidates",
-        lambda state, **kwargs: [lower_force_field_candidate, charge_separated_candidate],
+        "build_resonance_seed_pool",
+        lambda states: list(states),
+    )
+    monkeypatch.setattr(
+        no_metal_resonance_module,
+        "search_resonance_candidates",
+        lambda states, **kwargs: [lower_force_field_candidate, charge_separated_candidate],
     )
     monkeypatch.setattr(
         no_metal_selection_module,
@@ -1727,7 +1713,7 @@ def test_no_metal_resonance_selection_penalizes_charge_separated_extra_conjugati
         lower_force_field_candidate.metadata["organic_topology_selection_key"][:5]
         < charge_separated_candidate.metadata["organic_topology_selection_key"][:5]
     )
-    assert result.phase_history[-1] == "select_best_resonance_candidate"
+    assert result.phase_history[-1] == "select_best_no_metal_candidate"
 
 
 def test_no_metal_cached_pipeline_uses_config_in_key_and_execution(

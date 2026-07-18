@@ -75,6 +75,12 @@ namespace molgr
                 timing_.resonance_raw_candidates += delta_count;
             }
 
+            void RunTimingReducer::AddResonancePrunedExpansions(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_pruned_expansions += delta_count;
+            }
+
             void RunTimingReducer::AddResonancePreparedCandidates(double delta_count)
             {
                 std::lock_guard<std::mutex> lock(mutex_);

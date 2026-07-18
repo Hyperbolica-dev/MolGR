@@ -62,11 +62,27 @@ def _formal_charge_absolute_sum(candidate: ReconstructionState) -> int:
     )
 
 
+def _excess_radical_labels(candidate: ReconstructionState) -> int:
+    radical_sum = int(
+        candidate.get_cached_omol_value(
+            "organic_radical_label_sum",
+            lambda omol: sum(
+                int(cast(ob.OBAtom, atom_iter).GetSpinMultiplicity())
+                for atom_iter in ob.OBMolAtomIter(cast(ob.OBMol, omol.OBMol))
+            ),
+        )
+    )
+    excess = max(0, radical_sum - candidate.total_radical_electrons)
+    candidate.metadata["organic_radical_label_sum"] = radical_sum
+    candidate.metadata["organic_excess_radical_labels"] = excess
+    return excess
+
+
 def _no_metal_candidate_selection_key(
     candidate: ReconstructionState,
     *,
     config: MolGRConfig | None = None,
-) -> tuple[float, int, float, float, float, float]:
+) -> tuple[float, int, float, float, float, int, float]:
     metrics = _annotate_no_metal_candidate_topology(candidate, config=config)
     score = float(candidate.metadata.get("score", float("inf")))
     formal_charge_absolute_sum = _formal_charge_absolute_sum(candidate)
@@ -76,6 +92,7 @@ def _no_metal_candidate_selection_key(
     )
     adjusted_conjugated_atom_count = metrics.conjugated_atom_count - conjugation_charge_penalty
     adjusted_conjugated_bond_count = metrics.conjugated_bond_count - conjugation_charge_penalty
+    excess_radical_labels = _excess_radical_labels(candidate)
     candidate.metadata["organic_formal_charge_absolute_sum"] = formal_charge_absolute_sum
     candidate.metadata["organic_conjugation_charge_penalty"] = conjugation_charge_penalty
     candidate.metadata["organic_adjusted_max_conjugated_component_size"] = (
@@ -89,6 +106,7 @@ def _no_metal_candidate_selection_key(
         -adjusted_max_conjugated_component_size,
         -adjusted_conjugated_atom_count,
         -adjusted_conjugated_bond_count,
+        excess_radical_labels,
         score,
     )
     candidate.metadata["organic_topology_selection_key"] = selection_key
