@@ -14,6 +14,7 @@ from molgr import _core as core
 from molgr.interface import xyz_to_rdmol
 from molgr.utils.equivalence import EquivalenceMethod, check_equivalence
 from scripts.reconstruction_trace import (
+    DofRenderContext,
     TraceInputCase,
     _html_no_metal_trace,
     _render_html_browser_report,
@@ -56,7 +57,13 @@ def test_adoqep_cpp_matches_reference_under_nonchiral_tmqmg_equivalence() -> Non
         make_dative_bonds=True,
     )
 
-    assert sum(atom.GetNumRadicalElectrons() for atom in reconstructed.GetAtoms()) == 0
+    assert (
+        sum(
+            atom.GetNumRadicalElectrons()  # pyright: ignore[reportCallIssue]
+            for atom in reconstructed.GetAtoms()  # pyright: ignore[reportCallIssue]
+        )
+        == 0
+    )
     equivalent, info = check_equivalence(
         reference,
         reconstructed,
@@ -68,6 +75,11 @@ def test_adoqep_cpp_matches_reference_under_nonchiral_tmqmg_equivalence() -> Non
 
 
 def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
+    render_context = DofRenderContext(
+        image_dir=Path("molgr_trace_dof_images"),
+        display_base_dir=None,
+        max_images=1000,
+    )
     trace = trace_reconstruction_case(
         TraceInputCase(
             id="ADOQEP",
@@ -76,6 +88,7 @@ def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
             total_radical_electrons=0,
         ),
         score_all_candidates=False,
+        render_context=render_context,
     )
 
     buckets = [
@@ -89,15 +102,18 @@ def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
         assert no_metal_trace.get("status") != "trace_error"
         assert no_metal_trace.get("status") == "selected"
         phases = [step["phase"] for step in no_metal_trace.get("pipeline_steps", [])]
+        pipeline_steps = no_metal_trace.get("pipeline_steps", [])
+        assert all(step.get("dof_image", {}).get("svg_fragment") for step in pipeline_steps)
         assert "prepare_no_metal_seed" in phases
         assert phases[-1] == "select_best_no_metal_candidate"
         assert not no_metal_trace.get("linear_branches")
-
         resonance = no_metal_trace.get("resonance") or {}
         assert resonance.get("normalization") in {
             "resonance_rule_normalization",
             "full_resonance_normalization",
         }
+
+    assert render_context.errors == []
 
     static_html = _html_no_metal_trace(buckets[0]["no_metal_trace"])
     assert "生产管线阶段" in static_html

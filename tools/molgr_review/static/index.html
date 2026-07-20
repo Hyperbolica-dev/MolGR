@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Molecule Graph Review</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script async src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar" id="sidebar">
+      <header class="side-header">
+        <h1>Molecule Graph Review</h1>
+        <button id="refreshStats" type="button">刷新</button>
+      </header>
+
+      <section class="filters">
+        <label>
+          类别
+          <select id="categoryFilter">
+            <option value="">全部</option>
+            <option value="graph_not_equivalent">图不等价</option>
+            <option value="missing_reference_smiles">缺参考 SMILES</option>
+            <option value="candidate_failed">候选生成失败</option>
+            <option value="python_version_mismatch">Python 版本分歧</option>
+            <option value="reference_not_comparable">参考不可比</option>
+          </select>
+        </label>
+        <label>
+          审核状态
+          <select id="statusFilter">
+            <option value="unreviewed">未审核</option>
+            <option value="">全部</option>
+            <option value="accept_candidate">候选图为准</option>
+            <option value="accept_reference">参考图为准</option>
+            <option value="manual_reference">人工修图为准</option>
+            <option value="needs_followup">待复核</option>
+            <option value="skip">跳过</option>
+          </select>
+        </label>
+        <label>
+          搜索
+          <input id="searchBox" type="search" placeholder="id 或 row_index" />
+        </label>
+      </section>
+
+      <section id="stats" class="stats"></section>
+      <section id="datasetMeta" class="dataset-meta"></section>
+      <nav id="caseList" class="case-list" aria-label="cases"></nav>
+      <footer class="pager">
+        <button id="prevPage" type="button">上一页</button>
+        <span id="pageInfo"></span>
+        <button id="nextPage" type="button">下一页</button>
+      </footer>
+    </aside>
+    <div
+      class="split-handle page-resizer"
+      data-resize="sidebar"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整左侧队列宽度"
+      tabindex="0"
+    ></div>
+
+    <main class="workspace">
+      <section class="topbar">
+        <div>
+          <h2 id="caseTitle">选择一个 case</h2>
+          <div id="caseMeta" class="muted"></div>
+        </div>
+        <div class="actions">
+          <button id="focusKetcher" type="button">Ketcher 画布</button>
+          <button id="openTrace" type="button" disabled>打开 Trace</button>
+          <button id="loadCurrent" type="button">重载当前</button>
+        </div>
+      </section>
+
+      <section class="layout" id="mainLayout">
+        <section class="panel viewer-panel" id="viewerPanel">
+          <header>
+            <h3>3D XYZ</h3>
+            <div class="segmented">
+              <button class="view-mode active" data-style="stick" type="button">Stick</button>
+              <button class="view-mode" data-style="sphere" type="button">Sphere</button>
+              <button class="view-mode" data-style="line" type="button">Line</button>
+            </div>
+          </header>
+          <div id="viewer3d" class="viewer"></div>
+          <section class="text-block">
+            <header class="subsection-header">
+              <h4>当前候选重建 3D 拓扑</h4>
+              <span id="candidateModelStatus" class="muted"></span>
+            </header>
+            <div id="viewerCandidate3d" class="viewer viewer-secondary"></div>
+          </section>
+          <details class="xyz-details">
+            <summary>
+              当前候选重建 SDF
+              <span id="candidateSdfStatus" class="muted"></span>
+            </summary>
+            <pre id="candidateSdfText" class="structure-text"></pre>
+          </details>
+          <details class="xyz-details">
+            <summary>XYZ 文本</summary>
+            <pre id="xyzText" class="structure-text xyz-text"></pre>
+          </details>
+        </section>
+        <div
+          class="split-handle layout-resizer"
+          data-resize="viewer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整 3D 与对比栏宽度"
+          tabindex="0"
+        ></div>
+
+        <section class="panel compare-panel" id="comparePanel">
+          <header>
+            <h3>拓扑对比</h3>
+            <div class="segmented">
+              <button class="render-kind active" data-kind="candidate" type="button">当前候选</button>
+              <button class="render-kind" data-kind="reference" type="button">Reference</button>
+              <button class="render-kind" data-kind="candidate_organic" type="button">候选 organic</button>
+              <button class="render-kind" data-kind="reference_organic" type="button">Ref organic</button>
+            </div>
+          </header>
+          <div class="svg-grid">
+            <article>
+              <h4 id="primaryRenderTitle">当前候选重建</h4>
+              <div id="primarySvg" class="svg-box"></div>
+              <code id="primarySmiles"></code>
+            </article>
+            <article>
+              <h4 id="secondaryRenderTitle">Reference</h4>
+              <div id="secondarySvg" class="svg-box"></div>
+              <code id="secondarySmiles"></code>
+            </article>
+          </div>
+          <section id="versionComparison" class="version-comparison"></section>
+          <dl id="diagnostics" class="diagnostics"></dl>
+        </section>
+        <div
+          class="split-handle layout-resizer"
+          data-resize="review"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整审核栏宽度"
+          tabindex="0"
+        ></div>
+
+        <section class="review panel" id="reviewPanel">
+          <header>
+            <h3>人工结论</h3>
+            <div class="review-header-actions">
+              <span id="saveState" class="muted"></span>
+              <button id="removeFixture" class="danger-action" type="button" hidden>
+                移除 fixture
+              </button>
+            </div>
+          </header>
+          <div class="decision-row">
+            <button class="decision" data-status="accept_candidate" type="button">候选图为准</button>
+            <button class="decision" data-status="accept_reference" type="button">参考图为准</button>
+            <button class="decision" data-status="manual_reference" type="button">人工修图为准</button>
+            <button class="decision" data-status="needs_followup" type="button">待复核</button>
+            <button class="decision" data-status="skip" type="button">跳过</button>
+          </div>
+          <label>
+            审核人
+            <input id="reviewer" type="text" autocomplete="name" />
+          </label>
+          <section class="ketcher-panel" id="ketcherPanel">
+            <header>
+              <h4>Ketcher 修正拓扑</h4>
+              <div class="ketcher-actions">
+                <button id="loadMolgrToKetcher" type="button">载入候选 SDF</button>
+                <button id="loadReferenceToKetcher" type="button">载入 Reference</button>
+                <button id="readKetcher" type="button">读取画布</button>
+              </div>
+            </header>
+            <iframe
+              id="ketcherFrame"
+              class="ketcher-frame"
+              src="/KetcherDemoSA/index.html"
+              title="Ketcher topology editor"
+            ></iframe>
+            <div
+              class="split-handle ketcher-resizer"
+              data-resize="ketcher"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="调整 Ketcher 高度"
+              tabindex="0"
+            ></div>
+            <div id="ketcherStatus" class="muted"></div>
+          </section>
+          <label>
+            修正 SMILES
+            <input id="correctedSmiles" type="text" spellcheck="false" />
+          </label>
+          <label>
+            修正 Molfile / Molblock
+            <textarea id="correctedMolblock" rows="9" spellcheck="false"></textarea>
+          </label>
+          <label>
+            备注
+            <textarea id="notes" rows="4"></textarea>
+          </label>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

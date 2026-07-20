@@ -16,10 +16,12 @@ import json
 import math
 import re
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, cast
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, cast
 
 
 if __package__ in (None, ""):
@@ -32,7 +34,11 @@ from rdkit import Chem, RDLogger
 from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_without_metals
 from molgr.fallback.stages.preprocess import validate_omol
-from molgr.fallback.state import MetalCandidateState, ReconstructionState
+from molgr.fallback.state import (
+    MetalCandidateState,
+    OmolStateMachine,
+    ReconstructionState,
+)
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
 from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
@@ -66,7 +72,7 @@ class DofRenderContext:
     image_dir: Path
     display_base_dir: Path | None
     image_format: str = "svg"
-    max_images: int = 120
+    max_images: int = 1000
     image_size: tuple[int, int] = (360, 300)
     grid_sub_img_size: tuple[int, int] = (320, 260)
     grid_mols_per_row: int = 3
@@ -78,6 +84,40 @@ class DofRenderContext:
     @property
     def use_svg(self) -> bool:
         return self.image_format == "svg"
+
+
+_OMOL_PHASE_OBSERVER_LOCK = threading.RLock()
+
+
+@contextmanager
+def _observe_omol_phases(observer: Any) -> Iterator[None]:
+    """Temporarily observe state-machine phases for this trace request only."""
+
+    original_methods = {
+        name: getattr(OmolStateMachine, name)
+        for name in ("run_omol_stage", "run_omol_charge_stage", "set_given_charge", "annotate")
+    }
+
+    def wrap(name: str) -> Any:
+        original = original_methods[name]
+
+        def wrapped(machine: Any, *args: Any, **kwargs: Any) -> Any:
+            result = original(machine, *args, **kwargs)
+            phase = kwargs.get("phase") if "phase" in kwargs else (args[0] if args else None)
+            if phase is not None:
+                observer(machine, str(phase))
+            return result
+
+        return wrapped
+
+    with _OMOL_PHASE_OBSERVER_LOCK:
+        for name in original_methods:
+            setattr(OmolStateMachine, name, wrap(name))
+        try:
+            yield
+        finally:
+            for name, original in original_methods.items():
+                setattr(OmolStateMachine, name, original)
 
 
 _SCORE_DETAIL_PREFIXES = (
@@ -266,8 +306,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dof-max-images",
         type=int,
-        default=120,
-        help="Maximum number of individual rdkit-dof images to write. Default: 120.",
+        default=1000,
+        help="Maximum number of individual rdkit-dof images to write. Default: 1000.",
     )
     parser.add_argument(
         "--dof-image-size",
@@ -492,7 +532,7 @@ def _render_dof_molecule(
                 size=render_context.image_size,
                 legend=label,
                 use_svg=True,
-                return_image=True,
+                return_image=False,
             )
             return _inline_dof_svg_record(
                 _svg_fragment_from_dof_image(image),
@@ -563,7 +603,7 @@ def _render_dof_grid(
                 subImgSize=render_context.grid_sub_img_size,
                 legends=legends,
                 use_svg=True,
-                return_image=True,
+                return_image=False,
             )
             return _inline_dof_svg_record(
                 _svg_fragment_from_dof_image(image),
@@ -640,7 +680,7 @@ def _render_dof_animation(
             legends=legends,
             duration=duration,
             loop=0,
-            return_image=True,
+            return_image=False,
         )
         record = _inline_dof_svg_record(
             _svg_fragment_from_dof_image(image),
@@ -736,7 +776,7 @@ def _load_json_cases(path: Path) -> list[TraceInputCase]:
 _APPROVED_REVIEW_FIXTURE_KINDS = {
     "approved_graph",
     "manual_reference",
-    "tmqmg_reference",
+    "reference_graph",
 }
 
 
@@ -1246,6 +1286,7 @@ def _collect_html_image_items(output: dict[str, Any]) -> list[dict[str, Any]]:
             metadata=selected,
         )
         add_item(
+            case=case,
             title="metal candidate grid",
             image=case.get("dof_candidate_grid"),
             group="grid",
@@ -2072,6 +2113,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
               ["类型", step.kind],
             ],
             metadata: step,
+            image: step.dof_image,
           }));
         });
 
@@ -2663,7 +2705,10 @@ def _no_metal_candidate_trace(
     }
 
 
-def _production_phase_steps(state: ReconstructionState) -> list[dict[str, Any]]:
+def _production_phase_steps(
+    state: ReconstructionState,
+    step_images: dict[int, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Expose the phases recorded by the production no-metal state machine."""
 
     steps: list[dict[str, Any]] = []
@@ -2676,7 +2721,10 @@ def _production_phase_steps(state: ReconstructionState) -> list[dict[str, Any]]:
             kind = "resonance"
         else:
             kind = "stage"
-        steps.append({"step_index": step_index, "phase": phase, "kind": kind})
+        step = {"step_index": step_index, "phase": phase, "kind": kind}
+        if step_images is not None and step_index in step_images:
+            step["dof_image"] = step_images[step_index]
+        steps.append(step)
     return steps
 
 
@@ -2700,18 +2748,69 @@ def _trace_no_metal_reconstruction(
         trace["status"] = "invalid_negative_radicals"
         return trace
 
-    selected = reconstruct_without_metals.xyz_to_omol_no_metal_state(
+    seed_state = no_metal_preparation._seed_state(
         xyz_block,
         total_charge,
         total_radical_electrons,
-        config=config,
     )
+    snapshot_records: dict[int, dict[str, Any]] = {
+        0: {"phase": "read_xyz", "parent_id": -1, "omol": _copy_omol(seed_state.omol)},
+        1: {
+            "phase": "normalize_seed_electronic_labels",
+            "parent_id": 0,
+            "omol": _copy_omol(seed_state.omol),
+        },
+    }
+    seed_state.metadata["_trace_snapshot_id"] = 1
+    next_snapshot_id = 2
+
+    def observe_phase(machine: Any, phase: str) -> None:
+        nonlocal next_snapshot_id
+        parent_id = int(machine.metadata.get("_trace_snapshot_id", -1))
+        snapshot_id = next_snapshot_id
+        next_snapshot_id += 1
+        machine.metadata["_trace_snapshot_id"] = snapshot_id
+        snapshot_records[snapshot_id] = {
+            "phase": phase,
+            "parent_id": parent_id,
+            "omol": _copy_omol(machine.omol),
+        }
+
+    with _observe_omol_phases(observe_phase):
+        selected = reconstruct_without_metals._run_no_metal_pipeline_from_state(
+            seed_state,
+            config=config,
+        )
     if selected is None:
         trace["status"] = "no_valid_no_metal_candidate"
         return trace
 
+    selected_snapshot_id = int(selected.metadata.get("_trace_snapshot_id", -1))
+    selected_path_records: list[dict[str, Any]] = []
+    seen_snapshot_ids: set[int] = set()
+    while selected_snapshot_id >= 0 and selected_snapshot_id not in seen_snapshot_ids:
+        seen_snapshot_ids.add(selected_snapshot_id)
+        record = snapshot_records.get(selected_snapshot_id)
+        if record is None:
+            break
+        selected_path_records.append(record)
+        selected_snapshot_id = int(record.get("parent_id", -1))
+    selected_path_records.reverse()
+    selected.metadata.pop("_trace_snapshot_id", None)
+    step_images: dict[int, dict[str, Any]] = {}
+    for step_index, record in enumerate(selected_path_records):
+        image = _render_dof_molecule(
+            record["omol"],
+            render_context=render_context,
+            case_id=case_id,
+            label=f"step_{step_index}_{record['phase']}",
+            kind="no_metal_pipeline_step",
+        )
+        if image is not None:
+            step_images[step_index] = image
+
     trace["status"] = "selected"
-    trace["pipeline_steps"] = _production_phase_steps(selected)
+    trace["pipeline_steps"] = _production_phase_steps(selected, step_images)
     trace["neighbor_radical_actions"] = list(selected.metadata.get("neighbor_radical_actions", ()))
     trace["recovery_tier"] = int(selected.metadata.get("recovery_tier", 0))
     trace["resonance"] = {
@@ -2729,15 +2828,9 @@ def _trace_no_metal_reconstruction(
         config=config,
     )
 
-    seed_state = no_metal_preparation._seed_state(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-    )
     animation = _render_dof_animation(
         [
-            (_copy_omol(seed_state.omol), "normalized input seed"),
-            (_copy_omol(selected.omol), "selected no-metal candidate"),
+            (record["omol"], str(record["phase"])) for record in selected_path_records
         ],
         render_context=render_context,
         case_id=case_id,
@@ -3390,6 +3483,44 @@ def trace_reconstruction_cases(
                 }
             )
     return cases
+
+
+def render_trace_report(
+    input_cases: Sequence[TraceInputCase],
+    *,
+    score_all_candidates: bool = True,
+    dof_max_images: int = 1000,
+    config: MolGRConfig | None = None,
+) -> str:
+    """Build the browser trace report for already-resolved input cases.
+
+    This is the shared programmatic entry point for browser-facing callers.
+    Keeping report assembly here prevents the development UI from maintaining
+    a second trace renderer or case representation.
+    """
+
+    render_context = DofRenderContext(
+        image_dir=Path("molgr_trace_dof_images"),
+        display_base_dir=None,
+        image_format="svg",
+        max_images=dof_max_images,
+    )
+    cases = trace_reconstruction_cases(
+        input_cases,
+        score_all_candidates=score_all_candidates,
+        render_context=render_context,
+        config=config,
+    )
+    output = {
+        "input": {
+            "source": "review_page",
+            "ids": [case.id for case in input_cases],
+        },
+        "case_count": len(cases),
+        "cases": cases,
+        "dof_rendering": dof_rendering_summary(render_context),
+    }
+    return _render_html_browser_report(_jsonable(output))
 
 
 def main() -> int:

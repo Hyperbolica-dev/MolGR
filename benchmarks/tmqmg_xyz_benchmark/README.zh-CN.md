@@ -7,6 +7,9 @@
 `--csv` 指向 tmQMg 元数据 CSV，至少需要 `id`、`smiles`、`charge` 列。
 `--xyz-dir` 指向包含 `<id>.xyz` 文件的目录。
 
+官方数据来源、固定版本、SHA-256 和下载命令见
+[`MOLECULE_REVIEW_TOOL.zh-CN.md`](../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据)。
+
 子集筛选参数：
 
 - `--start-row` 和 `--end-row` 按 1-based CSV 行号筛选。

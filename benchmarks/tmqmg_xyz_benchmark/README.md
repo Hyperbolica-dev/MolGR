@@ -7,6 +7,8 @@ It reuses the shared method registry from the other benchmark entrypoints.
 
 `--csv` points to a tmQMg metadata CSV with at least `id`, `smiles`, and `charge` columns.
 `--xyz-dir` points to a directory containing `<id>.xyz` files.
+The official source, pinned revision, checksums, and download commands are in the
+[molecule review development guide](../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据).
 
 Subset selection flags:
 

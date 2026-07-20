@@ -2,6 +2,11 @@
 
 This directory freezes reviewed tmQMg inputs for offline regression tests.
 
+The source dataset is the official
+[`uiocompcat/tmQMg`](https://github.com/uiocompcat/tmQMg) release. Use the
+[download and checksum instructions](../../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据)
+before regenerating fixtures.
+
 - `reconstruction/` contains valid source inputs selected to exercise distinct
   no-metal reconstruction paths. These cases are eligible for backend parity
   and reconstruction assertions.
@@ -11,9 +16,9 @@ This directory freezes reviewed tmQMg inputs for offline regression tests.
 - `fixture_sources.json` is the reviewed selection and classification source of
   truth. The generated `manifest.csv` files retain tmQMg row indices, charges,
   reference SMILES, classifications, and reasons.
-- `reviewed/` is written directly by the manual review client. Its
+- `../reviewed/tmqmg/` is written directly by the manual review client. Its
   `approved_graph/*.sdf` files are authoritative reviewed graphs with original
-  coordinates and electronic state; `tmqmg_reference/*.xyz` files use tmQMg
+  coordinates and electronic state; `../reviewed/tmqmg/reference_graph/*.xyz` files use tmQMg
   SMILES and reviewed electronic-state metadata from `manifest.json`.
 
 Reviewed fixture tests normalize only the answer graph before comparison: they
@@ -32,16 +37,21 @@ uv run python scripts/freeze_tmqmg_fixtures.py \
 Rebuild the review-driven fixtures from the local review database with:
 
 ```bash
-uv run python .local/tmqmg_review/build_fixtures.py \
+uv run python tools/molgr_review/build_fixtures.py \
+  --db .local/molgr_review/review.sqlite \
+  --fixtures-dir tests/data/reviewed/tmqmg \
   --xyz-dir /mnt/e/download/tmQMg_xyz/xyz
 ```
+
+Only confirmed review decisions are written to the repository fixture manifest.
+Pending and skipped cases remain local review state and are not test fixtures.
 
 Trace the current reviewed fixtures directly from the manifest; no separate
 trace case list is maintained:
 
 ```bash
 uv run python scripts/reconstruction_trace.py \
-  --review-fixtures-manifest tests/data/tmqmg/reviewed/manifest.json \
+  --review-fixtures-manifest tests/data/reviewed/tmqmg/manifest.json \
   --fixture-id ABEGOD \
   --format html --out /tmp/abegod-review-trace.html
 ```

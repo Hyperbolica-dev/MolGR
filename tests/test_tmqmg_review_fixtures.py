@@ -19,7 +19,7 @@ from scripts.reconstruction_trace import (
 )
 
 
-_FIXTURE_ROOT = Path(__file__).parent / "data" / "tmqmg" / "reviewed"
+_FIXTURE_ROOT = Path(__file__).parent / "data" / "reviewed" / "tmqmg"
 _MANIFEST_PATH = _FIXTURE_ROOT / "manifest.json"
 
 
@@ -27,6 +27,21 @@ def _manifest_records() -> list[dict[str, Any]]:
     payload = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 1
     return payload["fixtures"]
+
+
+def test_review_fixture_manifest_pins_source_dataset() -> None:
+    payload = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+    assert payload["source_dataset"] == {
+        "name": "tmQMg",
+        "properties_file": "tmQMg_properties_and_targets.csv",
+        "properties_sha256": "3920c1c8f4ec81bc8e44b8d0256a7da1e36c8805c3c0adfd47e50c46e633f473",
+        "publication_doi": "10.1039/D2DD00129B",
+        "repository": "https://github.com/uiocompcat/tmQMg",
+        "revision": "e1dc9887b8f20a217a1db6ca972d726bcbaab45b",
+        "xyz_file": "tmQMg_xyz.zip",
+        "xyz_sha256": "e0d15a70bcba294717cd9f9792e7fac99ef0c5c61c3a6e08dcc8a8643f53660a",
+    }
 
 
 def _molecule_electronic_state(mol: Chem.Mol) -> tuple[int, int]:
@@ -66,27 +81,12 @@ def test_review_fixture_manifest_is_complete_and_unique() -> None:
     assert {record["kind"] for record in records} <= {
         "approved_graph",
         "manual_reference",
-        "pending_algorithm",
-        "pending_reference",
-        "tmqmg_reference",
+        "reference_graph",
     }
     for record in records:
         assert (_FIXTURE_ROOT / str(record["structure_file"])).is_file()
         assert int(record["spin_multiplicity"]) == int(record["total_radical_electrons"]) + 1
-
-
-def test_pending_review_fixtures_are_explicit() -> None:
-    pending = {
-        record["case_id"]: record["kind"]
-        for record in _manifest_records()
-        if str(record["kind"]).startswith("pending_")
-    }
-
-    assert pending == {
-        "ACIFOJ": "pending_reference",
-        "ACUTIB": "pending_algorithm",
-        "ADEHOI": "pending_algorithm",
-    }
+        assert {"reviewer", "notes", "updated_at"}.isdisjoint(record)
 
 
 def test_fixture_answers_ignore_coordination_bonds_and_metal_stereochemistry() -> None:
@@ -181,7 +181,7 @@ def test_reviewed_xyz_smiles_reference_graphs_survive_reconstruction(
     records = [
         record
         for record in _manifest_records()
-        if record["kind"] in {"manual_reference", "tmqmg_reference"}
+        if record["kind"] in {"manual_reference", "reference_graph"}
     ]
 
     for record in records:
