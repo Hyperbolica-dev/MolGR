@@ -42,7 +42,7 @@ namespace
 
     const std::map<int, double> kDonorFieldStrength = {
         {1, 1.20},
-        {6, 1.30},  {7, 1.00},  {8, 0.85},  {9, 0.65}, {15, 1.15},
+        {6, 1.30},  {7, 1.00},  {8, 0.85},  {9, 0.65}, {15, 1.50},
         {16, 0.75}, {17, 0.55}, {35, 0.50}, {53, 0.45},
     };
 
@@ -204,9 +204,16 @@ namespace
                     continue;
                 }
             }
-            else if (distance > config.coordination_cutoff_angstrom)
+            else
             {
-                continue;
+                const double covalent_cutoff =
+                    ClampedCovalentRadius(static_cast<int>(metal_atom.GetAtomicNum())) +
+                    ClampedCovalentRadius(atomic_num) +
+                    config.coordination_covalent_tolerance_angstrom;
+                if (distance > std::min(config.coordination_cutoff_angstrom, covalent_cutoff))
+                {
+                    continue;
+                }
             }
 
             donors.push_back(DonorSample{
@@ -308,15 +315,16 @@ namespace
         double field_score,
         const molgr::config::MetalRadicalInferenceConfig &config)
     {
-        if (field_score >= config.strong_field_threshold)
+        const double ambiguity_margin = std::max(0.0, config.field_ambiguity_margin);
+        if (field_score >= config.strong_field_threshold + ambiguity_margin)
         {
             return "strong";
         }
-        if (field_score <= config.weak_field_threshold)
+        if (field_score <= config.weak_field_threshold - ambiguity_margin)
         {
             return "weak";
         }
-        return "intermediate";
+        return "ambiguous";
     }
 
     std::optional<ShellOccupation> ShellOccupationAfterOxidation(
@@ -359,7 +367,8 @@ namespace
     std::vector<int> CandidateDUnpairedCounts(
         int effective_d,
         const std::string &geometry,
-        const std::string &field_strength)
+        const std::string &field_strength,
+        bool prefer_low_spin)
     {
         if (effective_d < 0 || effective_d >= static_cast<int>(molgr::kDElectronsSpin.size()))
         {
@@ -387,13 +396,33 @@ namespace
 
         if (geometry == "tetrahedral")
         {
+            if (field_strength == "strong")
+            {
+                return {free_ion_candidates.front()};
+            }
+            if (field_strength == "ambiguous")
+            {
+                return prefer_low_spin
+                           ? std::vector<int>{free_ion_candidates.front(), free_ion_candidates.back()}
+                           : std::vector<int>{free_ion_candidates.back(), free_ion_candidates.front()};
+            }
             return {free_ion_candidates.back()};
         }
         if (free_ion_candidates.size() == 1)
         {
             return {free_ion_candidates.front()};
         }
-        return {free_ion_candidates.front(), free_ion_candidates.back()};
+        if (field_strength == "strong")
+        {
+            return {free_ion_candidates.front()};
+        }
+        if (field_strength == "weak")
+        {
+            return {free_ion_candidates.back()};
+        }
+        return prefer_low_spin
+                   ? std::vector<int>{free_ion_candidates.front(), free_ion_candidates.back()}
+                   : std::vector<int>{free_ion_candidates.back(), free_ion_candidates.front()};
     }
 }
 
@@ -423,15 +452,27 @@ namespace molgr
             const int base_unpaired = (occupation->remaining_f + occupation->residual_sp) % 2;
 
             const auto d_candidates =
-                CandidateDUnpairedCounts(occupation->effective_d, geometry, field_strength);
-            std::set<int> radical_counts_set;
+                CandidateDUnpairedCounts(
+                    occupation->effective_d,
+                    geometry,
+                    field_strength,
+                    field_score >=
+                        (metal_radical_config.weak_field_threshold +
+                         metal_radical_config.strong_field_threshold) /
+                            2.0);
+            std::vector<int> radical_counts;
             for (const int candidate : d_candidates)
             {
-                radical_counts_set.insert(base_unpaired + candidate);
+                const int radical_count = base_unpaired + candidate;
+                if (std::find(radical_counts.begin(), radical_counts.end(), radical_count) ==
+                    radical_counts.end())
+                {
+                    radical_counts.push_back(radical_count);
+                }
             }
 
             MetalRadicalInferenceResult result;
-            result.radical_counts.assign(radical_counts_set.begin(), radical_counts_set.end());
+            result.radical_counts = radical_counts;
             result.effective_d_electrons = occupation->effective_d;
             result.residual_sp_electrons = occupation->residual_sp;
             result.remaining_f_electrons = occupation->remaining_f;

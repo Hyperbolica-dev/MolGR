@@ -8,6 +8,7 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
+from molgr.fallback.utils.electrons import get_unpaired_electron_count
 from molgr.fallback.utils.tools import typed_lru_cache
 
 
@@ -50,7 +51,7 @@ def _build_score_key(omol: pybel.Molecule) -> ForceFieldScoreKey:
             (
                 int(obatom.GetAtomicNum()),
                 int(obatom.GetFormalCharge()),
-                int(obatom.GetSpinMultiplicity()),
+                int(get_unpaired_electron_count(obatom)),
                 int(obatom.GetHyb()),
                 _quantized_coordinate(obatom.GetX()),
                 _quantized_coordinate(obatom.GetY()),
@@ -80,7 +81,7 @@ def _build_force_field_setup_key(obmol: ob.OBMol) -> ForceFieldSetupKey:
             (
                 int(obatom.GetAtomicNum()),
                 int(obatom.GetFormalCharge()),
-                int(obatom.GetSpinMultiplicity()),
+                int(get_unpaired_electron_count(obatom)),
                 int(obatom.GetHyb()),
                 int(obatom.GetExplicitDegree()),
                 bool(obatom.IsAromatic()),

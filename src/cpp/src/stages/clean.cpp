@@ -3,6 +3,7 @@
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/internal_helpers.h"
 
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/vendor/openbabel_threading.h"
 
@@ -13,6 +14,7 @@
 
 #include <openbabel/obconversion.h>
 #include <algorithm>
+#include <cstdlib>
 
 namespace molgr
 {
@@ -20,6 +22,9 @@ namespace molgr
     {
         using namespace OpenBabel;
 
+        // Electron bookkeeping: move an unresolved A center through A-B=C,
+        // consume its marker, and produce one real unpaired electron at A and C.
+        // Active lone pairs at C are preserved.
         bool CleanCarbeneNeighborUnsaturated(OBMol &mol)
         {
             bool hit = false;
@@ -36,20 +41,23 @@ namespace molgr
                     OBAtom *a2 = mol.GetAtom(idxs[1]);
                     OBAtom *a3 = mol.GetAtom(idxs[2]);
 
-                    if (a1->GetSpinMultiplicity() == 2 && a3->GetSpinMultiplicity() == 0)
+                    OBBond *b23 = mol.GetBond(a2, a3);
+                    OBBond *b12 = mol.GetBond(a1, a2);
+                    if (molgr::utils::HasUnresolvedTwoElectronCenter(*a1) &&
+                        molgr::utils::GetUnpairedElectronCount(*a3) == 0 &&
+                        !molgr::utils::HasUnresolvedTwoElectronCenter(*a3) &&
+                        b23 && b12 && b12->GetBondOrder() == 1 &&
+                        b23->GetBondOrder() == 2)
                     {
-                        OBBond *b23 = mol.GetBond(a2, a3);
-                        OBBond *b12 = mol.GetBond(a1, a2);
-                        if (b23 && b12)
-                        {
-                            b23->SetBondOrder(b23->GetBondOrder() - 1);
-                            b12->SetBondOrder(b12->GetBondOrder() + 1);
-                            a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
-                            a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() + 1);
-                            hit = true;
-                            any_applied = true;
-                            break;
-                        }
+                        b23->SetBondOrder(b23->GetBondOrder() - 1);
+                        b12->SetBondOrder(b12->GetBondOrder() + 1);
+                        molgr::utils::SetUnresolvedTwoElectronCenter(*a1, false);
+                        molgr::utils::SetLonePairCount(*a1, 0);
+                        molgr::utils::SetUnpairedElectronCount(*a1, 1);
+                        molgr::utils::SetUnpairedElectronCount(*a3, molgr::utils::GetUnpairedElectronCount(*a3) + 1);
+                        hit = true;
+                        any_applied = true;
+                        break;
                     }
                 }
                 if (!any_applied)
@@ -58,22 +66,156 @@ namespace molgr
             return hit;
         }
 
-        bool CleanNeighborRadicals(OBMol &mol)
+        // Convert two excess terminal radicals into one neutral 1,3-dipole.
+        // The target radical count and pending absolute charge reserve are global
+        // constraints; each accepted fragment consumes one radical at each end.
+        bool CleanPossible13Dipole(
+            OBMol &mol,
+            int given_charge,
+            int total_radical_electrons)
         {
+            const auto available_unpaired_electrons = [&]()
+            {
+                int count = 0;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    count += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                }
+                return count - total_radical_electrons - std::abs(given_charge);
+            };
+
+            bool hit = false;
+            const auto matches = molgr::smarts::FindAll(
+                mol,
+                molgr::smarts::PatternId::CLEAN_POSSIBLE_1_3_DIPOLE);
+            for (const auto &idxs : matches)
+            {
+                if (available_unpaired_electrons() < 2)
+                {
+                    break;
+                }
+                if (idxs.size() != 3)
+                {
+                    continue;
+                }
+
+                OBAtom *atom1 = mol.GetAtom(idxs[0]);
+                OBAtom *atom2 = mol.GetAtom(idxs[1]);
+                OBAtom *atom3 = mol.GetAtom(idxs[2]);
+                OBBond *bond12 = mol.GetBond(idxs[0], idxs[1]);
+                OBBond *bond23 = mol.GetBond(idxs[1], idxs[2]);
+                if (!atom1 || !atom2 || !atom3 || !bond12 || !bond23)
+                {
+                    continue;
+                }
+                if (atom1->GetFormalCharge() != 0 ||
+                    atom2->GetFormalCharge() != 0 ||
+                    atom3->GetFormalCharge() != 0 ||
+                    molgr::utils::GetUnpairedElectronCount(*atom1) < 1 ||
+                    molgr::utils::GetUnpairedElectronCount(*atom3) < 1 ||
+                    molgr::utils::HasUnresolvedTwoElectronCenter(*atom1) ||
+                    molgr::utils::HasUnresolvedTwoElectronCenter(*atom3))
+                {
+                    continue;
+                }
+
+                const int degree1 = static_cast<int>(atom1->GetExplicitDegree());
+                const int degree3 = static_cast<int>(atom3->GetExplicitDegree());
+                if (degree1 <= 0 || degree3 <= 0)
+                {
+                    continue;
+                }
+                const int valence1 = static_cast<int>(atom1->GetExplicitValence());
+                const int valence3 = static_cast<int>(atom3->GetExplicitValence());
+                const int left_average_key = valence1 * degree3;
+                const int right_average_key = valence3 * degree1;
+                const bool add_left_bond =
+                    left_average_key < right_average_key ||
+                    (left_average_key == right_average_key && atom1->GetIdx() < atom3->GetIdx());
+                OBBond *bond_to_increase = add_left_bond ? bond12 : bond23;
+                OBAtom *negative_atom = add_left_bond ? atom3 : atom1;
+                if (bond_to_increase->GetBondOrder() >= 3)
+                {
+                    continue;
+                }
+
+                bond_to_increase->SetBondOrder(bond_to_increase->GetBondOrder() + 1);
+                atom2->SetFormalCharge(1);
+                negative_atom->SetFormalCharge(-1);
+                molgr::utils::SetUnpairedElectronCount(
+                    *atom1,
+                    molgr::utils::GetUnpairedElectronCount(*atom1) - 1);
+                molgr::utils::SetUnpairedElectronCount(
+                    *atom3,
+                    molgr::utils::GetUnpairedElectronCount(*atom3) - 1);
+                hit = true;
+            }
+            return hit;
+        }
+
+        // Electron bookkeeping: resolve adjacent radical-compatible states.
+        // Two real radicals consume one electron at each endpoint and require
+        // two excess electrons. A real radical next to an unresolved two-
+        // electron center transfers the radical location to that center while
+        // preserving the total real-radical count, so it needs no excess pair.
+        bool CleanNeighborRadicals(
+            OBMol &mol,
+            int given_charge,
+            int total_radical_electrons)
+        {
+            const auto available_unpaired_electrons = [&]()
+            {
+                int count = 0;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    count += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                }
+                return count - total_radical_electrons - std::abs(given_charge);
+            };
+
             bool hit = false;
             FOR_BONDS_OF_MOL(bond_iter, mol)
             {
                 OBBond *bond = &(*bond_iter);
                 OBAtom *a1 = bond->GetBeginAtom();
                 OBAtom *a2 = bond->GetEndAtom();
-                int r1 = a1->GetSpinMultiplicity();
-                int r2 = a2->GetSpinMultiplicity();
+                int r1 = molgr::utils::GetUnpairedElectronCount(*a1);
+                int r2 = molgr::utils::GetUnpairedElectronCount(*a2);
+                const bool u1 = molgr::utils::HasUnresolvedTwoElectronCenter(*a1);
+                const bool u2 = molgr::utils::HasUnresolvedTwoElectronCenter(*a2);
+                if (r1 > 0 && u2 && !u1)
+                {
+                    bond->SetBondOrder(bond->GetBondOrder() + 1);
+                    molgr::utils::SetUnpairedElectronCount(*a1, r1 - 1);
+                    molgr::utils::SetUnresolvedTwoElectronCenter(*a2, false);
+                    molgr::utils::SetLonePairCount(*a2, 0);
+                    molgr::utils::SetUnpairedElectronCount(*a2, 1);
+                    AssignChargeRadicalForAtom(*a1);
+                    hit = true;
+                    continue;
+                }
+                if (r2 > 0 && u1 && !u2)
+                {
+                    bond->SetBondOrder(bond->GetBondOrder() + 1);
+                    molgr::utils::SetUnpairedElectronCount(*a2, r2 - 1);
+                    molgr::utils::SetUnresolvedTwoElectronCenter(*a1, false);
+                    molgr::utils::SetLonePairCount(*a1, 0);
+                    molgr::utils::SetUnpairedElectronCount(*a1, 1);
+                    AssignChargeRadicalForAtom(*a2);
+                    hit = true;
+                    continue;
+                }
+                const int available = available_unpaired_electrons();
+                if (available < 2)
+                {
+                    continue;
+                }
                 if (r1 > 0 && r2 > 0)
                 {
-                    int to_add = std::min(r1, r2);
+                    int to_add = std::min({r1, r2, available / 2});
                     bond->SetBondOrder(bond->GetBondOrder() + to_add);
-                    a1->SetSpinMultiplicity(r1 - to_add);
-                    a2->SetSpinMultiplicity(r2 - to_add);
+                    molgr::utils::SetUnpairedElectronCount(*a1, r1 - to_add);
+                    molgr::utils::SetUnpairedElectronCount(*a2, r2 - to_add);
                     AssignChargeRadicalForAtom(*a1);
                     AssignChargeRadicalForAtom(*a2);
                     hit = true;
@@ -105,7 +247,11 @@ namespace molgr
 
                     const ElementInfo *info1 = GetElementInfo(atom1->GetAtomicNum());
                     const ElementInfo *info4 = GetElementInfo(atom4->GetAtomicNum());
-                    if (info1 != nullptr && info4 != nullptr &&
+                    if (atom1->GetFormalCharge() == -1 &&
+                        atom4->GetFormalCharge() == 1 &&
+                        bond1->GetBondOrder() == 1 &&
+                        bond2->GetBondOrder() == 2 &&
+                        info1 != nullptr && info4 != nullptr &&
                         info1->default_valence > atom1->GetTotalValence() &&
                         info4->default_valence > atom4->GetTotalValence())
                     {
@@ -130,19 +276,27 @@ namespace molgr
                     matches.erase(matches.begin());
 
                     OBAtom *atom1 = mol.GetAtom(idxs[0]);
+                    OBAtom *atom2 = mol.GetAtom(idxs[1]);
                     OBAtom *atom3 = mol.GetAtom(idxs[2]);
                     OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
                     OBBond *bond2 = mol.GetBond(idxs[1], idxs[2]);
-                    if (!atom1 || !atom3 || !bond1 || !bond2)
+                    if (!atom1 || !atom2 || !atom3 || !bond1 || !bond2)
                     {
                         continue;
                     }
 
-                    bond1->SetBondOrder(bond1->GetBondOrder() + 1);
-                    bond2->SetBondOrder(bond2->GetBondOrder() - 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
-                    atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
-                    hit = true;
+                    if (atom1->GetFormalCharge() == -1 &&
+                        atom2->GetFormalCharge() == 1 &&
+                        atom3->GetFormalCharge() == 0 &&
+                        bond1->GetBondOrder() == 2 &&
+                        bond2->GetBondOrder() == 2)
+                    {
+                        bond1->SetBondOrder(bond1->GetBondOrder() + 1);
+                        bond2->SetBondOrder(bond2->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
+                        atom3->SetFormalCharge(atom3->GetFormalCharge() - 1);
+                        hit = true;
+                    }
                 }
                 return hit;
             }
@@ -186,6 +340,9 @@ namespace molgr
                 return hit;
             }
 
+            // Electron bookkeeping: rule 3 changes total valence only at its two
+            // charged endpoints; internal atoms exchange bond-order units with net
+            // zero change. Refresh endpoints only and preserve unrelated labels.
             bool CleanResonances3(OBMol &mol)
             {
                 bool hit = false;
@@ -206,14 +363,23 @@ namespace molgr
                         continue;
                     }
 
-                    bond1->SetBondOrder(bond1->GetBondOrder() - 1);
-                    bond2->SetBondOrder(bond2->GetBondOrder() + 1);
-                    bond3->SetBondOrder(bond3->GetBondOrder() - 1);
-                    bond4->SetBondOrder(bond4->GetBondOrder() + 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
-                    atom5->SetFormalCharge(atom5->GetFormalCharge() + 1);
-                    hit = true;
-                    hit = FreshOmolChargeRadical(mol) || hit;
+                    if (atom1->GetFormalCharge() == 1 &&
+                        atom5->GetFormalCharge() == -1 &&
+                        bond1->GetBondOrder() == 2 &&
+                        bond2->GetBondOrder() == 1 &&
+                        bond3->GetBondOrder() == 2 &&
+                        bond4->GetBondOrder() == 1)
+                    {
+                        bond1->SetBondOrder(bond1->GetBondOrder() - 1);
+                        bond2->SetBondOrder(bond2->GetBondOrder() + 1);
+                        bond3->SetBondOrder(bond3->GetBondOrder() - 1);
+                        bond4->SetBondOrder(bond4->GetBondOrder() + 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
+                        atom5->SetFormalCharge(atom5->GetFormalCharge() + 1);
+                        AssignChargeRadicalForAtom(*atom1);
+                        AssignChargeRadicalForAtom(*atom5);
+                        hit = true;
+                    }
                 }
                 return hit;
             }
@@ -236,11 +402,17 @@ namespace molgr
                         continue;
                     }
 
-                    bond2->SetBondOrder(bond2->GetBondOrder() + 1);
-                    bond1->SetBondOrder(bond1->GetBondOrder() - 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
-                    atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
-                    hit = true;
+                    if (atom1->GetFormalCharge() == 1 &&
+                        atom3->GetFormalCharge() == -1 &&
+                        bond1->GetBondOrder() == 2 &&
+                        bond2->GetBondOrder() == 1)
+                    {
+                        bond2->SetBondOrder(bond2->GetBondOrder() + 1);
+                        bond1->SetBondOrder(bond1->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
+                        atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
+                        hit = true;
+                    }
                 }
                 return hit;
             }
@@ -296,11 +468,17 @@ namespace molgr
                         continue;
                     }
 
-                    bond2->SetBondOrder(bond2->GetBondOrder() + 1);
-                    bond1->SetBondOrder(bond1->GetBondOrder() - 1);
-                    atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
-                    atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
-                    hit = true;
+                    if (atom1->GetFormalCharge() == 0 &&
+                        atom3->GetFormalCharge() == -1 &&
+                        bond1->GetBondOrder() == 2 &&
+                        bond2->GetBondOrder() == 2)
+                    {
+                        bond2->SetBondOrder(bond2->GetBondOrder() + 1);
+                        bond1->SetBondOrder(bond1->GetBondOrder() - 1);
+                        atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
+                        atom3->SetFormalCharge(atom3->GetFormalCharge() + 1);
+                        hit = true;
+                    }
                 }
                 return hit;
             }
@@ -337,6 +515,9 @@ namespace molgr
                 return hit;
             }
 
+            // Electron bookkeeping: shift charge/pi bonds and locally rebuild both
+            // endpoints so newly exposed unpaired/lone-pair/unresolved states are
+            // not hidden by stale fields.
             bool CleanResonances8(OBMol &mol)
             {
                 bool hit = false;
@@ -357,7 +538,9 @@ namespace molgr
                     {
                         continue;
                     }
-                    if (bond1->GetBondOrder() == 1 &&
+                    if (atom1->GetFormalCharge() == -1 &&
+                        atom5->GetFormalCharge() == 0 &&
+                        bond1->GetBondOrder() == 1 &&
                         bond2->GetBondOrder() == 2 &&
                         bond3->GetBondOrder() == 1 &&
                         bond4->GetBondOrder() == 2)
@@ -368,6 +551,8 @@ namespace molgr
                         bond4->SetBondOrder(bond4->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom5->SetFormalCharge(atom5->GetFormalCharge() - 1);
+                        AssignChargeRadicalForAtom(*atom1);
+                        AssignChargeRadicalForAtom(*atom5);
                         hit = true;
                     }
                 }
@@ -400,7 +585,10 @@ namespace molgr
 
                     int room1 = info1->default_valence - atom1->GetTotalValence();
                     int room2 = info2->default_valence - atom2->GetTotalValence();
-                    if (room1 >= 1 && room2 >= 1)
+                    if (atom1->GetFormalCharge() > 0 &&
+                        atom2->GetFormalCharge() < 0 &&
+                        (bond->GetBondOrder() == 1 || bond->GetBondOrder() == 2) &&
+                        room1 >= 1 && room2 >= 1)
                     {
                         int bond_to_add = std::min(room1, room2);
                         bond->SetBondOrder(bond->GetBondOrder() + bond_to_add);
@@ -412,6 +600,8 @@ namespace molgr
                 return hit;
             }
 
+            // Electron bookkeeping: require and consume one real unpaired electron
+            // at each terminal to create two new bond-order units.
             bool CleanResonances10(OBMol &mol)
             {
                 bool hit = false;
@@ -431,13 +621,17 @@ namespace molgr
                         continue;
                     }
 
-                    if (atom1->GetSpinMultiplicity() == 1 && atom4->GetSpinMultiplicity() == 1)
+                    if (molgr::utils::GetUnpairedElectronCount(*atom1) == 1 &&
+                        molgr::utils::GetUnpairedElectronCount(*atom4) == 1 &&
+                        bond1->GetBondOrder() == 1 &&
+                        (bond2->GetBondOrder() == 2 || bond2->GetBondOrder() == 3) &&
+                        bond3->GetBondOrder() == 1)
                     {
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
                         bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                         bond3->SetBondOrder(bond3->GetBondOrder() + 1);
-                        atom1->SetSpinMultiplicity(atom1->GetSpinMultiplicity() - 1);
-                        atom4->SetSpinMultiplicity(atom4->GetSpinMultiplicity() - 1);
+                        molgr::utils::SetUnpairedElectronCount(*atom1, molgr::utils::GetUnpairedElectronCount(*atom1) - 1);
+                        molgr::utils::SetUnpairedElectronCount(*atom4, molgr::utils::GetUnpairedElectronCount(*atom4) - 1);
                         hit = true;
                     }
                 }
@@ -466,6 +660,8 @@ namespace molgr
                                                ? -1
                                                : info2->default_valence - atom2->GetTotalValence();
                     if (info2 != nullptr &&
+                        atom1->GetFormalCharge() == 0 &&
+                        atom2->GetFormalCharge() == 1 &&
                         atom2_room >= 1 &&
                         (bond->GetBondOrder() == 1 || bond->GetBondOrder() == 2))
                     {
@@ -502,6 +698,8 @@ namespace molgr
                                                ? -1
                                                : info4->default_valence - atom4->GetTotalValence();
                     if (info4 != nullptr &&
+                        atom1->GetFormalCharge() == 0 &&
+                        atom4->GetFormalCharge() == 1 &&
                         atom4_room >= 1 &&
                         bond1->GetBondOrder() == 1 &&
                         bond2->GetBondOrder() == 2 &&
@@ -538,8 +736,11 @@ namespace molgr
 
                     const ElementInfo *info1 = GetElementInfo(atom1->GetAtomicNum());
                     if (info1 != nullptr &&
+                        atom1->GetFormalCharge() == -1 &&
+                        atom3->GetFormalCharge() == 0 &&
                         info1->default_valence - atom1->GetTotalValence() >= 1 &&
-                        bond1->GetBondOrder() == 1)
+                        bond1->GetBondOrder() == 1 &&
+                        bond2->GetBondOrder() == 2)
                     {
                         bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                         bond2->SetBondOrder(bond2->GetBondOrder() - 1);
@@ -551,7 +752,9 @@ namespace molgr
                 return hit;
             }
 
-            bool CleanResonances14(OBMol &mol)
+            // Electron bookkeeping: lower the charged triple bond, neutralize both
+            // endpoints, and rebuild their explicit electron classifications.
+            bool CleanResonances14Impl(OBMol &mol)
             {
                 bool hit = false;
                 auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_14);
@@ -575,45 +778,18 @@ namespace molgr
                         bond->SetBondOrder(bond->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom2->SetFormalCharge(atom2->GetFormalCharge() - 1);
+                        AssignChargeRadicalForAtom(*atom1);
+                        AssignChargeRadicalForAtom(*atom2);
                         hit = true;
                     }
                 }
                 return hit;
             }
 
-            bool CleanResonances15(OBMol &mol)
-            {
-                bool hit = false;
-                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_15);
-                while (!matches.empty())
-                {
-                    auto idxs = matches.front();
-                    matches.erase(matches.begin());
-
-                    OBAtom *atom1 = mol.GetAtom(idxs[0]);
-                    OBAtom *atom2 = mol.GetAtom(idxs[1]);
-                    OBBond *bond = mol.GetBond(idxs[0], idxs[1]);
-                    if (!atom1 || !atom2 || !bond)
-                    {
-                        continue;
-                    }
-
-                    if (atom1->GetFormalCharge() == 0 &&
-                        atom1->GetSpinMultiplicity() == 2 &&
-                        atom2->GetFormalCharge() == 0 &&
-                        bond->GetBondOrder() == 2)
-                    {
-                        bond->SetBondOrder(bond->GetBondOrder() + 1);
-                        atom1->SetFormalCharge(atom1->GetFormalCharge() - 1);
-                        atom2->SetFormalCharge(atom2->GetFormalCharge() + 1);
-                        atom1->SetSpinMultiplicity(0);
-                        hit = true;
-                    }
-                }
-                return hit;
-            }
-
-            bool CleanResonances16(OBMol &mol)
+            // Electron bookkeeping: neutralize the conjugated ion pair, then
+            // rebuild both endpoints to expose any newly created explicit or
+            // unresolved electron state.
+            bool CleanResonances16Impl(OBMol &mol)
             {
                 bool hit = false;
                 auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_16);
@@ -634,9 +810,11 @@ namespace molgr
                     }
 
                     if (atom1->GetFormalCharge() == -1 &&
-                        atom1->GetSpinMultiplicity() == 0 &&
+                        molgr::utils::GetUnpairedElectronCount(*atom1) == 0 &&
+                        molgr::utils::GetLonePairCount(*atom1) == 0 &&
                         atom5->GetFormalCharge() == 1 &&
-                        atom5->GetSpinMultiplicity() == 0 &&
+                        molgr::utils::GetUnpairedElectronCount(*atom5) == 0 &&
+                        molgr::utils::GetLonePairCount(*atom5) == 0 &&
                         bond1->GetBondOrder() == 1 &&
                         bond2->GetBondOrder() == 2 &&
                         bond3->GetBondOrder() == 1 &&
@@ -648,11 +826,64 @@ namespace molgr
                         bond4->SetBondOrder(bond4->GetBondOrder() - 1);
                         atom1->SetFormalCharge(atom1->GetFormalCharge() + 1);
                         atom5->SetFormalCharge(atom5->GetFormalCharge() - 1);
+                        AssignChargeRadicalForAtom(*atom1);
+                        AssignChargeRadicalForAtom(*atom5);
                         hit = true;
                     }
                 }
                 return hit;
             }
+
+            // Shift A(-)-B=C=D to A=B-C(-)=D only when B, C, and D are
+            // ring atoms, replacing a ring allene with conjugated pi bonds.
+            bool CleanResonances17Impl(OBMol &mol)
+            {
+                bool hit = false;
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_17);
+                while (!matches.empty())
+                {
+                    auto idxs = matches.front();
+                    matches.erase(matches.begin());
+
+                    OBAtom *atom1 = mol.GetAtom(idxs[0]);
+                    OBAtom *atom3 = mol.GetAtom(idxs[2]);
+                    OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
+                    OBBond *bond2 = mol.GetBond(idxs[1], idxs[2]);
+                    OBBond *bond3 = mol.GetBond(idxs[2], idxs[3]);
+                    if (!atom1 || !atom3 || !bond1 || !bond2 || !bond3)
+                    {
+                        continue;
+                    }
+                    if (atom1->GetFormalCharge() == -1 &&
+                        atom3->GetFormalCharge() == 0 &&
+                        bond1->GetBondOrder() == 1 &&
+                        bond2->GetBondOrder() == 2 &&
+                        bond3->GetBondOrder() == 2)
+                    {
+                        bond1->SetBondOrder(2);
+                        bond2->SetBondOrder(1);
+                        atom1->SetFormalCharge(0);
+                        atom3->SetFormalCharge(-1);
+                        hit = true;
+                    }
+                }
+                return hit;
+            }
+        }
+
+        bool CleanResonances14(OBMol &mol)
+        {
+            return CleanResonances14Impl(mol);
+        }
+
+        bool CleanResonances16(OBMol &mol)
+        {
+            return CleanResonances16Impl(mol);
+        }
+
+        bool CleanResonances17(OBMol &mol)
+        {
+            return CleanResonances17Impl(mol);
         }
 
         bool CleanResonances(OBMol &mol)
@@ -674,8 +905,8 @@ namespace molgr
             hit = CleanResonances12(mol) || hit;
             hit = CleanResonances13(mol) || hit;
             hit = CleanResonances14(mol) || hit;
-            hit = CleanResonances15(mol) || hit;
             hit = CleanResonances16(mol) || hit;
+            hit = CleanResonances17(mol) || hit;
             return hit;
         }
     }

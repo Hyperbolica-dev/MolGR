@@ -26,11 +26,6 @@
       "reason": "Unified resonance pool succeeds without neighbor-radical or recovery actions."
     },
     {
-      "id": "ADOCOL",
-      "classification": "recovery_deformed_pi_with_neighbor",
-      "reason": "Neighbor bond-order resolution followed by deformed-pi recovery."
-    },
-    {
       "id": "ACEKAU",
       "classification": "recovery_bond_break_with_neighbor",
       "reason": "Neighbor bond-order resolution followed by last-tier bond recovery."

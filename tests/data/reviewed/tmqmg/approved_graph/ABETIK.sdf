@@ -13,8 +13,8 @@ M  V30 5 C 0.891300 0.253300 -1.773600 0
 M  V30 6 Si -5.832400 -0.231700 0.417200 0 VAL=4
 M  V30 7 C -7.368700 0.741100 -0.052200 0
 M  V30 8 C -6.118100 -1.537000 1.736200 0
-M  V30 9 C -3.172300 0.416500 1.479000 0
-M  V30 10 C -2.127700 1.364300 1.249800 0 CHG=-1 VAL=3
+M  V30 9 C -3.172300 0.416500 1.479000 0 CHG=-1 VAL=3
+M  V30 10 C -2.127700 1.364300 1.249800 0
 M  V30 11 C -2.670900 2.424000 0.476700 0
 M  V30 12 C -4.042500 2.133100 0.216900 0
 M  V30 13 C -4.381400 0.895400 0.863400 0
@@ -126,17 +126,17 @@ M  V30 44 1 7 6
 M  V30 45 1 7 61
 M  V30 46 2 42 51
 M  V30 47 1 67 11
-M  V30 48 2 12 11
-M  V30 49 1 12 13
+M  V30 48 1 12 11
+M  V30 49 2 12 13
 M  V30 50 1 6 13
 M  V30 51 1 6 8
-M  V30 52 1 11 10
+M  V30 52 2 11 10
 M  V30 53 1 47 48
 M  V30 54 2 47 49
 M  V30 55 2 21 20
 M  V30 56 1 21 23
 M  V30 57 1 20 29
-M  V30 58 2 13 9
+M  V30 58 1 13 9
 M  V30 59 1 51 49
 M  V30 60 1 51 52
 M  V30 61 1 10 9
@@ -156,19 +156,26 @@ M  V30 74 1 27 28
 M  V30 75 9 2 1
 M  V30 76 9 22 1
 M  V30 77 9 15 1
-M  V30 78 9 10 1
+M  V30 78 9 9 1
 M  V30 79 9 17 1
 M  V30 80 9 16 1
 M  V30 81 9 18 1
 M  V30 82 9 14 1
 M  V30 83 9 12 1
-M  V30 84 9 11 1
-M  V30 85 9 13 1
-M  V30 86 9 9 1
+M  V30 84 9 13 1
+M  V30 85 9 11 1
+M  V30 86 9 10 1
 M  V30 END BOND
 M  V30 END CTAB
 M  END
->  <TMQMG_ID>
+>  <atom.iprop.MOLGR_METAL_UNPAIRED_ELECTRONS>
+0 n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a
+n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a
+
+>  <CASE_ID>
+ABETIK
+
+>  <CANDIDATE_ID>
 ABETIK
 
 >  <TOTAL_CHARGE>
@@ -184,5 +191,5 @@ ABETIK
 accept_candidate
 
 >  <APPROVED_SMILES>
-[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456789%10(<-Fc%11c(F)c(F)c(F)c(F)c%11[B-](c%11c(F)c(F)c(F)c(F)c%11F)(c%11c(F)c(F)c(F)c(F)c%11F)C1([H])[H])<-c1([H])c->2([Si](C([H])([H])[H])(C([H])([H])[H])c->32c->4([H])c->5([H])c->6([H])[c-]->72[H])c->8([H])[c-]->9([H])c->%101[H]
+[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456789%10(<-Fc%11c(F)c(F)c(F)c(F)c%11[B-](c%11c(F)c(F)c(F)c(F)c%11F)(c%11c(F)c(F)c(F)c(F)c%11F)C1([H])[H])<-c1([H])c->2([H])c->3([Si](C([H])([H])[H])(C([H])([H])[H])c->42c->5([H])c->6([H])c->7([H])[c-]->82[H])[c-]->9([H])c->%101[H]
 $$$$

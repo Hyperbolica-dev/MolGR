@@ -14,9 +14,18 @@ from pathlib import Path
 import pytest
 from rdkit import Chem
 
+from molgr.fallback.utils.electrons import (
+    LONE_PAIR_COUNT_PROP,
+    UNRESOLVED_TWO_ELECTRON_CENTER_PROP,
+    set_lone_pair_count,
+    set_unpaired_electron_count,
+    set_unresolved_two_electron_center,
+)
 from molgr.utils.converter import (
     METAL_UNPAIRED_ELECTRONS_PROP,
+    get_atom_lone_pair_count,
     get_atom_unpaired_electrons,
+    has_atom_unresolved_two_electron_center,
     mol_data_to_rdkit,
     pybel_to_rdmol,
 )
@@ -34,12 +43,32 @@ def _openbabel_metal_radical_molecule():
     iron = obmol.NewAtom()
     iron.SetAtomicNum(26)
     iron.SetFormalCharge(2)
-    iron.SetSpinMultiplicity(2)
+    set_unpaired_electron_count(iron, 2)
+    set_lone_pair_count(iron, 1)
     iron.SetVector(0.0, 0.0, 0.0)
     carbon = obmol.NewAtom()
     carbon.SetAtomicNum(6)
-    carbon.SetSpinMultiplicity(1)
+    set_unpaired_electron_count(carbon, 1)
+    set_unresolved_two_electron_center(carbon, True)
     carbon.SetVector(3.0, 0.0, 0.0)
+    return pybel.Molecule(obmol)
+
+
+def _openbabel_two_coordinate_boron_anion():
+    from openbabel import openbabel as ob
+    from openbabel import pybel
+
+    obmol = ob.OBMol()
+    boron = obmol.NewAtom()
+    boron.SetAtomicNum(5)
+    boron.SetFormalCharge(-1)
+    set_unpaired_electron_count(boron, 0)
+    boron.SetVector(0.0, 0.0, 0.0)
+    for x in (-1.3, 1.3):
+        oxygen = obmol.NewAtom()
+        oxygen.SetAtomicNum(8)
+        oxygen.SetVector(x, 0.0, 0.0)
+        obmol.AddBond(boron.GetIdx(), oxygen.GetIdx(), 1)
     return pybel.Molecule(obmol)
 
 
@@ -50,9 +79,13 @@ def _assert_metal_unpaired_electron_representation(mol) -> None:
     assert iron.GetNumRadicalElectrons() == 0
     assert iron.GetIntProp(METAL_UNPAIRED_ELECTRONS_PROP) == 2
     assert get_atom_unpaired_electrons(iron) == 2
+    assert get_atom_lone_pair_count(iron) == 1
     assert carbon.GetNumRadicalElectrons() == 1
     assert not carbon.HasProp(METAL_UNPAIRED_ELECTRONS_PROP)
     assert get_atom_unpaired_electrons(carbon) == 1
+    assert has_atom_unresolved_two_electron_center(carbon)
+    assert mol.HasProp(f"atom.iprop.{LONE_PAIR_COUNT_PROP}")
+    assert mol.HasProp(f"atom.bprop.{UNRESOLVED_TWO_ELECTRON_CENTER_PROP}")
 
 
 def test_rdkit_converters_store_metal_spin_outside_formal_radicals() -> None:
@@ -84,6 +117,23 @@ def test_metal_unpaired_electron_property_survives_sdf_round_trip() -> None:
     iron = restored.GetAtomWithIdx(0)
     assert iron.GetNumRadicalElectrons() == 0
     assert get_atom_unpaired_electrons(iron) == 2
+    assert get_atom_lone_pair_count(iron) == 1
+    assert has_atom_unresolved_two_electron_center(restored.GetAtomWithIdx(1))
+
+
+def test_rdkit_converters_preserve_explicit_closed_shell_boron_anion() -> None:
+    from molgr import _core
+
+    omol = _openbabel_two_coordinate_boron_anion()
+    mol_ptr = int(getattr(omol.OBMol, "this", omol.OBMol))
+    mol_data = _core.utils.extract_molecule_data(mol_ptr)
+
+    for converted in (mol_data_to_rdkit(mol_data), pybel_to_rdmol(omol)):
+        boron = converted.GetAtomWithIdx(0)
+        assert boron.GetFormalCharge() == -1
+        assert boron.GetDegree() == 2
+        assert boron.GetNumRadicalElectrons() == 0
+        assert get_atom_unpaired_electrons(boron) == 0
 
 
 def test_mol_data_to_rdkit_sets_positions_by_atom_index() -> None:

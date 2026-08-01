@@ -5,6 +5,7 @@
 #include "molgr/utils/organic_topology.h"
 
 #include <tuple>
+#include <vector>
 
 namespace molgr
 {
@@ -12,7 +13,9 @@ namespace molgr
     {
         namespace selection
         {
-            using NoMetalTopologySelectionKey = std::tuple<double, int, double, double, double>;
+            using NoMetalTopologySelectionKey =
+                std::tuple<int, int, int, double, double, double, double>;
+            using NoMetalGraphTieBreakKey = std::vector<int>;
 
             molgr::organic_topology::OrganicTopologyMetrics AnnotateNoMetalCandidateTopology(
                 molgr::state::ReconstructionState &candidate,
@@ -26,10 +29,13 @@ namespace molgr
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig());
 
-            std::tuple<double, int, double, double, double, int, double>
+            std::tuple<int, int, int, double, double, double, double, int, int, double>
             NoMetalCandidateSelectionKey(
                 molgr::state::ReconstructionState &candidate,
                 const molgr::config::MolGRConfig &config);
+
+            NoMetalGraphTieBreakKey NoMetalCandidateGraphTieBreakKey(
+                const molgr::state::ReconstructionState &candidate);
         }
     }
 }

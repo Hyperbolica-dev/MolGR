@@ -107,16 +107,85 @@ def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
         assert "prepare_no_metal_seed" in phases
         assert phases[-1] == "select_best_no_metal_candidate"
         assert not no_metal_trace.get("linear_branches")
-        resonance = no_metal_trace.get("resonance") or {}
-        assert resonance.get("normalization") in {
-            "resonance_rule_normalization",
-            "full_resonance_normalization",
+        trace_nodes = no_metal_trace.get("trace_nodes", [])
+        trace_phases = {node["phase"] for node in trace_nodes}
+        assert no_metal_trace.get("trace_node_count") == len(trace_nodes)
+        assert all(node.get("dof_image", {}).get("svg_fragment") for node in trace_nodes)
+        linear_nodes = [
+            node
+            for node in trace_nodes
+            if node["phase"]
+            in {
+                "make_connections",
+                "pre_clean",
+                "fresh_omol_charge_radical_initial",
+                "initialize_charge_budget",
+                "eliminate_NNN_negative",
+            }
+        ]
+        assert linear_nodes
+        assert {node["tree_depth"] for node in linear_nodes} == {0}
+        assert "relocate_carbene_radical_for_resonance" in trace_phases
+        assert "branch_resonance_candidate" in trace_phases
+        assert "full_resonance_normalization" in trace_phases
+        resonance_branches = {
+            node["node_id"] for node in trace_nodes if node["phase"] == "branch_resonance_candidate"
         }
+        assert resonance_branches
+        full_nodes = [
+            node for node in trace_nodes if node["phase"] == "full_resonance_normalization"
+        ]
+        assert full_nodes
+        nodes_by_id = {node["node_id"]: node for node in trace_nodes}
+        first_process_nodes = [
+            node
+            for node in trace_nodes
+            if node["phase"] == "process_resonance_eliminate_1_3_dipole_postive"
+        ]
+        assert first_process_nodes
+        assert all(node["parent_id"] in resonance_branches for node in first_process_nodes)
+        assert all(
+            nodes_by_id[node["parent_id"]]["phase"] == "process_resonance_clean_resonances"
+            for node in full_nodes
+        )
+        assert all(
+            node["expansion"]
+            for node in trace_nodes
+            if node["phase"] in {"recover_deformed_pi_bonds", "recover_by_breaking_bonds"}
+            and node.get("event", {}).get("hit")
+        )
+        assert {
+            "accept_no_metal_candidate",
+            "reject_no_metal_candidate_validation",
+            "discard_duplicate_processed_resonance_candidate",
+        } & trace_phases
+        resonance = no_metal_trace.get("resonance") or {}
+        assert resonance.get("normalization") == "full_resonance_normalization"
 
     assert render_context.errors == []
 
+    inspectable_nodes = []
+    for layer in trace.get("search", {}).get("layer_summaries", []):
+        for bucket in layer.get("target_buckets", []):
+            inspectable_nodes.extend(
+                node
+                for node in (bucket.get("no_metal_trace") or {}).get("trace_nodes", [])
+                if isinstance(node, dict)
+            )
+    inspectable_nodes.extend(
+        candidate for candidate in trace.get("candidates", []) if isinstance(candidate, dict)
+    )
+    global_indices = [node["global_node_index"] for node in inspectable_nodes]
+    assert global_indices == list(range(len(global_indices)))
+    assert all(node.get("global_node_locator") for node in inspectable_nodes)
+    for node in inspectable_nodes:
+        parent_index = node.get("global_tree_parent_index")
+        if parent_index is not None:
+            assert parent_index in global_indices
+
     static_html = _html_no_metal_trace(buckets[0]["no_metal_trace"])
     assert "生产管线阶段" in static_html
+    assert "完整状态机分支树" in static_html
     assert "线性分支" not in static_html
 
     html = _render_html_browser_report(
@@ -134,5 +203,6 @@ def test_adoqep_trace_uses_production_no_metal_phase_history() -> None:
     assert "tree-toggle" in html
     assert "tree-children" in html
     assert "is-collapsed" in html
-    assert "无金属生产管线阶段" in html
+    assert "无金属完整 trace" in html
+    assert "完整状态机分支树" in html
     assert "无金属线性分支" not in html

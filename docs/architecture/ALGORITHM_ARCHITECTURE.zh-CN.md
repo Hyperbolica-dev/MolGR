@@ -11,8 +11,13 @@
 - 默认后端是 `backend="cpp"`，入口仍统一在 `xyz_to_rdmol(...)`。
 - Python fallback 是语义参考；C++ 后端复刻同一算法分层，并通过 `MolGRConfig` 接收运行时配置。
 - 两个后端最终都回到 RDKit `Chem.Mol`：Python 后端先得到 `pybel.Molecule`，C++ 后端先得到
-  `MoleculeData`，再由 `molgr.utils.converter` 转成 RDKit。
+`MoleculeData`，再由 `molgr.utils.converter` 转成 RDKit。
 - 金属体系采用“先重建无金属有机骨架，再选择金属电子态，最后只为赢家回插金属”的统一架构。
+
+## 术语约定
+
+- `discordance` 统一译为“失谐”，表示候选分子图偏离自然、内部协调电子结构的特征及其累积程度；不译为泛化的“不一致”。
+- `harmonicity` 统一译为“和谐度”，表示重建结构的整体协调程度。当前选择流程以较低的失谐惩罚为优先，而不是直接最大化和谐度。
 
 ## 统一架构
 
@@ -42,7 +47,7 @@ MolGR 的统一算法可以按七层理解：
 
 5. 共振恢复
    - 按配置的深度和遍历策略搜索每个差异层
-   - 对每个原始共振态同时保留轻量清理和完整归一化两类变体
+   - 对每个原始共振态只执行一次完整 `process_resonance` 归一化
    - 各层共享 raw 状态、遍历标签和 processed 状态去重
    - 首个产生有效候选的层结束后续扩展
    - 验证电荷和自由基数是否满足目标
@@ -52,7 +57,7 @@ MolGR 的统一算法可以按七层理解：
 6. 金属候选评分和选择
    - 同一个 no-metal 目标桶只重建一次，然后共享给桶内所有金属态候选
    - 候选先继承共享有机骨架力场分数
-   - 选择时依次比较结构金属失谐、有机骨架力场分数和 `combination_index`
+   - 选择时依次比较结构金属失谐、有机电子态指标、有机骨架力场分数和 `combination_index`
    - 只为最终赢家执行金属回插
 
 7. RDKit 输出后处理
@@ -171,7 +176,7 @@ sequenceDiagram
             SC->>MS: shared no-metal ReconstructionState for this bucket
             loop per metal assignment in bucket
                 MS->>SC: score candidate using shared no-metal state
-                SC->>SC: annotate organic metrics and metal-discordance features
+                SC->>SC: 标注有机指标和金属失谐特征
             end
         end
         SC->>SC: select_best_candidate across scored metal candidates
@@ -203,8 +208,8 @@ sequenceDiagram
 
 生产流水线使用精确差异预算调用 `enumerate_neighbor_radical_seeds(...)`：第 0 层只包含提高
 键级的消除方案，后续层分别包含一次或多次电荷分离动作。`build_resonance_seed_pool(...)`
-为当前层保留原始分叉态，并加入由卡宾自由基迁移、基于自由基标记分配负电荷、刷新电子标记
-产生的非重复变体。
+为当前层保留原始分叉态，并加入由卡宾自由基迁移产生的非重复变体。只有初始化阶段会全局
+推断电子标记；后续每个变换都显式更新受影响原子的电子状态。
 
 所有主层复用同一个共振搜索 session，前一层已经发现的 raw 共振态、Pareto 遍历标签和
 processed 状态不会重复计算。首个产生有效候选的层会终止后续扩展；此后也不存在独立的
@@ -221,7 +226,7 @@ direct 候选路径。
   - `input_order`
 - 默认使用 limited-discrepancy traversal，限制偏离最高优先级迁移的总 discrepancy。
 - 在不同种子之间先按 raw resonance key 全局去重。
-- 每个 raw state 分别执行 `clean_resonances` 和完整 `process_resonance`，再按 processed key 全局去重。
+- 每个 raw state 只执行一次完整 `process_resonance`，再按 processed key 全局去重。
 - 只保留通过 `validate_omol(...)` 的候选。
 - 如果没有候选存活，生成第一层畸变 pi 键恢复种子并重新搜索。
 - 如果仍为空，生成第二层断键恢复种子并做最后一次搜索。
@@ -244,12 +249,16 @@ direct 候选路径。
 - 生成 `MetalAtomPosition(idx, symbol, element_idx, valence, radical_num, xyz)`。
 - 删除金属原子，生成后续共享的 `no_metal_xyz_block`。
 
-`metal_radical_inference` 的自由基数推断是启发式，不直接决定唯一自旋态：
+`metal_radical_inference` 是配体场启发式，而不是单一自旋查表：
 
 - 先按元素的 nominal `f/d/s/p` 电子数和候选价态估算氧化后的壳层占据；d-block 金属允许残余 `s/p` 电子并入 d 壳层至多到 `d10`。
-- 再收集金属周围 cutoff 内最近 donor，估计配位数、几何类型和 donor field score，并把场强标记为 `strong`、`weak` 或 `intermediate` 供分析。
-- 由于强/弱场阈值本身不够可靠，除 square-planar `d8/d7/d9` 和 tetrahedral 这类几何硬规则外，候选自由基数会同时保留自由离子 `d^n` 表中的低自旋端和高自旋端。
-- 这样弱场判定不会丢掉可能的强场低自旋候选，强场判定也不会丢掉可能的弱场高自旋候选；后续金属搜索和 no-metal 目标桶筛选再决定哪些组合可行。
+- donor 识别使用按元素共价半径计算的距离截止，并受全局 coordination cutoff 上限约束，不再把固定球半径内的所有原子都视为 donor。
+- donor 权重按粗粒度光谱化学序列设置：卤素为弱场，O/S 为弱到中等场，N 为中等场，中性膦和碳 donor 为强场；随后按距离加权平均并叠加构型修正。
+- 分数低于 `weak_field_threshold - field_ambiguity_margin` 才明确判为 `weak`，高于 `strong_field_threshold + field_ambiguity_margin` 才明确判为 `strong`，中间全部标记为 `ambiguous`。
+- 明确弱场只保留高自旋端，明确强场只保留低自旋端，模糊区同时保留两端；分数靠近哪一侧，就把对应自旋分支排在前面。
+- square-planar `d8/d7/d9` 仍使用构型特定的低自旋规则。
+
+金属局域未成对电子会优先消耗输入自由基预算，no-metal 目标为 `max(0, 输入自由基数 - 金属局域自由基数)`。当金属局域自旋超过净自旋目标时，允许其表示反平行耦合，不再淘汰该状态，也不会产生负的有机自由基目标。这样既保留通常的预算关系，也能让模糊区的高低自旋分支进入重建。
 
 ### 搜索空间压缩
 
@@ -280,6 +289,8 @@ DP 合并后的 target bucket key 是：
   - 共轭原子/键数量
   - 最大共轭连通分量
   - 电荷局域化惩罚
+    - 正负原子罚分只有在直接成键的带电原子组内才带相反符号相加；中性原子不能桥接大配体中的远距离电荷。
+    - 这样保留局部两性离子/共振电荷抵消，同时避免把远距离电荷错误视为同一个离域抵消单元。
   - 自由基局域化惩罚
 - 局部金属配位失谐检查：基于内圈可见性、形式电荷符号、可见双自由基和电荷平衡例外。
 
@@ -324,12 +335,12 @@ DP 合并后的 target bucket key 是：
    - 化学含义：如果所有金属都被设为零价，有机部分残留正电荷通常表示候选没有提供合理的金属-配体电荷分配来源。
    - 判定作用：标记零价金属组合与有机阳离子状态的全局电荷分配失谐。
 
-5. 非负价金属候选中的不饱和有机阳离子
-   - 当前候选中存在形式价态为 0 或正数的金属，且 no-metal 有机部分存在不饱和正形式电荷非金属原子时，计为 1 个失谐结构。
+5. 金属配合物中的欠饱和有机阳离子
+   - 只要当前是金属候选，且 no-metal 有机部分存在欠饱和正形式电荷非金属原子时，计为 1 个失谐结构；不区分金属价态正负。
    - 不饱和有机阳离子的判定是：该正电原子的成键原子数小于总价数，或总价数小于 OpenBabel `GetTypicalValence(atomic_num, total_valence, formal_charge)` 返回的常见价数；这包括欠价的鎓离子型阳离子。
    - 豁免两性离子形式：如果有机部分总形式电荷为 0，或该不饱和阳离子的相邻非金属原子形式电荷之和加上阳离子电荷为 0，则不计入该失谐。
-   - 化学含义：当金属被分配为零价或正价时，有机部分仍保留欠饱和阳离子，通常表示金属价态被低估，缺电子状态被留在了有机片段上。
-   - 判定作用：标记全局电荷分配失谐，提示更高金属价态候选更合理。
+   - 化学含义：欠饱和阳离子是可接受金属电子转移的伪阳离子中心；即使金属为负价，也可能把电子从金属转移到该中心，因此不能因金属负价而豁免。
+   - 判定作用：标记金属-有机电子转移分配失谐。
 
 6. 缺少电荷平衡来源的负价金属
    - 当前候选中每个负形式价态金属默认贡献 `0.5` 失谐分。
@@ -341,12 +352,13 @@ DP 合并后的 target bucket key 是：
 7. 构造重复片段的净电荷不对称
    - 按元素和连接关系对断开的有机片段分组；该签名有意忽略形式电荷和键级。
    - 同一重复片段组中成员的净形式电荷不一致时，该组贡献 1 个失谐计数。
-   - 该特征识别把等价配体片段强行分配成不一致氧化/还原态的候选。
+   - 该特征识别把等价配体片段强行分配成彼此失谐的氧化/还原态候选。
 
-8. 内圈可见多齿环配体中的还原型非芳香碳
-   - 一个有机片段必须至少有 3 个碳原子通过内圈可见性判据暴露给同一金属中心。
-   - 该片段中每个带负电、处于环内且非芳香的碳原子贡献 1 个失谐计数。
-   - 该特征针对过高金属价态导致的离域环形式损失，而不使用全局芳香性奖励。
+8. 内圈可见多齿碳环配体中的还原型断裂 `pi` 模式
+   - 必须是具体的五元或六元全碳环，且同一个金属中心通过内圈可见性判据至少看见该环的 3 个碳原子。
+   - 完整芳香或 Kekulé `pi` 模式不计入：包括六元环 3 条交替双键，以及五元负碳环 2 条非相邻双键。
+   - 排除这些完整 `pi` 环后，该可见多齿碳环中的每个负形式电荷碳贡献 1 个失谐计数。
+   - 该特征针对错误金属价态候选把多齿碳环配体还原并破坏其离域 `pi` 形式；这是环局部结构失谐，不是全局芳香性奖励。
 
 9. 两个内圈可见杂原子之间的多键
    - 两个内圈可见 `N/O/P/S` 原子之间出现二级或更高键时，每条键贡献 1 个失谐计数。
@@ -363,8 +375,21 @@ DP 合并后的 target bucket key 是：
 - `metal_discordance_structural_count` 是结构失谐之和，包括负价金属的分数型惩罚。
 - `metal_discordance_count` 与结构失谐总数相同；芳香性损失和金属价态列表归属均不包含在内。
 - 先比较 `metal_discordance_count`，只保留失谐分最低的候选。
-- 如果多个候选并列，则直接比较有机骨架 force-field score；配置中的金属价态列表顺序不是化学评分。
-- 如果有机分仍然并列，则按 `combination_index` 做稳定的确定性打破平局。
+- 如果多个候选并列，先依次比较最大共轭分量、共轭原子数和共轭键数的缺口。
+- 然后选择芳香原子覆盖缺口更小、再到芳香环缺口更小的候选。
+   - 如果覆盖指标也并列，再比较芳香稳定性缺口。
+   - 如果芳香性指标也并列，先选择有机自由基局域化罚分更小的候选。
+   - 对此前所有字段均相同的候选，以组内最低有机电荷局域化罚分为基准；只有差值大于等于
+     `metal_scoring.charge_localization_selection_margin` 时，电荷局域化才参与判定。margin
+     内视为并列，继续比较 force-field score；默认 margin 为 `0.3`。
+   - 只有上述结构和电子态评分全部并列时，才比较有机骨架 force-field score；配置中的金属价态列表顺序不是化学评分。
+   - 所有化学评分都并列时，再按 `combination_index` 做稳定的确定性打破平局。
+- 金属候选记录的 `selection_key` 顺序为：
+  `(metal_discordance_count, max_conjugated_component_deficit,
+  conjugated_atom_deficit, conjugated_bond_deficit, aromatic_atom_deficit,
+  aromatic_ring_deficit, aromatic_stability_deficit,
+  radical_localization_penalty, charge_localization_margin_exceeded,
+  force_field_score, combination_index)`。
 - 入选候选仍会记录用于派生失谐度的有机电子态指标；已移除的金属环境评分指标不再存在于运行时 metadata。
 
 ## C++ 后端已实现的额外优化
@@ -471,7 +496,7 @@ Python fallback 是语义参考。C++ 后端可以缓存、并行、预计算，
 
 3. no-metal 共振候选选择
    - C++ 必须使用与 Python 相同的一次性完整 selection key：
-     `(-aromatic_stability, -aromatic_atom_count,
+     `(-aromatic_atom_count, -aromatic_ring_count, -aromatic_stability,
      -adjusted_max_conjugated_component_size,
      -adjusted_conjugated_atom_count, -adjusted_conjugated_bond_count, score)`。
    - 不要重新引入“先按 topology 过滤，再只给并列者做 UFF scoring”的路径；中间候选

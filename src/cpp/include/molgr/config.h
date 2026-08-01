@@ -37,6 +37,7 @@ namespace molgr::config
         double aromatic_stability_min_charge_factor = 0.50;
         double aromatic_stability_radical_penalty = 0.20;
         double aromatic_stability_min_radical_factor = 0.50;
+        double conjugation_normalized_tetrahedron_volume_tolerance = 0.075;
     };
 
     struct MetalScoringConfig
@@ -50,17 +51,20 @@ namespace molgr::config
         double pi_dative_distance_difference_tolerance_angstrom = 0.10;
         double metal_access_radius_scale = 1.0;
         double metal_access_clearance_angstrom = 0.0;
+        double charge_localization_selection_margin = 0.3;
     };
 
     struct MetalRadicalInferenceConfig
     {
         double coordination_cutoff_angstrom = 3.2;
+        double coordination_covalent_tolerance_angstrom = 0.75;
         int max_considered_donors = 6;
         double square_planar_planarity_tolerance_angstrom = 0.45;
         double trigonal_planar_planarity_tolerance_angstrom = 0.35;
         double linear_angle_min_degrees = 150.0;
         double strong_field_threshold = 1.10;
         double weak_field_threshold = 0.75;
+        double field_ambiguity_margin = 0.10;
     };
 
     struct MolGRConfig

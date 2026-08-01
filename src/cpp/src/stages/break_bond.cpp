@@ -1,5 +1,6 @@
 #include "molgr/stages/break_bond.h"
 
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/logger.h"
 #include "molgr/utils/smarts.h"
 
@@ -17,16 +18,30 @@ namespace molgr
     {
         using namespace OpenBabel;
 
+        namespace
+        {
+            int CurrentBondBreakingElectronBudget(OBMol &mol)
+            {
+                int sum = 0;
+                FOR_ATOMS_OF_MOL(atom, mol)
+                {
+                    sum += molgr::utils::GetUnpairedElectronCount(*atom);
+                    if (molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+                    {
+                        sum += 2;
+                    }
+                }
+                return sum;
+            }
+        }
+
+        // Electron bookkeeping: reduce one deformed multiple bond order and add
+        // one real unpaired electron to each endpoint (homolytic pi-bond cleavage).
+        // Deferred two-electron centers count toward the stopping budget so their
+        // occupied electrons are not created again by another bond cleavage.
         bool BreakDeformedEne(OBMol &mol, int allowed_charge, int allowed_radical, double tolerance)
         {
             bool hit = false;
-            auto current_total_radical = [&]()
-            {
-                int sum = 0;
-                FOR_ATOMS_OF_MOL(a, mol)
-                sum += a->GetSpinMultiplicity();
-                return sum;
-            };
 
             struct EneCandidate
             {
@@ -75,7 +90,8 @@ namespace molgr
 
             for (const auto &candidate : candidates)
             {
-                if (current_total_radical() >= std::abs(allowed_charge) + allowed_radical)
+                if (CurrentBondBreakingElectronBudget(mol) >=
+                    std::abs(allowed_charge) + allowed_radical)
                     return hit;
                 OBBond *bond = mol.GetBond(candidate.idx1, candidate.idx2);
                 if (!bond || bond->IsRotor() || bond->GetBondOrder() == 1)
@@ -83,23 +99,26 @@ namespace molgr
                 bond->SetBondOrder(bond->GetBondOrder() - 1);
                 OBAtom *begin_atom = bond->GetBeginAtom();
                 OBAtom *end_atom = bond->GetEndAtom();
-                begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
-                end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                molgr::utils::SetUnpairedElectronCount(*begin_atom, molgr::utils::GetUnpairedElectronCount(*begin_atom) + 1);
+                molgr::utils::SetUnpairedElectronCount(*end_atom, molgr::utils::GetUnpairedElectronCount(*end_atom) + 1);
                 hit = true;
                 LOG_DEBUG("[BreakDeformedEne] Broken sorted candidate");
             }
             return hit;
         }
 
+        // Electron bookkeeping: ordinary reductions/deletions create one unpaired
+        // electron per endpoint. The cation template creates one radical only on
+        // the neutral endpoint and lowers the positive endpoint charge, an explicit
+        // charge-transfer heuristic. Deferred two-electron centers count toward
+        // the stopping budget but remain unresolved and are not consumed here.
         bool BreakOneBond(OBMol &mol, int &charge, int allowed_radical)
         {
             bool hit = false;
             auto check_cond = [&]()
             {
-                int sum = 0;
-                FOR_ATOMS_OF_MOL(a, mol)
-                sum += a->GetSpinMultiplicity();
-                return sum >= std::abs(charge) + allowed_radical;
+                return CurrentBondBreakingElectronBudget(mol) >=
+                       std::abs(charge) + allowed_radical;
             };
 
             while (true)
@@ -116,8 +135,8 @@ namespace molgr
                 bond->SetBondOrder(bond->GetBondOrder() - 1);
                 OBAtom *begin_atom = bond->GetBeginAtom();
                 OBAtom *end_atom = bond->GetEndAtom();
-                begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
-                end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                molgr::utils::SetUnpairedElectronCount(*begin_atom, molgr::utils::GetUnpairedElectronCount(*begin_atom) + 1);
+                molgr::utils::SetUnpairedElectronCount(*end_atom, molgr::utils::GetUnpairedElectronCount(*end_atom) + 1);
                 hit = true;
                 LOG_DEBUG("[BreakOneBond] Broken triple/double candidate");
             }
@@ -138,7 +157,7 @@ namespace molgr
                 OBAtom *idx1_atom = mol.GetAtom(idxs[1]);
                 if (!idx0_atom || !idx1_atom)
                     break;
-                idx1_atom->SetSpinMultiplicity(idx1_atom->GetSpinMultiplicity() + 1);
+                molgr::utils::SetUnpairedElectronCount(*idx1_atom, molgr::utils::GetUnpairedElectronCount(*idx1_atom) + 1);
                 idx0_atom->SetFormalCharge(idx0_atom->GetFormalCharge() - 1);
                 charge += 1;
                 hit = true;
@@ -161,8 +180,8 @@ namespace molgr
                         bond->SetBondOrder(bond->GetBondOrder() - 1);
                         OBAtom *begin_atom = bond->GetBeginAtom();
                         OBAtom *end_atom = bond->GetEndAtom();
-                        begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() + 1);
-                        end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() + 1);
+                        molgr::utils::SetUnpairedElectronCount(*begin_atom, molgr::utils::GetUnpairedElectronCount(*begin_atom) + 1);
+                        molgr::utils::SetUnpairedElectronCount(*end_atom, molgr::utils::GetUnpairedElectronCount(*end_atom) + 1);
                         hit = true;
                         LOG_DEBUG("[BreakOneBond] Broken aromatic candidate");
                         break;
@@ -191,8 +210,8 @@ namespace molgr
                     OBBond *single_bond = single_bonds.front();
                     OBAtom *b_at = single_bond->GetBeginAtom();
                     OBAtom *e_at = single_bond->GetEndAtom();
-                    b_at->SetSpinMultiplicity(b_at->GetSpinMultiplicity() + 1);
-                    e_at->SetSpinMultiplicity(e_at->GetSpinMultiplicity() + 1);
+                    molgr::utils::SetUnpairedElectronCount(*b_at, molgr::utils::GetUnpairedElectronCount(*b_at) + 1);
+                    molgr::utils::SetUnpairedElectronCount(*e_at, molgr::utils::GetUnpairedElectronCount(*e_at) + 1);
                     mol.DeleteBond(single_bond);
                     hit = true;
                     LOG_DEBUG("[BreakOneBond] Deleted single bond");

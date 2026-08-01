@@ -99,6 +99,10 @@ namespace molgr::config
             "candidate_score_parallel_threshold");
 
         py::object organic_topology = RequiredAttr(resolved, "organic_topology");
+        out.organic_topology.conjugation_normalized_tetrahedron_volume_tolerance =
+            CastRequiredAttr<double>(
+                organic_topology,
+                "conjugation_normalized_tetrahedron_volume_tolerance");
         out.organic_topology.aromatic_stability_benzene_score = CastRequiredAttr<double>(
             organic_topology,
             "aromatic_stability_benzene_score");
@@ -162,11 +166,18 @@ namespace molgr::config
         out.metal_scoring.metal_access_clearance_angstrom = CastRequiredAttr<double>(
             metal_scoring,
             "metal_access_clearance_angstrom");
+        out.metal_scoring.charge_localization_selection_margin = CastRequiredAttr<double>(
+            metal_scoring,
+            "charge_localization_selection_margin");
 
         py::object metal_radical = RequiredAttr(resolved, "metal_radical_inference");
         out.metal_radical_inference.coordination_cutoff_angstrom = CastRequiredAttr<double>(
             metal_radical,
             "coordination_cutoff_angstrom");
+        out.metal_radical_inference.coordination_covalent_tolerance_angstrom =
+            CastRequiredAttr<double>(
+                metal_radical,
+                "coordination_covalent_tolerance_angstrom");
         out.metal_radical_inference.max_considered_donors = CastRequiredAttr<int>(
             metal_radical,
             "max_considered_donors");
@@ -187,6 +198,9 @@ namespace molgr::config
         out.metal_radical_inference.weak_field_threshold = CastRequiredAttr<double>(
             metal_radical,
             "weak_field_threshold");
+        out.metal_radical_inference.field_ambiguity_margin = CastRequiredAttr<double>(
+            metal_radical,
+            "field_ambiguity_margin");
 
         return out;
     }

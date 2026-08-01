@@ -17,8 +17,10 @@ from rdkit.Chem import AllChem
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 
+import fixture_builder  # noqa: E402
 import server as review_server  # noqa: E402
 from fixture_builder import (  # noqa: E402
+    ACCEPT_BOTH_STATUS,
     _sdf_text,
     case_electronic_state,
     load_fixture_records,
@@ -35,13 +37,36 @@ from molgr.utils.converter import (  # noqa: E402
 def test_review_page_exposes_fixture_removal_action() -> None:
     html = (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
     javascript = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
 
     assert 'id="removeFixture"' in html
     assert 'id="openTrace"' in html
     assert '$("removeFixture").addEventListener("click", removeCurrentFixture)' in javascript
-    assert 'window.open(' in javascript
-    assert '`/trace/${encodeURIComponent(state.current.case_id)}`' in javascript
+    assert "window.open(" in javascript
+    assert "`/trace/${encodeURIComponent(state.current.case_id)}`" in javascript
     assert 'await saveReview("needs_followup")' in javascript
+    assert 'data-status="accept_both"' in html
+    assert 'accept_both: "接受两者"' in javascript
+    assert 'id="imageLightbox"' in html
+    assert 'class="viewer-grid"' in html
+    assert 'loading="lazy"' in html
+    assert html.index('id="reviewControls"') < html.index('id="mainLayout"')
+    assert html.index('id="mainLayout"') < html.index('id="reviewPanel"')
+    assert "function openImageLightbox(box)" in javascript
+    assert "dialog.showModal()" in javascript
+    assert "if (workspace) workspace.scrollTop = 0;" in javascript
+    assert '<code title="${escapeHtml(value)}">' in javascript
+    assert (
+        "grid-template-columns: clamp(260px, 34vw, var(--sidebar-width)) "
+        "minmax(0, 1fr);" in stylesheet
+    )
+    assert "min-width: 1200px;" in stylesheet
+    assert "@media (max-width: 1700px)" in stylesheet
+    assert "contain: layout paint;" in stylesheet
+    assert "flex-direction: column;" in stylesheet
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in stylesheet
+    assert "text-overflow: ellipsis;" in stylesheet
+    assert "body {\n    display: block;" not in stylesheet
 
 
 def test_fixture_manifest_rejects_unconfirmed_answers(tmp_path: Path) -> None:
@@ -93,11 +118,11 @@ C 0.0 0.0 0.0
                 "TRACE",
                 1,
                 "graph_not_equivalent",
-                    str(xyz_path),
-                    2,
-                    2,
-                    3,
-                    "C",
+                str(xyz_path),
+                2,
+                2,
+                3,
+                "C",
                 "ok",
                 json.dumps(
                     {
@@ -111,9 +136,17 @@ C 0.0 0.0 0.0
 
     captured: dict[str, object] = {}
 
-    def fake_render(cases: object, *, score_all_candidates: bool) -> str:
+    def fake_render(
+        cases: object,
+        *,
+        score_all_candidates: bool,
+        dof_max_images: int | None,
+        defer_dof_images: bool,
+    ) -> str:
         captured["cases"] = cases
         captured["score_all_candidates"] = score_all_candidates
+        captured["dof_max_images"] = dof_max_images
+        captured["defer_dof_images"] = defer_dof_images
         return "<!doctype html><title>TRACE</title>"
 
     monkeypatch.setattr(review_server, "render_trace_report", fake_render)
@@ -133,8 +166,33 @@ C 0.0 0.0 0.0
         connection.close()
         return response.status, body, content_type
 
+    def post(path: str, payload: object) -> tuple[int, str, str]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        connection.request(
+            "POST",
+            path,
+            body=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        content_type = response.getheader("Content-Type") or ""
+        connection.close()
+        return response.status, body, content_type
+
     try:
         status, body, content_type = get("/trace/TRACE")
+        methane = Chem.AddHs(Chem.MolFromSmiles("C"))
+        dof_status, dof_body, dof_content_type = post(
+            "/api/render-dof",
+            {
+                "render_type": "single",
+                "sdf": Chem.MolToMolBlock(methane) + "\n$$$$\n",
+                "legends": ["methane"],
+                "size": [360, 300],
+            },
+        )
+        invalid_dof_status, _, _ = post("/api/render-dof", {"render_type": "single"})
         missing_status, _, _ = get("/trace/MISSING")
     finally:
         server.shutdown()
@@ -145,6 +203,12 @@ C 0.0 0.0 0.0
     assert body == "<!doctype html><title>TRACE</title>"
     assert content_type == "text/html; charset=utf-8"
     assert captured["score_all_candidates"] is False
+    assert captured["dof_max_images"] is None
+    assert captured["defer_dof_images"] is True
+    assert dof_status == 200
+    assert dof_body.startswith("<svg")
+    assert dof_content_type == "image/svg+xml; charset=utf-8"
+    assert invalid_dof_status == 400
     traced_cases = captured["cases"]
     assert isinstance(traced_cases, list)
     traced_case = traced_cases[0]
@@ -188,6 +252,57 @@ def test_review_sdf_preserves_metal_unpaired_electron_property() -> None:
     restored_iron = restored.GetAtomWithIdx(0)
     assert restored_iron.GetNumRadicalElectrons() == 0
     assert get_atom_unpaired_electrons(restored_iron) == 2
+
+
+def test_review_sdf_uses_case_spin_not_metal_unpaired_electrons(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mol = Chem.MolFromSmiles("[Fe+2]", sanitize=False)
+    assert mol is not None
+    mol.GetAtomWithIdx(0).SetIntProp(METAL_UNPAIRED_ELECTRONS_PROP, 2)
+    Chem.CreateAtomIntPropertyList(mol, METAL_UNPAIRED_ELECTRONS_PROP)
+    monkeypatch.setattr(fixture_builder, "reconstruct_case_mol", lambda *args, **kwargs: mol)
+
+    xyz_path = tmp_path / "SPIN.xyz"
+    xyz_path.write_text("1\nFe\nFe 0.0 0.0 0.0\n", encoding="utf-8")
+    fixtures_dir = tmp_path / "fixtures"
+    (fixtures_dir / "manifest.json").parent.mkdir(parents=True)
+    (fixtures_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "fixtures": []}), encoding="utf-8"
+    )
+    case = {
+        "case_id": "SPIN",
+        "row_index": 1,
+        "xyz_path": str(xyz_path),
+        "total_charge": 0,
+        "total_radical_electrons": 0,
+        "spin_multiplicity": 1,
+        "reference_smiles": "[Fe+2]",
+        "metadata_json": "{}",
+    }
+
+    record = sync_review_fixture(
+        case,
+        {"status": ACCEPT_BOTH_STATUS},
+        fixtures_dir=fixtures_dir,
+    )
+
+    assert record is not None
+    assert record["total_radical_electrons"] == 0
+    assert record["spin_multiplicity"] == 1
+    sdf = next(
+        mol
+        for mol in Chem.SDMolSupplier(
+            str(fixtures_dir / str(record["structure_file"])),
+            sanitize=False,
+            removeHs=False,
+        )
+        if mol is not None
+    )
+    assert sdf.GetProp("TOTAL_RADICAL_ELECTRONS") == "0"
+    assert sdf.GetProp("SPIN_MULTIPLICITY") == "1"
+    assert get_atom_unpaired_electrons(sdf.GetAtomWithIdx(0)) == 2
 
 
 def test_review_fixture_sync_stores_manual_xyz_smiles_and_removes_stale_files(
@@ -355,6 +470,15 @@ H -0.239987 0.927297 0.000000
                 "reviewer": "tester",
             }
         )
+        both_status, both_payload = post_review(
+            {
+                "status": "accept_both",
+                "corrected_smiles": "",
+                "corrected_molblock": "",
+                "notes": "candidate and reference are both acceptable",
+                "reviewer": "tester",
+            }
+        )
         manual_status, manual_payload = post_review(
             {
                 "status": "manual_reference",
@@ -373,6 +497,10 @@ H -0.239987 0.927297 0.000000
     assert missing_smiles_payload == {"error": "corrected_smiles_required_for_manual_reference"}
     assert reference_status == 200
     assert reference_payload["fixture"]["kind"] == "reference_graph"
+    assert both_status == 200
+    assert both_payload["fixture"]["kind"] == "accepted_both"
+    assert len(both_payload["fixture"]["accepted_smiles"]) == 2
+    assert both_payload["fixture"]["reference_smiles"] == "O"
     assert manual_status == 200
     assert manual_payload["fixture"]["kind"] == "manual_reference"
     assert (server.fixtures_dir / manual_payload["fixture"]["structure_file"]).is_file()
@@ -537,7 +665,7 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
         reconstruct_calls += 1
         mol = Chem.MolFromSmiles("CC")
         assert mol is not None
-        return mol
+        return Chem.AddHs(mol)
 
     monkeypatch.setattr(review_server, "reconstruct_case_mol", reconstruct_live)
     monkeypatch.setattr(
@@ -578,7 +706,16 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     assert live_payload["source"] == "live_reconstruction"
     assert live_payload["live_candidate_status"] == "ok"
     assert live_payload["live_candidate_smiles"] == "CC"
+    assert live_payload["live_candidate_smiles_exact_match"] is False
     assert live_payload["smiles"] == "CC"
+    sdf_mol = Chem.MolFromMolBlock(
+        str(live_payload["sdf"]).partition("$$$$")[0],
+        sanitize=False,
+        removeHs=False,
+    )
+    assert sdf_mol is not None
+    assert sdf_mol.GetNumAtoms() == 8
+    assert sum(atom.GetAtomicNum() == 1 for atom in sdf_mol.GetAtoms()) == 6
     assert live_payload["candidate_snapshot_smiles"] == "C"
     assert live_payload["live_matches_candidate_snapshot"] is False
     assert live_payload["live_candidate_equivalence_reason"] == (
@@ -588,3 +725,45 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     assert first_render["svg"] == "<svg>live</svg>"
     assert second_render["svg"] == "<svg>live</svg>"
     assert reconstruct_calls == 3
+
+
+def test_case_payload_selects_candidate_snapshot_for_server_python() -> None:
+    runtime_label = f"py{sys.version_info.major}{sys.version_info.minor}"
+    other_label = "py310" if runtime_label != "py310" else "py38"
+    payload = review_server._row_dict(
+        {
+            "case_id": "RUNTIME",
+            "candidate_smiles": "fallback",
+            "candidate_status": "fallback_status",
+            "metadata_json": json.dumps(
+                {
+                    f"{runtime_label}_molgr_cpp_smiles": "runtime",
+                    f"{runtime_label}_molgr_cpp_status": "ok",
+                    f"{other_label}_molgr_cpp_smiles": "other",
+                    f"{other_label}_molgr_cpp_status": "error",
+                }
+            ),
+        }
+    )
+
+    assert payload is not None
+    assert payload["candidate_snapshot_runtime"] == runtime_label
+    assert payload["candidate_snapshot_smiles"] == "runtime"
+    assert payload["candidate_snapshot_status"] == "ok"
+
+    failed_payload = review_server._row_dict(
+        {
+            "case_id": "FAILED",
+            "candidate_smiles": "other-version-result",
+            "candidate_status": "ok",
+            "metadata_json": json.dumps(
+                {
+                    f"{runtime_label}_molgr_cpp_smiles": "",
+                    f"{runtime_label}_molgr_cpp_status": "error",
+                }
+            ),
+        }
+    )
+    assert failed_payload is not None
+    assert failed_payload["candidate_snapshot_smiles"] == ""
+    assert failed_payload["candidate_snapshot_status"] == "error"

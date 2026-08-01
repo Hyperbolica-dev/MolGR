@@ -397,6 +397,18 @@ namespace molgr
                 }
 
                 auto best_candidate = *selected_candidate;
+                int candidate_total_charge = best_candidate.no_metal_charge_target;
+                int candidate_total_radicals = best_candidate.no_metal_radical_target;
+                for (const auto &metal_state : best_candidate.metal_states)
+                {
+                    candidate_total_charge += metal_state.valence;
+                    candidate_total_radicals += metal_state.radical_num;
+                }
+                if (candidate_total_charge != run_context.total_charge ||
+                    candidate_total_radicals != run_context.total_radical_electrons)
+                {
+                    return nullptr;
+                }
                 if (!best_candidate.combined_omol)
                 {
                     best_candidate.MaterializeCombinedOmol(

@@ -7,15 +7,19 @@ The source dataset is the official
 [download and checksum instructions](../../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据)
 before regenerating fixtures.
 
-- `reconstruction/` contains valid source inputs selected to exercise distinct
-  no-metal reconstruction paths. These cases are eligible for backend parity
-  and reconstruction assertions.
+- `reconstruction/` contains valid source inputs with published reference graphs.
+  Each backend is checked only for equivalence to the final reference result;
+  search phases, recovery tiers, candidate counts, and other internal paths are
+  deliberately not fixture assertions.
+- Boron-cluster systems are intentionally outside this reconstruction fixture
+  contract; MolGR makes no support or backend-behavior guarantee for them.
 - `source_issues/` contains cases where the tmQMg source or published reference
   is known to be wrong or incomplete. They are tested only for the documented
   issue and must not be used as expected-reference-equivalence successes.
-- `fixture_sources.json` is the reviewed selection and classification source of
-  truth. The generated `manifest.csv` files retain tmQMg row indices, charges,
-  reference SMILES, classifications, and reasons.
+- `fixture_sources.json` is the reviewed selection and provenance source. The
+  generated `manifest.csv` files retain tmQMg row indices, charges, reference
+  SMILES, and historical classifications, but classifications are not acceptance
+  criteria.
 - `../reviewed/tmqmg/` is written directly by the manual review client. Its
   `approved_graph/*.sdf` files are authoritative reviewed graphs with original
   coordinates and electronic state; `../reviewed/tmqmg/reference_graph/*.xyz` files use tmQMg

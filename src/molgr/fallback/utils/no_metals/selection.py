@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import astuple
-from typing import cast
+from typing import Optional, Sequence, cast
 
 from openbabel import openbabel as ob
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import ReconstructionState
+from molgr.fallback.utils.electrons import (
+    get_lone_pair_count,
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+)
 from molgr.fallback.utils.organic_topology import (
     OrganicTopologyMetrics,
     compute_organic_topology_metrics,
@@ -47,6 +52,10 @@ def _annotate_no_metal_candidate_topology(
     candidate.metadata["organic_max_conjugated_component_size"] = (
         metrics.max_conjugated_component_size
     )
+    candidate.metadata["organic_hyperconjugative_donor_count"] = (
+        metrics.hyperconjugative_donor_count
+    )
+    candidate.metadata["organic_hyperconjugation_score"] = metrics.hyperconjugation_score
     return metrics
 
 
@@ -67,7 +76,7 @@ def _excess_radical_labels(candidate: ReconstructionState) -> int:
         candidate.get_cached_omol_value(
             "organic_radical_label_sum",
             lambda omol: sum(
-                int(cast(ob.OBAtom, atom_iter).GetSpinMultiplicity())
+                get_unpaired_electron_count(cast(ob.OBAtom, atom_iter))
                 for atom_iter in ob.OBMolAtomIter(cast(ob.OBMol, omol.OBMol))
             ),
         )
@@ -82,7 +91,7 @@ def _no_metal_candidate_selection_key(
     candidate: ReconstructionState,
     *,
     config: MolGRConfig | None = None,
-) -> tuple[float, int, float, float, float, int, float]:
+) -> tuple[int, int, int, float, float, float, float, int, int, float]:
     metrics = _annotate_no_metal_candidate_topology(candidate, config=config)
     score = float(candidate.metadata.get("score", float("inf")))
     formal_charge_absolute_sum = _formal_charge_absolute_sum(candidate)
@@ -101,20 +110,80 @@ def _no_metal_candidate_selection_key(
     candidate.metadata["organic_adjusted_conjugated_atom_count"] = adjusted_conjugated_atom_count
     candidate.metadata["organic_adjusted_conjugated_bond_count"] = adjusted_conjugated_bond_count
     selection_key = (
-        -metrics.aromatic_stability_score,
+        formal_charge_absolute_sum,
         -metrics.aromatic_atom_count,
+        -metrics.aromatic_ring_count,
+        -metrics.aromatic_stability_score,
         -adjusted_max_conjugated_component_size,
         -adjusted_conjugated_atom_count,
         -adjusted_conjugated_bond_count,
         excess_radical_labels,
+        -metrics.hyperconjugation_score,
         score,
     )
     candidate.metadata["organic_topology_selection_key"] = selection_key
     return selection_key
 
 
+def _no_metal_candidate_graph_tie_break_key(
+    candidate: ReconstructionState,
+) -> tuple[int, ...]:
+    """Return a backend-independent key for exact no-metal score ties.
+
+    The key deliberately uses atom indices, explicit electron labels, and the
+    sorted bond table only. It does not use Open Babel aromaticity flags,
+    iterator order, coordinates, or resonance indices.
+    """
+
+    atoms = tuple(
+        value
+        for atom in candidate.omol
+        for value in (
+            int(atom.idx),
+            int(atom.OBAtom.GetAtomicNum()),
+            int(atom.OBAtom.GetFormalCharge()),
+            int(get_unpaired_electron_count(atom.OBAtom)),
+            int(get_lone_pair_count(atom.OBAtom)),
+            int(has_unresolved_two_electron_center(atom.OBAtom)),
+        )
+    )
+    bonds = tuple(
+        value
+        for begin_idx, end_idx, order in sorted(
+            (
+                min(int(bond.GetBeginAtomIdx()), int(bond.GetEndAtomIdx())),
+                max(int(bond.GetBeginAtomIdx()), int(bond.GetEndAtomIdx())),
+                int(bond.GetBondOrder()),
+            )
+            for bond in ob.OBMolBondIter(candidate.omol.OBMol)
+        )
+        for value in (begin_idx, end_idx, order)
+    )
+    return (len(candidate.omol.atoms), *atoms, len(bonds) // 3, *bonds)
+
+
+def select_best_no_metal_candidate(
+    candidates: Sequence[ReconstructionState],
+    *,
+    config: MolGRConfig | None = None,
+) -> Optional[ReconstructionState]:
+    """Return the lowest-ranked candidate using chemistry first and graph ties last."""
+
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda candidate: (
+            _no_metal_candidate_selection_key(candidate, config=config),
+            _no_metal_candidate_graph_tie_break_key(candidate),
+        ),
+    )
+
+
 __all__ = [
     "_annotate_no_metal_candidate_topology",
+    "_no_metal_candidate_graph_tie_break_key",
     "_no_metal_candidate_selection_key",
     "_score_reconstruction_candidate",
+    "select_best_no_metal_candidate",
 ]

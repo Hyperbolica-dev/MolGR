@@ -175,17 +175,28 @@ namespace molgr
                 }
 
                 std::size_t best_idx = 0;
-                std::optional<std::tuple<double, int, double, double, double, int, double>>
+                std::optional<
+                    std::tuple<int, int, int, double, double, double, double, int, int, double>>
                     best_selection_key;
+                std::optional<molgr::no_metals::selection::NoMetalGraphTieBreakKey>
+                    best_graph_tie_break_key;
                 for (std::size_t i = 0; i < candidate_pool.size(); ++i)
                 {
                     const auto selection_key =
                         molgr::no_metals::selection::NoMetalCandidateSelectionKey(
                             candidate_pool[i],
                             config);
-                    if (!best_selection_key.has_value() || selection_key < *best_selection_key)
+                    const auto graph_tie_break_key =
+                        molgr::no_metals::selection::NoMetalCandidateGraphTieBreakKey(
+                            candidate_pool[i]);
+                    if (!best_selection_key.has_value() ||
+                        selection_key < *best_selection_key ||
+                        (selection_key == *best_selection_key &&
+                         (!best_graph_tie_break_key.has_value() ||
+                          graph_tie_break_key < *best_graph_tie_break_key)))
                     {
                         best_selection_key = selection_key;
+                        best_graph_tie_break_key = graph_tie_break_key;
                         best_idx = i;
                     }
                 }
@@ -374,9 +385,12 @@ namespace molgr
                         get_double("score"),
                         get_double("organic_aromatic_stability_score"),
                         get_int("organic_aromatic_atom_count"),
+                        get_int("organic_aromatic_ring_count"),
                         get_int("organic_max_conjugated_component_size"),
                         get_int("organic_conjugated_atom_count"),
                         get_int("organic_conjugated_bond_count"),
+                        get_int("organic_hyperconjugative_donor_count"),
+                        get_int("organic_hyperconjugation_score"),
                         get_int("organic_formal_charge_absolute_sum"),
                         get_double("organic_conjugation_charge_penalty"),
                         get_double("organic_adjusted_max_conjugated_component_size"),

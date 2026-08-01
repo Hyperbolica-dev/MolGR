@@ -17,6 +17,11 @@ def test_molecule_data_roundtrip_obmol_preserves_fields() -> None:
     from openbabel import openbabel as ob
 
     from molgr import _core  # type: ignore
+    from molgr.fallback.utils.electrons import (
+        set_lone_pair_count,
+        set_unpaired_electron_count,
+        set_unresolved_two_electron_center,
+    )
 
     obmol = ob.OBMol()
     obmol.BeginModify()
@@ -24,19 +29,22 @@ def test_molecule_data_roundtrip_obmol_preserves_fields() -> None:
     atom1 = obmol.NewAtom()
     atom1.SetAtomicNum(6)
     atom1.SetFormalCharge(-1)
-    atom1.SetSpinMultiplicity(2)
+    set_unpaired_electron_count(atom1, 2)
+    set_lone_pair_count(atom1, 1)
+    set_unresolved_two_electron_center(atom1, True)
     atom1.SetVector(0.1, 0.2, 0.3)
 
     atom2 = obmol.NewAtom()
     atom2.SetAtomicNum(8)
     atom2.SetFormalCharge(1)
-    atom2.SetSpinMultiplicity(1)
+    set_unpaired_electron_count(atom2, 1)
+    set_lone_pair_count(atom2, 2)
     atom2.SetVector(1.1, 1.2, 1.3)
 
     atom3 = obmol.NewAtom()
     atom3.SetAtomicNum(7)
     atom3.SetFormalCharge(0)
-    atom3.SetSpinMultiplicity(3)
+    set_unpaired_electron_count(atom3, 3)
     atom3.SetVector(-2.1, -2.2, -2.3)
 
     obmol.AddBond(1, 2, 2)
@@ -60,6 +68,8 @@ def test_molecule_data_roundtrip_obmol_preserves_fields() -> None:
         assert atom_out.atomic_num == atom_in.atomic_num
         assert atom_out.formal_charge == atom_in.formal_charge
         assert atom_out.radical_num == atom_in.radical_num
+        assert atom_out.lone_pair_count == atom_in.lone_pair_count
+        assert atom_out.unresolved_two_electron_center == atom_in.unresolved_two_electron_center
         assert atom_out.hybridization == atom_in.hybridization
         assert atom_out.x == pytest.approx(atom_in.x)
         assert atom_out.y == pytest.approx(atom_in.y)

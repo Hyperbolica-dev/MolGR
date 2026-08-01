@@ -22,7 +22,7 @@ M  V30 14 C 3.302700 3.024300 -0.199600 0
 M  V30 15 C -6.382400 0.067100 0.313600 0
 M  V30 16 C -12.614400 -0.883500 0.063300 0
 M  V30 17 H -13.712200 -0.929900 0.129400 0
-M  V30 18 N -8.403700 -0.776400 -0.254300 0 RAD=3 VAL=3
+M  V30 18 N -8.403700 -0.776400 -0.254300 0
 M  V30 19 C -4.276800 -0.733600 -0.609600 0
 M  V30 20 H -3.713700 -1.407800 -1.271800 0
 M  V30 21 C 1.666100 4.592600 -1.116200 0
@@ -142,21 +142,28 @@ M  V30 69 9 2 1
 M  V30 END BOND
 M  V30 END CTAB
 M  END
->  <TMQMG_ID>
+>  <atom.iprop.MOLGR_METAL_UNPAIRED_ELECTRONS>
+0 n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a
+n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a
+
+>  <CASE_ID>
+ACEGAT
+
+>  <CANDIDATE_ID>
 ACEGAT
 
 >  <TOTAL_CHARGE>
 0
 
 >  <TOTAL_RADICAL_ELECTRONS>
-2
+0
 
 >  <SPIN_MULTIPLICITY>
-3
+1
 
 >  <REVIEW_STATUS>
 accept_candidate
 
 >  <APPROVED_SMILES>
-[H]c1c([H])c([H])c(/[N]=N/c2c([H])c([H])c(C#[C-]->[Au+]<-n3c(-c4c([H])c([H])c([H])c([H])c4[H])c([H])c4n5c([H])c([H])c([H])c([H])c5c5c([H])c([H])c([H])c([H])c5c3-4)c([H])c2[H])c([H])c1[H]
+[H]c1c([H])c([H])c(/N=N/c2c([H])c([H])c(C#[C-]->[Au+]<-n3c(-c4c([H])c([H])c([H])c([H])c4[H])c([H])c4n5c([H])c([H])c([H])c([H])c5c5c([H])c([H])c([H])c([H])c5c3-4)c([H])c2[H])c([H])c1[H]
 $$$$

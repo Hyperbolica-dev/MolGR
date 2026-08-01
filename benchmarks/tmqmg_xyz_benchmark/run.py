@@ -372,9 +372,14 @@ def _run_case_method(
         eq_started = time.perf_counter()
         try:
             with case_timeout(case_timeout_seconds, f"{method_id} equivalence {case['case_idx']}"):
+                comparison_mol = output.rdkit_mol
+                if output.predicted_smiles:
+                    comparison_mol = Chem.MolFromSmiles(output.predicted_smiles)
+                    if comparison_mol is None:
+                        raise ValueError("predicted_smiles could not be reparsed")
                 is_equivalent, info = check_equivalence(
                     ground_truth_rdmol,
-                    output.rdkit_mol,
+                    comparison_mol,
                     # tmQMg reference SMILES do not consistently encode stereochemistry.
                     use_chirality=False,
                     max_resonance=100,

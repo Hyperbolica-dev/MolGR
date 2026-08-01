@@ -75,7 +75,8 @@ find "$TMQMG_DIR/tmQMg_xyz/xyz" -maxdepth 1 -name '*.xyz' | wc -l
 ## 生成 tmQMg 审核队列
 
 `prepare_tmqmg_queue.py` 遍历 tmQMg、执行 MolGR benchmark，并将需要人工判断的
-case 写为审核队列：
+case 写为审核队列。脚本默认同时同步 `.local/molgr_review/review.sqlite`，运行中的
+检查服务会直接读取更新后的队列，无需再手工导入：
 
 ```bash
 uv run python tools/molgr_review/prepare_tmqmg_queue.py \
@@ -84,8 +85,7 @@ uv run python tools/molgr_review/prepare_tmqmg_queue.py \
   --cpp-accelerations all
 ```
 
-默认队列路径为 `.local/molgr_review/tmqmg/tmqmg_cases.csv`。该命令只生成队列，
-不会读取或修改审核数据库。
+默认队列路径为 `.local/molgr_review/tmqmg/tmqmg_cases.csv`。
 
 局部验证可以使用 `--ids`、`--limit`、`--start-row` 和 `--end-row`。完整参数见：
 
@@ -93,7 +93,11 @@ uv run python tools/molgr_review/prepare_tmqmg_queue.py \
 uv run python tools/molgr_review/prepare_tmqmg_queue.py --help
 ```
 
-## 导入或更新审核队列
+局部刷新只替换本次作用域内的 case；其他队列记录和对应审核状态会保留。若某个
+case 在新结果中已不再需要审核，它会从队列中移除。只有需要生成 CSV 而不更新
+检查数据库时，才使用 `--no-sync-review-db`。
+
+## 手工导入审核队列
 
 ```bash
 uv run python tools/molgr_review/import_cases.py \
@@ -101,7 +105,8 @@ uv run python tools/molgr_review/import_cases.py \
   --db .local/molgr_review/review.sqlite
 ```
 
-重复导入会更新 case 数据。仍存在于新队列中的审核状态会保留；不再出现的 case
+通常不需要在 `prepare_tmqmg_queue.py` 后执行此命令。它用于导入外部或手工生成的
+完整队列。重复导入会更新 case 数据。仍存在于新队列中的审核状态会保留；不再出现的 case
 及其本地审核状态会被移除。需要跨机器迁移尚未固化的审核状态时，可以使用
 `export_reviews.py` 导出 JSONL，再通过 `--reviews-jsonl` 恢复。
 
@@ -116,7 +121,7 @@ uv run python tools/molgr_review/server.py \
 ```
 
 服务地址为 `http://127.0.0.1:8765`。Trace 在独立页面展示当前 case 的完整重建
-过程，默认最多渲染 1000 张 `rdkit-dof` 图像。
+过程；页面保存去重后的原始 SDF，打开节点时才动态渲染 `rdkit-dof` 图像。
 
 ## 审核状态与 fixture
 
@@ -124,12 +129,13 @@ uv run python tools/molgr_review/server.py \
 | --- | --- |
 | `accept_candidate` | 将当前 MolGR 图保存为 `approved_graph/<id>.sdf` |
 | `accept_reference` | 保存原始 XYZ、电子态和参考 SMILES |
+| `accept_both` | 保存候选 SDF，并允许回归结果匹配候选图或参考图中的任意一个 |
 | `manual_reference` | 保存原始 XYZ、电子态和人工指定的 SMILES |
 | `needs_followup` | 保留本地审核状态，不生成 fixture |
 | `skip` | 保留本地审核状态，不生成 fixture |
 
-前三类决定会立即更新 `tests/data/reviewed/<数据集>/manifest.json`。manifest 只允许
-`approved_graph`、`reference_graph` 和 `manual_reference`，并且不保存审核人、
+前四类决定会立即更新 `tests/data/reviewed/<数据集>/manifest.json`。manifest 只允许
+`accepted_both`、`approved_graph`、`reference_graph` 和 `manual_reference`，并且不保存审核人、
 审核时间、临时备注或未确认结论。
 
 将 case 改为 `needs_followup` 或 `skip` 时，工具会移除该 case 已有的 fixture，

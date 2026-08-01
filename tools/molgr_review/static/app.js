@@ -25,6 +25,7 @@ const labels = {
 const statusLabels = {
   accept_candidate: "候选图为准",
   accept_reference: "参考图为准",
+  accept_both: "接受两者",
   manual_reference: "人工修图为准",
   needs_followup: "待复核",
   skip: "跳过",
@@ -110,7 +111,7 @@ function clampLayoutValue(key, proposed, snapshot = state.layout || layoutDefaul
     const total = mainLayoutWidth();
     const max = Math.max(
       layoutMinimums.viewerWidth,
-      total - snapshot.reviewWidth - layoutMinimums.compareWidth - splitterSize * 2,
+      total - layoutMinimums.compareWidth - splitterSize,
     );
     return clamp(proposed, layoutMinimums.viewerWidth, max);
   }
@@ -201,8 +202,6 @@ function setupResizer(handle, key, axis) {
 
 function bindLayoutResizers() {
   setupResizer(document.querySelector('[data-resize="sidebar"]'), "sidebarWidth", "x");
-  setupResizer(document.querySelector('[data-resize="viewer"]'), "viewerWidth", "x");
-  setupResizer(document.querySelector('[data-resize="review"]'), "reviewWidth", "x");
   setupResizer(document.querySelector('[data-resize="ketcher"]'), "ketcherHeight", "y");
   window.addEventListener(
     "resize",
@@ -252,11 +251,42 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function setImageZoomState(box, label) {
+  const image = box.querySelector("svg, img");
+  box.classList.toggle("is-zoomable", Boolean(image));
+  if (!image) {
+    box.removeAttribute("role");
+    box.removeAttribute("tabindex");
+    box.removeAttribute("aria-label");
+    delete box.dataset.zoomLabel;
+    return;
+  }
+  box.setAttribute("role", "button");
+  box.tabIndex = 0;
+  box.setAttribute("aria-label", `放大${label}`);
+  box.dataset.zoomLabel = label;
+}
+
+function openImageLightbox(box) {
+  const image = box.querySelector("svg, img");
+  if (!image) return;
+  const dialog = $("imageLightbox");
+  $("imageLightboxTitle").textContent = box.dataset.zoomLabel || "结构图";
+  $("imageLightboxContent").replaceChildren(image.cloneNode(true));
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeImageLightbox() {
+  const dialog = $("imageLightbox");
+  if (dialog.open) dialog.close();
+}
+
 function categoryKind(category) {
   if (category === "graph_not_equivalent") return "warn";
   if (category === "backend_mismatch") return "bad";
   if (category === "python_version_mismatch") return "warn";
   if (category === "reference_not_comparable") return "warn";
+  if (category === "reference_formula_mismatch") return "bad";
   if (category === "candidate_failed") return "bad";
   return "";
 }
@@ -270,6 +300,7 @@ async function loadStats() {
     backend_mismatch: "后端分歧",
     python_version_mismatch: "版本分歧",
     reference_not_comparable: "参考不可比",
+    reference_formula_mismatch: "参考氢数不守恒",
   };
   const categoryEntries = Object.entries(stats.categories || {})
     .sort(([left], [right]) => left.localeCompare(right))
@@ -279,6 +310,7 @@ async function loadStats() {
     ["未审核", (stats.review_statuses || {}).unreviewed || 0],
     ["候选图为准", (stats.review_statuses || {}).accept_candidate || 0],
     ["参考图为准", (stats.review_statuses || {}).accept_reference || 0],
+    ["接受两者", (stats.review_statuses || {}).accept_both || 0],
     ["人工修图", (stats.review_statuses || {}).manual_reference || 0],
     ...categoryEntries,
   ];
@@ -296,7 +328,11 @@ async function loadStats() {
     ["cpp", runtime.cpp_extension || ""],
   ].filter(([, value]) => value);
   $("datasetMeta").innerHTML = metaEntries
-    .map(([name, value]) => `<div><span>${escapeHtml(name)}</span><code>${escapeHtml(value)}</code></div>`)
+    .map(
+      ([name, value]) =>
+        `<div><span>${escapeHtml(name)}</span>` +
+        `<code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`,
+    )
     .join("");
 }
 
@@ -343,6 +379,9 @@ function renderCaseList() {
 async function loadCase(caseId) {
   const item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
   state.current = item;
+  const url = new URL(window.location.href);
+  url.searchParams.set("case", item.case_id);
+  window.history.replaceState({}, "", url);
   state.primaryKind = "candidate";
   state.secondaryKind = "reference";
   state.currentLiveCandidate = null;
@@ -405,11 +444,19 @@ function renderDiagnostics() {
     ["total_radical_electrons", item.total_radical_electrons],
     ["reference_smiles", item.reference_smiles],
     ["candidate_snapshot_smiles", item.candidate_snapshot_smiles],
+    ["candidate_snapshot_runtime", item.candidate_snapshot_runtime],
     ["live_candidate_smiles", item.live_candidate_smiles],
+    ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
     ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
     ["live_candidate_reason", item.live_candidate_equivalence_reason],
     ["candidate_organic", item.candidate_organic_smiles],
     ["reference_organic", item.reference_organic_smiles],
+    ["reference_formula_status", item.reference_formula_check_status],
+    ["xyz_formula", item.xyz_formula],
+    ["reference_formula_with_h", item.reference_formula_with_h],
+    ["reference_formula_mismatch", item.reference_formula_mismatch_detail],
+    ["reference_answer_status", item.reference_answer_status],
+    ["reference_answer_reason", item.reference_answer_reason],
     ["error", item.error],
   ];
   $("diagnostics").innerHTML = pairs
@@ -497,6 +544,7 @@ async function loadCandidateSdf(item) {
     state.currentLiveCandidate = data;
     item.live_candidate_status = data.live_candidate_status || "";
     item.live_candidate_smiles = data.live_candidate_smiles || "";
+    item.live_candidate_smiles_exact_match = data.live_candidate_smiles_exact_match;
     item.live_matches_candidate_snapshot = data.live_matches_candidate_snapshot;
     item.live_candidate_equivalence_method = data.live_candidate_equivalence_method || "";
     item.live_candidate_equivalence_reason = data.live_candidate_equivalence_reason || "";
@@ -613,6 +661,7 @@ async function loadRender(kind, slot) {
   const smiles = slot === "primary" ? $("primarySmiles") : $("secondarySmiles");
   title.textContent = labels[kind] || kind;
   box.innerHTML = '<div class="empty">rendering...</div>';
+  setImageZoomState(box, title.textContent);
   smiles.textContent = "";
   try {
     const data =
@@ -627,9 +676,11 @@ async function loadRender(kind, slot) {
     } else {
       box.innerHTML = data.svg || '<div class="empty">empty render</div>';
     }
+    setImageZoomState(box, title.textContent);
     smiles.textContent = kind === "candidate" ? data?.live_candidate_smiles || "" : data?.smiles || "";
   } catch (error) {
     box.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    setImageZoomState(box, title.textContent);
   }
 }
 
@@ -772,9 +823,14 @@ function bindEvents() {
     }
   });
   $("ketcherFrame").addEventListener("load", () => {
-    waitForKetcher(30000).catch((error) => {
-      $("ketcherStatus").textContent = error.message;
-    });
+    waitForKetcher(30000)
+      .then(() => {
+        const workspace = document.querySelector(".workspace");
+        if (workspace) workspace.scrollTop = 0;
+      })
+      .catch((error) => {
+        $("ketcherStatus").textContent = error.message;
+      });
   });
   $("refreshStats").addEventListener("click", () => {
     loadStats();
@@ -805,6 +861,18 @@ function bindEvents() {
     );
   });
   $("removeFixture").addEventListener("click", removeCurrentFixture);
+  $("closeImageLightbox").addEventListener("click", closeImageLightbox);
+  $("imageLightbox").addEventListener("click", (event) => {
+    if (event.target === $("imageLightbox")) closeImageLightbox();
+  });
+  document.querySelectorAll(".svg-box").forEach((box) => {
+    box.addEventListener("click", () => openImageLightbox(box));
+    box.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openImageLightbox(box);
+    });
+  });
   $("focusKetcher").addEventListener("click", () => {
     $("ketcherPanel").scrollIntoView({ block: "center", behavior: "smooth" });
     $("ketcherFrame").focus();
@@ -847,11 +915,17 @@ function debounce(fn, wait) {
 
 async function init() {
   bindEvents();
+  const requestedCaseId = new URLSearchParams(window.location.search).get("case")?.trim() || "";
+  if (requestedCaseId) $("searchBox").value = requestedCaseId;
   await loadStats();
   await loadCases(true);
-  if (state.cases.length) {
+  if (requestedCaseId) {
+    await loadCase(requestedCaseId);
+  } else if (state.cases.length) {
     await loadCase(state.cases[0].case_id);
   }
+  const workspace = document.querySelector(".workspace");
+  if (workspace) workspace.scrollTop = 0;
 }
 
 init().catch((error) => {

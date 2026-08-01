@@ -16,6 +16,7 @@ namespace molgr
             void PerceiveBondOrdersLocal(OpenBabel::OBMol &mol);
             void FindRingAtomsAndBonds(OpenBabel::OBMol &mol);
             void PrepareForSmartsMatching(OpenBabel::OBMol &mol);
+            void EnsureHybridizationPerceived(OpenBabel::OBMol &mol);
             void SetAromaticPerceived(OpenBabel::OBMol &mol, bool perceived);
             void ResetAndAssignAromaticFlags(OpenBabel::OBMol &mol);
             bool AtomIsAromatic(OpenBabel::OBAtom &atom);

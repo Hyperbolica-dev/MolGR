@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from rdkit import Chem
 
 from benchmarks.tmqmg_xyz_benchmark.io import summarize_results
 from benchmarks.tmqmg_xyz_benchmark.run import (
@@ -23,6 +24,14 @@ from benchmarks.tmqmg_xyz_benchmark.run import (
     run,
 )
 from benchmarks.tmqmg_xyz_benchmark.schema import BenchmarkResult
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_TMQMG_DATA_DIR = (
+    _PROJECT_ROOT / ".local" / "datasets" / "tmqmg" / "e1dc9887b8f20a217a1db6ca972d726bcbaab45b"
+)
+_TMQMG_CSV = _TMQMG_DATA_DIR / "tmQMg_properties_and_targets.csv"
+_TMQMG_XYZ_DIR = _TMQMG_DATA_DIR / "tmQMg_xyz" / "xyz"
 
 
 def test_tmqmg_subset_selection_respects_ids_and_row_bounds() -> None:
@@ -530,19 +539,51 @@ def test_reference_element_mismatch_skips_only_comparison_not_method(
     assert "Reference SMILES element counts differ from XYZ" in str(result.comparison_skip_reason)
 
 
+def test_equivalence_reparses_recorded_smiles_instead_of_using_backend_object() -> None:
+    ground_truth = Chem.MolFromSmiles("C")
+    backend_object = Chem.MolFromSmiles("N")
+    assert ground_truth is not None
+    assert backend_object is not None
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = "C"
+        rdkit_mol = backend_object
+        equivalent = None
+        equivalence_method = None
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "A",
+            "input_smiles": "C",
+            "ground_truth_smiles": "C",
+            "ground_truth_rdmol": ground_truth,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
+    )
+
+    assert result.status == "ok"
+    assert result.equivalent is True
+
+
 def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(
     tmp_path: Path,
 ) -> None:
     pytest.importorskip("molgr._core.pipeline")
-    csv_path = Path("/mnt/e/download/tmQMg_properties_and_targets.csv")
-    xyz_dir = Path("/mnt/e/download/tmQMg_xyz/xyz")
-    if not csv_path.exists() or not xyz_dir.exists():
+    if not _TMQMG_CSV.exists() or not _TMQMG_XYZ_DIR.exists():
         pytest.skip("tmQMg benchmark dataset is not available")
 
-    with csv_path.open(newline="", encoding="utf-8") as fh:
+    with _TMQMG_CSV.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     case_row = next((row for row in rows if row.get("id") == "ABAJAP"), None)
-    if case_row is None or not (xyz_dir / "ABAJAP.xyz").exists():
+    if case_row is None or not (_TMQMG_XYZ_DIR / "ABAJAP.xyz").exists():
         pytest.skip("tmQMg ABAJAP crash-regression case is not available")
 
     payload_path = tmp_path / "payload.json"
@@ -553,7 +594,7 @@ def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(
             {
                 "method_id": "molgr_cpp",
                 "cases": [{"row_index": 5, "row": case_row} for _ in range(repeats)],
-                "xyz_dir": str(xyz_dir),
+                "xyz_dir": str(_TMQMG_XYZ_DIR),
                 "case_timeout_seconds": 2.0,
                 "cpp_backend_config": _build_cpp_backend_config_payload(use_all_accelerations=True),
             },

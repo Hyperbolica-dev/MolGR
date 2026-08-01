@@ -27,13 +27,18 @@ def get_radical_resonances_smi(smiles: str) -> list[str]:
 def process_resonance_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     charge: typing.SupportsInt | typing.SupportsIndex,
+    total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
 ) -> tuple:
     """
     Process resonance on an OBMol pointer and return (new_ptr, updated_charge).
     """
 
 def process_resonance_smi(
-    smiles: str, charge: typing.SupportsInt | typing.SupportsIndex
+    smiles: str,
+    charge: typing.SupportsInt | typing.SupportsIndex,
+    total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
 ) -> tuple[str, int]:
     """
     Process one resonance step on SMILES and return updated token plus charge.

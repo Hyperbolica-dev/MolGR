@@ -10,6 +10,7 @@ pytest.importorskip("openbabel")
 from openbabel import openbabel as ob
 from openbabel import pybel
 
+from molgr import _core
 from molgr.fallback.utils.metal_radical_inference import infer_metal_radical_state
 from molgr.fallback.utils.metals.preparation import prepare_metal_state
 
@@ -24,6 +25,11 @@ P          2.24650        0.14520        0.88020
 P          0.12810       -1.64740       -1.13160
 P         -0.23420        1.71230       -0.98260
 H         -0.88470        2.79020        1.51270
+"""
+
+_TI_XYZ = """1
+Ti atom
+Ti         0.00000        0.00000        0.00000
 """
 
 
@@ -53,3 +59,27 @@ def test_prepare_metal_state_includes_low_spin_ru_ii_when_hydrides_are_direct() 
         (metal_state.symbol, metal_state.valence, metal_state.radical_num)
         for metal_state in metal_states
     }
+
+
+def test_prepare_metal_state_uses_hunds_rule_for_free_ti_ii() -> None:
+    state = prepare_metal_state(_TI_XYZ, total_charge=0, total_radical_electrons=0)
+    metal_states = state.available_valence_radical_states[0]
+
+    python_signatures = {
+        (metal_state.symbol, metal_state.valence, metal_state.radical_num)
+        for metal_state in metal_states
+    }
+    assert ("Ti", 2, 2) in python_signatures
+    assert ("Ti", 2, 0) not in python_signatures
+
+    omol = pybel.readstring("xyz", _TI_XYZ)
+    cpp_states = _core.dev.pipeline.reconstruct_with_metals.build_metal_states_ptr(
+        int(omol.OBMol.this),
+        1,
+    )
+    cpp_signatures = {
+        (metal_state.symbol, metal_state.valence, metal_state.radical_num)
+        for metal_state in cpp_states
+    }
+
+    assert cpp_signatures == python_signatures

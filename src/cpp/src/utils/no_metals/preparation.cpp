@@ -5,6 +5,7 @@
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/preprocess.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/xyz.h"
 
 #include "molgr/compat/openbabel_iter.h"
@@ -14,12 +15,17 @@
 
 namespace
 {
+    // Electron bookkeeping: discard XYZ/Open Babel inferred formal charges and
+    // all three MolGR electron classifications before rebuilding from topology
+    // and the supplied global budgets.
     void NormalizeSeedElectronicLabels(OpenBabel::OBMol &mol)
     {
         FOR_ATOMS_OF_MOL(atom_iter, mol)
         {
             atom_iter->SetFormalCharge(0);
-            atom_iter->SetSpinMultiplicity(0);
+            molgr::utils::SetUnpairedElectronCount(*atom_iter, 0);
+            molgr::utils::SetLonePairCount(*atom_iter, 0);
+            molgr::utils::SetUnresolvedTwoElectronCenter(*atom_iter, false);
         }
     }
 }

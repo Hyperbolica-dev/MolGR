@@ -1,4 +1,6 @@
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
@@ -8,8 +10,13 @@ namespace molgr
 {
     namespace utils
     {
+        // Electron bookkeeping: despite the historical name, clone topology plus
+        // all three MolGR atom electron fields verbatim; do not infer one from another.
         OpenBabel::OBMol CloneMolTopologyOnly(const OpenBabel::OBMol &mol)
         {
+            OpenBabel::OBMol &mutable_source = const_cast<OpenBabel::OBMol &>(mol);
+            const bool source_has_hybridization =
+                mutable_source.HasHybridizationPerceived();
             OpenBabel::OBMol clone;
             clone.BeginModify();
             clone.ReserveAtoms(mol.NumAtoms());
@@ -21,8 +28,13 @@ namespace molgr
                 OpenBabel::OBAtom *new_atom = clone.NewAtom();
                 new_atom->SetAtomicNum(atom->GetAtomicNum());
                 new_atom->SetFormalCharge(atom->GetFormalCharge());
-                new_atom->SetSpinMultiplicity(atom->GetSpinMultiplicity());
-                new_atom->SetHyb(atom->GetHyb());
+                CopyElectronData(*atom, *new_atom);
+                if (source_has_hybridization)
+                {
+                    new_atom->SetHyb(atom->GetHyb());
+                }
+                new_atom->SetAromatic(atom->IsAromatic());
+                new_atom->SetInRing(atom->IsInRing());
                 new_atom->SetVector(atom->GetX(), atom->GetY(), atom->GetZ());
             }
 
@@ -48,37 +60,23 @@ namespace molgr
                     new_bond->SetAromatic(source_bond_aromatic);
                     new_bond->SetInRing(source_bond_in_ring);
                     new_bond->SetClosure(source_bond_closure);
-                    if (source_bond_aromatic || source_bond_in_ring)
-                    {
-                        OpenBabel::OBAtom *begin_atom = clone.GetAtom(begin_idx);
-                        OpenBabel::OBAtom *end_atom = clone.GetAtom(end_idx);
-                        if (begin_atom != nullptr)
-                        {
-                            begin_atom->SetAromatic(source_bond_aromatic);
-                            begin_atom->SetInRing(source_bond_in_ring);
-                        }
-                        if (end_atom != nullptr)
-                        {
-                            end_atom->SetAromatic(source_bond_aromatic);
-                            end_atom->SetInRing(source_bond_in_ring);
-                        }
-                    }
                 }
             }
 
             clone.EndModify();
-            OpenBabel::OBMol &mutable_source = const_cast<OpenBabel::OBMol &>(mol);
             clone.SetRingAtomsAndBondsPerceived(
                 mutable_source.HasRingAtomsAndBondsPerceived());
             clone.SetClosureBondsPerceived(mutable_source.HasClosureBondsPerceived());
             clone.SetSSSRPerceived(false);
             clone.SetLSSRPerceived(mutable_source.HasLSSRPerceived());
             clone.SetAromaticPerceived(mutable_source.HasAromaticPerceived());
-            clone.SetHybridizationPerceived(mutable_source.HasHybridizationPerceived());
+            clone.SetHybridizationPerceived(source_has_hybridization);
             clone.SetAtomTypesPerceived(mutable_source.HasAtomTypesPerceived());
             return clone;
         }
 
+        // Electron bookkeeping: restore radical_num as real unpaired electrons and
+        // restore active lone-pair/unresolved fields independently.
         OpenBabel::OBMol MolFromMoleculeData(const MoleculeData &data)
         {
             OpenBabel::OBMol mol;
@@ -89,7 +87,11 @@ namespace molgr
                 OpenBabel::OBAtom *atom = mol.NewAtom();
                 atom->SetAtomicNum(atom_data.atomic_num);
                 atom->SetFormalCharge(atom_data.formal_charge);
-                atom->SetSpinMultiplicity(atom_data.radical_num);
+                SetUnpairedElectronCount(*atom, atom_data.radical_num);
+                SetLonePairCount(*atom, atom_data.lone_pair_count);
+                SetUnresolvedTwoElectronCenter(
+                    *atom,
+                    atom_data.unresolved_two_electron_center);
                 atom->SetHyb(atom_data.hybridization);
                 atom->SetVector(atom_data.x, atom_data.y, atom_data.z);
             }
@@ -113,6 +115,8 @@ namespace molgr
             return mol;
         }
 
+        // Electron bookkeeping: serialize all three classifications independently;
+        // only real unpaired electrons contribute to total_radical_num.
         MoleculeData MoleculeDataFromOBMol(const OpenBabel::OBMol &mol)
         {
             MoleculeData data;
@@ -120,13 +124,17 @@ namespace molgr
             data.total_radical_num = 0;
 
             OpenBabel::OBMol &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+            molgr::vendor::openbabel_threading::EnsureHybridizationPerceived(mutable_mol);
             data.atoms.reserve(mol.NumAtoms());
             FOR_ATOMS_OF_MOL(atom, mutable_mol)
             {
                 AtomData atom_data;
                 atom_data.atomic_num = atom->GetAtomicNum();
                 atom_data.formal_charge = atom->GetFormalCharge();
-                atom_data.radical_num = atom->GetSpinMultiplicity();
+                atom_data.radical_num = GetUnpairedElectronCount(*atom);
+                atom_data.lone_pair_count = GetLonePairCount(*atom);
+                atom_data.unresolved_two_electron_center =
+                    HasUnresolvedTwoElectronCenter(*atom);
                 atom_data.hybridization = atom->GetHyb();
                 atom_data.x = atom->GetX();
                 atom_data.y = atom->GetY();

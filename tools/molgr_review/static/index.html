@@ -23,6 +23,7 @@
             <option value="missing_reference_smiles">缺参考 SMILES</option>
             <option value="candidate_failed">候选生成失败</option>
             <option value="python_version_mismatch">Python 版本分歧</option>
+            <option value="reference_formula_mismatch">参考氢数不守恒</option>
             <option value="reference_not_comparable">参考不可比</option>
           </select>
         </label>
@@ -33,6 +34,7 @@
             <option value="">全部</option>
             <option value="accept_candidate">候选图为准</option>
             <option value="accept_reference">参考图为准</option>
+            <option value="accept_both">接受两者</option>
             <option value="manual_reference">人工修图为准</option>
             <option value="needs_followup">待复核</option>
             <option value="skip">跳过</option>
@@ -75,6 +77,30 @@
         </div>
       </section>
 
+      <section class="review-controls panel" id="reviewControls">
+        <header>
+          <h3>人工结论</h3>
+          <div class="review-header-actions">
+            <span id="saveState" class="muted"></span>
+            <button id="removeFixture" class="danger-action" type="button" hidden>
+              移除 fixture
+            </button>
+          </div>
+        </header>
+        <div class="decision-row">
+          <button class="decision" data-status="accept_candidate" type="button">候选图为准</button>
+          <button class="decision" data-status="accept_reference" type="button">参考图为准</button>
+          <button class="decision" data-status="accept_both" type="button">接受两者</button>
+          <button class="decision" data-status="manual_reference" type="button">人工修图为准</button>
+          <button class="decision" data-status="needs_followup" type="button">待复核</button>
+          <button class="decision" data-status="skip" type="button">跳过</button>
+        </div>
+        <label>
+          审核人
+          <input id="reviewer" type="text" autocomplete="name" />
+        </label>
+      </section>
+
       <section class="layout" id="mainLayout">
         <section class="panel viewer-panel" id="viewerPanel">
           <header>
@@ -85,14 +111,21 @@
               <button class="view-mode" data-style="line" type="button">Line</button>
             </div>
           </header>
-          <div id="viewer3d" class="viewer"></div>
-          <section class="text-block">
-            <header class="subsection-header">
-              <h4>当前候选重建 3D 拓扑</h4>
-              <span id="candidateModelStatus" class="muted"></span>
-            </header>
-            <div id="viewerCandidate3d" class="viewer viewer-secondary"></div>
-          </section>
+          <div class="viewer-grid">
+            <section class="text-block">
+              <header class="subsection-header">
+                <h4>输入 XYZ</h4>
+              </header>
+              <div id="viewer3d" class="viewer"></div>
+            </section>
+            <section class="text-block">
+              <header class="subsection-header">
+                <h4>当前候选重建 3D 拓扑</h4>
+                <span id="candidateModelStatus" class="muted"></span>
+              </header>
+              <div id="viewerCandidate3d" class="viewer viewer-secondary"></div>
+            </section>
+          </div>
           <details class="xyz-details">
             <summary>
               当前候选重建 SDF
@@ -139,36 +172,12 @@
           <section id="versionComparison" class="version-comparison"></section>
           <dl id="diagnostics" class="diagnostics"></dl>
         </section>
-        <div
-          class="split-handle layout-resizer"
-          data-resize="review"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="调整审核栏宽度"
-          tabindex="0"
-        ></div>
+      </section>
 
-        <section class="review panel" id="reviewPanel">
-          <header>
-            <h3>人工结论</h3>
-            <div class="review-header-actions">
-              <span id="saveState" class="muted"></span>
-              <button id="removeFixture" class="danger-action" type="button" hidden>
-                移除 fixture
-              </button>
-            </div>
-          </header>
-          <div class="decision-row">
-            <button class="decision" data-status="accept_candidate" type="button">候选图为准</button>
-            <button class="decision" data-status="accept_reference" type="button">参考图为准</button>
-            <button class="decision" data-status="manual_reference" type="button">人工修图为准</button>
-            <button class="decision" data-status="needs_followup" type="button">待复核</button>
-            <button class="decision" data-status="skip" type="button">跳过</button>
-          </div>
-          <label>
-            审核人
-            <input id="reviewer" type="text" autocomplete="name" />
-          </label>
+      <section class="review panel" id="reviewPanel">
+        <header>
+          <h3>人工修图</h3>
+        </header>
           <section class="ketcher-panel" id="ketcherPanel">
             <header>
               <h4>Ketcher 修正拓扑</h4>
@@ -182,6 +191,7 @@
               id="ketcherFrame"
               class="ketcher-frame"
               src="/KetcherDemoSA/index.html"
+              loading="lazy"
               title="Ketcher topology editor"
             ></iframe>
             <div
@@ -206,9 +216,26 @@
             备注
             <textarea id="notes" rows="4"></textarea>
           </label>
-        </section>
       </section>
     </main>
+
+    <dialog id="imageLightbox" class="image-lightbox" aria-labelledby="imageLightboxTitle">
+      <section class="image-lightbox-shell">
+        <header>
+          <h3 id="imageLightboxTitle">结构图</h3>
+          <button
+            id="closeImageLightbox"
+            class="image-lightbox-close"
+            type="button"
+            aria-label="关闭放大图片"
+            title="关闭"
+          >
+            ×
+          </button>
+        </header>
+        <div id="imageLightboxContent" class="image-lightbox-content"></div>
+      </section>
+    </dialog>
 
     <script src="/static/app.js"></script>
   </body>

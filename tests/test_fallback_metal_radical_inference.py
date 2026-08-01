@@ -75,9 +75,26 @@ Cl 0.0000 0.0000 -2.3500
     result = infer_metal_radical_state(metal, 4)
 
     assert result.geometry == "octahedral_like"
-    assert result.field_strength == "weak"
+    assert result.field_strength == "ambiguous"
     assert result.effective_d_electrons == 6
-    assert result.radical_counts == (0, 4)
+    assert result.radical_counts == (4, 0)
+
+
+def test_tetrahedral_field_score_in_margin_keeps_both_spin_branches() -> None:
+    xyz = """5
+NiP2Cl2
+Ni 0.0000 0.0000 0.0000
+P  1.30 1.30 1.30
+P -1.30 -1.30 1.30
+Cl -1.30 1.30 -1.30
+Cl 1.30 -1.30 -1.30
+"""
+    mol = pybel.readstring("xyz", xyz)
+    metal = cast(ob.OBAtom, mol.OBMol.GetAtom(1))
+    result = infer_metal_radical_state(metal, 2)
+    assert result.geometry == "tetrahedral"
+    assert result.field_strength == "ambiguous"
+    assert result.radical_counts == (2, 0)
 
 
 def test_build_metal_states_uses_environment_sensitive_radical_inference() -> None:

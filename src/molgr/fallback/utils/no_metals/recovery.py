@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable, cast
+from typing import Callable, Iterable, cast
 
 from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.stages.break_bond import break_deformed_ene, break_one_bond
-from molgr.fallback.stages.fresh import fresh_omol_charge_radical
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
 from molgr.fallback.utils import resonance as resonance_utils
 
@@ -27,9 +26,12 @@ def _deduplicate(states: Iterable[ReconstructionState]) -> list[ReconstructionSt
 
 def enumerate_deformed_pi_recovery_seeds(
     states: Iterable[ReconstructionState],
+    *,
+    break_stage: Callable[..., tuple[pybel.Molecule, bool]] | None = None,
 ) -> list[ReconstructionState]:
-    """Lower geometrically deformed multiple bonds and return changed seeds only."""
+    """Lower deformed bonds whose stage explicitly updates endpoint electrons."""
 
+    break_stage = break_deformed_ene if break_stage is None else break_stage
     recovered: list[ReconstructionState] = []
     for state in states:
         machine = OmolStateMachine.from_reconstruction_state(state).branch(
@@ -38,16 +40,13 @@ def enumerate_deformed_pi_recovery_seeds(
         )
         hit = machine.run_omol_stage(
             "recover_deformed_pi_bonds",
-            break_deformed_ene,
+            break_stage,
             machine.given_charge,
             state.total_radical_electrons,
             5.0,
         )
         if not hit:
             continue
-        machine.run_omol_stage(
-            "refresh_electronic_labels_after_recovery", fresh_omol_charge_radical
-        )
         machine.annotate(None, recovery_tier=1, recovery_strategy="deformed_pi_bonds")
         recovered.append(machine.freeze_like(state))
     return _deduplicate(recovered)
@@ -55,9 +54,12 @@ def enumerate_deformed_pi_recovery_seeds(
 
 def enumerate_bond_break_recovery_seeds(
     states: Iterable[ReconstructionState],
+    *,
+    break_stage: Callable[..., tuple[pybel.Molecule, int, bool]] | None = None,
 ) -> list[ReconstructionState]:
-    """Apply last-resort bond-breaking rules and return changed seeds only."""
+    """Apply bond-breaking rules whose stages explicitly update endpoint electrons."""
 
+    break_stage = break_one_bond if break_stage is None else break_stage
     recovered: list[ReconstructionState] = []
     for state in states:
         machine = OmolStateMachine.from_reconstruction_state(state).branch(
@@ -66,14 +68,11 @@ def enumerate_bond_break_recovery_seeds(
         )
         hit = machine.run_omol_charge_stage(
             "recover_by_breaking_bonds",
-            break_one_bond,
+            break_stage,
             state.total_radical_electrons,
         )
         if not hit:
             continue
-        machine.run_omol_stage(
-            "refresh_electronic_labels_after_recovery", fresh_omol_charge_radical
-        )
         machine.annotate(None, recovery_tier=2, recovery_strategy="bond_break")
         recovered.append(machine.freeze_like(state))
     return _deduplicate(recovered)

@@ -97,7 +97,9 @@ def _normalize_row(row: dict[str, str], index: int) -> dict[str, Any]:
 def _prune_stale_cases(conn: sqlite3.Connection, case_ids: list[str]) -> None:
     conn.execute("DROP TABLE IF EXISTS incoming_case_ids")
     conn.execute("CREATE TEMP TABLE incoming_case_ids(case_id TEXT PRIMARY KEY)")
-    conn.executemany("INSERT INTO incoming_case_ids(case_id) VALUES(?)", ((value,) for value in case_ids))
+    conn.executemany(
+        "INSERT INTO incoming_case_ids(case_id) VALUES(?)", ((value,) for value in case_ids)
+    )
     for table in ("render_cache", "reviews", "cases"):
         conn.execute(
             f"DELETE FROM {table} WHERE case_id NOT IN (SELECT case_id FROM incoming_case_ids)"
@@ -121,7 +123,9 @@ def _ensure_generic_schema(conn: sqlite3.Connection) -> None:
         if name not in columns:
             conn.execute(f"ALTER TABLE cases ADD COLUMN {name} {declaration}")
     if "charge" in columns:
-        conn.execute("UPDATE cases SET total_charge = charge WHERE total_charge = 0 AND charge != 0")
+        conn.execute(
+            "UPDATE cases SET total_charge = charge WHERE total_charge = 0 AND charge != 0"
+        )
     if "candidate_smiles_canonical" in columns:
         conn.execute(
             "UPDATE cases SET candidate_smiles = candidate_smiles_canonical "
@@ -131,7 +135,9 @@ def _ensure_generic_schema(conn: sqlite3.Connection) -> None:
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reviews'"
     ).fetchone():
-        conn.execute("UPDATE reviews SET status = 'accept_candidate' WHERE status IN ('accept_molgr', 'reference_wrong')")
+        conn.execute(
+            "UPDATE reviews SET status = 'accept_candidate' WHERE status IN ('accept_molgr', 'reference_wrong')"
+        )
         conn.execute("UPDATE reviews SET status = 'accept_reference' WHERE status = 'accept_tmqmg'")
 
 
@@ -244,7 +250,11 @@ def main() -> None:
         conn.execute("DELETE FROM metadata")
         conn.executemany(
             "INSERT INTO metadata(key, value) VALUES(?, ?)",
-            [("source_csv", str(args.input)), ("record_count", str(len(rows))), ("imported_at", datetime.now(timezone.utc).isoformat())],
+            [
+                ("source_csv", str(args.input)),
+                ("record_count", str(len(rows))),
+                ("imported_at", datetime.now(timezone.utc).isoformat()),
+            ],
         )
         restored = _restore_reviews(conn, args.reviews_jsonl) if args.reviews_jsonl else 0
         conn.commit()

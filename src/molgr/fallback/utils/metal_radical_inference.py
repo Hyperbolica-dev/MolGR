@@ -50,7 +50,8 @@ _DONOR_FIELD_STRENGTH: Dict[int, float] = {
     7: 1.00,
     8: 0.85,
     9: 0.65,
-    15: 1.15,
+    # Phosphines are strong sigma donors; retain a distinct boost over N/O.
+    15: 1.50,
     16: 0.75,
     17: 0.55,
     35: 0.50,
@@ -213,8 +214,17 @@ def _collect_coordination_environment(
         if atomic_num <= 1:
             if not _is_direct_metal_hydride(metal_atom, neighbor, distance):
                 continue
-        elif distance > metal_radical_config.coordination_cutoff_angstrom:
-            continue
+        else:
+            covalent_cutoff = (
+                _clamped_covalent_radius(metal_atom.GetAtomicNum())
+                + _clamped_covalent_radius(atomic_num)
+                + metal_radical_config.coordination_covalent_tolerance_angstrom
+            )
+            if distance > min(
+                metal_radical_config.coordination_cutoff_angstrom,
+                covalent_cutoff,
+            ):
+                continue
 
         donors.append(
             _DonorSample(
@@ -288,11 +298,12 @@ def _classify_field_strength(
     *,
     metal_radical_config: MetalRadicalInferenceConfig,
 ) -> str:
-    if field_score >= metal_radical_config.strong_field_threshold:
+    ambiguity_margin = max(0.0, metal_radical_config.field_ambiguity_margin)
+    if field_score >= metal_radical_config.strong_field_threshold + ambiguity_margin:
         return "strong"
-    if field_score <= metal_radical_config.weak_field_threshold:
+    if field_score <= metal_radical_config.weak_field_threshold - ambiguity_margin:
         return "weak"
-    return "intermediate"
+    return "ambiguous"
 
 
 def _shell_occupation_after_oxidation(metal: str, valence: int) -> _ShellOccupation | None:
@@ -327,6 +338,7 @@ def _candidate_d_unpaired_counts(
     *,
     geometry: str,
     field_strength: str,
+    prefer_low_spin: bool,
 ) -> Tuple[int, ...]:
     if effective_d < 0 or effective_d >= len(consts.D_ELECTRONS_SPIN):
         return (0,)
@@ -340,11 +352,27 @@ def _candidate_d_unpaired_counts(
         return (free_ion_candidates[0], free_ion_candidates[-1])
 
     if geometry == "tetrahedral":
+        if field_strength == "strong":
+            return (free_ion_candidates[0],)
+        if field_strength == "ambiguous":
+            return (
+                (free_ion_candidates[0], free_ion_candidates[-1])
+                if prefer_low_spin
+                else (free_ion_candidates[-1], free_ion_candidates[0])
+            )
         return (free_ion_candidates[-1],)
 
     if len(free_ion_candidates) == 1:
         return (free_ion_candidates[0],)
-    return (free_ion_candidates[0], free_ion_candidates[-1])
+    if field_strength == "strong":
+        return (free_ion_candidates[0],)
+    if field_strength == "weak":
+        return (free_ion_candidates[-1],)
+    return (
+        (free_ion_candidates[0], free_ion_candidates[-1])
+        if prefer_low_spin
+        else (free_ion_candidates[-1], free_ion_candidates[0])
+    )
 
 
 def infer_metal_radical_state(
@@ -385,8 +413,16 @@ def infer_metal_radical_state(
         occupation.effective_d,
         geometry=geometry,
         field_strength=field_strength,
+        prefer_low_spin=(
+            field_score
+            >= (
+                metal_radical_config.weak_field_threshold
+                + metal_radical_config.strong_field_threshold
+            )
+            / 2.0
+        ),
     )
-    radical_counts = tuple(sorted({base_unpaired + candidate for candidate in d_candidates}))
+    radical_counts = tuple(dict.fromkeys(base_unpaired + candidate for candidate in d_candidates))
     return MetalRadicalInferenceResult(
         radical_counts=radical_counts,
         effective_d_electrons=occupation.effective_d,

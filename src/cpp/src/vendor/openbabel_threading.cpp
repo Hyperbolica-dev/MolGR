@@ -1899,6 +1899,19 @@ namespace molgr
                 }
             }
 
+            void EnsureHybridizationPerceived(OpenBabel::OBMol &mol)
+            {
+                if (mol.HasHybridizationPerceived())
+                {
+                    return;
+                }
+
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    static_cast<void>(atom_iter->GetHyb());
+                }
+            }
+
             void SetAromaticPerceived(OpenBabel::OBMol &mol, bool perceived)
             {
                 mol.SetAromaticPerceived(perceived);

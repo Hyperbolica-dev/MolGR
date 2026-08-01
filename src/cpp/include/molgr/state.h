@@ -85,6 +85,8 @@ namespace molgr
         public:
             std::shared_ptr<OpenBabel::OBMol> omol;
             int given_charge = 0;
+            int total_charge = 0;
+            int total_radical_electrons = 0;
             std::vector<std::string> phase_history;
             mutable MetadataMap metadata;
             int omol_revision = 0;
@@ -104,7 +106,9 @@ namespace molgr
                 int given_charge_ = 0,
                 std::vector<std::string> phase_history_ = {},
                 MetadataMap metadata_ = {},
-                int omol_revision_ = 0);
+                int omol_revision_ = 0,
+                int total_charge_ = 0,
+                int total_radical_electrons_ = 0);
 
             static OmolStateMachine FromReconstructionState(const ReconstructionState &state);
 

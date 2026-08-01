@@ -63,6 +63,7 @@ namespace molgr
                     current_key,
                     depth,
                     0,
+                    current,
                 });
                 if (depth >= max_depth || !should_expand)
                 {
@@ -131,6 +132,7 @@ namespace molgr
                         current_entry.state_key,
                         current_entry.depth,
                         current_entry.discrepancy,
+                        current_entry.omol,
                     });
                 }
 

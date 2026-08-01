@@ -26,6 +26,8 @@ namespace molgr
             int atomic_num;
             int formal_charge;
             int radical_num;
+            int lone_pair_count = 0;
+            bool unresolved_two_electron_center = false;
             int hybridization = 0;
             double x, y, z;
         };

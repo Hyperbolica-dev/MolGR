@@ -9,6 +9,8 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,17 +21,20 @@ from typing import Any, Iterable, Sequence
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parents[2]
 STATE_DIR = ROOT_DIR / ".local" / "molgr_review" / "tmqmg"
+DEFAULT_CASES_CSV = STATE_DIR / "tmqmg_cases.csv"
+DEFAULT_REVIEW_DB = ROOT_DIR / ".local" / "molgr_review" / "review.sqlite"
 TMQMG_REVISION = "e1dc9887b8f20a217a1db6ca972d726bcbaab45b"
 DEFAULT_DATA_DIR = ROOT_DIR / ".local" / "datasets" / "tmqmg" / TMQMG_REVISION
 DEFAULT_CSV = Path(
     os.environ.get("TMQMG_CSV", DEFAULT_DATA_DIR / "tmQMg_properties_and_targets.csv")
 )
-DEFAULT_XYZ_DIR = Path(
-    os.environ.get("TMQMG_XYZ_DIR", DEFAULT_DATA_DIR / "tmQMg_xyz" / "xyz")
-)
+DEFAULT_XYZ_DIR = Path(os.environ.get("TMQMG_XYZ_DIR", DEFAULT_DATA_DIR / "tmQMg_xyz" / "xyz"))
 KNOWN_METHOD_IDS = ("molgr_fallback", "molgr_cpp")
 DEFAULT_METHOD_IDS = ("molgr_cpp",)
 DEFAULT_PROCESS_WORKERS = 12
+BENCHMARK_RDKIT_REQUIREMENT = "rdkit==2024.3.5"
+BENCHMARK_RDKIT_RUNTIME_VERSION = "2024.03.5"
+REFERENCE_FORMULA_MISMATCH_PREFIX = "ValueError: Reference SMILES element counts differ from XYZ:"
 
 REVIEW_COLUMNS = (
     "case_id",
@@ -215,8 +220,19 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cases-csv",
         type=Path,
-        default=STATE_DIR / "tmqmg_cases.csv",
+        default=DEFAULT_CASES_CSV,
         help="Review-compatible CSV to update.",
+    )
+    parser.add_argument(
+        "--review-db",
+        type=Path,
+        default=DEFAULT_REVIEW_DB,
+        help="Review SQLite database synchronized after the queue CSV is updated.",
+    )
+    parser.add_argument(
+        "--no-sync-review-db",
+        action="store_true",
+        help="Update queue artifacts without synchronizing the review SQLite database.",
     )
     parser.add_argument(
         "--summary-json",
@@ -276,6 +292,62 @@ def _venv_python(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def _benchmark_build_dependencies() -> list[str]:
+    """Keep RDKit fixed while intentionally exercising both Open Babel releases."""
+
+    return [
+        "scikit-build-core>=0.11.6",
+        "setuptools-scm>=9.2.2",
+        "pybind11>=3.0.1",
+        BENCHMARK_RDKIT_REQUIREMENT,
+        "openbabel-wheel; python_version < '3.10'",
+        "openbabel>=3.2.0; python_version >= '3.10'",
+        "numpy<2",
+        "pandas>=2.0.3",
+        "tqdm",
+    ]
+
+
+def _benchmark_environment_versions(python_exe: Path) -> dict[str, str]:
+    probe = (
+        "import json, platform; "
+        "from openbabel import openbabel as ob; "
+        "from rdkit import rdBase; "
+        "print(json.dumps({"
+        "'python': platform.python_version(), "
+        "'openbabel': ob.OBReleaseVersion(), "
+        "'rdkit': rdBase.rdkitVersion"
+        "}, sort_keys=True))"
+    )
+    completed = subprocess.run(
+        [str(python_exe), "-c", probe],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        payload = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Could not read benchmark dependency versions from {python_exe}: {completed.stdout!r}"
+        ) from exc
+    return {str(key): str(value) for key, value in payload.items()}
+
+
+def _validate_benchmark_environment_versions(
+    run: PythonRun,
+    versions: dict[str, str],
+) -> None:
+    rdkit_version = versions.get("rdkit", "")
+    if rdkit_version != BENCHMARK_RDKIT_RUNTIME_VERSION:
+        raise SystemExit(
+            f"{run.label} benchmark environment uses RDKit {rdkit_version or 'unknown'}; "
+            f"expected {BENCHMARK_RDKIT_RUNTIME_VERSION}. Cross-Open-Babel comparison requires "
+            "the same RDKit sanitizer, SMILES writer, and equivalence implementation."
+        )
+
+
 def _ensure_benchmark_env(run: PythonRun, *, skip_env_create: bool) -> Path:
     venv_python = _venv_python(run.venv)
     if skip_env_create:
@@ -288,16 +360,7 @@ def _ensure_benchmark_env(run: PythonRun, *, skip_env_create: bool) -> Path:
 
     run.venv.parent.mkdir(parents=True, exist_ok=True)
     _run(["uv", "venv", "--allow-existing", "--python", run.requested_python, str(run.venv)])
-    build_deps = [
-        "scikit-build-core>=0.11.6",
-        "setuptools-scm>=9.2.2",
-        "pybind11>=3.0.1",
-        "openbabel-wheel; python_version < '3.10'",
-        "openbabel>=3.2.0; python_version >= '3.10'",
-        "numpy<2",
-        "pandas>=2.0.3",
-        "tqdm",
-    ]
+    build_deps = _benchmark_build_dependencies()
     _run(["uv", "pip", "install", "--python", str(venv_python), *build_deps])
     env = os.environ.copy()
     env["SETUPTOOLS_USE_DISTUTILS"] = "stdlib"
@@ -470,6 +533,64 @@ def _is_reference_missing(rows: Iterable[BenchmarkRow]) -> bool:
     return all(not row.ground_truth_smiles.strip() for row in rows)
 
 
+def _is_reference_formula_mismatch(row: BenchmarkRow) -> bool:
+    return _truthy(row.comparison_skipped) and row.comparison_skip_reason.startswith(
+        REFERENCE_FORMULA_MISMATCH_PREFIX
+    )
+
+
+def _formula_string(counts: Counter[str]) -> str:
+    return ",".join(f"{symbol}:{counts[symbol]}" for symbol in sorted(counts))
+
+
+def _formula_mismatch_detail(
+    xyz_counts: Counter[str],
+    reference_counts: Counter[str],
+) -> str:
+    return "; ".join(
+        f"{symbol}:xyz={xyz_counts.get(symbol, 0)},ref={reference_counts.get(symbol, 0)}"
+        for symbol in sorted(set(xyz_counts) | set(reference_counts))
+        if xyz_counts.get(symbol, 0) != reference_counts.get(symbol, 0)
+    )
+
+
+def _reference_formula_mismatch_fields(
+    reference_smiles: str,
+    xyz_path: Path,
+) -> dict[str, str]:
+    from rdkit import Chem
+
+    lines = xyz_path.read_text(encoding="utf-8").splitlines()
+    atom_count = int(lines[0].strip())
+    atom_lines = lines[2 : 2 + atom_count]
+    if len(atom_lines) != atom_count:
+        raise ValueError(f"XYZ atom count does not match coordinate lines: {xyz_path}")
+    xyz_counts: Counter[str] = Counter(line.split()[0] for line in atom_lines)
+
+    reference_mol = Chem.MolFromSmiles(reference_smiles)
+    if reference_mol is None:
+        raise ValueError("reference SMILES could not be parsed")
+    reference_with_h = Chem.AddHs(reference_mol)
+    reference_counts: Counter[str] = Counter(
+        atom.GetSymbol() for atom in reference_with_h.GetAtoms()
+    )
+    mismatch_detail = _formula_mismatch_detail(xyz_counts, reference_counts)
+    return {
+        "reference_formula_check_status": "formula_mismatch",
+        "reference_formula_match": "False",
+        "xyz_atom_count": str(sum(xyz_counts.values())),
+        "reference_atom_count_with_h": str(sum(reference_counts.values())),
+        "xyz_formula": _formula_string(xyz_counts),
+        "reference_formula_with_h": _formula_string(reference_counts),
+        "reference_formula_mismatch_detail": mismatch_detail,
+        "reference_answer_wrong": "True",
+        "reference_answer_status": "formula_mismatch",
+        "reference_answer_reason": (
+            "Reference formula does not conserve XYZ atom counts: " + mismatch_detail
+        ),
+    }
+
+
 def _select_display_row(rows_by_key: dict[tuple[str, str], BenchmarkRow]) -> BenchmarkRow | None:
     for key in (
         ("py310", "molgr_cpp"),
@@ -515,6 +636,11 @@ def _case_issue(
         f"{row.label}/{row.method_id}:{row.comparison_skip_reason}"
         for row in rows
         if _truthy(row.comparison_skipped)
+    ]
+    reference_formula_mismatches = [
+        f"{row.label}/{row.method_id}:{row.comparison_skip_reason}"
+        for row in rows
+        if _is_reference_formula_mismatch(row)
     ]
     reference_failures = [
         f"{row.label}/{row.method_id}:equivalent={row.equivalent}"
@@ -563,7 +689,9 @@ def _case_issue(
     ):
         return None, {}
 
-    if missing_keys or status_failures:
+    if reference_formula_mismatches:
+        category = "reference_formula_mismatch"
+    elif missing_keys or status_failures:
         category = "molgr_failed"
     elif backend_mismatches:
         category = "backend_mismatch"
@@ -584,6 +712,7 @@ def _case_issue(
         "python_mismatches": python_mismatches,
         "python_mismatch_reasons": python_mismatch_reasons,
         "reference_not_comparable": reference_not_comparable,
+        "reference_formula_mismatches": reference_formula_mismatches,
         "reference_failures": reference_failures,
         "rows": {
             f"{row.label}/{row.method_id}": {
@@ -611,6 +740,7 @@ def _compact_reason(details: dict[str, Any]) -> str:
         "python_mismatches",
         "python_mismatch_reasons",
         "reference_not_comparable",
+        "reference_formula_mismatches",
         "reference_failures",
     ):
         values = details.get(key) or []
@@ -701,6 +831,25 @@ def _build_review_rows(
             "",
         )
         any_ok = any(row.status == "ok" for row in rows_by_key.values())
+        formula_fields = {
+            "reference_formula_check_status": (
+                "comparison_skipped" if any_comparison_skip else "ok"
+            ),
+            "reference_formula_match": "False" if any_comparison_skip else "True",
+            "xyz_atom_count": meta.get("n_atoms", ""),
+            "reference_atom_count_with_h": meta.get("n_atoms", ""),
+            "xyz_formula": "",
+            "reference_formula_with_h": "",
+            "reference_formula_mismatch_detail": first_skip_reason,
+            "reference_answer_wrong": "False",
+            "reference_answer_status": "not_flagged",
+            "reference_answer_reason": "",
+        }
+        if category == "reference_formula_mismatch":
+            formula_fields = _reference_formula_mismatch_fields(
+                reference_smiles,
+                xyz_dir / f"{case_id}.xyz",
+            )
         row = {
             "case_id": case_id,
             "source": "tmqmg",
@@ -729,17 +878,19 @@ def _build_review_rows(
             "total_radical_electrons_used": "",
             "spin_multiplicity_used": "",
             "reference_parse_status": "missing_reference_smiles" if not reference_smiles else "ok",
-            "reference_formula_check_status": "comparison_skipped" if any_comparison_skip else "ok",
-            "reference_formula_match": "False" if any_comparison_skip else "True",
-            "xyz_atom_count": meta.get("n_atoms", ""),
-            "reference_atom_count_with_h": meta.get("n_atoms", ""),
-            "xyz_formula": "",
-            "reference_formula_with_h": "",
-            "reference_formula_mismatch_detail": first_skip_reason,
+            "reference_formula_check_status": formula_fields["reference_formula_check_status"],
+            "reference_formula_match": formula_fields["reference_formula_match"],
+            "xyz_atom_count": formula_fields["xyz_atom_count"],
+            "reference_atom_count_with_h": formula_fields["reference_atom_count_with_h"],
+            "xyz_formula": formula_fields["xyz_formula"],
+            "reference_formula_with_h": formula_fields["reference_formula_with_h"],
+            "reference_formula_mismatch_detail": formula_fields[
+                "reference_formula_mismatch_detail"
+            ],
             "molgr_status": "ok" if any_ok else "error",
-            "reference_answer_wrong": "False",
-            "reference_answer_status": "not_flagged",
-            "reference_answer_reason": "",
+            "reference_answer_wrong": formula_fields["reference_answer_wrong"],
+            "reference_answer_status": formula_fields["reference_answer_status"],
+            "reference_answer_reason": formula_fields["reference_answer_reason"],
             "manual_whitelist_status": "",
             "manual_whitelist_reason": "",
             "effective_equivalent": "False",
@@ -788,10 +939,84 @@ def _build_review_rows(
 
 def _write_review_csv(path: Path, rows: list[dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)  # pyright: ignore[reportArgumentType]
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            newline="",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as fh:
+            temp_path = Path(fh.name)
+            writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)  # pyright: ignore[reportArgumentType]
+        temp_path.replace(path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _load_review_csv(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    with path.open(newline="", encoding="utf-8") as fh:
+        return [dict(row) for row in csv.DictReader(fh)]
+
+
+def _review_row_sort_key(row: dict[str, str]) -> tuple[int, str]:
+    try:
+        row_index = int(row.get("row_index", ""))
+    except ValueError:
+        row_index = sys.maxsize
+    return row_index, row.get("case_id", "")
+
+
+def _merge_partial_review_rows(
+    existing_rows: Sequence[dict[str, str]],
+    refreshed_rows: Sequence[dict[str, str]],
+    *,
+    refreshed_case_ids: set[str],
+) -> list[dict[str, str]]:
+    merged = {
+        row.get("case_id", ""): dict(row)
+        for row in existing_rows
+        if row.get("case_id", "") and row.get("case_id", "") not in refreshed_case_ids
+    }
+    for row in refreshed_rows:
+        case_id = row.get("case_id", "")
+        if case_id:
+            merged[case_id] = dict(row)
+    return sorted(merged.values(), key=_review_row_sort_key)
+
+
+def _result_case_ids(result_paths: dict[str, Path]) -> set[str]:
+    return {
+        row.case_id
+        for path in result_paths.values()
+        for row in _load_results("refresh", path)
+        if row.case_id
+    }
+
+
+def _is_partial_refresh(args: argparse.Namespace, ids: Sequence[str]) -> bool:
+    return bool(ids or args.limit is not None or args.start_row != 1 or args.end_row is not None)
+
+
+def _sync_review_db(*, cases_csv: Path, review_db: Path) -> None:
+    _run(
+        [
+            sys.executable,
+            str(ROOT_DIR / "tools" / "molgr_review" / "import_cases.py"),
+            "--input",
+            str(cases_csv),
+            "--db",
+            str(review_db),
+        ]
+    )
 
 
 def _write_summary(path: Path, payload: dict[str, Any]) -> None:
@@ -815,6 +1040,7 @@ def main() -> int:
     )
     provided_results = {"py38": args.py38_results, "py310": args.py310_results}
     result_paths: dict[str, Path] = {}
+    environment_versions: dict[str, dict[str, str]] = {}
     for python_run in python_runs:
         provided_result = provided_results[python_run.label]
         if provided_result is not None:
@@ -825,6 +1051,9 @@ def main() -> int:
             result_paths[python_run.label] = provided_result
         else:
             python_exe = _ensure_benchmark_env(python_run, skip_env_create=args.skip_env_create)
+            versions = _benchmark_environment_versions(python_exe)
+            _validate_benchmark_environment_versions(python_run, versions)
+            environment_versions[python_run.label] = versions
             result_paths[python_run.label] = _run_benchmark(
                 python_run,
                 python_exe=python_exe,
@@ -842,9 +1071,30 @@ def main() -> int:
         method_ids=method_ids,
         python_version_comparison=args.python_version_comparison,
     )
+    refreshed_case_ids = _result_case_ids(result_paths)
+    partial_refresh = _is_partial_refresh(args, ids)
+    existing_review_rows = _load_review_csv(args.cases_csv)
+    if (
+        partial_refresh
+        and not existing_review_rows
+        and not args.no_sync_review_db
+        and args.review_db.exists()
+    ):
+        raise SystemExit(
+            "Partial refresh cannot synchronize an existing review database without the "
+            f"current queue CSV: {args.cases_csv}"
+        )
+    if partial_refresh and existing_review_rows:
+        queue_rows = _merge_partial_review_rows(
+            existing_review_rows,
+            review_rows,
+            refreshed_case_ids=refreshed_case_ids,
+        )
+    else:
+        queue_rows = review_rows
     run_cases_csv = run_dir / "review_cases.csv"
     _write_review_csv(run_cases_csv, review_rows)
-    _write_review_csv(args.cases_csv, review_rows)
+    _write_review_csv(args.cases_csv, queue_rows)
 
     summary_payload = {
         **summary,
@@ -854,6 +1104,12 @@ def main() -> int:
         "run_dir": str(run_dir),
         "run_cases_csv": str(run_cases_csv),
         "default_cases_csv": str(args.cases_csv),
+        "review_db": str(args.review_db),
+        "review_db_synchronized": not args.no_sync_review_db,
+        "partial_refresh": partial_refresh,
+        "refreshed_case_count": len(refreshed_case_ids),
+        "run_review_case_count": len(review_rows),
+        "queue_record_count": len(queue_rows),
         "methods": list(method_ids),
         "process_workers": args.process_workers,
         "python_version_comparison": args.python_version_comparison,
@@ -864,6 +1120,7 @@ def main() -> int:
             python_run.label: {
                 "requested_python": python_run.requested_python,
                 "venv": str(python_run.venv),
+                "environment_versions": environment_versions.get(python_run.label),
             }
             for python_run in python_runs
         },
@@ -874,11 +1131,17 @@ def main() -> int:
     _write_summary(run_dir / "review_cases.summary.json", summary_payload)
     _write_summary(summary_path, summary_payload)
 
-    print(f"Prepared {len(review_rows)} review cases at {args.cases_csv}")
+    if not args.no_sync_review_db:
+        _sync_review_db(cases_csv=args.cases_csv, review_db=args.review_db)
+
     print(
-        "Import the queue into the review server with: "
-        f"uv run python tools/molgr_review/import_cases.py --input {args.cases_csv}"
+        f"Prepared {len(review_rows)} refreshed review cases; "
+        f"queue now has {len(queue_rows)} cases at {args.cases_csv}"
     )
+    if args.no_sync_review_db:
+        print(f"Review database synchronization disabled: {args.review_db}")
+    else:
+        print(f"Synchronized review database: {args.review_db}")
     print(f"Run artifacts: {run_dir}")
     return 0
 

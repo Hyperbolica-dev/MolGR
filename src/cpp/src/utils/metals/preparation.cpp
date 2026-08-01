@@ -1,6 +1,7 @@
 #include "molgr/utils/metals/preparation.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/logger.h"
 #include "molgr/utils/metal_radical_inference.h"
 #include "molgr/utils/xyz.h"
@@ -118,6 +119,9 @@ namespace molgr
                 return states;
             }
 
+            // Electron bookkeeping: copy the chosen metal radical_num only into
+            // the real unpaired-electron field. Metals receive no active lone-pair
+            // or unresolved-center classification; organic fields survive cloning.
             void ReinsertMetalStates(
                 OpenBabel::OBMol &mol,
                 const std::vector<molgr::metal::MetalAtomPosition> &metals)
@@ -133,7 +137,7 @@ namespace molgr
                     OpenBabel::OBAtom *atom = mol.NewAtom();
                     atom->SetAtomicNum(m.element_idx);
                     atom->SetFormalCharge(m.valence);
-                    atom->SetSpinMultiplicity(m.radical_num);
+                    molgr::utils::SetUnpairedElectronCount(*atom, m.radical_num);
                     atom->SetVector(m.position_x, m.position_y, m.position_z);
                 }
 

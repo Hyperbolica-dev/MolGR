@@ -1,6 +1,7 @@
 #include "molgr/utils/scoring.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
@@ -207,10 +208,10 @@ namespace molgr
                     atom.GetAtomicNum(),
                     atom.GetFormalCharge(),
                     atom.GetTotalValence(),
-                    atom.GetSpinMultiplicity());
+                    molgr::utils::GetUnpairedElectronCount(atom));
                 total_penalty += CalculateRadicalPenaltyFromData(
                     atom.GetAtomicNum(),
-                    atom.GetSpinMultiplicity(),
+                    molgr::utils::GetUnpairedElectronCount(atom),
                     atom.GetHvyDegree());
             }
 
@@ -409,11 +410,11 @@ namespace molgr
                     score -= 5.0 - std::abs(atom.GetFormalCharge()) * 3.0;
                 }
 
-                const bool needs_deviation = atom.GetSpinMultiplicity() > 0 || atom.GetFormalCharge() != 0;
+                const bool needs_deviation = molgr::utils::GetUnpairedElectronCount(atom) > 0 || atom.GetFormalCharge() != 0;
                 if (needs_deviation)
                 {
                     const double deviation = GetDeviationScore(mol, &atom);
-                    if (atom.GetSpinMultiplicity() > 0)
+                    if (molgr::utils::GetUnpairedElectronCount(atom) > 0)
                     {
                         score += deviation * 10.0;
                     }

@@ -20,6 +20,8 @@ namespace molgr
             int conjugated_bond_count = 0;
             int max_conjugated_component_size = 0;
             std::vector<int> conjugated_atom_indices;
+            int hyperconjugative_donor_count = 0;
+            int hyperconjugation_score = 0;
         };
 
         bool IsConjugatedBond(const OpenBabel::OBBond &bond);

@@ -46,6 +46,7 @@ class OrganicTopologyConfig:
     aromatic_stability_min_charge_factor: float = 0.50
     aromatic_stability_radical_penalty: float = 0.20
     aromatic_stability_min_radical_factor: float = 0.50
+    conjugation_normalized_tetrahedron_volume_tolerance: float = 0.075
 
 
 @dataclass
@@ -59,17 +60,20 @@ class MetalScoringConfig:
     pi_dative_distance_difference_tolerance_angstrom: float = 0.10
     metal_access_radius_scale: float = 1.0
     metal_access_clearance_angstrom: float = 0.0
+    charge_localization_selection_margin: float = 0.3
 
 
 @dataclass
 class MetalRadicalInferenceConfig:
     coordination_cutoff_angstrom: float = 3.2
+    coordination_covalent_tolerance_angstrom: float = 0.75
     max_considered_donors: int = 6
     square_planar_planarity_tolerance_angstrom: float = 0.45
     trigonal_planar_planarity_tolerance_angstrom: float = 0.35
     linear_angle_min_degrees: float = 150.0
     strong_field_threshold: float = 1.10
     weak_field_threshold: float = 0.75
+    field_ambiguity_margin: float = 0.10
 
 
 @dataclass

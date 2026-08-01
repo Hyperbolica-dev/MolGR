@@ -7,9 +7,10 @@ regression fixtures.
 
 The tmQMg workflow has four explicit stages:
 
-1. `prepare_tmqmg_queue.py` runs the dataset benchmark and selects cases that
-   require review.
-2. `import_cases.py` imports the generated CSV into the local review database.
+1. `prepare_tmqmg_queue.py` runs the dataset benchmark, updates the review CSV,
+   and synchronizes the local review database by default. Partial runs merge
+   only their selected scope into the existing queue.
+2. `import_cases.py` imports an external or manually generated complete CSV.
 3. `server.py` serves the review interface using the current MolGR runtime.
 4. Confirmed answers are written to `tests/data/reviewed/tmqmg/`.
 

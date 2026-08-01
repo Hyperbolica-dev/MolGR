@@ -2,6 +2,7 @@
 
 #include "molgr/stages/fresh.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/resonance.h"
 
 #include "molgr/compat/openbabel_iter.h"
@@ -44,6 +45,10 @@ namespace
         return 0;
     }
 
+    // Electron bookkeeping: consume the same number of real unpaired electrons
+    // at both endpoints. Bond mode converts each pair to one bond-order increment
+    // and refreshes endpoints; charge mode converts them to +n/-n. The n>1 charge
+    // branch is a documented high-spin heuristic. Validate before mutation.
     bool ResolveNeighborRadicalPair(
         OpenBabel::OBMol &mol,
         int begin_idx,
@@ -58,22 +63,32 @@ namespace
             return false;
         }
         const int spin_to_consume = std::min(
-            begin_atom->GetSpinMultiplicity(),
-            end_atom->GetSpinMultiplicity());
+            molgr::utils::GetUnpairedElectronCount(*begin_atom),
+            molgr::utils::GetUnpairedElectronCount(*end_atom));
         if (spin_to_consume <= 0)
         {
             return false;
         }
 
-        begin_atom->SetSpinMultiplicity(begin_atom->GetSpinMultiplicity() - spin_to_consume);
-        end_atom->SetSpinMultiplicity(end_atom->GetSpinMultiplicity() - spin_to_consume);
+        OpenBabel::OBBond *bond = nullptr;
         if (mode == "bond_order")
         {
-            auto *bond = mol.GetBond(begin_idx, end_idx);
+            bond = mol.GetBond(begin_idx, end_idx);
             if (bond == nullptr)
             {
                 return false;
             }
+        }
+        else if (mode != "charge_separation" ||
+                 (positive_atom_idx != begin_idx && positive_atom_idx != end_idx))
+        {
+            return false;
+        }
+
+        molgr::utils::SetUnpairedElectronCount(*begin_atom, molgr::utils::GetUnpairedElectronCount(*begin_atom) - spin_to_consume);
+        molgr::utils::SetUnpairedElectronCount(*end_atom, molgr::utils::GetUnpairedElectronCount(*end_atom) - spin_to_consume);
+        if (mode == "bond_order")
+        {
             bond->SetBondOrder(bond->GetBondOrder() + spin_to_consume);
             molgr::reconstruct::AssignChargeRadicalForAtom(*begin_atom);
             molgr::reconstruct::AssignChargeRadicalForAtom(*end_atom);
@@ -162,8 +177,8 @@ namespace molgr
                     auto *begin_atom = bond_iter->GetBeginAtom();
                     auto *end_atom = bond_iter->GetEndAtom();
                     if (begin_atom != nullptr && end_atom != nullptr &&
-                        begin_atom->GetSpinMultiplicity() > 0 &&
-                        end_atom->GetSpinMultiplicity() > 0)
+                        molgr::utils::GetUnpairedElectronCount(*begin_atom) > 0 &&
+                        molgr::utils::GetUnpairedElectronCount(*end_atom) > 0)
                     {
                         unique.emplace(
                             std::min(begin_atom->GetIdx(), end_atom->GetIdx()),

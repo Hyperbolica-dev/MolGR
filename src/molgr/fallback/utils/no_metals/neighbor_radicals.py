@@ -10,6 +10,10 @@ from openbabel import pybel
 from molgr.fallback.stages.fresh import assign_charge_radical_for_atom
 from molgr.fallback.state import OmolStateMachine, ReconstructionState
 from molgr.fallback.utils import resonance as resonance_utils
+from molgr.fallback.utils.electrons import (
+    get_unpaired_electron_count,
+    set_unpaired_electron_count,
+)
 
 
 NeighborRadicalMode = Literal["bond_order", "charge_separation"]
@@ -28,7 +32,10 @@ def neighbor_radical_bond_pairs(omol: pybel.Molecule) -> list[tuple[int, int]]:
     for bond in ob.OBMolBondIter(cast(ob.OBMol, omol.OBMol)):
         begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
         end_atom = cast(ob.OBAtom, bond.GetEndAtom())
-        if begin_atom.GetSpinMultiplicity() <= 0 or end_atom.GetSpinMultiplicity() <= 0:
+        if (
+            get_unpaired_electron_count(begin_atom) <= 0
+            or get_unpaired_electron_count(end_atom) <= 0
+        ):
             continue
         pairs.append(tuple(sorted((begin_atom.GetIdx(), end_atom.GetIdx()))))
     return sorted(set(pairs))
@@ -41,6 +48,16 @@ def _resolve_neighbor_radical_pair(
     mode: NeighborRadicalMode,
     positive_atom_idx: int | None,
 ) -> tuple[pybel.Molecule, bool]:
+    """Resolve adjacent real radicals by bonding or formal charge separation.
+
+    Both modes consume ``min(unpaired_left, unpaired_right)`` real unpaired
+    electrons from each endpoint. ``bond_order`` converts each pair into one bond
+    increment and rebuilds endpoint labels. ``charge_separation`` converts the
+    same count into ``+n/-n`` formal charges without using lone pairs or unresolved
+    centers. The ``n > 1`` charge branch is a documented high-spin heuristic.
+    Preconditions are validated before any electron field is changed.
+    """
+
     obmol = cast(ob.OBMol, omol.OBMol)
     begin_atom = cast(ob.OBAtom, obmol.GetAtom(begin_idx))
     end_atom = cast(ob.OBAtom, obmol.GetAtom(end_idx))
@@ -48,25 +65,31 @@ def _resolve_neighbor_radical_pair(
         return omol, False
 
     spin_to_consume = min(
-        begin_atom.GetSpinMultiplicity(),
-        end_atom.GetSpinMultiplicity(),
+        get_unpaired_electron_count(begin_atom),
+        get_unpaired_electron_count(end_atom),
     )
     if spin_to_consume <= 0:
         return omol, False
 
-    begin_atom.SetSpinMultiplicity(begin_atom.GetSpinMultiplicity() - spin_to_consume)
-    end_atom.SetSpinMultiplicity(end_atom.GetSpinMultiplicity() - spin_to_consume)
+    bond = None
     if mode == "bond_order":
         bond = cast(ob.OBBond, obmol.GetBond(begin_idx, end_idx))
         if bond is None:
             return omol, False
+    elif positive_atom_idx not in (begin_idx, end_idx):
+        raise ValueError("positive_atom_idx must identify one endpoint of the radical bond")
+
+    set_unpaired_electron_count(
+        begin_atom, get_unpaired_electron_count(begin_atom) - spin_to_consume
+    )
+    set_unpaired_electron_count(end_atom, get_unpaired_electron_count(end_atom) - spin_to_consume)
+    if mode == "bond_order":
+        assert bond is not None
         bond.SetBondOrder(bond.GetBondOrder() + spin_to_consume)
         assign_charge_radical_for_atom(begin_atom)
         assign_charge_radical_for_atom(end_atom)
         return omol, True
 
-    if positive_atom_idx not in (begin_idx, end_idx):
-        raise ValueError("positive_atom_idx must identify one endpoint of the radical bond")
     negative_atom = end_atom if positive_atom_idx == begin_idx else begin_atom
     positive_atom = begin_atom if positive_atom_idx == begin_idx else end_atom
     positive_atom.SetFormalCharge(positive_atom.GetFormalCharge() + spin_to_consume)

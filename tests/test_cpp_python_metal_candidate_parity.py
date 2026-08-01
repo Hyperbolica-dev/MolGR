@@ -17,6 +17,11 @@ from openbabel import openbabel as ob
 from molgr import _core
 from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_with_metals
+from molgr.fallback.utils.electrons import (
+    get_lone_pair_count,
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+)
 from molgr.fallback.utils.force_field import organic_force_field_evaluation
 from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import neighbor_radicals as no_metal_neighbor_radicals
@@ -27,11 +32,15 @@ from molgr.fallback.utils.organic_topology import compute_organic_topology_metri
 from molgr.interface import xyz_to_rdmol
 
 
-_TMQMG_CSV = Path("/mnt/e/download/tmQMg_properties_and_targets.csv")
-_TMQMG_XYZ_DIR = Path("/mnt/e/download/tmQMg_xyz/xyz")
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_TMQMG_DATA_DIR = (
+    _PROJECT_ROOT / ".local" / "datasets" / "tmqmg" / "e1dc9887b8f20a217a1db6ca972d726bcbaab45b"
+)
+_TMQMG_CSV = _TMQMG_DATA_DIR / "tmQMg_properties_and_targets.csv"
+_TMQMG_XYZ_DIR = _TMQMG_DATA_DIR / "tmQMg_xyz" / "xyz"
 
 
-pytestmark = pytest.mark.skipif(
+requires_local_tmqmg = pytest.mark.skipif(
     not _TMQMG_CSV.exists() or not _TMQMG_XYZ_DIR.exists(),
     reason="tmQMg local benchmark data is not available",
 )
@@ -180,12 +189,15 @@ def _cpp_no_metal_resonance_candidate_summaries(
         config=config,
     ):
         selection_key = (
-            -float(item["aromatic_stability_score"]),
+            int(item["formal_charge_absolute_sum"]),
             -int(item["aromatic_atom_count"]),
+            -int(item["aromatic_ring_count"]),
+            -float(item["aromatic_stability_score"]),
             -float(item["adjusted_max_conjugated_component_size"]),
             -float(item["adjusted_conjugated_atom_count"]),
             -float(item["adjusted_conjugated_bond_count"]),
             int(item["excess_radical_labels"]),
+            -int(item["hyperconjugation_score"]),
             float(item["score"]),
         )
         summaries.append(
@@ -347,14 +359,18 @@ def _cpp_metal_search_summary(raw: dict) -> dict[str, object]:
     }
 
 
-def _pybel_atom_signature(omol) -> tuple[tuple[int, int, int, int, int, int, int, bool], ...]:
+def _pybel_atom_signature(
+    omol,
+) -> tuple[tuple[int, int, int, int, bool, int, int, int, int, bool], ...]:
     atom_signature = []
     for atom in ob.OBMolAtomIter(omol.OBMol):
         atom_signature.append(
             (
                 int(atom.GetAtomicNum()),
                 int(atom.GetFormalCharge()),
-                int(atom.GetSpinMultiplicity()),
+                int(get_unpaired_electron_count(atom)),
+                int(get_lone_pair_count(atom)),
+                has_unresolved_two_electron_center(atom),
                 int(atom.GetHyb()),
                 round(float(atom.GetX()) * 1_000_000),
                 round(float(atom.GetY()) * 1_000_000),
@@ -394,6 +410,8 @@ def _metrics_signature(metrics) -> dict[str, object]:
         "conjugated_bond_count": metrics.conjugated_bond_count,
         "max_conjugated_component_size": metrics.max_conjugated_component_size,
         "conjugated_atom_indices": tuple(metrics.conjugated_atom_indices),
+        "hyperconjugative_donor_count": metrics.hyperconjugative_donor_count,
+        "hyperconjugation_score": metrics.hyperconjugation_score,
     }
 
 
@@ -422,8 +440,14 @@ def _assert_cpp_python_topology_metrics_match(omol, *, config) -> None:
     [
         "c1ccccc1",
         "C=CC=C",
+        "C=C=C",
+        "S=C1C=CC=C2C1=C=CC=C2",
+        "C=C=CC(=O)OCC",
+        "C=[C-]/C=C(\\[O-])/OCC",
         "[c-]1[c-][c-][cH][cH][cH]1",
         "c1cc2ccccc2cc1",
+        "[Br-].Clc1c2ccc3ccc4[C-](Cl)[CH-]C=Nc4c3c2ncc1.[O+]#[C-].[O+]#[C-].[O+]#[C-]",
+        "[Br-].Clc1c2ccc3ccc4c(Cl)ccnc4c3c2ncc1.[O+]#[C-].[O+]#[C-].[O+]#[C-]",
         "[n-]1cccc1",
         "C/C(=C/C(=N/c1c(C)cccc1C)/C)/[N-]c1c(C)cccc1C.Cc1ccccc1",
     ],
@@ -437,6 +461,7 @@ def test_cpp_python_organic_topology_metrics_match_smiles(smiles: str) -> None:
     _assert_cpp_python_topology_metrics_match(omol, config=config)
 
 
+@requires_local_tmqmg
 def test_cpp_python_organic_topology_metrics_match_case_522_no_metal_candidate() -> None:
     row = _load_tmqmg_row(522)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -454,6 +479,7 @@ def test_cpp_python_organic_topology_metrics_match_case_522_no_metal_candidate()
     _assert_cpp_python_topology_metrics_match(py_candidates[0].no_metal_state.omol, config=config)
 
 
+@requires_local_tmqmg
 def test_cpp_python_organic_force_field_energy_matches_case_522_no_metal_candidates() -> None:
     row = _load_tmqmg_row(522)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -478,6 +504,7 @@ def test_cpp_python_organic_force_field_energy_matches_case_522_no_metal_candida
 
 
 @pytest.mark.parametrize("case_idx", [430, 431])
+@requires_local_tmqmg
 def test_cpp_python_scored_candidate_parity_for_dmso_state_regressions(case_idx: int) -> None:
     row = _load_tmqmg_row(case_idx)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -506,6 +533,183 @@ def test_cpp_python_scored_candidate_parity_for_dmso_state_regressions(case_idx:
         assert cpp_item["selected"] == (py_best is py_item)
 
 
+@requires_local_tmqmg
+def test_cpp_python_scored_candidate_parity_for_acifea_nitrate_exemption() -> None:
+    row = _load_tmqmg_row(232)
+    assert row["id"] == "ACIFEA"
+    xyz_block = _load_tmqmg_xyz(row["id"])
+    total_charge = int(row["charge"])
+    config = MolGRConfig()
+    cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
+        xyz_block,
+        total_charge,
+        0,
+        config=config,
+    )
+    py_layer_index, py_candidates, py_best = _python_scored_candidates(
+        xyz_block,
+        total_charge,
+        0,
+    )
+
+    assert cpp["layer_index"] == py_layer_index == 0
+    assert len(cpp["candidates"]) == len(py_candidates) == 3
+    for cpp_item, py_item in zip(cpp["candidates"], py_candidates):
+        assert cpp_item["metal_states"] == [
+            {
+                "idx": metal_state.idx,
+                "symbol": metal_state.symbol,
+                "valence": metal_state.valence,
+                "radical_num": metal_state.radical_num,
+            }
+            for metal_state in py_item.metal_states
+        ]
+        assert cpp_item["metal_discordance_structural_count"] == pytest.approx(
+            float(py_item.metadata.get("metal_discordance_structural_count", 0.0))
+        )
+        assert cpp_item["organic_charge_localization_penalty"] == pytest.approx(
+            float(py_item.metadata.get("organic_charge_localization_penalty", 0.0))
+        )
+        assert cpp_item["organic_charge_localization_component_cancellation"] == pytest.approx(
+            float(
+                py_item.metadata.get(
+                    "organic_charge_localization_component_cancellation",
+                    0.0,
+                )
+            )
+        )
+        assert cpp_item["organic_charge_localization_polarity_inversion_penalty"] == pytest.approx(
+            float(
+                py_item.metadata.get(
+                    "organic_charge_localization_polarity_inversion_penalty",
+                    0.0,
+                )
+            )
+        )
+        assert cpp_item["organic_charge_localization_reference_penalty"] == pytest.approx(
+            float(py_item.metadata.get("organic_charge_localization_reference_penalty", 0.0))
+        )
+        assert cpp_item["organic_charge_localization_selection_margin"] == pytest.approx(
+            float(py_item.metadata.get("organic_charge_localization_selection_margin", 0.0))
+        )
+        assert cpp_item["organic_charge_localization_margin_difference"] == pytest.approx(
+            float(py_item.metadata.get("organic_charge_localization_margin_difference", 0.0))
+        )
+        assert cpp_item["organic_charge_localization_margin_exceeded"] is bool(
+            py_item.metadata.get("organic_charge_localization_margin_exceeded", False)
+        )
+        assert cpp_item["organic_charge_localization_reference_metal_valence_max_delta"] == int(
+            py_item.metadata.get(
+                "organic_charge_localization_reference_metal_valence_max_delta",
+                0,
+            )
+        )
+        assert cpp_item["organic_charge_localization_metal_valence_jump_exceeded"] is bool(
+            py_item.metadata.get(
+                "organic_charge_localization_metal_valence_jump_exceeded",
+                False,
+            )
+        )
+        assert cpp_item["selection_key"] == py_item.metadata.get("selection_key")
+        assert cpp_item["selected"] == (py_best is py_item)
+
+    zinc_ii = next(item for item in cpp["candidates"] if item["metal_states"][0]["valence"] == 2)
+    assert zinc_ii["metal_discordance_structural_count"] == pytest.approx(0.0)
+    assert zinc_ii["passes_metal_discordance_filter"] is True
+    assert zinc_ii["selected"] is True
+
+
+@requires_local_tmqmg
+def test_cpp_python_arojew_titanium_two_counts_visible_same_sign_nitrogen() -> None:
+    xyz_block = _load_tmqmg_xyz("AROJEW")
+    config = MolGRConfig()
+    cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
+        xyz_block,
+        0,
+        0,
+        config=config,
+    )
+    _, py_candidates, _ = _python_scored_candidates(xyz_block, 0, 0)
+
+    cpp_titanium_two = next(
+        item
+        for item in cpp["candidates"]
+        if item["metal_states"] == [{"idx": 1, "symbol": "Ti", "valence": 2, "radical_num": 0}]
+    )
+    py_titanium_two = next(
+        candidate
+        for candidate in py_candidates
+        if len(candidate.metal_states) == 1
+        and candidate.metal_states[0].symbol == "Ti"
+        and candidate.metal_states[0].valence == 2
+        and candidate.metal_states[0].radical_num == 0
+    )
+
+    assert cpp_titanium_two["metal_discordance_inner_visible_same_sign_charge_count"] == 1
+    assert py_titanium_two.metadata["metal_discordance_inner_visible_same_sign_charge_count"] == 1
+
+
+@requires_local_tmqmg
+def test_cpp_python_cehhab_rejects_single_bond_charge_polarity_inversion() -> None:
+    xyz_block = _load_tmqmg_xyz("CEHHAB")
+    config = MolGRConfig()
+    cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
+        xyz_block,
+        0,
+        0,
+        config=config,
+    )
+    _, py_candidates, py_best = _python_scored_candidates(xyz_block, 0, 0)
+
+    assert py_best is not None
+    assert [(state.valence, state.radical_num) for state in py_best.metal_states] == [(2, 0)]
+    selected_cpp = next(item for item in cpp["candidates"] if item["selected"])
+    assert [(state["valence"], state["radical_num"]) for state in selected_cpp["metal_states"]] == [
+        (2, 0)
+    ]
+
+    iron_zero_cpp = next(
+        item for item in cpp["candidates"] if item["metal_states"][0]["valence"] == 0
+    )
+    iron_zero_py = next(
+        candidate for candidate in py_candidates if candidate.metal_states[0].valence == 0
+    )
+    assert iron_zero_cpp["organic_charge_localization_polarity_inversion_penalty"] > 0.0
+    assert iron_zero_cpp["organic_charge_localization_polarity_inversion_penalty"] == pytest.approx(
+        iron_zero_py.metadata["organic_charge_localization_polarity_inversion_penalty"]
+    )
+
+
+@requires_local_tmqmg
+def test_cpp_python_akonew_preserves_cobalt_three_local_charge_state() -> None:
+    row = _load_tmqmg_row(1132)
+    assert row["id"] == "AKONEW"
+    xyz_block = _load_tmqmg_xyz(row["id"])
+    config = MolGRConfig()
+    cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
+        xyz_block,
+        int(row["charge"]),
+        0,
+        config=config,
+    )
+    py_layer_index, py_candidates, py_best = _python_scored_candidates(
+        xyz_block,
+        int(row["charge"]),
+        0,
+    )
+
+    assert cpp["layer_index"] == py_layer_index == 0
+    assert py_best is not None
+    assert py_best.no_metal_charge_target == -3
+    assert py_best.metal_states[0].valence == 3
+    selected_cpp = next(item for item in cpp["candidates"] if item["selected"])
+    assert selected_cpp["no_metal_charge_target"] == -3
+    assert selected_cpp["metal_states"][0]["valence"] == 3
+    assert selected_cpp["organic_charge_localization_component_cancellation"] == pytest.approx(0.7)
+    assert len(cpp["candidates"]) == len(py_candidates)
+
+
+@requires_local_tmqmg
 def test_cpp_python_metal_search_stage_parity_case_522() -> None:
     row = _load_tmqmg_row(522)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -531,6 +735,7 @@ def test_cpp_python_metal_search_stage_parity_case_522() -> None:
     assert cpp_summary == py_summary
 
 
+@requires_local_tmqmg
 def test_cpp_python_scored_candidate_parity_case_522() -> None:
     row = _load_tmqmg_row(522)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -581,6 +786,20 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
         assert cpp_item["organic_aromatic_stability_score"] == pytest.approx(
             float(py_item.metadata.get("organic_aromatic_stability_score", 0.0))
         )
+        for metadata_key in (
+            "organic_conjugated_atom_count",
+            "organic_conjugated_bond_count",
+            "organic_max_conjugated_component_size",
+            "organic_hyperconjugative_donor_count",
+            "organic_hyperconjugation_score",
+            "organic_hyperconjugation_max_score",
+            "organic_hyperconjugation_deficit",
+            "metal_discordance_conjugated_atom_deficit_count",
+            "metal_discordance_conjugated_bond_deficit_count",
+            "metal_discordance_aromatic_atom_deficit_count",
+            "metal_discordance_aromatic_ring_deficit_count",
+        ):
+            assert cpp_item[metadata_key] == py_item.metadata.get(metadata_key)
         assert cpp_item["organic_charge_localization_penalty"] == pytest.approx(
             float(py_item.metadata.get("organic_charge_localization_penalty", 0.0))
         )
@@ -593,17 +812,35 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
         assert cpp_item["metal_discordance_count"] == pytest.approx(
             float(py_item.metadata.get("metal_discordance_count", 0.0))
         )
-        assert cpp_item["metal_discordance_aromatic_ring_deficit_count"] == py_item.metadata.get(
-            "metal_discordance_aromatic_ring_deficit_count"
-        )
         assert cpp_item["metal_discordance_aromatic_stability_deficit"] == pytest.approx(
             float(py_item.metadata.get("metal_discordance_aromatic_stability_deficit", 0.0))
         )
         for metadata_key in (
+            "metal_discordance_inner_visible_diradical_count",
+            "metal_discordance_excess_visible_singlet_two_electron_center_count",
+            "metal_discordance_bent_cumulated_ring_allene_count",
+            "metal_discordance_outer_or_invisible_adjacent_double_charge_count",
+            "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count",
+            "metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count",
+            "metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count",
+            "metal_discordance_inner_visible_adjacent_carbanion_pair_count",
+            "metal_discordance_inner_visible_conjugated_carbanion_pair_count",
+            "metal_discordance_inner_visible_same_sign_charge_count",
+            "metal_discordance_negative_metal_count",
+            "metal_discordance_zero_valent_metals_with_organic_cation_count",
+            "metal_discordance_unsaturated_organic_cation_count",
             "metal_discordance_repeated_component_charge_asymmetry_count",
             "metal_discordance_haptic_arene_reduction_count",
             "metal_discordance_visible_donor_multiple_bond_count",
             "metal_discordance_coordination_geometry_count",
+        ):
+            assert cpp_item[metadata_key] == py_item.metadata.get(metadata_key)
+        assert cpp_item["metal_discordance_negative_metal_penalty"] == pytest.approx(
+            float(py_item.metadata.get("metal_discordance_negative_metal_penalty", 0.0))
+        )
+        for metadata_key in (
+            "metal_discordance_negative_metal_outer_sphere_cation_exception",
+            "metal_discordance_negative_metal_positive_metal_counterion_exception",
         ):
             assert cpp_item[metadata_key] == py_item.metadata.get(metadata_key)
         assert cpp_item["passes_metal_discordance_filter"] == py_item.metadata.get(
@@ -614,7 +851,34 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
         assert cpp_item["selected"] == (py_best is py_item)
 
 
+def test_cpp_python_scored_candidate_state_matches_abagam_fixture() -> None:
+    xyz_block = Path("tests/data/tmqmg/reconstruction/ABAGAM.xyz").read_text(encoding="utf-8")
+    config = MolGRConfig()
+
+    cpp = _core.dev.pipeline.reconstruct_with_metals.debug_scored_candidate_summaries(
+        xyz_block,
+        0,
+        0,
+        config=config,
+    )
+    py_layer_index, py_candidates, py_best = _python_scored_candidates(xyz_block, 0, 0)
+
+    assert cpp["layer_index"] == py_layer_index
+    assert len(cpp["candidates"]) == len(py_candidates)
+    for cpp_item, py_item in zip(cpp["candidates"], py_candidates):
+        assert py_item.no_metal_state is not None
+        assert tuple(cpp_item["no_metal_atom_signature"]) == _pybel_atom_signature(
+            py_item.no_metal_state.omol
+        )
+        assert tuple(cpp_item["no_metal_bond_signature"]) == _pybel_bond_signature(
+            py_item.no_metal_state.omol
+        )
+        assert cpp_item["selection_key"] == py_item.metadata.get("selection_key")
+        assert cpp_item["selected"] == (py_best is py_item)
+
+
 @pytest.mark.parametrize("case_idx", [113, 627, 684, 727])
+@requires_local_tmqmg
 def test_cpp_python_no_metal_resonance_candidate_parity_cases(case_idx: int) -> None:
     row = _load_tmqmg_row(case_idx)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -660,6 +924,7 @@ def test_cpp_python_no_metal_resonance_candidate_parity_cases(case_idx: int) -> 
 
 
 @pytest.mark.parametrize("case_idx", [113, 627, 684, 727])
+@requires_local_tmqmg
 def test_cpp_python_final_smiles_match_resonance_representative_cases(case_idx: int) -> None:
     row = _load_tmqmg_row(case_idx)
     xyz_block = _load_tmqmg_xyz(row["id"])
@@ -686,6 +951,7 @@ def test_cpp_python_final_smiles_match_resonance_representative_cases(case_idx: 
 
 
 @pytest.mark.parametrize("case_idx", [113, 522, 627])
+@requires_local_tmqmg
 def test_cpp_all_accelerations_preserve_python_final_smiles(case_idx: int) -> None:
     row = _load_tmqmg_row(case_idx)
     xyz_block = _load_tmqmg_xyz(row["id"])

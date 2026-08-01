@@ -98,6 +98,8 @@ void molgr::bind::bind_utils(py::module_ &m)
         .def_readwrite("atomic_num", &molgr::utils::AtomData::atomic_num)
         .def_readwrite("formal_charge", &molgr::utils::AtomData::formal_charge)
         .def_readwrite("radical_num", &molgr::utils::AtomData::radical_num)
+        .def_readwrite("lone_pair_count", &molgr::utils::AtomData::lone_pair_count)
+        .def_readwrite("unresolved_two_electron_center", &molgr::utils::AtomData::unresolved_two_electron_center)
         .def_readwrite("hybridization", &molgr::utils::AtomData::hybridization)
         .def_readwrite("x", &molgr::utils::AtomData::x)
         .def_readwrite("y", &molgr::utils::AtomData::y)
@@ -106,6 +108,9 @@ void molgr::bind::bind_utils(py::module_ &m)
              { return "<AtomData Z=" + std::to_string(a.atomic_num) +
                       " charge=" + std::to_string(a.formal_charge) +
                       " radical_num=" + std::to_string(a.radical_num) +
+                      " lone_pair_count=" + std::to_string(a.lone_pair_count) +
+                      " unresolved_two_electron_center=" +
+                      (a.unresolved_two_electron_center ? "true" : "false") +
                       " hyb=" + std::to_string(a.hybridization) +
                       " pos=(" + std::to_string(a.x) + "," +
                       std::to_string(a.y) + "," + std::to_string(a.z) + ")>"; },
@@ -183,6 +188,8 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
               out["conjugated_bond_count"] = metrics.conjugated_bond_count;
               out["max_conjugated_component_size"] = metrics.max_conjugated_component_size;
               out["conjugated_atom_indices"] = metrics.conjugated_atom_indices;
+              out["hyperconjugative_donor_count"] = metrics.hyperconjugative_donor_count;
+              out["hyperconjugation_score"] = metrics.hyperconjugation_score;
               return out;
           },
           "Compute C++ organic topology metrics for an OBMol pointer.",

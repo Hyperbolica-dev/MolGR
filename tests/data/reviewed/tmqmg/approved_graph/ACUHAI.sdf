@@ -122,7 +122,14 @@ M  V30 60 9 17 1
 M  V30 END BOND
 M  V30 END CTAB
 M  END
->  <TMQMG_ID>
+>  <atom.iprop.MOLGR_METAL_UNPAIRED_ELECTRONS>
+0 n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a n/a
+n/a n/a n/a n/a n/a
+
+>  <CASE_ID>
+ACUHAI
+
+>  <CANDIDATE_ID>
 ACUHAI
 
 >  <TOTAL_CHARGE>

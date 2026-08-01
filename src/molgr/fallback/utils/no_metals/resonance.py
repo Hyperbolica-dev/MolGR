@@ -11,17 +11,18 @@ from openbabel import pybel
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.pipeline.resonance import ResonanceTraversalPolicy, walk_radical_resonances
-from molgr.fallback.stages.clean import (
-    clean_carbene_neighbor_unsaturated,
-    clean_resonances,
-)
-from molgr.fallback.stages.eliminate import (
-    assign_negative_charges_from_radicals,
-)
-from molgr.fallback.stages.fresh import fresh_omol_charge_radical
+from molgr.fallback.stages.clean import clean_carbene_neighbor_unsaturated
 from molgr.fallback.stages.preprocess import validate_omol
-from molgr.fallback.state import OmolStateMachine, ReconstructionState
+from molgr.fallback.state import (
+    TRACE_NODE_METADATA_KEY,
+    OmolStateMachine,
+    ReconstructionState,
+)
 from molgr.fallback.utils import resonance as resonance_utils
+from molgr.fallback.utils.electrons import (
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+)
 
 from .selection import _annotate_no_metal_candidate_topology, _score_reconstruction_candidate
 
@@ -92,36 +93,48 @@ def _deduplicate_states(states: Iterable[ReconstructionState]) -> list[Reconstru
 def build_resonance_seed_pool(
     neighbor_seeds: Sequence[ReconstructionState],
 ) -> list[ReconstructionState]:
-    """Add optional electronic-state normalizations to the neighbor-radical seeds."""
+    """Add optional transformations that explicitly preserve electronic state."""
 
     pool = _deduplicate_states(neighbor_seeds)
     stages = (
         ("relocate_carbene_radical_for_resonance", clean_carbene_neighbor_unsaturated, False),
-        (
-            "assign_negative_charges_from_radicals",
-            assign_negative_charges_from_radicals,
-            True,
-        ),
-        ("refresh_electronic_labels_for_resonance", fresh_omol_charge_radical, False),
     )
     for phase, stage, uses_charge_budget in stages:
-        additions: list[ReconstructionState] = []
-        for state in pool:
-            machine = OmolStateMachine.from_reconstruction_state(state).branch(
-                None,
-                omol=_clone_omol(state.omol),
-            )
-            if uses_charge_budget:
-                hit = machine.run_omol_charge_stage(
-                    phase,
-                    cast(_OmolChargeStage, stage),
-                )
-            else:
-                hit = machine.run_omol_stage(phase, cast(_OmolStage, stage))
-            if hit:
-                additions.append(machine.freeze_like(state))
-        pool = _deduplicate_states((*pool, *additions))
+        pool = expand_resonance_seed_pool_stage(
+            pool,
+            phase=phase,
+            stage=stage,
+            uses_charge_budget=uses_charge_budget,
+        )
     return pool
+
+
+def expand_resonance_seed_pool_stage(
+    states: Sequence[ReconstructionState],
+    *,
+    phase: str,
+    stage: _OmolStage | _OmolChargeStage,
+    uses_charge_budget: bool,
+) -> list[ReconstructionState]:
+    """Retain every input seed and add the changed result of one optional stage."""
+
+    pool = _deduplicate_states(states)
+    additions: list[ReconstructionState] = []
+    for state in pool:
+        machine = OmolStateMachine.from_reconstruction_state(state).branch(
+            None,
+            omol=_clone_omol(state.omol),
+        )
+        if uses_charge_budget:
+            hit = machine.run_omol_charge_stage(
+                phase,
+                cast(_OmolChargeStage, stage),
+            )
+        else:
+            hit = machine.run_omol_stage(phase, cast(_OmolStage, stage))
+        if hit:
+            additions.append(machine.freeze_like(state))
+    return _deduplicate_states((*pool, *additions))
 
 
 def _register_traversal_label(
@@ -147,9 +160,34 @@ def search_resonance_candidates(
     resonance_traversal_policy: Optional[ResonanceTraversalPolicy] = None,
     config: MolGRConfig | None = None,
     session: _ResonanceSearchSession | None = None,
+    walk_stage: Callable[..., None] | None = None,
+    full_normalization_stage: _OmolChargeStage | None = None,
+    validation_stage: Callable[[pybel.Molecule, int, int], bool] | None = None,
+    score_stage: Callable[..., float] | None = None,
+    topology_annotation_stage: Callable[..., object] | None = None,
 ) -> list[ReconstructionState]:
-    """Search new states and normalize them once across an optional shared session."""
+    """Search radical resonance states, then resolve deferred centers at validation.
 
+    Traversal moves only real unpaired electrons; active lone pairs and unresolved
+    markers remain part of the deduplication key. Each normalized candidate keeps
+    unresolved centers until ``validate_omol`` assigns enough centers as triplets
+    to satisfy the global radical budget and assigns the remainder as singlets.
+    Impossible budgets are rejected without partially resolving a candidate.
+    """
+
+    walk_stage = walk_radical_resonances if walk_stage is None else walk_stage
+    full_normalization_stage = (
+        resonance_utils.process_resonance
+        if full_normalization_stage is None
+        else full_normalization_stage
+    )
+    validation_stage = validate_omol if validation_stage is None else validation_stage
+    score_stage = _score_reconstruction_candidate if score_stage is None else score_stage
+    topology_annotation_stage = (
+        _annotate_no_metal_candidate_topology
+        if topology_annotation_stage is None
+        else topology_annotation_stage
+    )
     search_session = _ResonanceSearchSession() if session is None else session
     raw_candidates: list[_RawResonanceCandidate] = []
     use_dominance_pruning = resonance_traversal_policy is None or isinstance(
@@ -189,7 +227,7 @@ def search_resonance_candidates(
             resonance_index += 1
             return should_expand
 
-        walk_radical_resonances(
+        walk_stage(
             state.omol,
             max_depth=resonance_max_depth,
             traversal_policy=resonance_traversal_policy,
@@ -198,53 +236,85 @@ def search_resonance_candidates(
 
     candidates: list[ReconstructionState] = []
     for raw in raw_candidates:
-        base_machine = OmolStateMachine.from_reconstruction_state(raw.seed)
-        variant_specs = (
-            ("resonance_rule_normalization", clean_resonances, False),
-            ("full_resonance_normalization", resonance_utils.process_resonance, True),
+        machine = OmolStateMachine.from_reconstruction_state(raw.seed).branch(
+            "branch_resonance_candidate",
+            omol=_clone_omol(raw.omol),
+            metadata={
+                "resonance_seed_index": raw.seed_index,
+                "resonance_index": raw.resonance_index,
+                "resonance_raw_index": raw.raw_index,
+                "resonance_normalization": "full_resonance_normalization",
+            },
         )
-        for normalization, stage, uses_charge_budget in variant_specs:
-            machine = base_machine.branch(
-                "branch_resonance_candidate",
-                omol=_clone_omol(raw.omol),
+        if full_normalization_stage is resonance_utils.process_resonance:
+            resonance_utils._run_process_resonance(machine, emit_summary=True)
+        else:
+            machine.run_omol_charge_stage(
+                "full_resonance_normalization",
+                full_normalization_stage,
             )
-            if uses_charge_budget:
-                machine.run_omol_charge_stage(
-                    normalization,
-                    cast(_OmolChargeStage, stage),
-                )
-            else:
-                machine.run_omol_stage(
-                    normalization,
-                    cast(_OmolStage, stage),
-                )
-            processed_key = (
-                resonance_utils.build_processed_resonance_key(machine.omol),
-                machine.given_charge,
+        unresolved_indices = [
+            atom.idx
+            for atom in machine.omol.atoms
+            if has_unresolved_two_electron_center(atom.OBAtom)
+        ]
+        processed_key = (
+            resonance_utils.build_processed_resonance_key(machine.omol),
+            machine.given_charge,
+        )
+        if processed_key in search_session.seen_processed_states:
+            machine.trace_checkpoint(
+                "discard_duplicate_processed_resonance_candidate",
+                reason="processed_state_already_seen",
             )
-            if processed_key in search_session.seen_processed_states:
-                continue
-            search_session.seen_processed_states.add(processed_key)
-            if not validate_omol(
-                machine.omol,
-                raw.seed.total_charge,
-                raw.seed.total_radical_electrons,
-            ):
-                continue
+            continue
+        search_session.seen_processed_states.add(processed_key)
+        if not validation_stage(
+            machine.omol,
+            raw.seed.total_charge,
+            raw.seed.total_radical_electrons,
+        ):
+            machine.trace_checkpoint(
+                "reject_no_metal_candidate_validation",
+                reason="charge_or_radical_target_mismatch",
+            )
+            continue
+        if unresolved_indices:
+            triplet_center_count = sum(
+                get_unpaired_electron_count(machine.omol.OBMol.GetAtom(atom_idx)) == 2
+                for atom_idx in unresolved_indices
+            )
             machine.annotate(
-                "validate_no_metal_candidate",
-                resonance_seed_index=raw.seed_index,
-                resonance_index=raw.resonance_index,
-                resonance_raw_index=raw.raw_index,
-                resonance_normalization=normalization,
+                "resolve_unresolved_two_electron_centers_at_validation",
+                unresolved_two_electron_singlet_centers=(
+                    len(unresolved_indices) - triplet_center_count
+                ),
+                unresolved_two_electron_triplet_centers=triplet_center_count,
             )
-            candidate = machine.freeze_like(raw.seed)
-            try:
-                _score_reconstruction_candidate(candidate, config=config)
-            except ValueError:
-                continue
-            _annotate_no_metal_candidate_topology(candidate, config=config)
-            candidates.append(candidate)
+        machine.annotate(
+            "validate_no_metal_candidate",
+            resonance_seed_index=raw.seed_index,
+            resonance_index=raw.resonance_index,
+            resonance_raw_index=raw.raw_index,
+            resonance_normalization="full_resonance_normalization",
+        )
+        candidate = machine.freeze_like(raw.seed)
+        try:
+            score_stage(candidate, config=config)
+        except ValueError:
+            machine.trace_checkpoint(
+                "reject_no_metal_candidate_scoring",
+                reason="force_field_scoring_failed",
+            )
+            continue
+        topology_annotation_stage(candidate, config=config)
+        machine.trace_checkpoint(
+            "accept_no_metal_candidate",
+            score=candidate.metadata.get("score"),
+        )
+        if TRACE_NODE_METADATA_KEY in machine.metadata:
+            candidate.metadata[TRACE_NODE_METADATA_KEY] = machine.metadata[TRACE_NODE_METADATA_KEY]
+        candidates.append(candidate)
 
     return candidates
 
@@ -253,5 +323,6 @@ __all__ = [
     "ResonanceTraversalPolicy",
     "_default_resonance_traversal_policy",
     "build_resonance_seed_pool",
+    "expand_resonance_seed_pool_stage",
     "search_resonance_candidates",
 ]

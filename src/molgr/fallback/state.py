@@ -7,6 +7,8 @@ hashable and can be cached directly by pure helper functions.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -21,6 +23,7 @@ from typing import (
     cast,
 )
 
+from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
@@ -40,6 +43,23 @@ ReconstructionScoreProfile = Literal["organic_core", "full"]
 MetalCandidateScoreProfile = Literal["combined"]
 CombinedOmolBuilder = Callable[[pybel.Molecule, Sequence[MetalAtomPosition]], pybel.Molecule]
 _DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE = 4096
+TRACE_NODE_METADATA_KEY = "_omol_trace_node_id"
+_TRACE_METADATA_KEYS = (
+    "neighbor_radical_actions",
+    "neighbor_radical_resolution",
+    "neighbor_radical_charge_separation_discrepancy",
+    "positive_atom_idx",
+    "recovery_tier",
+    "recovery_strategy",
+    "resonance_seed_index",
+    "resonance_index",
+    "resonance_raw_index",
+    "resonance_normalization",
+)
+_OMOL_TRACE_OBSERVER: ContextVar[Optional[Callable[[Any, str, dict[str, Any]], None]]] = ContextVar(
+    "molgr_omol_trace_observer",
+    default=None,
+)
 _OMOL_DERIVED_METADATA_KEYS = (
     "force_field_energy",
     "force_field_score_key",
@@ -168,6 +188,72 @@ class ReconstructionState:
         raise ValueError(f"Unsupported ReconstructionState score profile: {profile!r}")
 
 
+class OmolTraceRecorder:
+    """Collect exact state-machine phase snapshots without patching the pipeline."""
+
+    def __init__(self) -> None:
+        self.records: dict[int, dict[str, Any]] = {}
+        self._next_snapshot_id = 0
+
+    @staticmethod
+    def _copy_omol(omol: pybel.Molecule) -> pybel.Molecule:
+        return pybel.Molecule(ob.OBMol(cast(ob.OBMol, omol.OBMol)))
+
+    def record_initial(
+        self,
+        omol: pybel.Molecule,
+        phase: str,
+        *,
+        parent_id: int = -1,
+    ) -> int:
+        """Register a parser/seed snapshot before a state machine is created."""
+
+        snapshot_id = self._next_snapshot_id
+        self._next_snapshot_id += 1
+        self.records[snapshot_id] = {
+            "phase": phase,
+            "parent_id": parent_id,
+            "omol": self._copy_omol(omol),
+            "given_charge": 0,
+            "total_charge": 0,
+            "total_radical_electrons": 0,
+            "event": {"kind": "initial"},
+            "metadata": {},
+        }
+        return snapshot_id
+
+    def __call__(self, machine: Any, phase: str, event: dict[str, Any]) -> None:
+        parent_id = int(machine.metadata.get(TRACE_NODE_METADATA_KEY, -1))
+        snapshot_id = self._next_snapshot_id
+        self._next_snapshot_id += 1
+        machine.metadata[TRACE_NODE_METADATA_KEY] = snapshot_id
+        self.records[snapshot_id] = {
+            "phase": phase,
+            "parent_id": parent_id,
+            "omol": self._copy_omol(machine.omol),
+            "given_charge": int(machine.given_charge),
+            "total_charge": int(machine.total_charge),
+            "total_radical_electrons": int(machine.total_radical_electrons),
+            "event": dict(event),
+            "metadata": {
+                key: machine.metadata[key]
+                for key in _TRACE_METADATA_KEYS
+                if key in machine.metadata
+            },
+        }
+
+
+@contextmanager
+def trace_omol_state_machine(recorder: OmolTraceRecorder):
+    """Enable automatic trace-node registration for the current execution context."""
+
+    token = _OMOL_TRACE_OBSERVER.set(recorder)
+    try:
+        yield recorder
+    finally:
+        _OMOL_TRACE_OBSERVER.reset(token)
+
+
 @typed_lru_cache(maxsize=_DEFAULT_RECONSTRUCTION_STATE_CACHE_MAXSIZE, typed=True)
 def _cached_reconstruction_revision_value(
     state: ReconstructionState,
@@ -196,6 +282,8 @@ class OmolStateMachine:
         omol: pybel.Molecule,
         given_charge: int = 0,
         *,
+        total_charge: int = 0,
+        total_radical_electrons: int = 0,
         phase_history: Sequence[str] = (),
         metadata: Optional[Dict[str, Any]] = None,
         key_cache: Optional[Dict[str, Any]] = None,
@@ -203,6 +291,8 @@ class OmolStateMachine:
     ) -> None:
         self.omol = omol
         self.given_charge = given_charge
+        self.total_charge = total_charge
+        self.total_radical_electrons = total_radical_electrons
         self.phase_history = list(phase_history)
         self.metadata = {} if metadata is None else dict(metadata)
         self.key_cache = {} if key_cache is None else dict(key_cache)
@@ -213,6 +303,8 @@ class OmolStateMachine:
         return cls(
             state.omol,
             state.given_charge,
+            total_charge=state.total_charge,
+            total_radical_electrons=state.total_radical_electrons,
             phase_history=state.phase_history,
             metadata=state.metadata,
             omol_revision=state.omol_revision,
@@ -232,6 +324,18 @@ class OmolStateMachine:
         self.key_cache[cache_name] = (self.omol_revision, value)
         return value
 
+    def _notify_trace(self, phase: Optional[str], **event: Any) -> None:
+        if phase is None:
+            return
+        observer = _OMOL_TRACE_OBSERVER.get()
+        if observer is not None:
+            observer(self, phase, event)
+
+    def trace_checkpoint(self, phase: str, **event: Any) -> None:
+        """Emit a trace-only decision node without changing production phase history."""
+
+        self._notify_trace(phase, kind="checkpoint", **event)
+
     def run_omol_stage(
         self,
         phase: Optional[str],
@@ -246,6 +350,12 @@ class OmolStateMachine:
             _invalidate_omol_derived_metadata(self.metadata)
         if phase is not None:
             self.phase_history.append(phase)
+        self._notify_trace(
+            phase,
+            kind="omol_stage",
+            stage=getattr(stage, "__name__", type(stage).__name__),
+            hit=bool(hit),
+        )
         return hit
 
     def run_omol_charge_stage(
@@ -256,24 +366,45 @@ class OmolStateMachine:
     ) -> bool:
         """Run an `omol, charge -> omol, charge` stage with mutation tracking."""
 
+        previous_charge = self.given_charge
         self.omol, self.given_charge, hit = stage(self.omol, self.given_charge, *args)
         if hit:
             self.omol_revision += 1
             _invalidate_omol_derived_metadata(self.metadata)
         if phase is not None:
             self.phase_history.append(phase)
+        self._notify_trace(
+            phase,
+            kind="omol_charge_stage",
+            stage=getattr(stage, "__name__", type(stage).__name__),
+            hit=bool(hit),
+            charge_before=int(previous_charge),
+            charge_after=int(self.given_charge),
+        )
         return hit
 
     def set_given_charge(self, phase: Optional[str], given_charge: int) -> None:
+        previous_charge = self.given_charge
         self.given_charge = given_charge
         if phase is not None:
             self.phase_history.append(phase)
+        self._notify_trace(
+            phase,
+            kind="set_given_charge",
+            charge_before=int(previous_charge),
+            charge_after=int(given_charge),
+        )
 
     def annotate(self, phase: Optional[str], **metadata: Any) -> None:
         if phase is not None:
             self.phase_history.append(phase)
         if metadata:
             self.metadata.update(metadata)
+        self._notify_trace(
+            phase,
+            kind="annotation",
+            metadata_keys=tuple(sorted(metadata)),
+        )
 
     def branch(
         self,
@@ -288,6 +419,8 @@ class OmolStateMachine:
         next_machine = OmolStateMachine(
             self.omol if omol is None else omol,
             self.given_charge if given_charge is None else given_charge,
+            total_charge=self.total_charge,
+            total_radical_electrons=self.total_radical_electrons,
             phase_history=self.phase_history,
             metadata=self.metadata,
             key_cache=self.key_cache if omol is None else None,
@@ -295,22 +428,28 @@ class OmolStateMachine:
         )
         if omol is not None:
             _invalidate_omol_derived_metadata(next_machine.metadata)
-        next_machine.annotate(phase)
+        if phase is not None:
+            next_machine.phase_history.append(phase)
         if metadata:
             next_machine.metadata.update(metadata)
+        next_machine._notify_trace(phase, kind="branch")
         return next_machine
 
     def freeze(
         self,
         *,
-        total_charge: int,
-        total_radical_electrons: int,
+        total_charge: Optional[int] = None,
+        total_radical_electrons: Optional[int] = None,
     ) -> ReconstructionState:
         return ReconstructionState(
             omol=self.omol,
             given_charge=self.given_charge,
-            total_charge=total_charge,
-            total_radical_electrons=total_radical_electrons,
+            total_charge=self.total_charge if total_charge is None else total_charge,
+            total_radical_electrons=(
+                self.total_radical_electrons
+                if total_radical_electrons is None
+                else total_radical_electrons
+            ),
             phase_history=tuple(self.phase_history),
             metadata=dict(self.metadata),
             omol_revision=self.omol_revision,
@@ -556,6 +695,9 @@ __all__ = [
     "MetalCandidateState",
     "MetalPreparationState",
     "OmolStateMachine",
+    "OmolTraceRecorder",
     "ReconstructionState",
+    "TRACE_NODE_METADATA_KEY",
+    "trace_omol_state_machine",
     "make_metal_candidate_state",
 ]

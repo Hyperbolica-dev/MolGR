@@ -56,6 +56,7 @@ DEFAULT_DB = REPO_ROOT / ".local" / "molgr_review" / "review.sqlite"
 DEFAULT_XYZ_DIR = os.environ.get("MOLGR_XYZ_DIR", "")
 KETCHER_BASE_URL = "https://lifescience.opensource.epam.com"
 ALLOWED_STATUSES = {
+    "accept_both",
     "accept_candidate",
     "accept_reference",
     "manual_reference",
@@ -114,20 +115,36 @@ def _row_dict(
         return None
     payload = dict(row)
     payload["fixture"] = fixture
-    payload["candidate_snapshot_smiles"] = payload.get("candidate_smiles") or ""
-    payload["candidate_snapshot_status"] = payload.get("candidate_status") or ""
     metadata_json = payload.pop("metadata_json", None)
-    if not isinstance(metadata_json, str) or not metadata_json:
-        return payload
-    try:
-        raw_payload = json.loads(metadata_json)
-    except json.JSONDecodeError:
-        return payload
-    if not isinstance(raw_payload, dict):
-        return payload
-    for key, value in raw_payload.items():
-        if key not in payload:
-            payload[key] = value
+    if isinstance(metadata_json, str) and metadata_json:
+        try:
+            raw_payload = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            raw_payload = None
+        if isinstance(raw_payload, dict):
+            for key, value in raw_payload.items():
+                if key not in payload:
+                    payload[key] = value
+
+    runtime_label = f"py{sys.version_info.major}{sys.version_info.minor}"
+    snapshot_smiles = ""
+    snapshot_status = ""
+    snapshot_found = False
+    for method_id in ("candidate_cpp", "molgr_cpp"):
+        smiles_key = f"{runtime_label}_{method_id}_smiles"
+        status_key = f"{runtime_label}_{method_id}_status"
+        if smiles_key in payload or status_key in payload:
+            snapshot_smiles = str(payload.get(smiles_key) or "")
+            snapshot_status = str(payload.get(status_key) or "")
+            snapshot_found = True
+            break
+    payload["candidate_snapshot_runtime"] = runtime_label
+    if snapshot_found:
+        payload["candidate_snapshot_smiles"] = snapshot_smiles
+        payload["candidate_snapshot_status"] = snapshot_status
+    else:
+        payload["candidate_snapshot_smiles"] = str(payload.get("candidate_smiles") or "")
+        payload["candidate_snapshot_status"] = str(payload.get("candidate_status") or "")
     return payload
 
 
@@ -185,9 +202,19 @@ def _svg_fragment_from_image(image: Any) -> str:
 
 def _safe_smiles(mol: Chem.Mol) -> str:
     try:
-        return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol), sanitize=False), canonical=True)
+        return Chem.MolToSmiles(
+            Chem.RemoveHs(Chem.Mol(mol)),
+            canonical=True,
+            isomericSmiles=True,
+        )
     except Exception:  # noqa: BLE001
-        return Chem.MolToSmiles(mol, canonical=True)
+        return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+
+
+def _benchmark_candidate_mol(mol: Chem.Mol) -> Chem.Mol:
+    """Apply the same successful-result postprocessing as the tmQMg benchmark."""
+
+    return Chem.RemoveHs(Chem.Mol(mol))
 
 
 def _mol_from_smiles(smiles: str) -> Chem.Mol | None:
@@ -209,8 +236,12 @@ def _mol_from_smiles_without_sanitize(smiles: str) -> Chem.Mol | None:
 
 
 def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str, Any]:
+    live_smiles = _safe_smiles(mol)
     comparison: dict[str, Any] = {
         "candidate_snapshot_smiles": snapshot_smiles,
+        "live_candidate_smiles_exact_match": (
+            live_smiles == snapshot_smiles if snapshot_smiles else None
+        ),
         "live_matches_candidate_snapshot": None,
         "live_candidate_equivalence_method": "",
         "live_candidate_equivalence_reason": "",
@@ -243,6 +274,97 @@ def _mol_to_sdf_block(mol: Chem.Mol) -> str:
     if not block.endswith("\n"):
         block += "\n"
     return block + "$$$$\n"
+
+
+def _mol_from_sdf_block(sdf: str) -> Chem.Mol:
+    molblock = sdf.partition("$$$$")[0]
+    mol = Chem.MolFromMolBlock(
+        molblock,
+        sanitize=False,
+        removeHs=False,
+        strictParsing=False,
+    )
+    if mol is None:
+        raise ValueError("invalid_sdf")
+    mol.UpdatePropertyCache(strict=False)
+    return mol
+
+
+def _dof_size(payload: dict[str, Any], key: str, default: tuple[int, int]) -> tuple[int, int]:
+    raw = payload.get(key)
+    if raw is None:
+        return default
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise ValueError(f"invalid_{key}")
+    width, height = int(raw[0]), int(raw[1])
+    if not (1 <= width <= 2000 and 1 <= height <= 2000):
+        raise ValueError(f"invalid_{key}")
+    return width, height
+
+
+def _render_deferred_dof(payload: dict[str, Any]) -> str:
+    render_type = str(payload.get("render_type") or "")
+    legends = payload.get("legends") or []
+    if not isinstance(legends, list) or not all(isinstance(item, str) for item in legends):
+        raise ValueError("invalid_legends")
+
+    if render_type == "single":
+        sdf = payload.get("sdf")
+        if not isinstance(sdf, str) or not sdf:
+            raise ValueError("missing_sdf")
+        from rdkit_dof import MolToDofImage
+
+        image = MolToDofImage(
+            _mol_from_sdf_block(sdf),
+            size=_dof_size(payload, "size", (360, 300)),
+            legend=legends[0] if legends else "",
+            use_svg=True,
+            return_image=False,
+        )
+    else:
+        sdfs = payload.get("sdfs")
+        if (
+            not isinstance(sdfs, list)
+            or not sdfs
+            or not all(isinstance(item, str) for item in sdfs)
+        ):
+            raise ValueError("missing_sdfs")
+        mols = [_mol_from_sdf_block(sdf) for sdf in sdfs]
+        if legends and len(legends) != len(mols):
+            raise ValueError("legend_count_mismatch")
+        if render_type == "grid":
+            from rdkit_dof import MolsToGridDofImage
+
+            mols_per_row = int(payload.get("mols_per_row") or 3)
+            if not 1 <= mols_per_row <= 12:
+                raise ValueError("invalid_mols_per_row")
+            image = MolsToGridDofImage(
+                mols,
+                molsPerRow=mols_per_row,
+                subImgSize=_dof_size(payload, "sub_image_size", (320, 260)),
+                legends=legends,
+                use_svg=True,
+                return_image=False,
+            )
+        elif render_type == "animation":
+            from rdkit_dof import MolsToDofSvgAnimation
+
+            duration = int(payload.get("duration") or 650)
+            if not 50 <= duration <= 10_000:
+                raise ValueError("invalid_duration")
+            image = MolsToDofSvgAnimation(
+                mols,
+                size=_dof_size(payload, "size", (360, 300)),
+                legends=legends,
+                duration=duration,
+                loop=0,
+                return_image=False,
+            )
+        else:
+            raise ValueError("invalid_render_type")
+    svg = _svg_fragment_from_image(image)
+    svg_start = svg.find("<svg")
+    return svg[svg_start:] if svg_start >= 0 else svg
 
 
 def _case_query(select_extra: str = "") -> str:
@@ -356,8 +478,20 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 fixture_kind=str(fixture.get("kind") or ""),
                 fixture_structure_file=str(fixture.get("structure_file") or ""),
                 expected_smiles=str(fixture.get("approved_smiles") or ""),
+                expected_smiles_options=tuple(
+                    str(value).strip()
+                    for value in fixture.get("accepted_smiles", [])
+                    if str(value).strip()
+                ),
+                reference_smiles=str(case.get("reference_smiles") or ""),
             )
-            report = render_trace_report([input_case], score_all_candidates=False)
+
+            report = render_trace_report(
+                [input_case],
+                score_all_candidates=False,
+                dof_max_images=None,
+                defer_dof_images=True,
+            )
         except Exception as exc:  # noqa: BLE001
             _text_response(
                 self,
@@ -371,11 +505,28 @@ class ReviewHandler(BaseHTTPRequestHandler):
     def _handle_post(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
-        if path.startswith("/api/cases/") and path.endswith("/review"):
+        if path == "/api/render-dof":
+            self._api_render_dof()
+        elif path.startswith("/api/cases/") and path.endswith("/review"):
             case_id = unquote(path.split("/")[3])
             self._api_review(case_id)
         else:
             _json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _api_render_dof(self) -> None:
+        content_length = int(self.headers.get("Content-Length") or 0)
+        if not 0 < content_length <= 16 * 1024 * 1024:
+            _json_response(self, {"error": "invalid_content_length"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("payload_must_be_an_object")
+            svg = _render_deferred_dof(payload)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        _text_response(self, svg, content_type="image/svg+xml; charset=utf-8")
 
     def _serve_static(self, name: str) -> None:
         requested = (STATIC_DIR / name).resolve()
@@ -548,11 +699,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
             _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
             return
 
-        snapshot_smiles = str(row["candidate_smiles"] or "")
+        case = _row_dict(row)
+        assert case is not None
+        snapshot_smiles = str(case["candidate_snapshot_smiles"] or "")
 
         try:
-            mol = reconstruct_case_mol(dict(row), xyz_dir=self.server.xyz_dir)
-            sdf = _mol_to_sdf_block(mol)
+            reconstructed_mol = reconstruct_case_mol(dict(row), xyz_dir=self.server.xyz_dir)
+            candidate_mol = _benchmark_candidate_mol(reconstructed_mol)
+            sdf = _mol_to_sdf_block(reconstructed_mol)
         except Exception as exc:  # noqa: BLE001
             _json_response(
                 self,
@@ -564,6 +718,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     "source": "live_reconstruction",
                     "live_candidate_status": "failed",
                     "live_candidate_smiles": "",
+                    "live_candidate_smiles_exact_match": None,
                     "candidate_snapshot_smiles": snapshot_smiles,
                     "live_candidate_equivalence_reason": "live_reconstruction_failed",
                     "error": f"{type(exc).__name__}: {exc}",
@@ -572,11 +727,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
             )
             return
 
-        smiles = _safe_smiles(mol)
+        smiles = _safe_smiles(candidate_mol)
         svg = ""
         render_error = ""
         try:
-            svg = _render_mol_svg(mol, legend=f"{case_id} candidate current")
+            svg = _render_mol_svg(
+                reconstructed_mol,
+                legend=f"{case_id} candidate current",
+            )
         except Exception as exc:  # noqa: BLE001
             render_error = f"{type(exc).__name__}: {exc}"
         _json_response(
@@ -591,7 +749,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "live_candidate_smiles": smiles,
                 "error": "",
                 "render_error": render_error,
-                **_live_candidate_comparison(mol, snapshot_smiles),
+                **_live_candidate_comparison(candidate_mol, snapshot_smiles),
             },
         )
 

@@ -15,6 +15,12 @@ from rdkit import Chem
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.utils.consts import NON_METAL_DICT
+from molgr.fallback.utils.electrons import LONE_PAIR_COUNT_PROP
+from molgr.utils.converter import (
+    get_atom_lone_pair_count,
+    get_atom_unpaired_electrons,
+    has_atom_unresolved_two_electron_center,
+)
 from molgr.utils.coordination_visibility import (
     CoordinationBlockerArrays,
     Point3D,
@@ -24,6 +30,44 @@ from molgr.utils.coordination_visibility import (
 
 
 pt = Chem.GetPeriodicTable()
+
+
+def _is_explicit_singlet_two_electron_center(atom: Chem.Atom) -> bool:
+    """Return whether a resolved C/N/P lone pair fills a two-unit valence deficit."""
+
+    atomic_num = int(atom.GetAtomicNum())
+    element_info = NON_METAL_DICT.get(atomic_num)
+    if (
+        atomic_num not in (6, 7, 15)
+        or element_info is None
+        or atom.GetFormalCharge() != 0
+        or get_atom_unpaired_electrons(atom) != 0
+        or get_atom_lone_pair_count(atom) != 1
+        or has_atom_unresolved_two_electron_center(atom)
+    ):
+        return False
+    bond_valence = sum(bond.GetBondTypeAsDouble() for bond in atom.GetBonds())
+    return abs(float(element_info.default_valence) - bond_valence - 2.0) <= 1e-12
+
+
+def _is_explicit_carbyne_center(atom: Chem.Atom) -> bool:
+    """Return whether a resolved neutral carbon has a three-unit valence deficit."""
+
+    if (
+        atom.GetAtomicNum() != 6
+        or atom.GetFormalCharge() != 0
+        or get_atom_unpaired_electrons(atom) != 3
+        or get_atom_lone_pair_count(atom) != 0
+        or has_atom_unresolved_two_electron_center(atom)
+    ):
+        return False
+    bond_valence = sum(bond.GetBondTypeAsDouble() for bond in atom.GetBonds())
+    return abs(float(NON_METAL_DICT[6].default_valence) - bond_valence - 3.0) <= 1e-12
+
+
+def _consume_active_lone_pair(atom: Chem.Atom) -> None:
+    if atom.HasProp(LONE_PAIR_COUNT_PROP):
+        atom.ClearProp(LONE_PAIR_COUNT_PROP)
 
 
 def _rdkit_atom_coordinates(conformer: Chem.Conformer, atom_idx: int) -> Point3D:
@@ -164,7 +208,21 @@ def make_dative_bond(
                 # BR4- type, skip
                 continue
             close_non_metal_atom_ids_set.add(close_non_metal_atom_id)
-            if non_metal_atom.GetFormalCharge() < 0:
+            if _is_explicit_carbyne_center(non_metal_atom):
+                rwmol.AddBond(
+                    close_non_metal_atom_id,
+                    int(metal_atom_id),
+                    Chem.BondType.TRIPLE,
+                )
+                non_metal_atom.SetNumRadicalElectrons(0)
+            elif _is_explicit_singlet_two_electron_center(non_metal_atom):
+                rwmol.AddBond(
+                    close_non_metal_atom_id,
+                    int(metal_atom_id),
+                    Chem.BondType.DOUBLE,
+                )
+                _consume_active_lone_pair(non_metal_atom)
+            elif non_metal_atom.GetFormalCharge() < 0:
                 if non_metal_atom.GetAtomicNum() == 1:
                     # make metal-H bond
                     rwmol.AddBond(close_non_metal_atom_id, int(metal_atom_id), Chem.BondType.SINGLE)
@@ -172,7 +230,7 @@ def make_dative_bond(
                     metal_atom.SetFormalCharge(metal_atom.GetFormalCharge() - 1)
                 else:
                     rwmol.AddBond(close_non_metal_atom_id, int(metal_atom_id), Chem.BondType.DATIVE)
-            if (
+            elif (
                 pt.GetNOuterElecs(non_metal_atom.GetAtomicNum()) in (5, 6, 7)
                 and non_metal_atom.GetFormalCharge() == 0
             ):

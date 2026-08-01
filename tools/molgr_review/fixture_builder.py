@@ -29,14 +29,15 @@ DEFAULT_FIXTURES_DIR = Path(
     )
 )
 MANIFEST_NAME = "manifest.json"
-APPROVED_GRAPH_STATUSES = {"accept_candidate"}
+ACCEPT_BOTH_STATUS = "accept_both"
+APPROVED_GRAPH_STATUSES = {"accept_candidate", ACCEPT_BOTH_STATUS}
 REFERENCE_GRAPH_STATUS = "accept_reference"
 MANUAL_REFERENCE_STATUS = "manual_reference"
 FIXTURE_STATUSES = APPROVED_GRAPH_STATUSES | {
     REFERENCE_GRAPH_STATUS,
     MANUAL_REFERENCE_STATUS,
 }
-FIXTURE_KINDS = {"approved_graph", "reference_graph", "manual_reference"}
+FIXTURE_KINDS = {"accepted_both", "approved_graph", "reference_graph", "manual_reference"}
 FIXTURE_RECORD_KEYS = {
     "case_id",
     "kind",
@@ -47,6 +48,7 @@ FIXTURE_RECORD_KEYS = {
     "spin_multiplicity",
     "reference_smiles",
     "approved_smiles",
+    "accepted_smiles",
     "source",
     "review_status",
 }
@@ -238,6 +240,7 @@ def _write_manifest(
 
 
 def _remove_case_files(fixtures_dir: Path, case_id: str) -> None:
+    (fixtures_dir / "accepted_both" / f"{case_id}.sdf").unlink(missing_ok=True)
     (fixtures_dir / "approved_graph" / f"{case_id}.sdf").unlink(missing_ok=True)
     (fixtures_dir / "reference_graph" / f"{case_id}.xyz").unlink(missing_ok=True)
     (fixtures_dir / "manual_reference" / f"{case_id}.xyz").unlink(missing_ok=True)
@@ -290,12 +293,21 @@ def sync_review_fixture(
             source = "corrected_smiles"
             kind = "manual_reference"
         else:
+            if status == ACCEPT_BOTH_STATUS and not reference_smiles:
+                raise ValueError("reference_graph_smiles_is_required")
             mol = reconstruct_case_mol(case, xyz_dir=xyz_dir)
             source = "molgr_reconstruction"
-            total_charge, total_radical_electrons = _molecule_electronic_state(mol)
-            spin_multiplicity = total_radical_electrons + 1
+            # SDF-level electronic constraints describe the original case, not
+            # metal-local unpaired electrons carried by the reconstructed graph.
+            total_charge, total_radical_electrons, spin_multiplicity = case_electronic_state(case)
             approved_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
-            relative_path = Path("approved_graph") / f"{case_id}.sdf"
+            if status == ACCEPT_BOTH_STATUS:
+                relative_path = Path("accepted_both") / f"{case_id}.sdf"
+                source = "candidate_or_reference_graph"
+                kind = "accepted_both"
+            else:
+                relative_path = Path("approved_graph") / f"{case_id}.sdf"
+                kind = "approved_graph"
             properties = {
                 "CASE_ID": case_id,
                 "CANDIDATE_ID": case_id,
@@ -305,7 +317,10 @@ def sync_review_fixture(
                 "REVIEW_STATUS": status,
                 "APPROVED_SMILES": approved_smiles,
             }
-            kind = "approved_graph"
+
+        accepted_smiles = list(dict.fromkeys([approved_smiles, reference_smiles]))
+        if status not in {REFERENCE_GRAPH_STATUS, ACCEPT_BOTH_STATUS}:
+            accepted_smiles = [approved_smiles]
 
         record = {
             "case_id": case_id,
@@ -317,11 +332,12 @@ def sync_review_fixture(
             "spin_multiplicity": spin_multiplicity,
             "reference_smiles": reference_smiles,
             "approved_smiles": approved_smiles,
+            "accepted_smiles": accepted_smiles,
             "source": source,
             "review_status": status,
         }
         _remove_case_files(fixtures_dir, case_id)
-        if kind == "approved_graph":
+        if kind in {"accepted_both", "approved_graph"}:
             _atomic_write_text(fixtures_dir / relative_path, _sdf_text(mol, properties))
         else:
             _atomic_copy(xyz_path, fixtures_dir / relative_path)
@@ -348,7 +364,23 @@ def prune_unreviewed_fixtures(fixtures_dir: Path, reviewed_case_ids: set[str]) -
         _write_manifest(fixtures_dir, records, existing=manifest)
 
 
+def remove_review_fixtures(fixtures_dir: Path, case_ids: set[str]) -> None:
+    """Remove fixture records and files only for the requested review cases."""
+
+    if not case_ids:
+        return
+    with _FIXTURE_LOCK:
+        manifest = _load_manifest(fixtures_dir)
+        for case_id in case_ids:
+            _remove_case_files(fixtures_dir, case_id)
+        records = [
+            record for record in manifest["fixtures"] if record.get("case_id") not in case_ids
+        ]
+        _write_manifest(fixtures_dir, records, existing=manifest)
+
+
 __all__ = [
+    "ACCEPT_BOTH_STATUS",
     "APPROVED_GRAPH_STATUSES",
     "DEFAULT_FIXTURES_DIR",
     "FIXTURE_STATUSES",
@@ -357,6 +389,7 @@ __all__ = [
     "case_electronic_state",
     "load_fixture_records",
     "prune_unreviewed_fixtures",
+    "remove_review_fixtures",
     "reconstruct_case_mol",
     "resolve_xyz_path",
     "sync_review_fixture",

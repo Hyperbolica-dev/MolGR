@@ -19,6 +19,16 @@ Current status:
   reconstruct the metal-free organic core first, then select metal states, and
   only reinsert metals for the final winner
 
+## Terminology
+
+- `discordance` means the features and accumulated penalty by which a candidate
+  molecular graph departs from a natural, internally harmonic electronic
+  structure. In Chinese it is uniformly translated as “失谐”, not the generic
+  “不一致”.
+- `harmonicity` means the overall structural coordination or harmony. The
+  current selection flow prioritizes lower discordance rather than directly
+  maximizing harmonicity.
+
 ## Unified Architecture
 
 The current algorithm can be read as seven layers:
@@ -48,7 +58,7 @@ The current algorithm can be read as seven layers:
 
 5. Resonance recovery
    - traverse each discrepancy layer using the configured resonance depth and policy
-   - normalize each raw resonance in both clean-only and full modes
+   - normalize each raw resonance once through the full `process_resonance` pipeline
    - share raw-state, traversal-label, and processed-state deduplication across layers
    - stop after the first layer that produces valid candidates
    - keep only candidates that match the charge/radical target
@@ -59,8 +69,8 @@ The current algorithm can be read as seven layers:
 6. Metal candidate scoring and selection
    - each no-metal target bucket is reconstructed once and shared by all metal assignments in that bucket
    - each metal candidate inherits the shared organic-core force-field score
-   - selection compares structural metal discordance, organic-core force-field
-     score, then `combination_index`
+   - selection compares structural metal discordance, organic electronic-state
+     metrics, organic-core force-field score, then `combination_index`
    - only the final winner materializes metal reinsertion
 
 7. RDKit output finalization
@@ -215,9 +225,10 @@ produce mixed strategies rather than one global branch choice.
 The production pipeline calls `enumerate_neighbor_radical_seeds(...)` with an
 exact discrepancy budget. Layer zero contains bond-order-only resolutions;
 later layers contain resolutions with one or more charge-separation actions.
-`build_resonance_seed_pool(...)` keeps each layer's original branch states and adds distinct states produced by
-carbene-radical relocation, negative-charge assignment from radical labels, and
-electronic-label refresh.
+`build_resonance_seed_pool(...)` keeps each layer's original branch states and adds
+distinct states produced by carbene-radical relocation. Initialization is the only
+phase that infers electronic labels globally; every later transformation updates its
+affected atoms explicitly.
 
 All primary layers reuse one resonance search session. Raw resonance states,
 Pareto traversal labels, and processed states discovered by an earlier layer are
@@ -238,8 +249,8 @@ Current behavior:
   - `input_order`
 - by default, use limited-discrepancy traversal
 - deduplicate raw states across seeds
-- normalize each raw state with `clean_resonances` and with full
-  `process_resonance`, then deduplicate processed states globally
+- normalize each raw state once with full `process_resonance`, then deduplicate
+  processed states globally
 - keep only candidates that satisfy `validate_omol(...)`
 - if none survive, generate tier-1 deformed-pi recovery seeds and search again
 - if that is still empty, generate tier-2 bond-break recovery seeds and search
@@ -264,23 +275,33 @@ For each atom that OpenBabel classifies as a metal:
 - build `MetalAtomPosition(idx, symbol, element_idx, valence, radical_num, xyz)`
 - remove the metal atom from the organic-core reconstruction path
 
-`metal_radical_inference` is heuristic and does not collapse each valence to a
-single spin state:
+`metal_radical_inference` is a ligand-field heuristic rather than a single-spin
+lookup:
 
 - first estimate the post-oxidation shell occupation from the element's nominal
   `f/d/s/p` electrons and the candidate valence; d-block metals may relax
   residual `s/p` electrons into the d shell up to `d10`
-- then collect nearby donors inside the cutoff, estimate coordination number,
-  geometry, and donor field score, and record the field label as `strong`,
-  `weak`, or `intermediate` for analysis
-- because the strong/weak field thresholds are not decisive enough, radical
-  candidates keep both the low-spin and high-spin ends of the free-ion `d^n`
-  table except for hard geometry rules such as square-planar `d8/d7/d9` and
-  tetrahedral environments
-- this prevents a weak-field label from dropping possible strong-field
-  low-spin states, and prevents a strong-field label from dropping possible
-  weak-field high-spin states; metal search and no-metal target validation then
-  decide which combinations are feasible
+- collect donors using an element-sensitive covalent-radius cutoff capped by
+  the global coordination cutoff, rather than accepting every atom inside one
+  fixed sphere
+- assign donor weights following the coarse spectrochemical ordering (halides
+  weak; O/S weak-to-intermediate; N intermediate; neutral phosphine and carbon
+  donors strong), distance-average them, and apply a geometry correction
+- classify scores below `weak_field_threshold - field_ambiguity_margin` as
+  weak and scores above `strong_field_threshold + field_ambiguity_margin` as
+  strong; the interval between them is explicitly `ambiguous`
+- weak-field states keep the high-spin end, strong-field states keep the
+  low-spin end, and ambiguous states keep both; the side of the interval nearest
+  the score determines the preferred-first order
+- square-planar `d8/d7/d9` retains its geometry-specific low-spin rule
+
+Metal-localized unpaired electrons consume the requested radical budget before
+the no-metal target is built. The organic target is
+`max(0, input radicals - metal-localized radicals)`: excess local metal spins
+may represent antiferromagnetically coupled centers and therefore do not reject
+the state or produce a negative organic target. This lets ambiguous ligand-field
+branches reach reconstruction while preserving the ordinary radical budget when
+it is sufficient.
 
 ### Search-space compression
 
@@ -307,9 +328,12 @@ Each `MetalCandidateState` is scored after attaching a shared
 - the shared organic-core force-field score
 - metal-discordance features derived from organic electronic-state metrics:
   - aromatic atoms and rings
-    - aromatic rings are first marked by OpenBabel and then filtered: if the
-      absolute value of the formal-charge sum over the ring is at least 4, the
-      ring does not count as aromatic and does not contribute aromatic atoms
+    - aromatic rings are first marked by OpenBabel and grouped into fused
+      systems when they share a bond; multi-ring systems are accepted or
+      rejected as a whole instead of applying an independent `4n+2` test to
+      each SSSR ring
+    - if the absolute value of the formal-charge sum over the unique atoms in
+      a ring system is at least 4, the whole system is rejected
     - this prevents heavily charge-separated rings from being treated as
       aromatic only because they formally satisfy a `4n+2` electron count
     - aromatic-ring and aromatic-stability deficits are retained as diagnostic
@@ -317,6 +341,11 @@ Each `MetalCandidateState` is scored after attaching a shared
   - conjugated atoms and bonds
   - maximum conjugated component size
   - charge localization penalty
+    - positive and negative atom penalties carry opposite signs only within a
+      directly bonded charged-atom group; neutral atoms do not bridge distant
+      charges in a large ligand component
+    - this preserves local zwitterionic/resonance compensation without
+      treating remote charges as one delocalized cancellation unit
   - radical localization penalty
 - local metal-coordination discordance checks based on inner-sphere visibility,
   formal charge signs, visible diradicals, and charge-balance exceptions
@@ -416,10 +445,10 @@ Typical discordance structures to record:
    - selection role: mark global charge-assignment discordance between an
      all-zero-valence metal combination and an organic cation state
 
-5. Unsaturated organic cation under a nonnegative metal assignment
-   - if any metal in the current candidate has formal valence zero or positive,
-     and the no-metal organic part contains an unsaturated positively charged
-     non-metal atom, the candidate receives one discordance count
+5. Unsaturated organic cation in a metal candidate
+   - whenever the current candidate contains a metal, and the no-metal organic
+     part contains an unsaturated positively charged non-metal atom, the
+     candidate receives one discordance count regardless of metal valence sign
    - an unsaturated organic cation is a positively charged atom whose bonded
      atom count is smaller than its total valence, or whose total valence is
      smaller than OpenBabel's `GetTypicalValence(atomic_num, total_valence,
@@ -428,11 +457,10 @@ Typical discordance structures to record:
      zero, or if the unsaturated cation's charge plus the formal-charge sum over
      its adjacent non-metal atoms is zero, this feature does not count as
      discordant
-   - chemical meaning: when the metal assignment is zero or positive, an
-     under-saturated organic cation usually means the metal valence has been
-     underestimated and electron demand was left on the organic fragment
-   - selection role: mark global charge-assignment discordance suggesting that
-     a higher metal valence candidate is more plausible
+   - chemical meaning: an under-saturated cation is a pseudo-cation center that
+     can accept electron density from the metal; even a negative-valence metal
+     can transfer charge into it
+   - selection role: mark metal-organic electron-transfer discordance
 
 6. Negative-valence metal without an explicit charge-balance source
    - each negative formal valence metal in the current candidate contributes
@@ -456,15 +484,19 @@ Typical discordance structures to record:
    - a repeated component group contributes one discordance count when its
      members have different net formal charges
    - this identifies a candidate that breaks equivalent ligand fragments into
-     inconsistent oxidation or reduction states
+     discordant oxidation or reduction states
 
-8. Reduced nonaromatic carbon in a visible haptic ring ligand
-   - an organic component must expose at least three carbon atoms to the same
-     metal through the inner-sphere visibility test
-   - each negatively charged, nonaromatic ring carbon in such a component
-     contributes one discordance count
-   - this captures loss of the delocalized ring form under an over-oxidized
-     metal-state candidate without using a global aromaticity reward
+8. Reduced visible haptic carbon ring with a broken pi pattern
+   - a specific five- or six-membered all-carbon ring must expose at least three
+     ring carbons to the same metal through the inner-sphere visibility test
+   - complete aromatic or Kekule pi patterns are not counted, including
+     six-membered rings with three alternating double bonds and five-membered
+     anionic rings with two non-adjacent double bonds
+   - after those complete pi rings are excluded, each negatively charged carbon
+     in the visible haptic ring contributes one discordance count
+   - this captures a metal-valence candidate that reduces a haptic carbon-ring
+     ligand and breaks its delocalized pi form; it is a ring-local structural
+     discordance, not a global aromaticity reward
 
 9. Multiple bond between visible coordinating heteroatoms
    - a bond of order two or greater between two visible inner-sphere
@@ -490,10 +522,30 @@ Final selection keeps the feature layers explicit:
   metal-state list membership are not included
 - compare `metal_discordance_count` first and keep only candidates with the
   lowest discordance score
-- if multiple candidates tie, compare the organic-core force-field score
-  directly; the order of configured metal-state lists is not a chemical score
-- if the organic score is still tied, use `combination_index` as a stable
-  deterministic tie-breaker
+- if multiple candidates tie, first prefer the smaller maximum-conjugated-component,
+  conjugated-atom, and conjugated-bond deficits, in that order
+- then prefer the candidate with the smaller aromatic-atom coverage deficit,
+  followed by the smaller aromatic-ring deficit
+- if those coverage metrics tie, prefer the smaller aromatic-stability deficit
+- if those diagnostics also tie, prefer the smaller organic radical-localization
+  penalty
+- within candidates tied on every preceding field, compare each organic
+  charge-localization penalty with the group minimum: only a difference greater
+  than or equal to
+  `metal_scoring.charge_localization_selection_margin` participates in
+  selection; smaller differences are treated as tied and defer to the
+  force-field score. The default margin is `0.3`
+- only after the structural and electronic-state scores tie, compare the
+  organic-core force-field score; the order of configured metal-state lists is
+  not a chemical score
+- if all chemical scores tie, use `combination_index` as a stable deterministic
+  tie-breaker
+- The recorded metal-candidate `selection_key` is ordered as:
+  `(metal_discordance_count, max_conjugated_component_deficit,
+  conjugated_atom_deficit, conjugated_bond_deficit, aromatic_atom_deficit,
+  aromatic_ring_deficit, aromatic_stability_deficit,
+  radical_localization_penalty, charge_localization_margin_exceeded,
+  force_field_score, combination_index)`.
 - selected candidates still record organic electronic-state metrics used to
   derive discordance, but the removed metal-environment scoring metrics no
   longer exist in the runtime metadata
@@ -614,7 +666,7 @@ Past backend divergences that must not be reintroduced:
 
 3. No-metal resonance selection
    - C++ must use the same one-pass full selection key as Python:
-     `(-aromatic_stability, -aromatic_atom_count,
+     `(-aromatic_atom_count, -aromatic_ring_count, -aromatic_stability,
      -adjusted_max_conjugated_component_size,
      -adjusted_conjugated_atom_count, -adjusted_conjugated_bond_count, score)`.
    - Do not reintroduce topology-first filtering that delays UFF scoring until

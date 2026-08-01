@@ -5,6 +5,7 @@
 #include "molgr/state.h"
 #include "molgr/utils/consts.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 #include "molgr/vendor/openbabel_threading.h"
@@ -13,6 +14,7 @@
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
 #include <openbabel/obconversion.h>
+#include <openbabel/obfunctions.h>
 #include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
@@ -32,6 +34,22 @@ namespace
     constexpr double kUffLiteBranchBoundStepSlack = 25.0;
     constexpr double kKcalToKj = 4.184;
     constexpr double kDegreesToRadians = 3.14159265358979323846 / 180.0;
+
+    bool ShouldRegenerateUnresolvedTarget(
+        const OpenBabel::OBAtom &atom,
+        int post_target_valence)
+    {
+        const int atomic_num = atom.GetAtomicNum();
+        const int typical_valence = static_cast<int>(OpenBabel::GetTypicalValence(
+            atomic_num,
+            post_target_valence,
+            atom.GetFormalCharge()));
+        return molgr::utils::GetUnpairedElectronCount(atom) == 1 &&
+               (atomic_num == 6 || atomic_num == 7 || atomic_num == 15) &&
+               atom.GetFormalCharge() == 0 &&
+               molgr::utils::GetLonePairCount(atom) == 0 &&
+               std::max(0, typical_valence - post_target_valence) == 2;
+    }
 
     using BondOrderOverrides = std::map<std::pair<int, int>, int>;
 
@@ -403,20 +421,20 @@ namespace
         const double radical_penalty_before =
             RadicalPenaltyForAtom(
                 old_atom->GetAtomicNum(),
-                old_atom->GetSpinMultiplicity(),
+                molgr::utils::GetUnpairedElectronCount(*old_atom),
                 old_atom->GetHvyDegree()) +
             RadicalPenaltyForAtom(
                 new_atom->GetAtomicNum(),
-                new_atom->GetSpinMultiplicity(),
+                molgr::utils::GetUnpairedElectronCount(*new_atom),
                 new_atom->GetHvyDegree());
         const double radical_penalty_after =
             RadicalPenaltyForAtom(
                 old_atom->GetAtomicNum(),
-                old_atom->GetSpinMultiplicity() - 1,
+                molgr::utils::GetUnpairedElectronCount(*old_atom) - 1,
                 old_atom->GetHvyDegree()) +
             RadicalPenaltyForAtom(
                 new_atom->GetAtomicNum(),
-                new_atom->GetSpinMultiplicity() + 1,
+                molgr::utils::GetUnpairedElectronCount(*new_atom) + 1,
                 new_atom->GetHvyDegree());
         const double radical_penalty_gain = radical_penalty_before - radical_penalty_after;
         const double conjugation_gain =
@@ -551,7 +569,11 @@ namespace
             key.push_back(',');
             key += std::to_string(std::get<2>(atom_key));
             key.push_back(',');
-            key.push_back(std::get<3>(atom_key) ? '1' : '0');
+            key += std::to_string(std::get<3>(atom_key));
+            key.push_back(',');
+            key.push_back(std::get<4>(atom_key) ? '1' : '0');
+            key.push_back(',');
+            key.push_back(std::get<5>(atom_key) ? '1' : '0');
             key.push_back(';');
         }
 
@@ -616,7 +638,9 @@ namespace molgr
                 state_key.atom_keys.emplace_back(
                     atom.GetAtomicNum(),
                     atom.GetFormalCharge(),
-                    atom.GetSpinMultiplicity(),
+                    molgr::utils::GetUnpairedElectronCount(atom),
+                    molgr::utils::GetLonePairCount(atom),
+                    molgr::utils::HasUnresolvedTwoElectronCenter(atom),
                     molgr::vendor::openbabel_threading::AtomIsAromatic(
                         const_cast<OpenBabel::OBAtom &>(atom)));
             }
@@ -669,7 +693,8 @@ namespace molgr
         ResonanceStateKey IncrementResonanceStateKey(
             const ResonanceStateKey &state_key,
             const ResonanceBondIndexMap &bond_index_map,
-            const std::tuple<int, int, int> &idxs)
+            const std::tuple<int, int, int> &idxs,
+            bool target_unresolved)
         {
             auto next_state_key = state_key;
 
@@ -679,7 +704,15 @@ namespace molgr
             auto atom1 = next_state_key.atom_keys[atom1_idx];
             auto atom3 = next_state_key.atom_keys[atom3_idx];
             std::get<2>(atom1) -= 1;
-            std::get<2>(atom3) += 1;
+            if (target_unresolved)
+            {
+                std::get<2>(atom3) = 0;
+                std::get<4>(atom3) = true;
+            }
+            else
+            {
+                std::get<2>(atom3) += 1;
+            }
             next_state_key.atom_keys[atom1_idx] = atom1;
             next_state_key.atom_keys[atom3_idx] = atom3;
 
@@ -701,6 +734,10 @@ namespace molgr
             return next_state_key;
         }
 
+        // Electron bookkeeping: enumerate migration of exactly one real
+        // monoradical across an adjacent pi bond. When a monoradical target becomes
+        // a neutral C/N/P two-electron deficit after losing its pi bond, defer its
+        // resulting occupancy instead of forcing a triplet state.
         std::vector<IndexedResonanceTraversalMove> EnumerateOneStepResonanceMoves(
             const OpenBabel::OBMol &mol,
             const ResonanceStateKey &state_key,
@@ -729,15 +766,24 @@ namespace molgr
                     continue;
                 }
 
-                if (atom1->GetSpinMultiplicity() == 1 &&
-                    atom3->GetSpinMultiplicity() == 0 &&
+                if (molgr::utils::GetUnpairedElectronCount(*atom1) == 1 &&
+                    molgr::utils::GetUnpairedElectronCount(*atom3) <= 1 &&
+                    !molgr::utils::HasUnresolvedTwoElectronCenter(*atom3) &&
                     bond1->GetBondOrder() <= 2 &&
                     bond2->GetBondOrder() >= 2)
                 {
+                    const int post_target_valence =
+                        static_cast<int>(atom3->GetTotalValence()) - 1;
+                    const bool target_unresolved =
+                        ShouldRegenerateUnresolvedTarget(*atom3, post_target_valence);
                     result.push_back(
                         IndexedResonanceTraversalMove{
                             idxs,
-                            IncrementResonanceStateKey(state_key, bond_index_map, idxs),
+                            IncrementResonanceStateKey(
+                                state_key,
+                                bond_index_map,
+                                idxs,
+                                target_unresolved),
                         });
                 }
             }
@@ -745,6 +791,10 @@ namespace molgr
             return result;
         }
 
+        // Electron bookkeeping: move one real unpaired electron from the source
+        // to the target while swapping the coupled bond-order pattern by one.
+        // A newly formed neutral C/N/P two-electron deficit is regenerated as an
+        // unresolved center so validation can choose singlet versus triplet.
         OpenBabel::OBMol MaterializeOneStepResonance(
             const OpenBabel::OBMol &mol,
             const std::tuple<int, int, int> &idxs)
@@ -761,8 +811,20 @@ namespace molgr
 
             bond1->SetBondOrder(bond1->GetBondOrder() + 1);
             bond2->SetBondOrder(bond2->GetBondOrder() - 1);
-            atom1->SetSpinMultiplicity(atom1->GetSpinMultiplicity() - 1);
-            atom3->SetSpinMultiplicity(atom3->GetSpinMultiplicity() + 1);
+            molgr::utils::SetUnpairedElectronCount(*atom1, molgr::utils::GetUnpairedElectronCount(*atom1) - 1);
+            const int target_unpaired = molgr::utils::GetUnpairedElectronCount(*atom3);
+            const int target_valence = static_cast<int>(atom3->GetTotalValence());
+            const bool target_unresolved =
+                ShouldRegenerateUnresolvedTarget(*atom3, target_valence);
+            if (target_unresolved)
+            {
+                molgr::utils::SetUnpairedElectronCount(*atom3, 0);
+                molgr::utils::SetUnresolvedTwoElectronCenter(*atom3, true);
+            }
+            else
+            {
+                molgr::utils::SetUnpairedElectronCount(*atom3, target_unpaired + 1);
+            }
             return new_mol;
         }
 
@@ -783,8 +845,20 @@ namespace molgr
 
             bond1->SetBondOrder(bond1->GetBondOrder() + 1);
             bond2->SetBondOrder(bond2->GetBondOrder() - 1);
-            atom1->SetSpinMultiplicity(atom1->GetSpinMultiplicity() - 1);
-            atom3->SetSpinMultiplicity(atom3->GetSpinMultiplicity() + 1);
+            molgr::utils::SetUnpairedElectronCount(*atom1, molgr::utils::GetUnpairedElectronCount(*atom1) - 1);
+            const int target_unpaired = molgr::utils::GetUnpairedElectronCount(*atom3);
+            const int target_valence = static_cast<int>(atom3->GetTotalValence());
+            const bool target_unresolved =
+                ShouldRegenerateUnresolvedTarget(*atom3, target_valence);
+            if (target_unresolved)
+            {
+                molgr::utils::SetUnpairedElectronCount(*atom3, 0);
+                molgr::utils::SetUnresolvedTwoElectronCenter(*atom3, true);
+            }
+            else
+            {
+                molgr::utils::SetUnpairedElectronCount(*atom3, target_unpaired + 1);
+            }
             return new_mol;
         }
 
@@ -876,21 +950,50 @@ namespace molgr
                 remaining_steps);
         }
 
+        // Electron bookkeeping: normalize classified radical/active-lone-pair
+        // states. Deferred 2e centers normally survive until validation, but a
+        // remaining charge deficit of magnitude >=2 may consume one directly as
+        // +/-2. No stage derives radical occupancy from marker parity.
         std::tuple<OpenBabel::OBMol, int, bool> ProcessResonanceDetailed(
             const OpenBabel::OBMol &mol,
-            int charge)
+            int charge,
+            int total_charge,
+            int total_radical_electrons)
         {
             auto machine = molgr::state::OmolStateMachine(
                 std::make_shared<OpenBabel::OBMol>(
                     molgr::utils::CloneMolTopologyOnly(mol)),
-                charge);
+                charge,
+                {},
+                {},
+                0,
+                total_charge,
+                total_radical_electrons);
             bool hit = false;
-            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::Eliminate13Dipole) || hit;
-            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateCPLikeRadicalAnion) || hit;
+            hit = machine.RunOmolChargeStage(
+                      std::nullopt,
+                      molgr::reconstruct::Eliminate13DipolePostive) ||
+                  hit;
+            hit = machine.RunOmolChargeStage(
+                      std::nullopt,
+                      molgr::reconstruct::EliminatePossibleCPLikeRadicalAnion,
+                      machine.total_radical_electrons) ||
+                  hit;
+            hit = machine.RunOmolStage(
+                      std::nullopt,
+                      molgr::reconstruct::CleanPossible13Dipole,
+                      machine.given_charge,
+                      machine.total_radical_electrons) ||
+                  hit;
+            hit = machine.RunOmolStage(
+                      std::nullopt,
+                      molgr::reconstruct::CleanNeighborRadicals,
+                      machine.given_charge,
+                      machine.total_radical_electrons) ||
+                  hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateNegativeCharges) || hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
-            hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanNeighborRadicals) || hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanResonances) || hit;
             return std::make_tuple(
                 molgr::utils::CloneMolTopologyOnly(*machine.omol),
@@ -898,9 +1001,17 @@ namespace molgr
                 hit);
         }
 
-        std::pair<OpenBabel::OBMol, int> ProcessResonance(const OpenBabel::OBMol &mol, int charge)
+        std::pair<OpenBabel::OBMol, int> ProcessResonance(
+            const OpenBabel::OBMol &mol,
+            int charge,
+            int total_charge,
+            int total_radical_electrons)
         {
-            auto processed = ProcessResonanceDetailed(mol, charge);
+            auto processed = ProcessResonanceDetailed(
+                mol,
+                charge,
+                total_charge,
+                total_radical_electrons);
             return {std::get<0>(processed), std::get<1>(processed)};
         }
     }

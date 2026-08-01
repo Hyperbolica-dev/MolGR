@@ -3,6 +3,7 @@
 #include "molgr/stages/internal_helpers.h"
 
 #include "molgr/utils/logger.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
@@ -31,19 +32,45 @@ namespace molgr
             return atom_indices;
         }
 
+        // Electron bookkeeping: fixed atoms contribute only real unpaired
+        // electrons to the radical budget. Resolve deferred centers deterministically
+        // as triplet (2,0) or singlet (0,1); active lone pairs never count as spin.
+        // Reject an impossible budget before mutating any center.
         bool ValidateOmol(OBMol &mol, int total_charge, int total_radical, bool emit_warnings)
         {
             int charge_sum = 0;
             int radical_sum = 0;
-            int radical_sum_singlet = 0;
+            std::vector<OpenBabel::OBAtom *> unresolved_atoms;
 
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OpenBabel::OBAtom *atom = &(*atom_iter);
+                if (molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+                {
+                    unresolved_atoms.push_back(atom);
+                }
                 charge_sum += atom->GetFormalCharge();
-                int spin = atom->GetSpinMultiplicity();
-                radical_sum += spin;
-                radical_sum_singlet += (spin % 2);
+                if (!molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+                {
+                    radical_sum += molgr::utils::GetUnpairedElectronCount(*atom);
+                }
+            }
+
+            // Resolve the specific open-shell anion form ``C-`` + one radical
+            // only when both global budgets require it. Generic charge stages
+            // intentionally never partially consume an unresolved marker.
+            if (total_charge - charge_sum == -1 &&
+                !unresolved_atoms.empty() &&
+                total_radical - radical_sum == 1)
+            {
+                auto *atom = unresolved_atoms.front();
+                molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
+                molgr::utils::SetUnpairedElectronCount(*atom, 1);
+                molgr::utils::SetLonePairCount(*atom, 0);
+                atom->SetFormalCharge(-1);
+                --charge_sum;
+                ++radical_sum;
+                unresolved_atoms.erase(unresolved_atoms.begin());
             }
 
             if (charge_sum != total_charge)
@@ -55,18 +82,37 @@ namespace molgr
                 return false;
             }
 
-            if (radical_sum_singlet == total_radical)
-            {
-                radical_sum = radical_sum_singlet;
-            }
-
-            if (radical_sum != total_radical)
+            const int required_unpaired_electrons = total_radical - radical_sum;
+            if (required_unpaired_electrons < 0 ||
+                required_unpaired_electrons % 2 != 0 ||
+                required_unpaired_electrons >
+                    2 * static_cast<int>(unresolved_atoms.size()))
             {
                 if (emit_warnings)
                 {
-                    LOG_WARN("[Validate] Radical mismatch. Target: " << total_radical << ", Actual: " << radical_sum);
+                    LOG_WARN("[Validate] Radical budget cannot resolve "
+                             << unresolved_atoms.size()
+                             << " two-electron centers. Target: " << total_radical
+                             << ", Fixed: " << radical_sum);
                 }
                 return false;
+            }
+
+            const int triplet_center_count = required_unpaired_electrons / 2;
+            for (std::size_t index = 0; index < unresolved_atoms.size(); ++index)
+            {
+                auto &atom = *unresolved_atoms[index];
+                molgr::utils::SetUnresolvedTwoElectronCenter(atom, false);
+                if (static_cast<int>(index) < triplet_center_count)
+                {
+                    molgr::utils::SetUnpairedElectronCount(atom, 2);
+                    molgr::utils::SetLonePairCount(atom, 0);
+                }
+                else
+                {
+                    molgr::utils::SetUnpairedElectronCount(atom, 0);
+                    molgr::utils::SetLonePairCount(atom, 1);
+                }
             }
             return true;
         }
@@ -182,12 +228,30 @@ namespace molgr
 
             while (true)
             {
-                auto matches2 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_5);
+                auto matches2 = molgr::smarts::FindAll(
+                    mol,
+                    molgr::smarts::PatternId::PRE_CLEAN_HYPER_PI_BOND);
                 if (matches2.empty())
                 {
                     break;
                 }
-                const auto &idxs = matches2.front();
+                const auto &match = matches2.front();
+                OBBond *bond = mol.GetBond(match[0], match[1]);
+                if (bond)
+                {
+                    bond->SetBondOrder(1);
+                    hit = true;
+                }
+            }
+
+            while (true)
+            {
+                auto matches3 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_5);
+                if (matches3.empty())
+                {
+                    break;
+                }
+                const auto &idxs = matches3.front();
                 int n_idx = -1, c_idx = -1;
                 for (int idx : idxs)
                 {
@@ -218,12 +282,12 @@ namespace molgr
 
             while (true)
             {
-                auto matches3 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_4);
-                if (matches3.empty())
+                auto matches4 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_BCP_RING_4);
+                if (matches4.empty())
                 {
                     break;
                 }
-                const auto &idxs = matches3.front();
+                const auto &idxs = matches4.front();
                 int amine_n = -1, butyl_c = -1;
                 for (int idx : idxs)
                 {
@@ -253,12 +317,12 @@ namespace molgr
 
             while (true)
             {
-                auto matches4 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_SI_O_F);
-                if (matches4.empty())
+                auto matches5 = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::PRE_CLEAN_SI_O_F);
+                if (matches5.empty())
                 {
                     break;
                 }
-                const auto &match = matches4.front();
+                const auto &match = matches5.front();
                 OBBond *bond = mol.GetBond(match[0], match[1]);
                 if (bond)
                 {

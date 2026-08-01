@@ -71,10 +71,11 @@ void bind_stages(py::module_ &m)
         return molgr::reconstruct::ValidateOmol(*mol, total_charge, total_radical);
     };
 
-    const auto eliminate_1_3_dipole_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
+    const auto eliminate_1_3_dipole_postive_ptr = [](intptr_t mol_ptr,
+                                                       int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::Eliminate13Dipole(*mol, given_charge);
+        const bool hit = molgr::reconstruct::Eliminate13DipolePostive(*mol, given_charge);
         return py::make_tuple(given_charge, hit);
     };
 
@@ -92,10 +93,16 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_cp_like_radical_anion_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
+    const auto eliminate_possible_cp_like_radical_anion_ptr = [](
+                                                                 intptr_t mol_ptr,
+                                                                 int given_charge,
+                                                                 int total_radical_electrons) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::EliminateCPLikeRadicalAnion(*mol, given_charge);
+        const bool hit = molgr::reconstruct::EliminatePossibleCPLikeRadicalAnion(
+            *mol,
+            given_charge,
+            total_radical_electrons);
         return py::make_tuple(given_charge, hit);
     };
 
@@ -134,26 +141,52 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
-    const auto assign_negative_charges_from_radicals_ptr = [](intptr_t mol_ptr,
-                                                               int remaining_charge) -> py::tuple
-    {
-        auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::AssignNegativeChargesFromRadicals(
-            *mol,
-            remaining_charge);
-        return py::make_tuple(remaining_charge, hit);
-    };
-
     const auto clean_resonances_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         return molgr::reconstruct::CleanResonances(*mol);
     };
 
-    const auto clean_neighbor_radicals_ptr = [](intptr_t mol_ptr)
+    const auto clean_resonances_14_ptr = [](intptr_t mol_ptr)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        return molgr::reconstruct::CleanNeighborRadicals(*mol);
+        return molgr::reconstruct::CleanResonances14(*mol);
+    };
+
+    const auto clean_resonances_16_ptr = [](intptr_t mol_ptr)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::CleanResonances16(*mol);
+    };
+
+    const auto clean_resonances_17_ptr = [](intptr_t mol_ptr)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::CleanResonances17(*mol);
+    };
+
+    const auto clean_neighbor_radicals_ptr = [](
+                                                  intptr_t mol_ptr,
+                                                  int given_charge,
+                                                  int total_radical_electrons)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::CleanNeighborRadicals(
+            *mol,
+            given_charge,
+            total_radical_electrons);
+    };
+
+    const auto clean_possible_1_3_dipole_ptr = [](
+                                                  intptr_t mol_ptr,
+                                                  int given_charge,
+                                                  int total_radical_electrons)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::CleanPossible13Dipole(
+            *mol,
+            given_charge,
+            total_radical_electrons);
     };
 
     const auto clean_carbene_neighbor_unsaturated_ptr = [](intptr_t mol_ptr)
@@ -252,10 +285,10 @@ Args:
         py::arg("atom_idx"));
 
     m_eliminate.def(
-        "eliminate_1_3_dipole_ptr",
-        eliminate_1_3_dipole_ptr,
+        "eliminate_1_3_dipole_postive_ptr",
+        eliminate_1_3_dipole_postive_ptr,
         R"pbdoc(
-Apply eliminate.eliminate_1_3_dipole to an existing OBMol.
+Apply eliminate.eliminate_1_3_dipole_postive to an existing OBMol.
 
 Args:
     mol_ptr: int address of OpenBabel::OBMol
@@ -291,17 +324,19 @@ Args:
         py::arg("given_charge"));
 
     m_eliminate.def(
-        "eliminate_cp_like_radical_anion_ptr",
-        eliminate_cp_like_radical_anion_ptr,
+        "eliminate_possible_cp_like_radical_anion_ptr",
+        eliminate_possible_cp_like_radical_anion_ptr,
         R"pbdoc(
-Apply eliminate.eliminate_cp_like_radical_anion to an existing OBMol.
+Apply eliminate.eliminate_possible_cp_like_radical_anion to an existing OBMol.
 
 Args:
     mol_ptr: int address of OpenBabel::OBMol
     given_charge: charge deficit to be updated in place and returned
+    total_radical_electrons: target number of unpaired electrons to preserve
 )pbdoc",
         py::arg("mol_ptr"),
-        py::arg("given_charge"));
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons"));
 
     m_eliminate.def(
         "eliminate_nnn_ptr",
@@ -370,19 +405,6 @@ Args:
         py::arg("mol_ptr"),
         py::arg("given_charge"));
 
-    m_eliminate.def(
-        "assign_negative_charges_from_radicals_ptr",
-        assign_negative_charges_from_radicals_ptr,
-        R"pbdoc(
-Convert selected single radicals into anions on an existing OBMol.
-
-Args:
-    mol_ptr: int address of OpenBabel::OBMol
-    remaining_charge: charge budget to be updated in place and returned
-)pbdoc",
-        py::arg("mol_ptr"),
-        py::arg("remaining_charge"));
-
     m_clean.def(
         "clean_resonances_ptr",
         clean_resonances_ptr,
@@ -392,12 +414,48 @@ Apply clean.clean_resonances to an existing OBMol.
         py::arg("mol_ptr"));
 
     m_clean.def(
+        "clean_resonances_14_ptr",
+        clean_resonances_14_ptr,
+        R"pbdoc(
+Apply clean.clean_resonances_14 to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"));
+
+    m_clean.def(
+        "clean_resonances_16_ptr",
+        clean_resonances_16_ptr,
+        R"pbdoc(
+Apply clean.clean_resonances_16 to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"));
+
+    m_clean.def(
+        "clean_resonances_17_ptr",
+        clean_resonances_17_ptr,
+        R"pbdoc(
+Apply clean.clean_resonances_17 to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"));
+
+    m_clean.def(
+        "clean_possible_1_3_dipole_ptr",
+        clean_possible_1_3_dipole_ptr,
+        R"pbdoc(
+Convert an eligible excess-radical fragment into a neutral 1,3-dipole.
+)pbdoc",
+        py::arg("mol_ptr"),
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons"));
+
+    m_clean.def(
         "clean_neighbor_radicals_ptr",
         clean_neighbor_radicals_ptr,
         R"pbdoc(
 Apply clean.clean_neighbor_radicals to an existing OBMol.
 )pbdoc",
-        py::arg("mol_ptr"));
+        py::arg("mol_ptr"),
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons"));
 
     m_clean.def(
         "clean_carbene_neighbor_unsaturated_ptr",

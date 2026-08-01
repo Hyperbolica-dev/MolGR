@@ -1,6 +1,7 @@
 #include "molgr/utils/force_field.h"
 
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/lru_cache.h"
 #include "molgr/utils/perf.h"
 #include "molgr/vendor/forcefielduff.h"
@@ -176,6 +177,7 @@ namespace
     std::string BuildExactForceFieldSetupKey(const OpenBabel::OBMol &mol)
     {
         OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+        molgr::vendor::openbabel_threading::EnsureHybridizationPerceived(mutable_mol);
         std::string key;
         key.reserve(
             32 +
@@ -191,7 +193,7 @@ namespace
             key.push_back(',');
             AppendValue(key, atom_iter->GetFormalCharge());
             key.push_back(',');
-            AppendValue(key, atom_iter->GetSpinMultiplicity());
+            AppendValue(key, molgr::utils::GetUnpairedElectronCount(*atom_iter));
             key.push_back(',');
             AppendValue(key, static_cast<int>(atom_iter->GetHyb()));
             key.push_back(',');
@@ -445,6 +447,7 @@ namespace molgr
         std::string BuildScoreKey(const OpenBabel::OBMol &mol)
         {
             OpenBabel::OBMol &mutable_mol = MutableMol(mol);
+            molgr::vendor::openbabel_threading::EnsureHybridizationPerceived(mutable_mol);
             std::string key;
             key.reserve(
                 32 +
@@ -461,7 +464,7 @@ namespace molgr
                 key.push_back(',');
                 AppendValue(key, atom.GetFormalCharge());
                 key.push_back(',');
-                AppendValue(key, atom.GetSpinMultiplicity());
+                AppendValue(key, molgr::utils::GetUnpairedElectronCount(atom));
                 key.push_back(',');
                 AppendValue(key, static_cast<int>(atom.GetHyb()));
                 key.push_back(',');

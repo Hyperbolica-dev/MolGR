@@ -43,6 +43,7 @@ from openbabel import pybel
 from rdkit import Chem, RDLogger
 
 from molgr.fallback.utils.consts import NON_METAL_DICT
+from molgr.fallback.utils.electrons import set_unpaired_electron_count
 from molgr.fallback.utils.force_field import force_field_evaluation
 from molgr.interface import xyz_to_rdmol
 from molgr.utils.equivalence import check_equivalence
@@ -632,7 +633,7 @@ def _rdkit_to_pybel_with_coords(mol: Chem.Mol) -> pybel.Molecule:
             obatom = obmol.NewAtom()
             obatom.SetAtomicNum(atom.GetAtomicNum())
             obatom.SetFormalCharge(atom.GetFormalCharge())
-            obatom.SetSpinMultiplicity(atom.GetNumRadicalElectrons())
+            set_unpaired_electron_count(obatom, atom.GetNumRadicalElectrons())
             position = conformer.GetAtomPosition(atom_idx - 1)
             obatom.SetVector(float(position.x), float(position.y), float(position.z))
         for bond in mol.GetBonds():

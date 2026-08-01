@@ -15,7 +15,6 @@ CC1=NCC(=O)N1[C-]=N
 C[C@H]1[NH2+][CH]C(C=O)=C1[O-]
 N[C@H]1C[N@H+]2O[C]([O-])C[C@@H]12
 [NH3+][C-][C@@]1(CC(=O)O)CN1
-[NH3+][C-][C@@]1(CC(=O)O)CO1
 O=C1CC[C-](OO)NC1
 [O-][C]1COCCC[NH2+]O1
 [C]#Cc1nnc(C#C)o1

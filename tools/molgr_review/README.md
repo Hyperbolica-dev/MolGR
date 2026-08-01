@@ -14,13 +14,22 @@ uv run python tools/molgr_review/prepare_tmqmg_queue.py \
   --xyz-dir /path/to/tmQMg_xyz/xyz
 ```
 
-Import the queue and start the service:
+The preparation command updates both `tmqmg_cases.csv` and `review.sqlite` by
+default. `--ids`, row ranges, and limits merge only the refreshed scope into the
+existing queue. Pass `--no-sync-review-db` only when producing artifacts for a
+database that must remain unchanged.
+
+For an external or manually generated complete queue, import explicitly:
 
 ```bash
 uv run python tools/molgr_review/import_cases.py \
   --input .local/molgr_review/tmqmg/tmqmg_cases.csv \
   --db .local/molgr_review/review.sqlite
+```
 
+Start the service:
+
+```bash
 uv run python tools/molgr_review/server.py \
   --db .local/molgr_review/review.sqlite \
   --xyz-dir /path/to/tmQMg_xyz/xyz \

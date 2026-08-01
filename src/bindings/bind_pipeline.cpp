@@ -9,6 +9,7 @@
 #include "molgr/stages/eliminate.h"
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/preprocess.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/metals/scoring.h"
 #include "molgr/utils/metals/search.h"
@@ -414,18 +415,21 @@ namespace molgr
                                     const_cast<OpenBabel::OBMol &>(candidate.no_metal_state->Mol());
                                 FOR_ATOMS_OF_MOL(atom_iter, no_metal_mol)
                                 {
-                                    py::tuple atom_item(8);
+                                    py::tuple atom_item(10);
                                     atom_item[0] = static_cast<int>(atom_iter->GetAtomicNum());
                                     atom_item[1] = atom_iter->GetFormalCharge();
-                                    atom_item[2] = atom_iter->GetSpinMultiplicity();
-                                    atom_item[3] = atom_iter->GetHyb();
-                                    atom_item[4] = static_cast<long long>(
-                                        std::llround(atom_iter->GetX() * 1000000.0));
-                                    atom_item[5] = static_cast<long long>(
-                                        std::llround(atom_iter->GetY() * 1000000.0));
+                                    atom_item[2] = molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                                    atom_item[3] = molgr::utils::GetLonePairCount(*atom_iter);
+                                    atom_item[4] =
+                                        molgr::utils::HasUnresolvedTwoElectronCenter(*atom_iter);
+                                    atom_item[5] = atom_iter->GetHyb();
                                     atom_item[6] = static_cast<long long>(
+                                        std::llround(atom_iter->GetX() * 1000000.0));
+                                    atom_item[7] = static_cast<long long>(
+                                        std::llround(atom_iter->GetY() * 1000000.0));
+                                    atom_item[8] = static_cast<long long>(
                                         std::llround(atom_iter->GetZ() * 1000000.0));
-                                    atom_item[7] = atom_iter->IsAromatic();
+                                    atom_item[9] = atom_iter->IsAromatic();
                                     atom_signature.append(std::move(atom_item));
                                 }
                                 item["no_metal_atom_signature"] = std::move(atom_signature);
@@ -478,23 +482,38 @@ namespace molgr
                             else if (const auto *selection_key =
                                          std::get_if<std::string>(&selection_key_it->second))
                             {
-                                py::tuple parsed_selection_key(3);
-                                std::size_t first_comma = selection_key->find(',');
-                                std::size_t second_comma = first_comma == std::string::npos
-                                                               ? std::string::npos
-                                                               : selection_key->find(',', first_comma + 1);
-                                if (first_comma != std::string::npos && second_comma != std::string::npos)
+                                std::vector<std::string> selection_parts;
+                                std::size_t part_start = 0;
+                                while (part_start <= selection_key->size())
                                 {
-                                    parsed_selection_key[0] =
-                                        std::strtod(selection_key->substr(0, first_comma).c_str(), nullptr);
-                                    parsed_selection_key[1] =
-                                        std::strtod(
-                                            selection_key
-                                                ->substr(first_comma + 1, second_comma - first_comma - 1)
-                                                .c_str(),
-                                            nullptr);
-                                    parsed_selection_key[2] =
-                                        std::atoi(selection_key->substr(second_comma + 1).c_str());
+                                    const std::size_t comma = selection_key->find(',', part_start);
+                                    if (comma == std::string::npos)
+                                    {
+                                        selection_parts.push_back(selection_key->substr(part_start));
+                                        break;
+                                    }
+                                    selection_parts.push_back(
+                                        selection_key->substr(part_start, comma - part_start));
+                                    part_start = comma + 1;
+                                }
+                                if (selection_parts.size() >= 2)
+                                {
+                                    py::tuple parsed_selection_key(selection_parts.size());
+                                    for (std::size_t part_index = 0;
+                                         part_index < selection_parts.size();
+                                         ++part_index)
+                                    {
+                                        if (part_index + 1 == selection_parts.size())
+                                        {
+                                            parsed_selection_key[part_index] =
+                                                std::atoi(selection_parts[part_index].c_str());
+                                        }
+                                        else
+                                        {
+                                            parsed_selection_key[part_index] =
+                                                std::strtod(selection_parts[part_index].c_str(), nullptr);
+                                        }
+                                    }
                                     item["selection_key"] = std::move(parsed_selection_key);
                                 }
                                 else
@@ -516,16 +535,153 @@ namespace molgr
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_aromatic_stability_score");
                             item["organic_conjugated_atom_count"] =
                                 molgr::metal::scoring::MetadataInt(candidate, "organic_conjugated_atom_count");
+                            item["organic_conjugated_bond_count"] =
+                                molgr::metal::scoring::MetadataInt(candidate, "organic_conjugated_bond_count");
                             item["organic_max_conjugated_component_size"] =
                                 molgr::metal::scoring::MetadataInt(candidate, "organic_max_conjugated_component_size");
+                            item["organic_hyperconjugative_donor_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_hyperconjugative_donor_count");
+                            item["organic_hyperconjugation_score"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_hyperconjugation_score");
+                            item["organic_hyperconjugation_max_score"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_hyperconjugation_max_score");
+                            item["organic_hyperconjugation_deficit"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_hyperconjugation_deficit");
                             item["organic_charge_localization_penalty"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_charge_localization_penalty");
+                            item["organic_charge_localization_component_cancellation"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "organic_charge_localization_component_cancellation");
+                            item["organic_charge_localization_polarity_inversion_penalty"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "organic_charge_localization_polarity_inversion_penalty");
+                            item["organic_charge_localization_reference_penalty"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "organic_charge_localization_reference_penalty");
+                            item["organic_charge_localization_selection_margin"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "organic_charge_localization_selection_margin");
+                            item["organic_charge_localization_margin_difference"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "organic_charge_localization_margin_difference");
+                            item["organic_charge_localization_margin_exceeded"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_charge_localization_margin_exceeded") != 0;
+                            item["organic_charge_localization_reference_metal_valence_max_delta"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_charge_localization_reference_metal_valence_max_delta");
+                            item["organic_charge_localization_metal_valence_jump_exceeded"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "organic_charge_localization_metal_valence_jump_exceeded") != 0;
                             item["organic_radical_localization_penalty"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "organic_radical_localization_penalty");
                             item["metal_discordance_structural_count"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "metal_discordance_structural_count");
                             item["metal_discordance_count"] =
                                 molgr::metal::scoring::MetadataDouble(candidate, "metal_discordance_count");
+                            item["metal_discordance_inner_visible_diradical_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_inner_visible_diradical_count");
+                            item["metal_discordance_excess_visible_singlet_two_electron_center_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_excess_visible_singlet_two_electron_center_count");
+                            item["metal_discordance_bent_cumulated_ring_allene_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_bent_cumulated_ring_allene_count");
+                            item["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_outer_or_invisible_adjacent_double_charge_count");
+                            item["metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count");
+                            item["metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count");
+                            item["metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count");
+                            item["metal_discordance_inner_visible_adjacent_carbanion_pair_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_inner_visible_adjacent_carbanion_pair_count");
+                            item["metal_discordance_inner_visible_conjugated_carbanion_pair_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_inner_visible_conjugated_carbanion_pair_count");
+                            item["metal_discordance_inner_visible_same_sign_charge_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_inner_visible_same_sign_charge_count");
+                            item["metal_discordance_negative_metal_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_negative_metal_count");
+                            item["metal_discordance_negative_metal_penalty"] =
+                                molgr::metal::scoring::MetadataDouble(
+                                    candidate,
+                                    "metal_discordance_negative_metal_penalty");
+                            item["metal_discordance_zero_valent_metals_with_organic_cation_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_zero_valent_metals_with_organic_cation_count");
+                            item["metal_discordance_unsaturated_organic_cation_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_unsaturated_organic_cation_count");
+                            for (const char *exception_key : {
+                                     "metal_discordance_negative_metal_outer_sphere_cation_exception",
+                                     "metal_discordance_negative_metal_positive_metal_counterion_exception"})
+                            {
+                                const auto exception_it = candidate.metadata.find(exception_key);
+                                if (exception_it == candidate.metadata.end())
+                                {
+                                    item[exception_key] = py::none();
+                                }
+                                else if (const auto *exception_value =
+                                             std::get_if<bool>(&exception_it->second))
+                                {
+                                    item[exception_key] = *exception_value;
+                                }
+                                else
+                                {
+                                    item[exception_key] = py::none();
+                                }
+                            }
+                            item["metal_discordance_conjugated_atom_deficit_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_conjugated_atom_deficit_count");
+                            item["metal_discordance_conjugated_bond_deficit_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_conjugated_bond_deficit_count");
+                            item["metal_discordance_aromatic_atom_deficit_count"] =
+                                molgr::metal::scoring::MetadataInt(
+                                    candidate,
+                                    "metal_discordance_aromatic_atom_deficit_count");
                             item["metal_discordance_aromatic_ring_deficit_count"] =
                                 molgr::metal::scoring::MetadataInt(
                                     candidate,
@@ -728,10 +884,14 @@ namespace molgr
                             item["aromatic_stability_score"] =
                                 summary.aromatic_stability_score;
                             item["aromatic_atom_count"] = summary.aromatic_atom_count;
+                            item["aromatic_ring_count"] = summary.aromatic_ring_count;
                             item["max_conjugated_component_size"] =
                                 summary.max_conjugated_component_size;
                             item["conjugated_atom_count"] = summary.conjugated_atom_count;
                             item["conjugated_bond_count"] = summary.conjugated_bond_count;
+                            item["hyperconjugative_donor_count"] =
+                                summary.hyperconjugative_donor_count;
+                            item["hyperconjugation_score"] = summary.hyperconjugation_score;
                             item["formal_charge_absolute_sum"] =
                                 summary.formal_charge_absolute_sum;
                             item["conjugation_charge_penalty"] =
@@ -780,14 +940,21 @@ namespace molgr
 
                 ns.def(
                     "process_resonance_smi",
-                    [](const std::string &smiles, int charge) -> std::tuple<std::string, int>
+                    [](const std::string &smiles,
+                       int charge,
+                       int total_charge,
+                       int total_radical_electrons) -> std::tuple<std::string, int>
                     {
                         auto mol = mol_from_smiles(smiles);
                         if (!mol)
                         {
                             throw std::runtime_error("failed to parse SMILES");
                         }
-                        auto processed = molgr::reconstruct::ProcessResonance(*mol, charge);
+                        auto processed = molgr::reconstruct::ProcessResonance(
+                            *mol,
+                            charge,
+                            total_charge,
+                            total_radical_electrons);
                         return std::make_tuple(
                             molgr::reconstruct::SmilesFirstToken(processed.first),
                             processed.second);
@@ -795,6 +962,8 @@ namespace molgr
                     "Process one resonance step on SMILES and return updated token plus charge.",
                     py::arg("smiles"),
                     py::arg("charge"),
+                    py::arg("total_charge") = 0,
+                    py::arg("total_radical_electrons") = 0,
                     py::call_guard<py::gil_scoped_release>());
 
                 ns.def(
@@ -818,20 +987,29 @@ namespace molgr
 
                 ns.def(
                     "process_resonance_ptr",
-                    [](intptr_t mol_ptr, int charge) -> py::tuple
+                    [](intptr_t mol_ptr,
+                       int charge,
+                       int total_charge,
+                       int total_radical_electrons) -> py::tuple
                     {
                         auto *mol = require_obmol_ptr(mol_ptr);
                         std::pair<OpenBabel::OBMol, int> processed;
                         {
                             py::gil_scoped_release release;
-                            processed = molgr::reconstruct::ProcessResonance(*mol, charge);
+                            processed = molgr::reconstruct::ProcessResonance(
+                                *mol,
+                                charge,
+                                total_charge,
+                                total_radical_electrons);
                         }
                         auto *res_ptr = new OpenBabel::OBMol(processed.first);
                         return py::make_tuple(reinterpret_cast<intptr_t>(res_ptr), processed.second);
                     },
                     "Process resonance on an OBMol pointer and return (new_ptr, updated_charge).",
                     py::arg("mol_ptr"),
-                    py::arg("charge"));
+                    py::arg("charge"),
+                    py::arg("total_charge") = 0,
+                    py::arg("total_radical_electrons") = 0);
 
                 ns.def(
                     "smiles_token_ptr",

@@ -7,24 +7,23 @@ from __future__ import annotations
 import typing
 
 __all__: list[str] = [
-    "eliminate_1_3_dipole_ptr",
+    "eliminate_1_3_dipole_postive_ptr",
     "eliminate_carbene_neighbor_heteroatom_ptr",
     "eliminate_carboxyl_ptr",
-    "assign_negative_charges_from_radicals_ptr",
     "eliminate_cn_in_doubt_ptr",
-    "eliminate_cp_like_radical_anion_ptr",
+    "eliminate_possible_cp_like_radical_anion_ptr",
     "eliminate_high_positive_charge_atoms_ptr",
     "eliminate_negative_charges_ptr",
     "eliminate_nnn_ptr",
     "eliminate_positive_charges_ptr",
 ]
 
-def eliminate_1_3_dipole_ptr(
+def eliminate_1_3_dipole_postive_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     given_charge: typing.SupportsInt | typing.SupportsIndex,
 ) -> tuple:
     """
-    Apply eliminate.eliminate_1_3_dipole to an existing OBMol.
+    Apply eliminate.eliminate_1_3_dipole_postive to an existing OBMol.
 
     Args:
         mol_ptr: int address of OpenBabel::OBMol
@@ -55,18 +54,6 @@ def eliminate_carboxyl_ptr(
         given_charge: charge deficit to be updated in place and returned
     """
 
-def assign_negative_charges_from_radicals_ptr(
-    mol_ptr: typing.SupportsInt | typing.SupportsIndex,
-    remaining_charge: typing.SupportsInt | typing.SupportsIndex,
-) -> tuple:
-    """
-    Convert selected single radicals into anions on an existing OBMol.
-
-    Args:
-        mol_ptr: int address of OpenBabel::OBMol
-        remaining_charge: charge budget to be updated in place and returned
-    """
-
 def eliminate_cn_in_doubt_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     given_charge: typing.SupportsInt | typing.SupportsIndex,
@@ -79,16 +66,18 @@ def eliminate_cn_in_doubt_ptr(
         given_charge: charge deficit to be updated in place and returned
     """
 
-def eliminate_cp_like_radical_anion_ptr(
+def eliminate_possible_cp_like_radical_anion_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     given_charge: typing.SupportsInt | typing.SupportsIndex,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex,
 ) -> tuple:
     """
-    Apply eliminate.eliminate_cp_like_radical_anion to an existing OBMol.
+    Apply eliminate.eliminate_possible_cp_like_radical_anion to an existing OBMol.
 
     Args:
         mol_ptr: int address of OpenBabel::OBMol
         given_charge: charge deficit to be updated in place and returned
+        total_radical_electrons: target number of unpaired electrons to preserve
     """
 
 def eliminate_high_positive_charge_atoms_ptr(

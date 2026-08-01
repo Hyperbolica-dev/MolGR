@@ -25,6 +25,21 @@ from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
 from . import reconstruct_without_metals
 
 
+def _candidate_matches_global_electronic_state(
+    candidate: MetalCandidateState,
+    total_charge: int,
+    total_radical_electrons: int,
+) -> bool:
+    return (
+        candidate.no_metal_charge_target
+        + sum(int(state.valence) for state in candidate.metal_states)
+        == total_charge
+        and candidate.no_metal_radical_target
+        + sum(int(state.radical_num) for state in candidate.metal_states)
+        == total_radical_electrons
+    )
+
+
 def xyz2omol_state(
     xyz_block: str,
     total_charge: int = 0,
@@ -115,6 +130,12 @@ def xyz2omol_state(
 
     best_candidate = scoring.select_best_candidate(scored_candidates, config=config)
     if best_candidate is None:
+        return None
+    if not _candidate_matches_global_electronic_state(
+        best_candidate,
+        total_charge,
+        total_radical_electrons,
+    ):
         return None
     if best_candidate.combined_omol is None:
         best_candidate.materialize_combined_omol(preparation.combine_metal_with_omol)

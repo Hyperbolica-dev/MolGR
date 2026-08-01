@@ -1,7 +1,6 @@
 #include "molgr/utils/no_metals/recovery.h"
 
 #include "molgr/stages/break_bond.h"
-#include "molgr/stages/fresh.h"
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/resonance.h"
 
@@ -57,9 +56,6 @@ namespace molgr
                     {
                         continue;
                     }
-                    machine.RunOmolStage(
-                        "refresh_electronic_labels_after_recovery",
-                        reconstruct::FreshOmolChargeRadical);
                     machine.metadata["recovery_tier"] = 1;
                     machine.metadata["recovery_strategy"] = std::string("deformed_pi_bonds");
                     recovered.push_back(machine.FreezeLike(state));
@@ -85,9 +81,6 @@ namespace molgr
                     {
                         continue;
                     }
-                    machine.RunOmolStage(
-                        "refresh_electronic_labels_after_recovery",
-                        reconstruct::FreshOmolChargeRadical);
                     machine.metadata["recovery_tier"] = 2;
                     machine.metadata["recovery_strategy"] = std::string("bond_break");
                     recovered.push_back(machine.FreezeLike(state));
