@@ -137,6 +137,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
@@ -194,7 +198,7 @@ jobs:
       - name: Install build tools
         run: |
           sh scripts/ci_install_uv.sh
-          sh scripts/ci_install_cibuildwheel.sh
+          CIBUILDWHEEL_INDEX_URL=https://pypi.org/simple sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -204,6 +208,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
@@ -271,6 +279,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
@@ -328,7 +340,7 @@ jobs:
       - name: Install build tools
         run: |
           sh scripts/ci_install_uv.sh
-          sh scripts/ci_install_cibuildwheel.sh
+          CIBUILDWHEEL_INDEX_URL=https://pypi.org/simple sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -338,6 +350,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
