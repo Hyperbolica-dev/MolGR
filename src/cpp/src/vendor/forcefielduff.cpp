@@ -34,6 +34,7 @@ GNU General Public License for more details.
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -43,6 +44,7 @@ GNU General Public License for more details.
 
 #include "molgr/utils/lru_cache.h"
 #include "molgr/vendor/forcefielduff.h"
+#include "molgr/vendor/uff_params.h"
 
 
 using namespace std;
@@ -743,12 +745,14 @@ namespace
       }
     }
 #endif
+    std::istringstream embedded_uff(molgr::vendor::kUffParamFile);
+    std::istream *param_stream = &ifs;
     if (!ifs.is_open()) {
-      return data;
+      param_stream = &embedded_uff;
     }
 
     MOLGR_OB_LOCALE.SetLocale();
-    while (ifs.getline(buffer, BUFF_SIZE)) {
+    while (param_stream->getline(buffer, BUFF_SIZE)) {
       OpenBabel::tokenize(vs, buffer);
       if (EQn(buffer, "atom", 4) && vs.size() >= 3) {
         data.atom_type_rules.push_back(MolgrUffAtomTypeRule{vs[1], vs[2]});
