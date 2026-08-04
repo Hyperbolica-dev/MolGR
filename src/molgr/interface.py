@@ -6,12 +6,15 @@ LastEditTime: 2026-04-28 23:25:31
 Description: 请填写简介
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from typing import Literal
 
-from openbabel import pybel
+# Keep RDKit ahead of Open Babel: importing pybel first segfaults on cp313 manylinux.
+# isort: off
 from rdkit import Chem
+from openbabel import pybel
+# isort: on
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback import xyz2omol

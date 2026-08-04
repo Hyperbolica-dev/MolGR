@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing
 
 import molgr._core.utils
+import molgr.config
 
 __all__: list[str] = [
     "compute_organic_topology_metrics_ptr",
@@ -20,7 +21,9 @@ __all__: list[str] = [
 ]
 
 def compute_organic_topology_metrics_ptr(
-    mol_ptr: typing.SupportsInt | typing.SupportsIndex, *, config: typing.Any = None
+    mol_ptr: typing.SupportsInt | typing.SupportsIndex,
+    *,
+    config: molgr.config.MolGRConfig | None = None,
 ) -> dict:
     """
     Compute C++ organic topology metrics for an OBMol pointer.
@@ -37,7 +40,9 @@ def debug_xyz_seed_molecule_data(xyz_block: str) -> molgr._core.utils.MoleculeDa
     """
 
 def organic_force_field_energy_ptr(
-    mol_ptr: typing.SupportsInt | typing.SupportsIndex, *, config: typing.Any = None
+    mol_ptr: typing.SupportsInt | typing.SupportsIndex,
+    *,
+    config: molgr.config.MolGRConfig | None = None,
 ) -> float:
     """
     Compute C++ organic force-field energy for an OBMol pointer.

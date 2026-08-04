@@ -105,11 +105,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://pypi.org/simple --default-index https://pypi.org/simple
-<<<<<<< HEAD
           uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions 'rdkit-dof>=0.2.1' --index https://pypi.org/simple --default-index https://pypi.org/simple
-=======
-          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions --index https://pypi.org/simple --default-index https://pypi.org/simple
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
       - name: Ensure CMake available
         run: uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://pypi.org/simple --default-index https://pypi.org/simple
@@ -199,6 +195,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://pypi.org/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_ENVIRONMENT_MACOS: >
             PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
@@ -231,6 +231,10 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
+          CIBW_ENVIRONMENT_LINUX: >
+            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_DEFAULT_TIMEOUT=120
+            PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_ENVIRONMENT_MACOS: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120

@@ -691,19 +691,10 @@ def _check_equivalence_impl(
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
 
-<<<<<<< HEAD
     prepared_organic_1 = _prepare_organic_mol(standardized_1, already_standardized=True)
     prepared_organic_2 = _prepare_organic_mol(standardized_2, already_standardized=True)
     organic_1 = _normalize_nonmetal_octet(prepared_organic_1)
     organic_2 = _normalize_nonmetal_octet(prepared_organic_2)
-=======
-    organic_1 = _normalize_nonmetal_octet(
-        _prepare_organic_mol(standardized_1, already_standardized=True)
-    )
-    organic_2 = _normalize_nonmetal_octet(
-        _prepare_organic_mol(standardized_2, already_standardized=True)
-    )
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
     formal_charge_1 = _total_formal_charge(organic_1)
     formal_charge_2 = _total_formal_charge(organic_2)

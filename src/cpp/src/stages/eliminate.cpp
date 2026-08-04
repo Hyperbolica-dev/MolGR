@@ -344,14 +344,14 @@ namespace molgr
                 {
                     const int charge_after = charge - 1;
                     actions.push_back(ChargeAssignmentAction{
-                        radical_atom->GetIdx(),
+                        static_cast<int>(radical_atom->GetIdx()),
                         0,
                         1,
                         false,
                         -1,
-                        {5, std::abs(charge_after), std::max(charge_after, 0), radical_atom->GetIdx(), static_cast<int>(match_order)},
-                        bond->GetIdx(),
-                        charge_atom->GetIdx(),
+                        {5, std::abs(charge_after), std::max(charge_after, 0), static_cast<int>(radical_atom->GetIdx()), static_cast<int>(match_order)},
+                        static_cast<int>(bond->GetIdx()),
+                        static_cast<int>(charge_atom->GetIdx()),
                     });
                 }
             }

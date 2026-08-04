@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing
 
 import molgr._core.utils
+import molgr.config
 
 from . import reconstruct_with_metals, reconstruct_without_metals
 
@@ -27,8 +28,8 @@ def xyz2omol(
     total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
     *,
-    config: typing.Any = None,
-) -> molgr._core.utils.MoleculeData:
+    config: molgr.config.MolGRConfig | None = None,
+) -> molgr._core.utils.MoleculeData | None:
     """
     Reconstruct molecule data from XYZ with metal-aware pipeline.
     """

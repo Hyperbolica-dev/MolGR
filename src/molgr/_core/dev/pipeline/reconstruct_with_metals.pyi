@@ -7,6 +7,8 @@ from __future__ import annotations
 import collections.abc
 import typing
 
+import molgr.config
+
 __all__: list[str] = [
     "MetalAtomPosition",
     "build_metal_states_ptr",
@@ -72,7 +74,7 @@ def debug_metal_search_summaries(
     total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
     *,
-    config: typing.Any = None,
+    config: molgr.config.MolGRConfig | None = None,
 ) -> dict:
     """
     Return C++ metal-search groups, layers, and target buckets for parity debugging.
@@ -83,7 +85,7 @@ def debug_scored_candidate_summaries(
     total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
     *,
-    config: typing.Any = None,
+    config: molgr.config.MolGRConfig | None = None,
 ) -> dict:
     """
     Return scored metal candidates for the first successful search layer.

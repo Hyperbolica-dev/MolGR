@@ -2,6 +2,7 @@
 set -eu
 
 : "${PYPI_INDEX_URL:?PYPI_INDEX_URL is required}"
+CIBUILDWHEEL_INDEX_URL="${CIBUILDWHEEL_INDEX_URL:-$PYPI_INDEX_URL}"
 
 UV_BIN="${UV_BIN:-}"
 USER_UV_BIN="$(python3 -c 'import site; print(site.getuserbase())')/bin/uv"
@@ -19,7 +20,7 @@ fi
 
 CIBUILDWHEEL_ENV_DIR="${CIBUILDWHEEL_ENV_DIR:-$(pwd)/.tmp/cibuildwheel-venv}"
 "$UV_BIN" venv --clear --python 3.11 "$CIBUILDWHEEL_ENV_DIR"
-"$UV_BIN" pip install --python "$CIBUILDWHEEL_ENV_DIR/bin/python" --refresh-package cibuildwheel --reinstall-package cibuildwheel --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel==3.4.1
+"$UV_BIN" pip install --python "$CIBUILDWHEEL_ENV_DIR/bin/python" --refresh-package cibuildwheel --reinstall-package cibuildwheel --index "$CIBUILDWHEEL_INDEX_URL" --default-index "$CIBUILDWHEEL_INDEX_URL" cibuildwheel==3.4.1
 
 CIBUILDWHEEL_BIN_DIR="$CIBUILDWHEEL_ENV_DIR/bin"
 CIBUILDWHEEL="$CIBUILDWHEEL_BIN_DIR/cibuildwheel"

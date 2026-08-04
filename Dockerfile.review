@@ -42,28 +42,18 @@ COPY . /workspace
 # Build once while creating the image. The entrypoint repeats this install on
 # every container start so a bind-mounted checkout always supplies fresh code.
 RUN SETUPTOOLS_SCM_PRETEND_VERSION="$MOLGR_BUILD_VERSION" \
-<<<<<<< HEAD
     uv pip install --system --no-cache --constraint /workspace/ci/rdkit-constraints.txt -e /workspace 'rdkit-dof>=0.2.1'
 
 # Keep both benchmark runtimes in the image. Python 3.8 is installed through
 # uv because Debian Bookworm does not ship that interpreter. Use the latest
 # RDKit release supported by each runtime, while Open Babel follows the
 # Python-version split.
-=======
-    uv pip install --system --no-cache -e /workspace rdkit-dof==0.2.1
-
-# Keep both benchmark runtimes in the image.  Python 3.8 is installed through
-# uv because Debian Bookworm does not ship that interpreter.  Both venvs use
-# the same RDKit release so the cross-version candidate comparison remains
-# meaningful, while Open Babel intentionally follows the Python-version split.
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 RUN uv python install 3.8 \
     && py38="$(uv python find 3.8)" \
     && ln -sf "$py38" /usr/local/bin/python3.8 \
     && uv venv --python "$py38" "$MOLGR_PY38_VENV" \
     && uv venv --python python3.10 "$MOLGR_PY310_VENV" \
     && uv pip install --python "$MOLGR_PY38_VENV/bin/python" --no-cache \
-<<<<<<< HEAD
         --constraint /workspace/ci/rdkit-constraints.txt \
         "scikit-build-core>=0.11.6" \
         "setuptools-scm>=9.2.2" \
@@ -91,33 +81,6 @@ RUN uv python install 3.8 \
     && SETUPTOOLS_SCM_PRETEND_VERSION="$MOLGR_BUILD_VERSION" \
        SETUPTOOLS_USE_DISTUTILS=stdlib uv pip install --python "$MOLGR_PY310_VENV/bin/python" \
         --no-build-isolation --no-cache --constraint /workspace/ci/rdkit-constraints.txt -e /workspace
-=======
-        "scikit-build-core>=0.11.6" \
-        "setuptools-scm>=9.2.2" \
-        "pybind11>=3.0.1" \
-        "rdkit==2024.3.5" \
-        openbabel-wheel \
-        "numpy<2" \
-        "pandas>=2.0.3" \
-        "rdkit-dof==0.2.1" \
-        tqdm \
-    && uv pip install --python "$MOLGR_PY310_VENV/bin/python" --no-cache \
-        "scikit-build-core>=0.11.6" \
-        "setuptools-scm>=9.2.2" \
-        "pybind11>=3.0.1" \
-        "rdkit==2024.3.5" \
-        "openbabel>=3.2.0" \
-        "numpy>=1.26,<2.3" \
-        "pandas>=2.0.3" \
-        "rdkit-dof==0.2.1" \
-        tqdm \
-    && SETUPTOOLS_SCM_PRETEND_VERSION="$MOLGR_BUILD_VERSION" \
-       SETUPTOOLS_USE_DISTUTILS=stdlib uv pip install --python "$MOLGR_PY38_VENV/bin/python" \
-        --no-build-isolation --no-cache -e /workspace \
-    && SETUPTOOLS_SCM_PRETEND_VERSION="$MOLGR_BUILD_VERSION" \
-       SETUPTOOLS_USE_DISTUTILS=stdlib uv pip install --python "$MOLGR_PY310_VENV/bin/python" \
-        --no-build-isolation --no-cache -e /workspace
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
 COPY docker/molgr-review-entrypoint.sh /usr/local/bin/molgr-review-entrypoint
 RUN mkdir -p /var/lib/molgr-review \
