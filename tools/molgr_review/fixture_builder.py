@@ -308,7 +308,13 @@ def sync_review_fixture(
             # metal-local unpaired electrons carried by the reconstructed graph.
             total_charge, total_radical_electrons, spin_multiplicity = case_electronic_state(case)
             try:
+<<<<<<< HEAD
                 approved_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+=======
+                approved_smiles = Chem.MolToSmiles(
+                    mol, canonical=True, isomericSmiles=True
+                )
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             except Chem.KekulizeException:
                 approved_smiles = Chem.MolToSmiles(
                     mol, canonical=True, isomericSmiles=True, kekuleSmiles=False

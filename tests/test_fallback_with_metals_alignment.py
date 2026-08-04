@@ -2007,7 +2007,11 @@ C 5.2 0.0 0.0
 
 @pytest.mark.parametrize(
     ("distance", "expected_count"),
+<<<<<<< HEAD
     [(2.4, 1), (2.6, 1)],
+=======
+        [(2.4, 1), (2.6, 1)],
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 )
 def test_metal_discordance_inner_same_sign_charge_uses_coordination_radius(
     distance: float,

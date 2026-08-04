@@ -2481,7 +2481,11 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
   </dialog>
   <script id="trace-json" type="application/json">"""
         + cases_json
+<<<<<<< HEAD
         + r"""</script>
+=======
+        + """</script>
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
   <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
   <script>
     (() => {
