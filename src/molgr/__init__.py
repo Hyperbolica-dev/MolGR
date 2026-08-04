@@ -1,8 +1,12 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import importlib.metadata
 
+# RDKit must initialize before Open Babel's pybel on cp313 manylinux.
+# isort: off
+from rdkit import Chem as _rdkit_chem  # noqa: F401
 from openbabel import pybel
+# isort: on
 
 from . import _core as core
 from . import config

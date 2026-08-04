@@ -206,10 +206,10 @@ jobs:
           CIBW_ARCHS_LINUX: aarch64
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_ENVIRONMENT: >
-            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
           CIBW_ENVIRONMENT_LINUX: >
-            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
             PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
@@ -348,10 +348,10 @@ jobs:
           CIBW_ARCHS_LINUX: aarch64
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
           CIBW_ENVIRONMENT: >
-            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
           CIBW_ENVIRONMENT_LINUX: >
-            PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
+            PIP_INDEX_URL=https://pypi.org/simple
             PIP_DEFAULT_TIMEOUT=120
             PIP_CONSTRAINT=/project/ci/rdkit-constraints.txt
           CIBW_BUILD_VERBOSITY: "1"
