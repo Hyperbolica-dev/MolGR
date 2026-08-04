@@ -30,11 +30,16 @@ GNU General Public License for more details.
 
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "molgr/utils/lru_cache.h"
 #include "molgr/vendor/forcefielduff.h"
@@ -74,6 +79,30 @@ namespace
 #else
 #define MOLGR_OB_LOCALE OpenBabel::obLocale
 #define MOLGR_OB_ERROR_LOG OpenBabel::obErrorLog
+#endif
+
+#if defined(_WIN32)
+  void MolgrUffModuleAnchor() {}
+
+  std::filesystem::path MolgrInstalledUffParamPath()
+  {
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&MolgrUffModuleAnchor), &module)) {
+      return {};
+    }
+
+    std::wstring module_path(32768, L'\0');
+    const DWORD path_length = GetModuleFileNameW(
+        module, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (path_length == 0 || path_length >= module_path.size()) {
+      return {};
+    }
+    module_path.resize(path_length);
+    return std::filesystem::path(module_path).parent_path() / L"data" / L"UFF.prm";
+  }
 #endif
 
   struct MolgrUffAtomTypeRule
@@ -704,7 +733,17 @@ namespace
 
     OpenBabel::OBFFParameter parameter;
     std::ifstream ifs;
-    if (OpenBabel::OpenDatafile(ifs, "UFF.prm").length() == 0) {
+    OpenBabel::OpenDatafile(ifs, "UFF.prm");
+#if defined(_WIN32)
+    if (!ifs.is_open()) {
+      ifs.clear();
+      const auto installed_path = MolgrInstalledUffParamPath();
+      if (!installed_path.empty()) {
+        ifs.open(installed_path, std::ios::in);
+      }
+    }
+#endif
+    if (!ifs.is_open()) {
       return data;
     }
 

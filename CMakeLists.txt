@@ -151,3 +151,4 @@ elseif(UNIX)
 endif()
 
 install(TARGETS _core DESTINATION molgr)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/molgr/data/UFF.prm" DESTINATION molgr/data)
