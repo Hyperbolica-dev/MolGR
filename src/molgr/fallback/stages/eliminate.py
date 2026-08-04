@@ -102,13 +102,7 @@ def _apply_charge_assignment_action(
             or has_unresolved_two_electron_center(atom)
         ):
             return False
-<<<<<<< HEAD
         set_unpaired_electron_count(atom, get_unpaired_electron_count(atom) - action.spin_consumed)
-=======
-        set_unpaired_electron_count(
-            atom, get_unpaired_electron_count(atom) - action.spin_consumed
-        )
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
         bond.SetBondOrder(bond.GetBondOrder() + 1)
         charge_atom.SetFormalCharge(charge_atom.GetFormalCharge() + 1)
         return True
@@ -158,12 +152,7 @@ def _positive_charge_assignment_actions(
     """
 
     real_radicals = sum(
-<<<<<<< HEAD
         get_unpaired_electron_count(cast(ob.OBAtom, atom)) for atom in ob.OBMolAtomIter(obmol)
-=======
-        get_unpaired_electron_count(cast(ob.OBAtom, atom))
-        for atom in ob.OBMolAtomIter(obmol)
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
     )
     unresolved_electrons = sum(
         1
@@ -237,30 +226,22 @@ def _positive_charge_assignment_actions(
         cast(List[Tuple[int, int]], smarts.ELIM_POSITIVE_N.findall(omol))
     ):
         atom = cast(ob.OBAtom, obmol.GetAtom(n_idxs[1]))
-<<<<<<< HEAD
         if (
             given_charge > 0
             and atom.GetFormalCharge() == 0
             and get_unpaired_electron_count(atom) >= 1
         ):
-=======
-        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             append_action(atom, tier=0, match_order=match_order, amount=1)
 
     for match_order, c_h_idxs in enumerate(
         cast(List[Tuple[int, int, int]], smarts.ELIM_POSITIVE_C_H.findall(omol))
     ):
         atom = cast(ob.OBAtom, obmol.GetAtom(c_h_idxs[0]))
-<<<<<<< HEAD
         if (
             given_charge > 0
             and atom.GetFormalCharge() == 0
             and get_unpaired_electron_count(atom) >= 1
         ):
-=======
-        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             append_action(atom, tier=10, match_order=match_order, amount=1)
 
     for match_order, dipole_idxs in enumerate(
@@ -271,12 +252,7 @@ def _positive_charge_assignment_actions(
         bond = cast(ob.OBBond, obmol.GetBond(dipole_idxs[0], dipole_idxs[1]))
         if (
             tier5_allowed
-<<<<<<< HEAD
             and radical_atom.GetFormalCharge() == 0
-=======
-            and
-            radical_atom.GetFormalCharge() == 0
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             and get_unpaired_electron_count(radical_atom) == 1
             and not has_unresolved_two_electron_center(radical_atom)
             and bond is not None
@@ -288,7 +264,6 @@ def _positive_charge_assignment_actions(
                     spin_consumed=1,
                     consume_unresolved_center=False,
                     charge_delta=-1,
-<<<<<<< HEAD
                     score_key=(
                         5,
                         abs(given_charge - 1),
@@ -296,9 +271,6 @@ def _positive_charge_assignment_actions(
                         _atom_idx(radical_atom),
                         match_order,
                     ),
-=======
-                    score_key=(5, abs(given_charge - 1), max(given_charge - 1, 0), _atom_idx(radical_atom), match_order),
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
                     bond_idx=bond.GetIdx(),
                     charge_atom_idx=_atom_idx(charge_atom),
                 )
@@ -306,15 +278,11 @@ def _positive_charge_assignment_actions(
 
     for match_order, atom_iter in enumerate(ob.OBMolAtomIter(obmol)):
         atom = cast(ob.OBAtom, atom_iter)
-<<<<<<< HEAD
         if (
             given_charge > 0
             and atom.GetFormalCharge() == 0
             and get_unpaired_electron_count(atom) >= 1
         ):
-=======
-        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             append_action(
                 atom,
                 tier=100,

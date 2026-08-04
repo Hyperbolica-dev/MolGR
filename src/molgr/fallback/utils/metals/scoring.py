@@ -186,13 +186,7 @@ def _coordination_radius_cutoff(
         int(metal_state.element_idx),
         int(atom.GetAtomicNum()),
         radius_scale=metal_scoring_config.metal_access_radius_scale,
-<<<<<<< HEAD
         extra_tolerance_angstrom=(metal_scoring_config.metal_coordination_extra_tolerance_angstrom),
-=======
-        extra_tolerance_angstrom=(
-            metal_scoring_config.metal_coordination_extra_tolerance_angstrom
-        ),
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
     )
 
 

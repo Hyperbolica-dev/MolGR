@@ -759,7 +759,7 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     )
     assert sdf_mol is not None
     assert sdf_mol.GetNumAtoms() == 8
-    assert sum(atom.GetAtomicNum() == 1 for atom in sdf_mol.GetAtoms()) == 6
+    assert sum(atom.GetAtomicNum() == 1 for atom in sdf_mol.GetAtoms()) == 6  # pyright: ignore[reportCallIssue]
     assert live_payload["candidate_snapshot_smiles"] == "C"
     assert live_payload["live_matches_candidate_snapshot"] is False
     assert live_payload["live_candidate_equivalence_reason"] == (

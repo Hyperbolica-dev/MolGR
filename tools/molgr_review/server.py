@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import Request, urlopen
@@ -108,7 +109,7 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 
 def _row_dict(
-    row: sqlite3.Row | None,
+    row: sqlite3.Row | Mapping[str, Any] | None,
     *,
     fixture: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
@@ -207,9 +208,9 @@ def _safe_smiles(mol: Chem.Mol) -> str:
         return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=True)
     except Chem.KekulizeException:
         rw_mol = Chem.RWMol(clone)
-        for atom in rw_mol.GetAtoms():
+        for atom in rw_mol.GetAtoms():  # pyright: ignore[reportCallIssue]
             atom.SetIsAromatic(False)
-        for bond in rw_mol.GetBonds():
+        for bond in rw_mol.GetBonds():  # pyright: ignore[reportCallIssue]
             bond.SetIsAromatic(False)
         fallback = rw_mol.GetMol()
         fallback.UpdatePropertyCache(strict=False)

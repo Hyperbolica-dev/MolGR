@@ -25,13 +25,9 @@ class ComparisonAnnotation:
     def matches(self, case_id: str, element_counts: Mapping[str, int]) -> bool:
         if not case_id or case_id in self.excluded_case_ids:
             return False
-<<<<<<< HEAD
         return all(
             element_counts.get(symbol, 0) >= count for symbol, count in self.minimum_element_counts
         )
-=======
-        return all(element_counts.get(symbol, 0) >= count for symbol, count in self.minimum_element_counts)
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
     @property
     def comparison_skip_reason(self) -> str:

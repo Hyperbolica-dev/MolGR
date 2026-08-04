@@ -1688,10 +1688,6 @@ def test_eliminate_positive_charges_prefers_tier5_dipole_bond_closure_for_python
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 def test_eliminate_high_positive_charge_atoms_skips_overstabilized_match_and_keeps_later_match_for_python_and_cpp() -> (
     None
 ):
@@ -1802,13 +1798,9 @@ def test_eliminate_high_positive_charge_atoms_skips_non_singlet_donor_for_python
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
-<<<<<<< HEAD
 def test_eliminate_high_positive_charge_atoms_skips_pending_unresolved_neighbor_for_python_and_cpp() -> (
     None
 ):
-=======
-def test_eliminate_high_positive_charge_atoms_skips_pending_unresolved_neighbor_for_python_and_cpp() -> None:
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
     def make_omol() -> pybel.Molecule:
         obmol = ob.OBMol()
         obmol.BeginModify()

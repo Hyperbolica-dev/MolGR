@@ -250,7 +250,6 @@ def clean_1_4_radicals(
         endpoints = (atom1, atom4)
         endpoint_radicals = [get_unpaired_electron_count(atom) for atom in endpoints]
         endpoint_unresolved = [has_unresolved_two_electron_center(atom) for atom in endpoints]
-<<<<<<< HEAD
         if not all(
             radical > 0 or unresolved
             for radical, unresolved in zip(endpoint_radicals, endpoint_unresolved)
@@ -260,11 +259,6 @@ def clean_1_4_radicals(
             sum(radical > 0 for radical in endpoint_radicals) == 2
             and available_unpaired_electrons() < 2
         ):
-=======
-        if not all(radical > 0 or unresolved for radical, unresolved in zip(endpoint_radicals, endpoint_unresolved)):
-            continue
-        if sum(radical > 0 for radical in endpoint_radicals) == 2 and available_unpaired_electrons() < 2:
->>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
             continue
 
         bond1.SetBondOrder(2)
