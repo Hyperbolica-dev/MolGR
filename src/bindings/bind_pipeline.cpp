@@ -698,10 +698,6 @@ namespace molgr
                                 molgr::metal::scoring::MetadataInt(
                                     candidate,
                                     "metal_discordance_haptic_arene_reduction_count");
-                            item["metal_discordance_visible_donor_multiple_bond_count"] =
-                                molgr::metal::scoring::MetadataInt(
-                                    candidate,
-                                    "metal_discordance_visible_donor_multiple_bond_count");
                             item["metal_discordance_coordination_geometry_count"] =
                                 molgr::metal::scoring::MetadataInt(
                                     candidate,

@@ -831,7 +831,6 @@ def test_cpp_python_scored_candidate_parity_case_522() -> None:
             "metal_discordance_unsaturated_organic_cation_count",
             "metal_discordance_repeated_component_charge_asymmetry_count",
             "metal_discordance_haptic_arene_reduction_count",
-            "metal_discordance_visible_donor_multiple_bond_count",
             "metal_discordance_coordination_geometry_count",
         ):
             assert cpp_item[metadata_key] == py_item.metadata.get(metadata_key)

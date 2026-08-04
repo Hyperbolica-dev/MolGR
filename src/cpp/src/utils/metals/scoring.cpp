@@ -1,5 +1,7 @@
 #include "molgr/utils/metals/scoring.h"
 
+#include "molgr/utils/coordination.h"
+
 #include "molgr/utils/consts.h"
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/electrons.h"
@@ -491,38 +493,6 @@ namespace
                 continue;
             }
             count += negative_count;
-        }
-        return count;
-    }
-
-    int VisibleDonorMultipleBondCount(
-        OpenBabel::OBMol &mol,
-        const std::set<int> &visible_inner_atom_indices)
-    {
-        const std::set<int> donor_atomic_numbers{7, 8, 15, 16};
-        int count = 0;
-        FOR_BONDS_OF_MOL(bond_iter, mol)
-        {
-            OpenBabel::OBAtom *begin_atom = bond_iter->GetBeginAtom();
-            OpenBabel::OBAtom *end_atom = bond_iter->GetEndAtom();
-            if (begin_atom == nullptr || end_atom == nullptr || bond_iter->GetBondOrder() < 2)
-            {
-                continue;
-            }
-            if (visible_inner_atom_indices.find(static_cast<int>(begin_atom->GetIdx())) ==
-                    visible_inner_atom_indices.end() ||
-                visible_inner_atom_indices.find(static_cast<int>(end_atom->GetIdx())) ==
-                    visible_inner_atom_indices.end())
-            {
-                continue;
-            }
-            if (donor_atomic_numbers.find(static_cast<int>(begin_atom->GetAtomicNum())) !=
-                    donor_atomic_numbers.end() &&
-                donor_atomic_numbers.find(static_cast<int>(end_atom->GetAtomicNum())) !=
-                    donor_atomic_numbers.end())
-            {
-                ++count;
-            }
         }
         return count;
     }
@@ -1229,12 +1199,10 @@ namespace
         const molgr::MetalAtomPosition &metal_state,
         const molgr::config::MetalScoringConfig &config)
     {
-        const double atom_radius =
-            OpenBabel::OBElements::GetCovalentRad(static_cast<int>(atom.GetAtomicNum()));
-        const double metal_radius =
-            OpenBabel::OBElements::GetCovalentRad(static_cast<int>(metal_state.element_idx));
-        return config.metal_access_radius_scale * (atom_radius + metal_radius) +
-               config.metal_coordination_extra_tolerance_angstrom;
+        return molgr::coordination::CoordinationDistanceCutoff(
+            static_cast<int>(metal_state.element_idx),
+            static_cast<int>(atom.GetAtomicNum()),
+            config);
     }
 
     bool IsInnerSphereAtom(
@@ -1334,19 +1302,22 @@ namespace
             return false;
         }
 
-        const int total_degree = static_cast<int>(atom.GetTotalDegree());
-        const int total_valence = static_cast<int>(atom.GetTotalValence());
-        // Open Babel reports typical valence 3 for a three-coordinate C+, but
-        // that is the unsaturated carbocation we need to penalize here.
-        if (atom.GetAtomicNum() == 6)
+        const auto element_info = molgr::kNonMetalDict.find(
+            static_cast<int>(atom.GetAtomicNum()));
+        if (element_info == molgr::kNonMetalDict.end())
         {
-            return total_valence < 4;
+            return false;
         }
-        const int typical_valence = OpenBabel::GetTypicalValence(
-            static_cast<int>(atom.GetAtomicNum()),
-            total_valence,
-            static_cast<int>(atom.GetFormalCharge()));
-        return total_degree < total_valence || total_valence < typical_valence;
+
+        // Compare assigned outer-shell electrons with the closed-shell target.
+        // Degree is not a proxy for this: one triple bond gives O+ three
+        // bond-order units while still completing its octet.
+        const int total_valence = static_cast<int>(atom.GetTotalValence());
+        const int local_electron_count =
+            static_cast<int>(element_info->second.num_outer_electrons) -
+            static_cast<int>(atom.GetFormalCharge()) + total_valence;
+        const int shell_target = atom.GetAtomicNum() == 1 ? 2 : 8;
+        return local_electron_count < shell_target;
     }
 
     bool HasAdjacentFormalChargeCancellation(OpenBabel::OBAtom &atom)
@@ -1656,8 +1627,6 @@ namespace
             RepeatedComponentChargeAsymmetryCount(mol);
         const int haptic_arene_reduction_count =
             HapticAreneReductionCount(mol, visible_atoms_by_metal);
-        const int visible_donor_multiple_bond_count =
-            VisibleDonorMultipleBondCount(mol, visible_inner_atom_indices);
         const int coordination_geometry_discordance_count =
             CoordinationGeometryDiscordanceCount(
                 visible_atoms_by_metal,
@@ -1678,7 +1647,6 @@ namespace
                 unsaturated_organic_cation_discordance_count +
                 repeated_component_charge_asymmetry_count +
                 haptic_arene_reduction_count +
-                visible_donor_multiple_bond_count +
                 coordination_geometry_discordance_count) +
             negative_metal_penalty;
         const double discordance_count = structural_discordance_count;
@@ -1726,8 +1694,6 @@ namespace
             repeated_component_charge_asymmetry_count;
         candidate->metadata["metal_discordance_haptic_arene_reduction_count"] =
             haptic_arene_reduction_count;
-        candidate->metadata["metal_discordance_visible_donor_multiple_bond_count"] =
-            visible_donor_multiple_bond_count;
         candidate->metadata["metal_discordance_coordination_geometry_count"] =
             coordination_geometry_discordance_count;
         return discordance_count;

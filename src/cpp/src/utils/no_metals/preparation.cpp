@@ -125,9 +125,6 @@ namespace molgr
                     "eliminate_high_positive_charge_atoms",
                     reconstruct::EliminateHighPositiveChargeAtoms);
                 machine.RunOmolChargeStage(
-                    "eliminate_CN_in_doubt",
-                    reconstruct::EliminateCNInDoubt);
-                machine.RunOmolChargeStage(
                     "eliminate_NNN_positive",
                     reconstruct::EliminateNNN,
                     true);

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -18,6 +19,7 @@ from adapters.tmqmg import (  # noqa: E402
     _build_review_rows,
     _case_issue,
     _merge_partial_review_rows,
+    _python_results_equivalent,
     _reference_formula_mismatch_fields,
     _validate_benchmark_environment_versions,
 )
@@ -165,7 +167,6 @@ def test_reference_formula_mismatch_has_dedicated_category() -> None:
         rows,
         labels=("py38", "py310"),
         method_ids=("molgr_cpp",),
-        python_version_comparison="benchmark",
     )
 
     assert category == "reference_formula_mismatch"
@@ -201,7 +202,7 @@ def test_review_row_marks_reference_formula_mismatch(tmp_path: Path) -> None:
         result_paths=result_paths,
         xyz_dir=xyz_dir,
         method_ids=("molgr_cpp",),
-        python_version_comparison="benchmark",
+        python_version_comparison="graph",
     )
 
     assert summary["category_counts"] == {"reference_formula_mismatch": 1}
@@ -210,3 +211,66 @@ def test_review_row_marks_reference_formula_mismatch(tmp_path: Path) -> None:
     assert rows[0]["reference_formula_check_status"] == "formula_mismatch"
     assert rows[0]["reference_answer_wrong"] == "True"
     assert rows[0]["reference_formula_mismatch_detail"] == "H:xyz=3,ref=4"
+
+
+def test_review_row_marks_both_boron_cluster_answers_not_assessable(tmp_path: Path) -> None:
+    xyz_dir = tmp_path / "xyz"
+    xyz_dir.mkdir()
+    (xyz_dir / "ADOCOL.xyz").write_text(
+        "4\nboron cluster\nB 0 0 0\nB 1 0 0\nB 0 1 0\nB 0 0 1\n",
+        encoding="utf-8",
+    )
+    result_paths = {
+        "py38": tmp_path / "py38.csv",
+        "py310": tmp_path / "py310.csv",
+    }
+    for label, path in result_paths.items():
+        benchmark_row = replace(
+            _benchmark_row(label),
+            case_id="ADOCOL",
+            input_smiles="B.B.B.B",
+            ground_truth_smiles="B.B.B.B",
+            predicted_smiles="B.B.B.B",
+        )
+        _write_result(path, benchmark_row)
+
+    rows, summary = _build_review_rows(
+        metadata={(1, "ADOCOL"): {"smiles": "B.B.B.B", "n_atoms": "4"}},
+        result_paths=result_paths,
+        xyz_dir=xyz_dir,
+        method_ids=("molgr_cpp",),
+        python_version_comparison="graph",
+    )
+
+    assert summary["category_counts"] == {"no_clear_evidence_boron_cluster": 1}
+    assert len(rows) == 1
+    assert rows[0]["category"] == "no_clear_evidence_boron_cluster"
+    assert rows[0]["reference_answer_wrong"] == "False"
+    assert rows[0]["reference_answer_status"] == "not_assessable"
+    assert rows[0]["tmqmg_answer_assessment"] == "not_assessable"
+    assert rows[0]["molgr_answer_assessment"] == "not_assessable"
+    assert rows[0]["equivalent"] == ""
+    assert rows[0]["effective_equivalent"] == ""
+    assert "3-center-2-electron" in rows[0]["accuracy_assessment_reason"]
+
+
+def test_python_versions_compare_candidate_graphs_not_reference_verdicts() -> None:
+    py38 = replace(
+        _benchmark_row("py38"),
+        predicted_smiles="C[N+](C)(C)C",
+        equivalent="",
+        comparison_skipped="True",
+        comparison_skip_reason="equivalence timed out",
+    )
+    py310 = replace(
+        _benchmark_row("py310"),
+        predicted_smiles="C[N+](C)(C)C",
+        equivalent="True",
+        comparison_skipped="False",
+        comparison_skip_reason="",
+    )
+
+    equivalent, reason = _python_results_equivalent(py38, py310)
+
+    assert equivalent is True
+    assert reason == "identical_smiles"

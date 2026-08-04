@@ -31,6 +31,8 @@ namespace molgr
             bool consume_unresolved_center;
             int charge_delta;
             std::vector<int> score_key;
+            int bond_idx = -1;
+            int charge_atom_idx = -1;
         };
 
         struct NegativeChargeAssignmentPattern
@@ -87,7 +89,28 @@ namespace molgr
         bool ApplyChargeAssignmentAction(OBMol &mol, const ChargeAssignmentAction &action)
         {
             OBAtom *atom = mol.GetAtom(action.atom_idx);
-            if (atom == nullptr || atom->GetFormalCharge() != 0)
+            if (atom == nullptr)
+            {
+                return false;
+            }
+            if (action.bond_idx >= 0 && action.charge_atom_idx >= 0)
+            {
+                OBAtom *charge_atom = mol.GetAtom(action.charge_atom_idx);
+                OBBond *bond = mol.GetBond(atom, charge_atom);
+                if (charge_atom == nullptr || bond == nullptr ||
+                    molgr::utils::HasUnresolvedTwoElectronCenter(*atom) ||
+                    molgr::utils::GetUnpairedElectronCount(*atom) < action.spin_consumed)
+                {
+                    return false;
+                }
+                molgr::utils::SetUnpairedElectronCount(
+                    *atom,
+                    molgr::utils::GetUnpairedElectronCount(*atom) - action.spin_consumed);
+                bond->SetBondOrder(bond->GetBondOrder() + 1);
+                charge_atom->SetFormalCharge(charge_atom->GetFormalCharge() + 1);
+                return true;
+            }
+            if (atom->GetFormalCharge() != 0)
             {
                 return false;
             }
@@ -241,15 +264,24 @@ namespace molgr
         // remaining deficit of at least two, one pure unresolved 2e center.
         std::vector<ChargeAssignmentAction> PositiveChargeAssignmentActions(
             OBMol &mol,
-            int charge)
+            int charge,
+            int total_radical_electrons = 0)
         {
             std::vector<ChargeAssignmentAction> actions;
-            if (charge <= 0)
-            {
-                return actions;
-            }
-
             std::set<std::tuple<int, int, int>> seen;
+            int real_radicals = 0;
+            int unresolved_electrons = 0;
+            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            {
+                OBAtom *atom = &(*atom_iter);
+                real_radicals += molgr::utils::GetUnpairedElectronCount(*atom);
+                if (molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+                {
+                    unresolved_electrons += 1;
+                }
+            }
+            const bool tier5_allowed =
+                std::abs(charge - 1) <= real_radicals + unresolved_electrons * 2 - 1;
             auto n_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
             for (std::size_t match_order = 0; match_order < n_matches.size(); ++match_order)
             {
@@ -259,7 +291,7 @@ namespace molgr
                     continue;
                 }
                 OBAtom *atom = mol.GetAtom(idxs[1]);
-                if (atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                if (charge > 0 && atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
                 {
                     AppendPositiveChargeAssignmentAction(
                         actions,
@@ -281,7 +313,7 @@ namespace molgr
                     continue;
                 }
                 OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                if (charge > 0 && atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
                 {
                     AppendPositiveChargeAssignmentAction(
                         actions,
@@ -294,11 +326,41 @@ namespace molgr
                 }
             }
 
+            auto dipole_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_DIPOLE);
+            for (std::size_t match_order = 0; match_order < dipole_matches.size(); ++match_order)
+            {
+                const auto &idxs = dipole_matches[match_order];
+                if (idxs.size() < 2)
+                {
+                    continue;
+                }
+                OBAtom *radical_atom = mol.GetAtom(idxs[0]);
+                OBAtom *charge_atom = mol.GetAtom(idxs[1]);
+                OBBond *bond = mol.GetBond(radical_atom, charge_atom);
+                if (tier5_allowed && radical_atom != nullptr && charge_atom != nullptr && bond != nullptr &&
+                    radical_atom->GetFormalCharge() == 0 &&
+                    molgr::utils::GetUnpairedElectronCount(*radical_atom) == 1 &&
+                    !molgr::utils::HasUnresolvedTwoElectronCenter(*radical_atom))
+                {
+                    const int charge_after = charge - 1;
+                    actions.push_back(ChargeAssignmentAction{
+                        radical_atom->GetIdx(),
+                        0,
+                        1,
+                        false,
+                        -1,
+                        {5, std::abs(charge_after), std::max(charge_after, 0), radical_atom->GetIdx(), static_cast<int>(match_order)},
+                        bond->GetIdx(),
+                        charge_atom->GetIdx(),
+                    });
+                }
+            }
+
             int match_order = 0;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OBAtom *atom = &(*atom_iter);
-                if (atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                if (charge > 0 && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
                 {
                     AppendPositiveChargeAssignmentAction(
                         actions,
@@ -543,7 +605,24 @@ namespace molgr
                 FOR_NB_OF_ATOM(nbr, a1)
                 sum_nbr_charge += nbr->GetFormalCharge();
 
-                if (-sum_nbr_charge > a1->GetFormalCharge() || molgr::utils::GetUnpairedElectronCount(*a2) != 1)
+                bool a2_neighbor_has_pending_electrons = false;
+                FOR_NB_OF_ATOM(nbr, a2)
+                {
+                    if (nbr->GetIdx() == a1->GetIdx())
+                    {
+                        continue;
+                    }
+                    if (molgr::utils::GetUnpairedElectronCount(*nbr) > 0 ||
+                        molgr::utils::HasUnresolvedTwoElectronCenter(*nbr))
+                    {
+                        a2_neighbor_has_pending_electrons = true;
+                        break;
+                    }
+                }
+
+                if (-sum_nbr_charge > a1->GetFormalCharge() ||
+                    molgr::utils::GetUnpairedElectronCount(*a2) != 1 ||
+                    a2_neighbor_has_pending_electrons)
                 {
                     continue;
                 }
@@ -553,43 +632,6 @@ namespace molgr
                 charge += 1;
                 hit = true;
                 LOG_DEBUG("[EliminateHighPos] Applied");
-            }
-            return hit;
-        }
-
-        bool EliminateCNInDoubt(OBMol &mol, int &charge)
-        {
-            bool hit = false;
-            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
-            size_t count = matches.size();
-            std::vector<int> atom_indices;
-            atom_indices.reserve(count * 2);
-            for (const auto &idxs : matches)
-            {
-                atom_indices.push_back(idxs[0]);
-                atom_indices.push_back(idxs[1]);
-            }
-            std::sort(atom_indices.begin(), atom_indices.end());
-            if (std::unique(atom_indices.begin(), atom_indices.end()) != atom_indices.end())
-            {
-                return false;
-            }
-            if (count > 0 && count % 2 == 0)
-            {
-                for (size_t i = 0; i < count / 2; ++i)
-                {
-                    auto idxs = matches[i];
-                    OBAtom *a1 = mol.GetAtom(idxs[0]);
-                    OBAtom *a2 = mol.GetAtom(idxs[1]);
-                    OBBond *bond = mol.GetBond(a1, a2);
-
-                    a1->SetFormalCharge(-1);
-                    bond->SetBondOrder(bond->GetBondOrder() - 1);
-                    a2->SetFormalCharge(0);
-                    charge += 2;
-                    hit = true;
-                }
-                LOG_DEBUG("[EliminateCN] Applied to " << count / 2 << " pairs");
             }
             return hit;
         }
@@ -768,12 +810,12 @@ namespace molgr
         // Electron bookkeeping: encode real radical actions or a pure unresolved
         // 2e center as positive charge. The latter requires at least two remaining
         // charge units, becomes +2, and clears its marker atomically.
-        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        bool EliminatePositiveChargesWithTarget(OBMol &mol, int &charge, int total_radical_electrons)
         {
             bool hit = false;
-            while (charge > 0)
+            while (true)
             {
-                const auto actions = PositiveChargeAssignmentActions(mol, charge);
+                const auto actions = PositiveChargeAssignmentActions(mol, charge, total_radical_electrons);
                 if (actions.empty())
                 {
                     break;
@@ -787,6 +829,11 @@ namespace molgr
                 hit = true;
             }
             return hit;
+        }
+
+        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        {
+            return EliminatePositiveChargesWithTarget(mol, charge, 0);
         }
 
         // Electron bookkeeping: encode real radical actions or a pure unresolved

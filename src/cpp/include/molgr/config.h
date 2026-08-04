@@ -47,7 +47,7 @@ namespace molgr::config
         int same_element_multimetal_unify_threshold = 3;
         std::optional<int> max_mixed_valence_spread = 3;
         int max_assignments_per_target = 64;
-        double metal_coordination_extra_tolerance_angstrom = 0.35;
+        double metal_coordination_extra_tolerance_angstrom = 0.75;
         double pi_dative_distance_difference_tolerance_angstrom = 0.10;
         double metal_access_radius_scale = 1.0;
         double metal_access_clearance_angstrom = 0.0;
@@ -56,8 +56,6 @@ namespace molgr::config
 
     struct MetalRadicalInferenceConfig
     {
-        double coordination_cutoff_angstrom = 3.2;
-        double coordination_covalent_tolerance_angstrom = 0.75;
         int max_considered_donors = 6;
         double square_planar_planarity_tolerance_angstrom = 0.45;
         double trigonal_planar_planarity_tolerance_angstrom = 0.35;

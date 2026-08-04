@@ -208,6 +208,136 @@ def clean_neighbor_radicals(
     return omol, hit
 
 
+def clean_1_4_radicals(
+    omol: pybel.Molecule,
+    given_charge: int,
+    total_radical_electrons: int,
+) -> tuple[pybel.Molecule, bool]:
+    """Resolve separated terminal radicals or unresolved electron centers.
+
+    For ``A-B=C-D``, consume one eligible electron state at each terminal and
+    shift the middle pi bond to the two outer bonds. Real radicals obey the
+    same global excess-electron budget as :func:`clean_neighbor_radicals`;
+    unresolved two-electron centers are consumed directly.
+    """
+
+    obmol = cast(ob.OBMol, omol.OBMol)
+
+    def available_unpaired_electrons() -> int:
+        return (
+            sum(
+                get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                for atom in ob.OBMolAtomIter(obmol)
+            )
+            - total_radical_electrons
+            - abs(given_charge)
+        )
+
+    hit = False
+    for idxs in list(smarts.CLEAN_1_4_RADICALS.findall(omol)):
+        atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
+        atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+        atom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
+        atom4 = cast(ob.OBAtom, obmol.GetAtom(idxs[3]))
+        bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
+        bond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
+        if not all((atom1, atom2, atom3, atom4, bond1, bond2, bond3)):
+            continue
+        if bond1.GetBondOrder() != 1 or bond2.GetBondOrder() != 2 or bond3.GetBondOrder() != 1:
+            continue
+
+        endpoints = (atom1, atom4)
+        endpoint_radicals = [get_unpaired_electron_count(atom) for atom in endpoints]
+        endpoint_unresolved = [has_unresolved_two_electron_center(atom) for atom in endpoints]
+        if not all(
+            radical > 0 or unresolved
+            for radical, unresolved in zip(endpoint_radicals, endpoint_unresolved)
+        ):
+            continue
+        if (
+            sum(radical > 0 for radical in endpoint_radicals) == 2
+            and available_unpaired_electrons() < 2
+        ):
+            continue
+
+        bond1.SetBondOrder(2)
+        bond2.SetBondOrder(1)
+        bond3.SetBondOrder(2)
+        for atom, radical, unresolved in zip(endpoints, endpoint_radicals, endpoint_unresolved):
+            if radical > 0:
+                set_unpaired_electron_count(atom, radical - 1)
+            if unresolved:
+                set_unresolved_two_electron_center(atom, False)
+                set_lone_pair_count(atom, 0)
+            assign_charge_radical_for_atom(atom)
+        hit = True
+    return omol, hit
+
+
+def clean_1_6_radicals(
+    omol: pybel.Molecule,
+    given_charge: int,
+    total_radical_electrons: int,
+) -> tuple[pybel.Molecule, bool]:
+    """Resolve terminal electron states across an alternating six-atom path.
+
+    For ``A-B=C-D=E-F``, consume one eligible state at A and F and shift the
+    two existing pi bonds outward, producing ``A=B-C=D-E=F``. Endpoint and
+    global-electron conditions are identical to :func:`clean_1_4_radicals`.
+    """
+
+    obmol = cast(ob.OBMol, omol.OBMol)
+
+    def available_unpaired_electrons() -> int:
+        return (
+            sum(
+                get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                for atom in ob.OBMolAtomIter(obmol)
+            )
+            - total_radical_electrons
+            - abs(given_charge)
+        )
+
+    hit = False
+    for idxs in list(smarts.CLEAN_1_6_RADICALS.findall(omol)):
+        atoms = tuple(cast(ob.OBAtom, obmol.GetAtom(idx)) for idx in idxs)
+        bonds = tuple(
+            cast(ob.OBBond, obmol.GetBond(begin_idx, end_idx))
+            for begin_idx, end_idx in zip(idxs, idxs[1:])
+        )
+        if not all((*atoms, *bonds)):
+            continue
+        if tuple(bond.GetBondOrder() for bond in bonds) != (1, 2, 1, 2, 1):
+            continue
+
+        endpoints = (atoms[0], atoms[-1])
+        endpoint_radicals = [get_unpaired_electron_count(atom) for atom in endpoints]
+        endpoint_unresolved = [has_unresolved_two_electron_center(atom) for atom in endpoints]
+        if not all(
+            radical > 0 or unresolved
+            for radical, unresolved in zip(endpoint_radicals, endpoint_unresolved)
+        ):
+            continue
+        if (
+            sum(radical > 0 for radical in endpoint_radicals) == 2
+            and available_unpaired_electrons() < 2
+        ):
+            continue
+
+        for bond, order in zip(bonds, (2, 1, 2, 1, 2)):
+            bond.SetBondOrder(order)
+        for atom, radical, unresolved in zip(endpoints, endpoint_radicals, endpoint_unresolved):
+            if radical > 0:
+                set_unpaired_electron_count(atom, radical - 1)
+            if unresolved:
+                set_unresolved_two_electron_center(atom, False)
+                set_lone_pair_count(atom, 0)
+            assign_charge_radical_for_atom(atom)
+        hit = True
+    return omol, hit
+
+
 def clean_resonances_0(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     obmol = cast(ob.OBMol, omol.OBMol)
     res: List[Tuple[int, int, int, int]] = list(smarts.CLEAN_RESONANCE_0.findall(omol))
@@ -276,6 +406,9 @@ def clean_resonances_2(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[3]))
         obbond3 = cast(ob.OBBond, obmol.GetBond(idxs[3], idxs[4]))
         obbond4 = cast(ob.OBBond, obmol.GetBond(idxs[4], idxs[5]))
+        obatom5_room = consts.NON_METAL_DICT[obatom5.GetAtomicNum()].default_valence - (
+            obatom5.GetTotalValence() + 1
+        )
         if (
             obbond4.GetBondOrder() == 1
             and obbond3.GetBondOrder() == 2
@@ -283,6 +416,7 @@ def clean_resonances_2(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
             and obbond1.GetBondOrder() == 2
             and obatom1.GetFormalCharge() == 0
             and obatom5.GetFormalCharge() == -1
+            and obatom5_room >= 0
         ):
             obbond4.SetBondOrder(obbond4.GetBondOrder() + 1)
             obbond3.SetBondOrder(obbond3.GetBondOrder() - 1)
@@ -417,11 +551,15 @@ def clean_resonances_7(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         obatom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
         obbond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         obbond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
+        obatom1_room = consts.NON_METAL_DICT[obatom1.GetAtomicNum()].default_valence - (
+            obatom1.GetTotalValence() + 1
+        )
         if (
             obbond1.GetBondOrder() == 1
             and obbond2.GetBondOrder() == 2
             and obatom1.GetFormalCharge() == -1
             and obatom3.GetFormalCharge() == 0
+            and obatom1_room >= 0
         ):
             obbond1.SetBondOrder(obbond1.GetBondOrder() + 1)
             obbond2.SetBondOrder(obbond2.GetBondOrder() - 1)
@@ -713,12 +851,16 @@ def clean_resonances_17(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
         bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         bond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
+        atom1_room = consts.NON_METAL_DICT[atom1.GetAtomicNum()].default_valence - (
+            atom1.GetTotalValence() + 1
+        )
         if (
             atom1.GetFormalCharge() == -1
             and atom3.GetFormalCharge() == 0
             and bond1.GetBondOrder() == 1
             and bond2.GetBondOrder() == 2
             and bond3.GetBondOrder() == 2
+            and atom1_room >= 0
         ):
             bond1.SetBondOrder(2)
             bond2.SetBondOrder(1)
@@ -773,6 +915,8 @@ def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
 
 __all__ = [
     "clean_carbene_neighbor_unsaturated",
+    "clean_1_4_radicals",
+    "clean_1_6_radicals",
     "clean_neighbor_radicals",
     "clean_possible_1_3_dipole",
     "clean_resonances",

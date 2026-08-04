@@ -33,6 +33,7 @@ ACCEPT_BOTH_STATUS = "accept_both"
 APPROVED_GRAPH_STATUSES = {"accept_candidate", ACCEPT_BOTH_STATUS}
 REFERENCE_GRAPH_STATUS = "accept_reference"
 MANUAL_REFERENCE_STATUS = "manual_reference"
+ANNOTATION_ONLY_STATUSES = {"reference_answer_wrong"}
 FIXTURE_STATUSES = APPROVED_GRAPH_STATUSES | {
     REFERENCE_GRAPH_STATUS,
     MANUAL_REFERENCE_STATUS,
@@ -262,7 +263,13 @@ def sync_review_fixture(
 
     with _FIXTURE_LOCK:
         manifest = _load_manifest(fixtures_dir)
+        existing_record = next(
+            (record for record in manifest["fixtures"] if record.get("case_id") == case_id),
+            None,
+        )
         records = [record for record in manifest["fixtures"] if record.get("case_id") != case_id]
+        if status in ANNOTATION_ONLY_STATUSES:
+            return existing_record
         if status not in FIXTURE_STATUSES:
             _remove_case_files(fixtures_dir, case_id)
             _write_manifest(fixtures_dir, records, existing=manifest)
@@ -300,7 +307,12 @@ def sync_review_fixture(
             # SDF-level electronic constraints describe the original case, not
             # metal-local unpaired electrons carried by the reconstructed graph.
             total_charge, total_radical_electrons, spin_multiplicity = case_electronic_state(case)
-            approved_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+            try:
+                approved_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+            except Chem.KekulizeException:
+                approved_smiles = Chem.MolToSmiles(
+                    mol, canonical=True, isomericSmiles=True, kekuleSmiles=False
+                )
             if status == ACCEPT_BOTH_STATUS:
                 relative_path = Path("accepted_both") / f"{case_id}.sdf"
                 source = "candidate_or_reference_graph"

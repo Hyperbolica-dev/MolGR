@@ -1,15 +1,4 @@
 {
-  "schema_version": 1,
-  "source_dataset": {
-    "name": "tmQMg",
-    "properties_file": "tmQMg_properties_and_targets.csv",
-    "properties_sha256": "3920c1c8f4ec81bc8e44b8d0256a7da1e36c8805c3c0adfd47e50c46e633f473",
-    "publication_doi": "10.1039/D2DD00129B",
-    "repository": "https://github.com/uiocompcat/tmQMg",
-    "revision": "e1dc9887b8f20a217a1db6ca972d726bcbaab45b",
-    "xyz_file": "tmQMg_xyz.zip",
-    "xyz_sha256": "e0d15a70bcba294717cd9f9792e7fac99ef0c5c61c3a6e08dcc8a8643f53660a"
-  },
   "fixtures": [
     {
       "accepted_smiles": [
@@ -139,5 +128,16 @@
       "total_charge": 0,
       "total_radical_electrons": 0
     }
-  ]
+  ],
+  "schema_version": 1,
+  "source_dataset": {
+    "name": "tmQMg",
+    "properties_file": "tmQMg_properties_and_targets.csv",
+    "properties_sha256": "3920c1c8f4ec81bc8e44b8d0256a7da1e36c8805c3c0adfd47e50c46e633f473",
+    "publication_doi": "10.1039/D2DD00129B",
+    "repository": "https://github.com/uiocompcat/tmQMg",
+    "revision": "e1dc9887b8f20a217a1db6ca972d726bcbaab45b",
+    "xyz_file": "tmQMg_xyz.zip",
+    "xyz_sha256": "e0d15a70bcba294717cd9f9792e7fac99ef0c5c61c3a6e08dcc8a8643f53660a"
+  }
 }

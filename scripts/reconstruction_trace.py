@@ -586,6 +586,25 @@ def _rdmol_sdf_block(mol: Chem.Mol) -> str:
     return block + "$$$$\n"
 
 
+def _safe_candidate_smiles(mol: Chem.Mol) -> str:
+    """Serialize a candidate without forcing an invalid aromatic Kekule form."""
+
+    clone = Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
+    try:
+        return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=True)
+    except Chem.KekulizeException:
+        # Candidate bond edits can leave aromatic flags inconsistent.  Clear
+        # only those flags for display; explicit bond orders remain intact.
+        rw_mol = Chem.RWMol(clone)
+        for atom in rw_mol.GetAtoms():
+            atom.SetIsAromatic(False)
+        for bond in rw_mol.GetBonds():
+            bond.SetIsAromatic(False)
+        fallback = rw_mol.GetMol()
+        fallback.UpdatePropertyCache(strict=False)
+        return Chem.MolToSmiles(fallback, canonical=True, isomericSmiles=True)
+
+
 def _deferred_dof_record(
     mols: Sequence[Chem.Mol],
     *,
@@ -685,6 +704,7 @@ def _render_dof_molecule(
                 render_type="single",
                 legends=[label],
             )
+        sdf = _rdmol_sdf_block(rdmol)
         from rdkit_dof import MolToDofImage
 
         if render_context.use_svg:
@@ -695,12 +715,14 @@ def _render_dof_molecule(
                 use_svg=True,
                 return_image=False,
             )
-            return _inline_dof_svg_record(
+            record = _inline_dof_svg_record(
                 _svg_fragment_from_dof_image(image),
                 render_context=render_context,
                 label=label,
                 kind=kind,
             )
+            record["sdf"] = sdf
+            return record
         path = render_context.image_dir / f"{file_stem}.{render_context.image_format}"
         path.parent.mkdir(parents=True, exist_ok=True)
         MolToDofImage(
@@ -711,12 +733,14 @@ def _render_dof_molecule(
             return_image=False,
             filename=str(path),
         )
-        return _dof_image_record(
+        record = _dof_image_record(
             path,
             render_context=render_context,
             label=label,
             kind=kind,
         )
+        record["sdf"] = sdf
+        return record
     except Exception as exc:
         error = {
             "kind": kind,
@@ -775,12 +799,14 @@ def _render_dof_grid(
                 use_svg=True,
                 return_image=False,
             )
-            return _inline_dof_svg_record(
+            record = _inline_dof_svg_record(
                 _svg_fragment_from_dof_image(image),
                 render_context=render_context,
                 label=label,
                 kind=kind,
             )
+            record["sdfs"] = [_rdmol_sdf_block(mol) for mol in mols]
+            return record
         path = render_context.image_dir / f"{file_stem}.{render_context.image_format}"
         path.parent.mkdir(parents=True, exist_ok=True)
         MolsToGridDofImage(
@@ -792,12 +818,14 @@ def _render_dof_grid(
             return_image=False,
             filename=str(path),
         )
-        return _dof_image_record(
+        record = _dof_image_record(
             path,
             render_context=render_context,
             label=label,
             kind=kind,
         )
+        record["sdfs"] = [_rdmol_sdf_block(mol) for mol in mols]
+        return record
     except Exception as exc:
         error = {
             "kind": kind,
@@ -886,6 +914,7 @@ def _render_dof_animation(
             )
             record["format"] = "svg"
         record.update({"animation": True, "frame_count": len(selected_items)})
+        record["sdfs"] = [_rdmol_sdf_block(mol) for mol in mols]
         return record
     except Exception as exc:
         error = {
@@ -1289,6 +1318,7 @@ def _metal_field_analysis_by_state(
             donors = metal_radical_inference_module._collect_coordination_environment(
                 atom,
                 metal_radical_config=field_config,
+                metal_scoring_config=resolved_config.metal_scoring,
             )
             analyses[key] = {
                 "coordination_number": int(inference.coordination_number),
@@ -2314,14 +2344,17 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     html { width:100%; overflow-x:auto; }
     body { margin:0; width:100%; min-width:1000px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
     header { padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:20; }
+    .trace-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .language-toggle { min-width:72px; border:1px solid var(--line); border-radius:6px; padding:7px 10px; background:#fff; color:var(--text); font:inherit; font-size:12px; cursor:pointer; }
+    .language-toggle:hover { border-color:var(--accent); }
     h1 { margin:0; font-size:20px; }
     h2 { margin:0 0 10px; font-size:15px; }
     .global-info { display:grid; grid-template-columns:minmax(240px,.8fr) minmax(220px,.65fr) minmax(360px,1.55fr); gap:12px; padding:12px; }
     .global-card { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:12px; min-width:0; max-width:100%; overflow:auto; }
-    main { width:100%; max-width:100%; display:grid; grid-template-columns:380px minmax(0,1fr); align-items:start; gap:12px; padding:0 12px 12px; min-height:0; }
+    main { width:100%; max-width:100%; display:grid; grid-template-columns:380px minmax(0,1fr); align-items:stretch; gap:12px; padding:0 12px 12px; min-height:0; }
     aside { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:10px; align-self:start; position:relative; display:flex; flex-direction:column; gap:10px; min-width:0; min-height:0; overflow:hidden; }
     #tree-search { width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }
-    .tree { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+    .tree { flex:1 1 0; height:0; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
     .tree ol { list-style:none; margin:0; padding-left:14px; border-left:1px solid #e5e7eb; }
     .tree > ol { padding-left:0; border-left:0; }
     .tree li { margin:4px 0; }
@@ -2352,6 +2385,11 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     .image-box.is-zoomable:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     .image-box img { display:block; max-width:100%; height:auto; margin:auto; }
     .image-box svg { display:block; max-width:100%; height:auto; margin:auto; }
+    .dof-visual-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,1fr); gap:12px; align-items:stretch; }
+    .dof-visual-row > .image-box, .dof-3dmol { min-width:0; min-height:280px; height:100%; }
+    .dof-3dmol { border:1px solid var(--line); border-radius:8px; background:#fff; overflow:hidden; position:relative; }
+    .dof-3dmol .dof-3dmol-viewer { width:100%; height:100%; min-height:280px; }
+    .dof-3dmol-empty { display:grid; place-items:center; height:100%; min-height:280px; padding:20px; color:var(--muted); text-align:center; }
     .resonance-image-comparison { display:grid; gap:12px; }
     .resonance-image-group { min-width:0; }
     .resonance-image-group h3 { margin:0 0 6px; font-size:14px; }
@@ -2420,11 +2458,14 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
   </style>
 </head>
 <body>
-  <header><h1>MolGR Trace</h1></header>
+  <header class="trace-header">
+    <h1>MolGR Trace</h1>
+    <button id="language-toggle" class="language-toggle" type="button">English</button>
+  </header>
   <section id="global-info" class="global-info"></section>
   <main>
     <aside>
-      <input id="tree-search" type="search" placeholder="Filter trace nodes...">
+      <input id="tree-search" type="search" placeholder="筛选 Trace 节点...">
       <nav id="tree" class="tree"></nav>
     </aside>
     <section id="detail" class="content"></section>
@@ -2440,7 +2481,8 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
   </dialog>
   <script id="trace-json" type="application/json">"""
         + cases_json
-        + """</script>
+        + r"""</script>
+  <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
   <script>
     (() => {
       const trace = JSON.parse(document.getElementById("trace-json").textContent);
@@ -2451,6 +2493,379 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
       const nodeById = new Map();
       const roots = [];
       let columnHeightFrame = 0;
+      let language = localStorage.getItem("moleculeReviewLanguage") === "en" ? "en" : "zh";
+
+      const traceUi = {
+        zh: {
+          languageToggle: "English",
+          searchPlaceholder: "筛选 Trace 节点...",
+          dofImage: "DOF 图像",
+          close: "关闭",
+          closeZoomedImage: "关闭放大图片",
+          expandNode: "折叠或展开节点",
+          noDofSdf: "该 DOF 图没有可用的 SDF 坐标",
+          threeDmolUnavailable: "3Dmol.js 未加载",
+          renderOnOpen: "打开节点后动态渲染",
+          noRenderableDof: "此节点没有可渲染的 DOF 图像",
+          rendering: "渲染中...",
+          renderFailed: "DOF 渲染失败",
+          noCandidateSdf: "候选没有可用的原始 SDF",
+          selected: "selected",
+          yes: "是",
+          no: "否",
+        },
+        en: {
+          languageToggle: "中文",
+          searchPlaceholder: "Filter trace nodes...",
+          dofImage: "DOF image",
+          close: "Close",
+          closeZoomedImage: "Close enlarged image",
+          expandNode: "Collapse or expand node",
+          noDofSdf: "No SDF coordinates are available for this DOF image",
+          threeDmolUnavailable: "3Dmol.js is not loaded",
+          renderOnOpen: "Rendered dynamically when the node is opened",
+          noRenderableDof: "This node has no renderable DOF image",
+          rendering: "Rendering...",
+          renderFailed: "DOF rendering failed",
+          noCandidateSdf: "The candidate has no source SDF",
+          selected: "selected",
+          yes: "Yes",
+          no: "No",
+        },
+      };
+
+      const traceEnglishText = new Map(Object.entries({
+        "输入": "Input",
+        "来源": "Source",
+        "XYZ 目录": "XYZ directory",
+        "默认总电荷": "Default total charge",
+        "默认总自由基电子数": "Default radical electrons",
+        "自旋来源": "Spin source",
+        "样本数": "Cases",
+        "全局节点数": "Global nodes",
+        "DOF 渲染": "DOF rendering",
+        "存储": "Storage",
+        "图片目录": "Image directory",
+        "格式": "Format",
+        "图片数": "Images",
+        "跳过数": "Skipped",
+        "最大图片数": "Maximum images",
+        "错误数": "Errors",
+        "状态": "Status",
+        "类型": "Type",
+        "电荷": "Charge",
+        "自由基": "Radicals",
+        "金属数": "Metals",
+        "生产层": "Production layer",
+        "生产候选": "Production candidates",
+        "全部候选": "All candidates",
+        "耗时秒": "Elapsed seconds",
+        "字段": "Field",
+        "值": "Value",
+        "无": "None",
+        "摘要": "Summary",
+        "完整 JSON": "Full JSON",
+        "分数构成": "Score components",
+        "决策流程": "Decision flow",
+        "阶段": "Stage",
+        "规则": "Rule",
+        "规则 / 结果": "Rule / result",
+        "优先级": "Priority",
+        "名称": "Name",
+        "方向": "Direction",
+        "含义": "Meaning",
+        "候选": "Candidate",
+        "候选数": "Candidates",
+        "选中候选": "Selected candidate",
+        "结论": "Decision",
+        "首个决定字段": "First decisive field",
+        "候选值": "Candidate value",
+        "选中值": "Selected value",
+        "选择字段顺序": "Selection field order",
+        "候选选择结论": "Candidate selection decisions",
+        "共振候选逐指标横向对比": "Resonance candidate comparison by criterion",
+        "共振候选": "Resonance candidate",
+        "共振候选对比": "Resonance candidate comparison",
+        "共振候选多图": "Resonance candidate grid",
+        "该金属价态对应有机目标的共振候选": "Resonance candidates for this metal-state organic target",
+        "金属候选失谐分解对比": "Metal candidate discordance comparison",
+        "金属候选对比中的失谐分解": "Discordance breakdown in metal candidate comparison",
+        "候选选择中的失谐分解": "Discordance breakdown in candidate selection",
+        "硬失谐分解": "Hard discordance breakdown",
+        "失谐诊断子计数与例外": "Discordance diagnostic subcounts and exceptions",
+        "失谐并列后的电子态排序": "Electronic-state ordering after discordance ties",
+        "失谐例外与诊断": "Discordance exceptions and diagnostics",
+        "分项": "Component",
+        "数值": "Value",
+        "作用": "Role",
+        "诊断项": "Diagnostic",
+        "说明": "Description",
+        "排序项": "Ordering field",
+        "失谐分项": "Discordance component",
+        "硬失谐分": "Hard discordance score",
+        "硬失谐分项之和": "Sum of hard discordance components",
+        "最终硬失谐总分": "Final hard discordance score",
+        "核对": "Check",
+        "后续排序，不计入失谐总分": "Follow-up ordering; excluded from discordance total",
+        "诊断：用于计算 0.5 倍惩罚": "Diagnostic: used for the 0.5x penalty",
+        "诊断：清零负价金属惩罚": "Diagnostic: clears the negative-metal penalty",
+        "内圈可见双自由基": "Inner visible diradical",
+        "外圈/不可见邻位双电荷": "Outer/invisible adjacent double charges",
+        "内圈可见相邻带电碳对": "Inner visible adjacent charged-carbon pair",
+        "内圈可见共轭带电碳对": "Inner visible conjugated charged-carbon pair",
+        "内圈可见同号电荷": "Inner visible same-sign charges",
+        "负价金属惩罚": "Negative-metal penalty",
+        "全零价金属与有机阳离子": "All-zero-valent metals with organic cation",
+        "金属配合物中的欠饱和有机阳离子": "Unsaturated organic cation in metal complex",
+        "重复片段净电荷失谐": "Repeated-component net-charge discordance",
+        "可见多齿碳环还原断裂pi": "Visible haptic arene reduction breaks pi bonding",
+        "配位几何失谐": "Coordination-geometry discordance",
+        "负价金属绝对价态总数": "Total absolute valence of negative metals",
+        "外圈质子例外": "Outer-sphere proton exception",
+        "正价金属对离子例外": "Positive-metal counterion exception",
+        "相对金属同号邻位双电荷": "Adjacent same-sign double charges relative to metal",
+        "相对金属异号邻位双电荷": "Adjacent opposite-sign double charges relative to metal",
+        "金属符号未知邻位双电荷": "Adjacent double charges with unknown metal sign",
+        "共轭原子亏损": "Conjugated-atom deficit",
+        "共轭键亏损": "Conjugated-bond deficit",
+        "芳香原子亏损": "Aromatic-atom deficit",
+        "芳香环亏损": "Aromatic-ring deficit",
+        "芳香稳定性亏损": "Aromatic-stability deficit",
+        "超共轭分数": "Hyperconjugation score",
+        "超共轭分数亏损": "Hyperconjugation-score deficit",
+        "低优先级后续排序的原始分数": "Raw score for lower-priority follow-up ordering",
+        "电荷局域化 margin 之后、力场之前比较": "Compared after charge-localization margin and before force field",
+        "最终选中路径动画": "Final selected-path animation",
+        "无金属最终路径动画": "No-metal final-path animation",
+        "含金属最终路径动画": "Metal-containing final-path animation",
+        "帧数": "Frames",
+        "动画": "Animation",
+        "路径": "Path",
+        "目标电荷": "Target charge",
+        "目标自由基电子": "Target radical electrons",
+        "选中分数": "Selected score",
+        "选中选择键": "Selected selection key",
+        "全局索引": "Global index",
+        "定位符": "Locator",
+        "全局树父节点": "Global tree parent",
+        "父节点": "Parent node",
+        "事件": "Event",
+        "命中": "Hit",
+        "共振种子": "Resonance seed",
+        "raw 共振": "Raw resonance",
+        "规范化": "Normalization",
+        "无金属完整 trace": "Full no-metal trace",
+        "节点数": "Nodes",
+        "trace 节点": "Trace node",
+        "选中 trace 节点": "Selected trace node",
+        "种子": "Seed",
+        "种子序号": "Seed index",
+        "共振序号": "Resonance index",
+        "raw 共振序号": "Raw resonance index",
+        "raw 序号": "Raw index",
+        "力场分": "Force-field score",
+        "图排序键摘要": "Graph-order key summary",
+        "最终共振身份": "Final resonance identity",
+        "无金属共振元数据": "No-metal resonance metadata",
+        "归一化方式": "Normalization method",
+        "选中 no-metal 候选": "Selected no-metal candidate",
+        "无金属候选": "No-metal candidate",
+        "分数": "Score",
+        "选择键": "Selection key",
+        "无金属重建": "No-metal reconstruction",
+        "选中无金属重建": "Selected no-metal reconstruction",
+        "对应无金属重建": "Corresponding no-metal reconstruction",
+        "邻位自由基动作": "Neighbor-radical actions",
+        "恢复层": "Recovery tier",
+        "选中 canonical SMILES": "Selected canonical SMILES",
+        "形式电荷": "Formal charge",
+        "自由基和": "Radical sum",
+        "自由基奇偶和": "Radical parity sum",
+        "活性孤对电子数": "Active lone-pair electrons",
+        "剩余电荷预算": "Remaining charge budget",
+        "匹配目标": "Matches target",
+        "带电原子": "Charged atoms",
+        "自由基原子": "Radical atoms",
+        "活性孤对原子": "Active lone-pair atoms",
+        "未决二电子中心": "Unresolved two-electron centers",
+        "CSV 行号": "CSV row",
+        "重建类型": "Reconstruction type",
+        "总电荷": "Total charge",
+        "总自由基电子数": "Total radical electrons",
+        "自旋多重度": "Spin multiplicity",
+        "XYZ 路径": "XYZ path",
+        "XYZ 来源": "XYZ source",
+        "review fixture 类型": "Review fixture type",
+        "review fixture 等价": "Review fixture equivalent",
+        "review fixture 比较原因": "Review fixture comparison reason",
+        "参考 SMILES": "Reference SMILES",
+        "金属原子数": "Metal atoms",
+        "生产选择层": "Production selection layer",
+        "生产候选数": "Production candidates",
+        "全部已评分候选数": "All scored candidates",
+        "review fixture 同步检查": "Review fixture synchronization check",
+        "fixture 类型": "Fixture type",
+        "结构文件": "Structure file",
+        "等价": "Equivalent",
+        "方法": "Method",
+        "原因": "Reason",
+        "氧化加成前后体检查": "Oxidative-addition pre/post check",
+        "匹配": "Matched",
+        "建议结论": "Recommended decision",
+        "参考等价的 +/-2 价态候选数": "Reference-equivalent +/-2 valence candidates",
+        "基础状态": "Base state",
+        "含金属重建": "Metal-containing reconstruction",
+        "金属价态候选": "Metal-valence candidates",
+        "金属电子态候选": "Metal electronic-state candidate",
+        "金属搜索层": "Metal search layer",
+        "有机目标桶": "Organic target bucket",
+        "分析和评分上下文": "Analysis and scoring context",
+        "金属位点数": "Metal sites",
+        "选择算法": "Selection algorithm",
+        "最小金属失谐总数": "Minimum metal discordance count",
+        "选中组合": "Selected combination",
+        "选中金属状态": "Selected metal states",
+        "选中字典序键": "Selected lexicographic key",
+        "选中": "Selected",
+        "组合": "Combination",
+        "候选总电荷": "Candidate total charge",
+        "有机目标电荷": "Organic target charge",
+        "有机自由基电子": "Organic radical electrons",
+        "有机 canonical SMILES": "Organic canonical SMILES",
+        "有机力场分": "Organic force-field score",
+        "金属状态": "Metal states",
+        "金属失谐总数": "Metal discordance count",
+        "通过失谐过滤": "Passes discordance filter",
+        "最终选择键": "Final selection key",
+        "对应共振候选数": "Corresponding resonance candidates",
+        "选中共振候选": "Selected resonance candidate",
+        "层": "Layer",
+        "已评分数": "Scored",
+        "金属组数": "Metal groups",
+        "每组候选数": "Candidates per group",
+        "目标桶数": "Target buckets",
+        "枚举候选数": "Enumerated candidates",
+        "已评分候选数": "Scored candidates",
+        "金属价态先验与 assignment penalty": "Metal-valence priors and assignment penalty",
+        "位点": "Site",
+        "选项": "Option",
+        "金属": "Metal",
+        "价态": "Valence",
+        "先验类别": "Prior class",
+        "价态先验惩罚": "Valence-prior penalty",
+        "非正价态惩罚": "Nonpositive-valence penalty",
+        "总 assignment penalty": "Total assignment penalty",
+        "构型": "Geometry",
+        "配位数": "Coordination number",
+        "场强分数": "Field score",
+        "场强类别": "Field class",
+        "弱场阈值": "Weak-field threshold",
+        "强场阈值": "Strong-field threshold",
+        "模糊 margin": "Ambiguity margin",
+        "自旋选项（首选在前）": "Spin options (preferred first)",
+        "donor 依据": "Donor evidence",
+        "最终 selection_key 字段顺序": "Final selection_key field order",
+        "失谐": "Discordance",
+        "通过过滤": "Passes filter",
+        "生产层候选逐项对比": "Production-layer candidate comparison",
+        "1. 候选范围": "1. Candidate scope",
+        "2. 化学指标": "2. Chemical criteria",
+        "3. 图排序": "3. Graph ordering",
+        "1. 价态先验": "1. Valence priors",
+        "2. 生产层": "2. Production layer",
+        "3. 失谐过滤": "3. Discordance filter",
+        "4. 最终比较": "4. Final comparison",
+        "只比较通过 process_resonance、去重、全局电荷/自由基验证和力场评分的候选": "Compare only candidates that pass process_resonance, deduplication, global charge/radical validation, and force-field scoring",
+        "按下表九项指标依次做字典序比较；芳香与共轭优先，弱超共轭靠后，力场分最后": "Compare the nine criteria below lexicographically; aromaticity and conjugation come first, weak hyperconjugation later, and force-field score last",
+        "九项指标完全相同时，按原子、显式电子标签和键表做稳定排序": "When all nine criteria tie, use stable ordering by atoms, explicit electron labels, and bond table",
+        "按 prior/minor/other 和非正价态惩罚计算 assignment rank；用于搜索顺序、分层和每个 target 的剪枝": "Compute assignment rank from prior/minor/other and nonpositive-valence penalties for search order, layering, and per-target pruning",
+        "对通过过滤的候选按下表字段从上到下做字典序最小化": "Lexicographically minimize passing candidates using the fields below in order",
+        "assignment rank 是否进入最终键": "Assignment rank participates in final key",
+        "电荷局域化超出 margin": "Charge localization exceeds margin",
+        "自由基局域化惩罚": "Radical-localization penalty",
+        "候选总分": "Candidate total score",
+        "组合序号": "Combination index",
+        "第一阶段只保留生产层中该值最小的候选": "First retain only production-layer candidates with the minimum value",
+        "相对同一最低金属失谐层的最低局域化分数高出至少 selection margin 时为 1": "1 when localization exceeds the minimum score in the same lowest-discordance layer by at least the selection margin",
+        "相对同批候选最佳共轭原子数的亏损": "Deficit relative to the best conjugated-atom count in the batch",
+        "相对同批候选最佳共轭键数的亏损": "Deficit relative to the best conjugated-bond count in the batch",
+        "相对同批候选最佳芳香原子数的亏损": "Deficit relative to the best aromatic-atom count in the batch",
+        "相对同批候选最佳芳香环数的亏损": "Deficit relative to the best aromatic-ring count in the batch",
+        "相对同批候选最佳芳香稳定性分数的亏损": "Deficit relative to the best aromatic-stability score in the batch",
+        "有机部分自由基位于不利原子环境的惩罚": "Penalty for organic radicals in unfavorable atomic environments",
+        "前述指标相同时，相对同批候选最高超共轭分数的亏损": "When prior criteria tie, deficit relative to the highest hyperconjugation score in the batch",
+        "当前为组合结构的力场分数": "Current force-field score of the combined structure",
+        "此前各项完全相同时的稳定排序": "Stable ordering when all previous fields tie",
+        "形式电荷绝对值和": "Absolute formal-charge sum",
+        "芳香原子数": "Aromatic atoms",
+        "芳香环数": "Aromatic rings",
+        "芳香稳定性分数": "Aromatic-stability score",
+        "校正后最大共轭组分": "Adjusted largest conjugated component",
+        "校正后共轭原子数": "Adjusted conjugated atoms",
+        "校正后共轭键数": "Adjusted conjugated bonds",
+        "超额自由基标记": "Excess radical labels",
+        "有机力场分数": "Organic force-field score",
+        "优先保留电荷分离程度更低的共振候选": "Prefer resonance candidates with less charge separation",
+        "优先保留更多芳香原子的共振候选": "Prefer resonance candidates with more aromatic atoms",
+        "芳香原子数相同时优先保留更多芳香环": "When aromatic-atom counts tie, prefer more aromatic rings",
+        "按环大小和芳香覆盖计算的稳定性指标": "Stability metric based on ring size and aromatic coverage",
+        "最大共轭组分减去形式电荷绝对值和的一半": "Largest conjugated component minus half the absolute formal-charge sum",
+        "共轭原子数减去形式电荷绝对值和的一半": "Conjugated atoms minus half the absolute formal-charge sum",
+        "共轭键数减去形式电荷绝对值和的一半": "Conjugated bonds minus half the absolute formal-charge sum",
+        "显式自由基标记超过全局自由基目标的数量": "Explicit radical labels exceeding the global radical target",
+        "饱和中性 sp3 碳向相邻 π/缺电子中心供给的 C-H σ 键数": "C-H sigma bonds donated from saturated neutral sp3 carbon to adjacent pi or electron-deficient centers",
+        "前述电子拓扑指标完全相同时才比较力场能量": "Compare force-field energy only when preceding electronic-topology criteria tie",
+        "选中：字典序键最小": "Selected: minimum lexicographic key",
+        "淘汰：金属失谐总数不是最小值": "Rejected: metal discordance count is not minimal",
+        "淘汰：首个不同的字典序字段更大": "Rejected: first differing lexicographic field is larger",
+        "仅分析：不在第一个成功评分层": "Analysis only: not in the first successfully scored layer",
+        "异常：通过过滤但没有 selection_key": "Error: passed filter without selection_key",
+        "未选中：selection_key 完全相同": "Not selected: identical selection_key",
+        "异常：该键优于被选候选": "Error: key is better than selected candidate",
+        "选中：选择键字典序最小": "Selected: minimum selection key",
+        "淘汰：首个不同的化学指标更差": "Rejected: first differing chemical criterion is worse",
+        "淘汰：化学指标相同，显式电子态图排序靠后": "Rejected: chemical criteria tie and explicit-electron graph orders later",
+        "未选中：选择键和图排序键完全相同": "Not selected: identical selection and graph-order keys"
+      }));
+
+      function ui(key) {
+        return (traceUi[language] || traceUi.zh)[key] || key;
+      }
+
+      function localizeText(value) {
+        const text = String(value ?? "");
+        if (language !== "en") return text;
+        if (traceEnglishText.has(text)) return traceEnglishText.get(text);
+        let match = text.match(/^完整状态机分支树 \((\d+)\)$/);
+        if (match) return `Full state-machine branch tree (${match[1]})`;
+        match = text.match(/^共振候选对比 \((\d+)\)$/);
+        if (match) return `Resonance candidate comparison (${match[1]})`;
+        match = text.match(/^共振候选多图(?: (\d+)\/(\d+))?$/);
+        if (match) return match[1]
+          ? `Resonance candidate grid ${match[1]}/${match[2]}`
+          : "Resonance candidate grid";
+        match = text.match(/^状态机 (.+)$/);
+        if (match) return `State machine ${localizeText(match[1])}`;
+        match = text.match(/^只从第一个存在可评分候选的 Layer (.+) 中做最终选择$/);
+        if (match) return `Make the final selection only from the first layer with scorable candidates: Layer ${match[1]}`;
+        match = text.match(/^只保留 metal_discordance_count = (.+) 的候选$/);
+        if (match) return `Keep only candidates with metal_discordance_count = ${match[1]}`;
+        match = text.match(/^(.+) \(([^()]*)\)$/);
+        if (match && traceEnglishText.has(match[1])) {
+          return `${traceEnglishText.get(match[1])} (${match[2]})`;
+        }
+        return text;
+      }
+
+      function applyStaticLanguage() {
+        document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+        document.getElementById("language-toggle").textContent = ui("languageToggle");
+        document.getElementById("tree-search").placeholder = ui("searchPlaceholder");
+        const close = document.getElementById("image-lightbox-close");
+        close.setAttribute("aria-label", ui("closeZoomedImage"));
+        close.title = ui("close");
+        document.getElementById("image-lightbox-title").textContent = ui("dofImage");
+      }
 
       function syncMainColumnHeights() {
         const main = document.querySelector("main");
@@ -2465,6 +2880,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           : 0;
         const availableHeight = Math.max(320, viewportHeight - stickyHeaderHeight - 24);
         const height = `${Math.floor(availableHeight)}px`;
+        main.style.height = height;
         sidebar.style.height = height;
         content.style.height = height;
       }
@@ -2485,9 +2901,9 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
 
       function fmt(value) {
         if (value === undefined || value === null) return "";
-        if (typeof value === "boolean") return value ? "是" : "否";
+        if (typeof value === "boolean") return value ? ui("yes") : ui("no");
         if (typeof value === "number") return Number.isFinite(value) ? String(Number.parseFloat(value.toPrecision(6))) : String(value);
-        if (typeof value === "string") return value;
+        if (typeof value === "string") return localizeText(value);
         return JSON.stringify(value);
       }
 
@@ -2506,6 +2922,54 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         return dofPayloads[image.render_id] || null;
       }
 
+      function dofSdfs(image) {
+        if (!image || typeof image !== "object") return [];
+        const payload = deferredDofPayload(image) || image;
+        if (typeof payload.sdf === "string" && payload.sdf) return [payload.sdf];
+        return Array.isArray(payload.sdfs) ? payload.sdfs.filter(sdf => typeof sdf === "string" && sdf) : [];
+      }
+
+      function syncDofVisualHeight(row) {
+        if (!row) return;
+        const graph = row.querySelector(".image-box");
+        const viewer = row.querySelector(".dof-3dmol");
+        if (!graph || !viewer) return;
+        const height = Math.max(280, Math.ceil(graph.getBoundingClientRect().height));
+        viewer.style.height = `${height}px`;
+        const canvas = viewer.querySelector(".dof-3dmol-viewer");
+        if (canvas) canvas.style.height = `${height}px`;
+        const instance = viewer._molgrViewer;
+        if (instance && typeof instance.resize === "function") {
+          instance.resize();
+          instance.render();
+        }
+      }
+
+      function renderDofMol3d(box, image) {
+        const sdfs = dofSdfs(image);
+        if (!sdfs.length) {
+          box.classList.add("dof-3dmol-empty");
+          box.textContent = ui("noDofSdf");
+          return;
+        }
+        if (!window.$3Dmol) {
+          box.classList.add("dof-3dmol-empty");
+          box.textContent = ui("threeDmolUnavailable");
+          return;
+        }
+        const canvas = document.createElement("div");
+        canvas.className = "dof-3dmol-viewer";
+        box.appendChild(canvas);
+        const viewer = window.$3Dmol.createViewer(canvas, {backgroundColor: "white"});
+        sdfs.forEach(sdf => {
+          const model = viewer.addModel(sdf, "sdf");
+          model.setStyle({}, {stick: {radius: 0.14}, sphere: {scale: 0.25}});
+        });
+        viewer.zoomTo();
+        viewer.render();
+        box._molgrViewer = viewer;
+      }
+
       function setImageZoomState(box, label) {
         const image = box && box.querySelector("svg, img");
         if (!box) return;
@@ -2519,15 +2983,16 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         }
         box.setAttribute("role", "button");
         box.tabIndex = 0;
-        box.setAttribute("aria-label", `放大${label || "DOF 图像"}`);
-        box.dataset.zoomLabel = label || "DOF 图像";
+        const localizedLabel = localizeText(label || ui("dofImage"));
+        box.setAttribute("aria-label", language === "en" ? `Enlarge ${localizedLabel}` : `放大${localizedLabel}`);
+        box.dataset.zoomLabel = localizedLabel;
       }
 
       function openImageLightbox(box, label) {
         const image = box && box.querySelector("svg, img");
         if (!image) return;
         const dialog = document.getElementById("image-lightbox");
-        document.getElementById("image-lightbox-title").textContent = label || box.dataset.zoomLabel || "DOF 图像";
+        document.getElementById("image-lightbox-title").textContent = localizeText(label || box.dataset.zoomLabel || ui("dofImage"));
         document.getElementById("image-lightbox-content").replaceChildren(image.cloneNode(true));
         if (!dialog.open) dialog.showModal();
       }
@@ -2563,7 +3028,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         ["metal_discordance_unsaturated_organic_cation_count", "金属配合物中的欠饱和有机阳离子", "硬失谐分"],
         ["metal_discordance_repeated_component_charge_asymmetry_count", "重复片段净电荷失谐", "硬失谐分"],
         ["metal_discordance_haptic_arene_reduction_count", "可见多齿碳环还原断裂pi", "硬失谐分"],
-        ["metal_discordance_visible_donor_multiple_bond_count", "可见 donor 原子多键", "硬失谐分"],
         ["metal_discordance_coordination_geometry_count", "配位几何失谐", "硬失谐分"],
       ];
       const discordanceDiagnosticFields = [
@@ -2699,7 +3163,9 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         node.search = [
           caseId,
           label,
+          localizeText(label),
           kind,
+          localizeText(kind),
           globalLocator,
           fmt(summary),
           fmt(node.scoreDetails),
@@ -3172,7 +3638,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const headRow = thead.insertRow();
         headers.forEach(header => {
           const th = document.createElement("th");
-          th.textContent = header;
+          th.textContent = localizeText(header);
           headRow.appendChild(th);
         });
         const tbody = tableEl.createTBody();
@@ -3187,7 +3653,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           const tr = tbody.insertRow();
           const td = tr.insertCell();
           td.colSpan = headers.length;
-          td.textContent = "无";
+          td.textContent = localizeText("无");
         }
         return tableEl;
       }
@@ -3426,7 +3892,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const el = document.createElement("details");
         if (open) el.open = true;
         const summary = document.createElement("summary");
-        summary.textContent = title;
+        summary.textContent = localizeText(title);
         el.appendChild(summary);
         el.appendChild(content);
         return el;
@@ -3452,11 +3918,12 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
 
       function renderGlobal() {
         const root = document.getElementById("global-info");
+        root.replaceChildren();
         const input = trace.input || {};
         const dof = trace.dof_rendering || {};
         const inputCard = document.createElement("section");
         inputCard.className = "global-card";
-        inputCard.innerHTML = "<h2>输入</h2>";
+        inputCard.innerHTML = `<h2>${localizeText("输入")}</h2>`;
         inputCard.appendChild(table([
           ["来源", input.source],
           ["CSV", input.csv],
@@ -3470,7 +3937,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         ]));
         const dofCard = document.createElement("section");
         dofCard.className = "global-card";
-        dofCard.innerHTML = "<h2>DOF 渲染</h2>";
+        dofCard.innerHTML = `<h2>${localizeText("DOF 渲染")}</h2>`;
         dofCard.appendChild(table([
           ["存储", dof.storage],
           ["图片目录", dof.image_dir],
@@ -3501,7 +3968,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const head = caseTable.createTHead().insertRow();
         ["id", "状态", "类型", "电荷", "自由基", "金属数", "生产层", "生产候选", "全部候选", "耗时秒"].forEach(text => {
           const th = document.createElement("th");
-          th.textContent = text;
+          th.textContent = localizeText(text);
           head.appendChild(th);
         });
         const body = caseTable.createTBody();
@@ -3544,7 +4011,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           const toggle = document.createElement("button");
           toggle.type = "button";
           toggle.className = "tree-toggle";
-          toggle.setAttribute("aria-label", "折叠或展开节点");
+          toggle.setAttribute("aria-label", ui("expandNode"));
           toggle.addEventListener("click", event => {
             event.preventDefault();
             event.stopPropagation();
@@ -3567,10 +4034,10 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         button.dataset.search = node.search || "";
         const label = document.createElement("span");
         label.className = "tree-label";
-        label.textContent = node.label;
+        label.textContent = localizeText(node.label);
         const meta = document.createElement("span");
         meta.className = "tree-meta";
-        meta.textContent = node.kind;
+        meta.textContent = localizeText(node.kind);
         button.append(label, meta);
         button.addEventListener("click", () => activate(node.id, {reveal: true}));
         row.appendChild(button);
@@ -3606,14 +4073,24 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           const group = document.createElement("section");
           group.className = "resonance-image-group";
           const heading = document.createElement("h3");
-          heading.textContent = chunks.length > 1
+          heading.textContent = localizeText(chunks.length > 1
             ? `共振候选多图 ${index + 1}/${chunks.length}`
-            : "共振候选多图";
+            : "共振候选多图");
+          const row = document.createElement("div");
+          row.className = "dof-visual-row";
           const box = document.createElement("div");
           box.className = "image-box";
           box.dataset.resonanceGridIndex = String(index);
-          box.textContent = "打开节点后动态渲染";
-          group.append(heading, box);
+          box.textContent = ui("renderOnOpen");
+          row.appendChild(box);
+          const molBox = document.createElement("div");
+          molBox.className = "dof-3dmol";
+          renderDofMol3d(molBox, {
+            sdfs: chunk.flatMap(candidate => dofSdfs(candidate.dof_image)),
+          });
+          row.appendChild(molBox);
+          group.append(heading, row);
+          window.requestAnimationFrame(() => syncDofVisualHeight(row));
           root.appendChild(group);
         });
         return root;
@@ -3627,21 +4104,24 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         head.className = "panel-head";
         const titleBox = document.createElement("div");
         const title = document.createElement("h2");
-        title.textContent = node.label;
+        title.textContent = localizeText(node.label);
         const meta = document.createElement("p");
-        meta.textContent = `${node.caseId} · ${node.kind}`;
+        meta.textContent = `${node.caseId} · ${localizeText(node.kind)}`;
         titleBox.append(title, meta);
         head.appendChild(titleBox);
         if (node.selected) {
           const badge = document.createElement("span");
           badge.className = "badge selected";
-          badge.textContent = "selected";
+          badge.textContent = ui("selected");
           head.appendChild(badge);
         }
         panel.appendChild(head);
         if (node.kind === "共振候选对比") {
           panel.appendChild(renderResonanceImageComparison(node.metadata));
         } else {
+          const visualRow = document.createElement("div");
+          visualRow.className = "dof-visual-row";
+          let graphBox = null;
           const svg = imageSvg(node.image);
           const imgPath = imagePath(node.image);
           const deferredPayload = deferredDofPayload(node.image);
@@ -3650,32 +4130,39 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             box.className = "image-box";
             box.innerHTML = svg;
             setImageZoomState(box, node.label);
-            panel.appendChild(box);
+            graphBox = box;
           } else if (imgPath) {
             const box = document.createElement("div");
             box.className = "image-box";
             const img = document.createElement("img");
             img.dataset.src = imgPath;
             img.loading = "lazy";
-            img.alt = node.label;
+            img.alt = localizeText(node.label);
             box.appendChild(img);
-            panel.appendChild(box);
+            graphBox = box;
           } else if (deferredPayload) {
             const box = document.createElement("div");
             box.className = "image-box";
             box.dataset.deferredDof = node.image.render_id;
-            panel.appendChild(box);
+            graphBox = box;
           } else {
             const empty = document.createElement("div");
             empty.className = "image-empty";
-            empty.textContent = "此节点没有可渲染的 DOF 图像";
-            panel.appendChild(empty);
+            empty.textContent = ui("noRenderableDof");
+            graphBox = empty;
           }
+          visualRow.appendChild(graphBox);
+          const molBox = document.createElement("div");
+          molBox.className = "dof-3dmol";
+          renderDofMol3d(molBox, node.image);
+          visualRow.appendChild(molBox);
+          panel.appendChild(visualRow);
+          window.requestAnimationFrame(() => syncDofVisualHeight(visualRow));
         }
         if (node.kind === "金属电子态候选" && node.resonanceBasis) {
           const heading = document.createElement("h3");
           heading.className = "related-resonance-title";
-          heading.textContent = "该金属价态对应有机目标的共振候选";
+          heading.textContent = localizeText("该金属价态对应有机目标的共振候选");
           panel.append(heading, renderResonanceImageComparison(node.resonanceBasis));
         }
         const info = document.createElement("section");
@@ -3717,7 +4204,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const box = panel && panel.querySelector("[data-deferred-dof]");
         if (!payload || !box || box.dataset.state === "loading" || box.dataset.state === "loaded") return;
         box.dataset.state = "loading";
-        box.textContent = "渲染中...";
+        box.textContent = ui("rendering");
         try {
           const response = await fetch("/api/render-dof", {
             method: "POST",
@@ -3730,9 +4217,10 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           box.dataset.state = "loaded";
           setImageZoomState(box, node.label);
         } catch (error) {
-          box.textContent = `DOF 渲染失败: ${error.message || error}`;
+          box.textContent = `${ui("renderFailed")}: ${error.message || error}`;
           box.dataset.state = "error";
         } finally {
+          syncDofVisualHeight(box.closest(".dof-visual-row"));
           scheduleMainColumnHeightSync();
         }
       }
@@ -3751,13 +4239,13 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             payload: deferredDofPayload(candidate.dof_image),
           })).filter(item => item.payload?.render_type === "single" && item.payload.sdf);
           if (!items.length) {
-            box.textContent = "候选没有可用的原始 SDF";
+            box.textContent = ui("noCandidateSdf");
             box.dataset.state = "error";
             scheduleMainColumnHeightSync();
             continue;
           }
           box.dataset.state = "loading";
-          box.textContent = "渲染中...";
+          box.textContent = ui("rendering");
           try {
             const response = await fetch("/api/render-dof", {
               method: "POST",
@@ -3780,7 +4268,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             box.dataset.state = "loaded";
             setImageZoomState(box, `共振候选多图 ${index + 1}/${chunks.length}`);
           } catch (error) {
-            box.textContent = `DOF 渲染失败: ${error.message || error}`;
+            box.textContent = `${ui("renderFailed")}: ${error.message || error}`;
             box.dataset.state = "error";
           } finally {
             scheduleMainColumnHeightSync();
@@ -3809,6 +4297,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             img.src = img.dataset.src;
             delete img.dataset.src;
             setImageZoomState(img.closest(".image-box"), node.label);
+            img.addEventListener("load", () => syncDofVisualHeight(img.closest(".dof-visual-row")), {once: true});
           });
           void renderDeferredDof(node, activePanel);
           void renderDeferredResonanceGrids(node, activePanel);
@@ -3845,15 +4334,34 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         scheduleMainColumnHeightSync();
       }
 
-      buildTree();
-      renderGlobal();
-      const treeRoot = document.createElement("ol");
-      roots.forEach(root => treeRoot.appendChild(renderTreeNode(root)));
       const treeElement = document.getElementById("tree");
       const detailElement = document.getElementById("detail");
-      treeElement.appendChild(treeRoot);
-      if (nodes.length) activate(nodes[0].id);
+
+      function renderApplication(activeId = "") {
+        nodes.length = 0;
+        roots.length = 0;
+        nodeById.clear();
+        treeElement.replaceChildren();
+        detailElement.replaceChildren();
+        buildTree();
+        renderGlobal();
+        const treeRoot = document.createElement("ol");
+        roots.forEach(root => treeRoot.appendChild(renderTreeNode(root)));
+        treeElement.appendChild(treeRoot);
+        const targetId = activeId && nodeById.has(activeId) ? activeId : nodes[0]?.id;
+        if (targetId) activate(targetId);
+      }
+
+      function toggleLanguage() {
+        const activeId = document.querySelector(".tree-node.is-active")?.dataset.target || "";
+        language = language === "zh" ? "en" : "zh";
+        localStorage.setItem("moleculeReviewLanguage", language);
+        applyStaticLanguage();
+        renderApplication(activeId);
+      }
+
       document.getElementById("tree-search").addEventListener("input", applyTreeFilter);
+      document.getElementById("language-toggle").addEventListener("click", toggleLanguage);
       detailElement.addEventListener("click", event => {
         const box = event.target.closest(".image-box.is-zoomable");
         if (box) openImageLightbox(box);
@@ -3871,7 +4379,8 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
       document.getElementById("image-lightbox").addEventListener("click", event => {
         if (event.target === event.currentTarget) closeImageLightbox();
       });
-      applyTreeFilter();
+      applyStaticLanguage();
+      renderApplication();
       scheduleMainColumnHeightSync();
     })();
   </script>
@@ -4548,7 +5057,6 @@ def _metal_selection_basis(
                 "metal_discordance_unsaturated_organic_cation_count",
                 "metal_discordance_repeated_component_charge_asymmetry_count",
                 "metal_discordance_haptic_arene_reduction_count",
-                "metal_discordance_visible_donor_multiple_bond_count",
                 "metal_discordance_coordination_geometry_count",
                 "metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count",
                 "metal_discordance_outer_or_invisible_adjacent_opposite_sign_double_charge_count",
@@ -4880,11 +5388,7 @@ def _oxidative_addition_reference_match(
                 "equivalence_method": info.method.value if info.method else "",
                 "equivalence_reason": info.reason,
                 "negative_charge_visibility": negative_charge_visibility,
-                "candidate_smiles": Chem.MolToSmiles(
-                    Chem.RemoveHs(Chem.Mol(candidate_mol), sanitize=False),
-                    canonical=True,
-                    isomericSmiles=True,
-                ),
+                "candidate_smiles": _safe_candidate_smiles(candidate_mol),
             }
         )
 

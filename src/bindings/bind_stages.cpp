@@ -120,13 +120,6 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_cn_in_doubt_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
-    {
-        auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::EliminateCNInDoubt(*mol, given_charge);
-        return py::make_tuple(given_charge, hit);
-    };
-
     const auto eliminate_carboxyl_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
@@ -172,6 +165,30 @@ void bind_stages(py::module_ &m)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         return molgr::reconstruct::CleanNeighborRadicals(
+            *mol,
+            given_charge,
+            total_radical_electrons);
+    };
+
+    const auto clean_1_4_radicals_ptr = [](
+                                             intptr_t mol_ptr,
+                                             int given_charge,
+                                             int total_radical_electrons)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::Clean14Radicals(
+            *mol,
+            given_charge,
+            total_radical_electrons);
+    };
+
+    const auto clean_1_6_radicals_ptr = [](
+                                             intptr_t mol_ptr,
+                                             int given_charge,
+                                             int total_radical_electrons)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::Clean16Radicals(
             *mol,
             given_charge,
             total_radical_electrons);
@@ -367,19 +384,6 @@ Args:
         py::arg("given_charge"));
 
     m_eliminate.def(
-        "eliminate_cn_in_doubt_ptr",
-        eliminate_cn_in_doubt_ptr,
-        R"pbdoc(
-Apply eliminate.eliminate_cn_in_doubt to an existing OBMol.
-
-Args:
-    mol_ptr: int address of OpenBabel::OBMol
-    given_charge: charge deficit to be updated in place and returned
-)pbdoc",
-        py::arg("mol_ptr"),
-        py::arg("given_charge"));
-
-    m_eliminate.def(
         "eliminate_carboxyl_ptr",
         eliminate_carboxyl_ptr,
         R"pbdoc(
@@ -452,6 +456,26 @@ Convert an eligible excess-radical fragment into a neutral 1,3-dipole.
         clean_neighbor_radicals_ptr,
         R"pbdoc(
 Apply clean.clean_neighbor_radicals to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"),
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons"));
+
+    m_clean.def(
+        "clean_1_4_radicals_ptr",
+        clean_1_4_radicals_ptr,
+        R"pbdoc(
+Apply clean.clean_1_4_radicals to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"),
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons"));
+
+    m_clean.def(
+        "clean_1_6_radicals_ptr",
+        clean_1_6_radicals_ptr,
+        R"pbdoc(
+Apply clean.clean_1_6_radicals to an existing OBMol.
 )pbdoc",
         py::arg("mol_ptr"),
         py::arg("given_charge"),

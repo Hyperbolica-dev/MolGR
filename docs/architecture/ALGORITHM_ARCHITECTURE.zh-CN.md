@@ -25,6 +25,7 @@ MolGR 的统一算法可以按七层理解：
 
 1. API 归一化
    - `xyz_to_rdmol(xyz_block, total_charge, spin_multiplicity, backend, config)`
+   - 根据 XYZ 元素组成和 `total_charge` 计算总电子数，拒绝奇偶性或数值范围不可能的多重度
    - 将 `spin_multiplicity` 转换成 `total_radical_electrons = spin_multiplicity - 1`
    - 解析配置并路由到 Python 或 C++ 后端
 
@@ -77,7 +78,8 @@ MolGR 的统一算法可以按七层理解：
 
 ```mermaid
 flowchart TD
-    API["xyz_to_rdmol<br/>src/molgr/interface.py"] --> Normalize["total_radical_electrons = spin_multiplicity - 1"]
+    API["xyz_to_rdmol<br/>src/molgr/interface.py"] --> ValidateSpin["校验总电子数与自旋多重度"]
+    ValidateSpin --> Normalize["total_radical_electrons = spin_multiplicity - 1"]
     Normalize --> Backend{"backend"}
 
     Backend -->|"cpp"| CppEntry["_core.pipeline.reconstruct_with_metals.xyz2omol<br/>pybind: releases GIL"]
@@ -301,7 +303,7 @@ DP 合并后的 target bucket key 是：
 当前需要记录的典型失谐结构包括：
 
 1. 内圈可见双自由基原子
-   - 原子位于金属内圈配位半径内；配位半径定义为 `metal_access_radius_scale * (中心金属共价半径 + 该原子共价半径) + metal_coordination_extra_tolerance_angstrom`，默认 `metal_access_radius_scale=1.0`，冗余值为 `0.35 Å`。
+   - 原子位于金属内圈配位半径内；配位半径定义为 `metal_access_radius_scale * (中心金属共价半径 + 该原子共价半径) + metal_coordination_extra_tolerance_angstrom`，默认 `metal_access_radius_scale=1.0`，冗余值为 `0.75 Å`。该判据与补配位键共用同一个 helper 和配置，不再额外施加 `3.2 Å` 上限。
    - RDKit 后处理补配位键也使用同样的半径比例和 `metal_coordination_extra_tolerance_angstrom` 距离判据。
    - π 配位键补全还要求两个配位原子到金属中心的距离足够接近；绝对距离差由 `pi_dative_distance_difference_tolerance_angstrom` 限制，默认 `0.10 Å`。
    - 从金属中心到该原子的配位路径可见，未被其它原子遮挡；遮挡半径为 `metal_access_radius_scale * blocker 共价半径 + metal_access_clearance_angstrom`，可见性是独立于内外圈距离判定的第二个维度。
@@ -337,7 +339,7 @@ DP 合并后的 target bucket key 是：
 
 5. 金属配合物中的欠饱和有机阳离子
    - 只要当前是金属候选，且 no-metal 有机部分存在欠饱和正形式电荷非金属原子时，计为 1 个失谐结构；不区分金属价态正负。
-   - 不饱和有机阳离子的判定是：该正电原子的成键原子数小于总价数，或总价数小于 OpenBabel `GetTypicalValence(atomic_num, total_valence, formal_charge)` 返回的常见价数；这包括欠价的鎓离子型阳离子。
+   - 不饱和有机阳离子的判定是：该正电原子按 `外层电子数 - 正电荷 + 总键级` 计算的局部外层电子数低于闭壳层目标（氢为 2，其余为 8）；不使用成键原子数（连接数）和总键级的比较，避免把 `O(v3)+` 的单个三键误判为欠饱和。这包括欠价的鎓离子型阳离子。
    - 豁免两性离子形式：如果有机部分总形式电荷为 0，或该不饱和阳离子的相邻非金属原子形式电荷之和加上阳离子电荷为 0，则不计入该失谐。
    - 化学含义：欠饱和阳离子是可接受金属电子转移的伪阳离子中心；即使金属为负价，也可能把电子从金属转移到该中心，因此不能因金属负价而豁免。
    - 判定作用：标记金属-有机电子转移分配失谐。
@@ -360,11 +362,7 @@ DP 合并后的 target bucket key 是：
    - 排除这些完整 `pi` 环后，该可见多齿碳环中的每个负形式电荷碳贡献 1 个失谐计数。
    - 该特征针对错误金属价态候选把多齿碳环配体还原并破坏其离域 `pi` 形式；这是环局部结构失谐，不是全局芳香性奖励。
 
-9. 两个内圈可见杂原子之间的多键
-   - 两个内圈可见 `N/O/P/S` 原子之间出现二级或更高键时，每条键贡献 1 个失谐计数。
-   - 该特征识别通过局域化杂原子多键消耗两个配位 donor 位点的候选。
-
-10. 强配位几何失谐
+9. 强配位几何失谐
     - 平面四方配位的 Pd/Pt 若形式价态不低于 IV，贡献 1 个失谐计数。
     - 线性配位的 Ag/Au 若形式价态不低于 III，贡献 1 个失谐计数。
     - 当前只处理这两类强几何/氧化态矛盾；其它几何不作硬判定。

@@ -18,13 +18,13 @@ PRE_CLEAN_BCP_RING_4 = _smarts("[#6]1([#6]2)[#7]2[#6]1")
 PRE_CLEAN_SI_O_F = _smarts("[Siv5]-[O,F]")
 
 ELIM_HIGH_POSITIVE = _smarts("[*+1,*+2,*+3]-[Ov1+0,Nv2+0,Sv1+0]")
-ELIM_CN_IN_DOUBT = _smarts("[#6v4+0;R0]=,#[#7v4+1,#15v4+1]")
 ELIM_CARBOXYL = _smarts("[Ov1+0]-C=O")
 ELIM_NNN_NEGATIVE = _smarts("[#7v1+0]-[#7v2+0]-[#7v1+0]")
 ELIM_NNN_POSITIVE = _smarts("[#7v3+0]-[#7v2+0]-[#7v3+0]")
 ELIM_1_3_DIPOLE_POSTIVE = _smarts("[*-1]-,=[N+0,O+0,S+0,P+0]-,=[*]")
 ELIM_POSITIVE_N = _smarts("[Nv3+0]=[Nv2+0]")
 ELIM_POSITIVE_C_H = _smarts("[#6v3+0,#6v2+0,#1v0+0]")
+ELIM_POSITIVE_DIPOLE = _smarts("[*]-,=[Nv3,Ov2,Pv3,Sv2]")
 ELIM_NEGATIVE_F = _smarts("[#9v0+0]")
 ELIM_NEGATIVE_O = _smarts("[#8v0+0]")
 ELIM_NEGATIVE_O_1 = _smarts("[#8v1+0]")
@@ -53,6 +53,8 @@ ELIM_NEGATIVE_CP = _smarts(
 
 CLEAN_CARBENE_NEIGHBOR_UNSAT = _smarts("[*]-[*]=[*]")
 CLEAN_POSSIBLE_1_3_DIPOLE = _smarts("[*]-,=[N,O,P,S]-,=[*]")
+CLEAN_1_4_RADICALS = _smarts("[*]-[*]=[*]-[*]")
+CLEAN_1_6_RADICALS = _smarts("[*]-[*]=[*]-[*]=[*]-[*]")
 CLEAN_RESONANCE_0 = _smarts("[*-]-[*]=[*]~[*+]")
 CLEAN_RESONANCE_1 = _smarts("[*-]=[*+]=[*+0]")
 CLEAN_RESONANCE_2 = _smarts("[#8]=[#6](-[!-])-[*]=[*]-[#7-,#6-]")
@@ -89,6 +91,8 @@ __all__ = [
     "BREAK_ONE_BOND_CATION",
     "BREAK_ONE_BOND_MULTIPLE",
     "CLEAN_CARBENE_NEIGHBOR_UNSAT",
+    "CLEAN_1_4_RADICALS",
+    "CLEAN_1_6_RADICALS",
     "CLEAN_POSSIBLE_1_3_DIPOLE",
     "CLEAN_RESONANCE_0",
     "CLEAN_RESONANCE_1",
@@ -109,7 +113,6 @@ __all__ = [
     "CLEAN_RESONANCE_9",
     "ELIM_1_3_DIPOLE_POSTIVE",
     "ELIM_CARBOXYL",
-    "ELIM_CN_IN_DOUBT",
     "ELIM_HIGH_POSITIVE",
     "ELIM_NEGATIVE_B",
     "ELIM_NEGATIVE_B_1",
@@ -136,6 +139,7 @@ __all__ = [
     "ELIM_NNN_NEGATIVE",
     "ELIM_NNN_POSITIVE",
     "ELIM_POSITIVE_C_H",
+    "ELIM_POSITIVE_DIPOLE",
     "ELIM_POSITIVE_N",
     "PREPROCESS_ACCEPT",
     "PREPROCESS_DONATE",

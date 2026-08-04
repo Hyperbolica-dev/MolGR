@@ -171,13 +171,6 @@ namespace molgr::config
             "charge_localization_selection_margin");
 
         py::object metal_radical = RequiredAttr(resolved, "metal_radical_inference");
-        out.metal_radical_inference.coordination_cutoff_angstrom = CastRequiredAttr<double>(
-            metal_radical,
-            "coordination_cutoff_angstrom");
-        out.metal_radical_inference.coordination_covalent_tolerance_angstrom =
-            CastRequiredAttr<double>(
-                metal_radical,
-                "coordination_covalent_tolerance_angstrom");
         out.metal_radical_inference.max_considered_donors = CastRequiredAttr<int>(
             metal_radical,
             "max_considered_donors");

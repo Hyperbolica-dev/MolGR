@@ -1896,25 +1896,6 @@ def test_metal_discordance_haptic_ring_reduction_preserves_complete_pi_rings(
     )
 
 
-def test_metal_discordance_visible_donor_multiple_bond_requires_both_visible() -> None:
-    donor_pair = pybel.readstring("smi", "N=N")
-
-    assert (
-        metal_scoring_module._visible_donor_multiple_bond_count(
-            donor_pair.OBMol,
-            {1},
-        )
-        == 0
-    )
-    assert (
-        metal_scoring_module._visible_donor_multiple_bond_count(
-            donor_pair.OBMol,
-            {1, 2},
-        )
-        == 1
-    )
-
-
 def test_metal_discordance_coordination_geometry_is_metal_state_specific() -> None:
     square_planar = pybel.readstring(
         "xyz",
@@ -2026,7 +2007,7 @@ C 5.2 0.0 0.0
 
 @pytest.mark.parametrize(
     ("distance", "expected_count"),
-    [(2.4, 1), (2.6, 0)],
+    [(2.4, 1), (2.6, 1)],
 )
 def test_metal_discordance_inner_same_sign_charge_uses_coordination_radius(
     distance: float,
@@ -2364,13 +2345,21 @@ def test_metal_discordance_counts_three_coordinate_carbocation() -> None:
     assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
 
 
+def test_metal_discordance_does_not_count_valence_three_oxygen_cation() -> None:
+    molecule = pybel.readstring("smi", "[O+](C)=C")
+    oxygen = molecule.OBMol.GetAtom(1)
+    assert oxygen.GetTotalDegree() == 2
+    assert oxygen.GetTotalValence() == 3
+    assert not metal_scoring_module._is_unsaturated_organic_cation(oxygen)
+
+
 def test_metal_discordance_exempts_aromatic_unsaturated_organic_cation() -> None:
     no_metal = pybel.readstring("smi", "[nH+]1ccccc1")
     positive_atom = next(
         atom for atom in no_metal.atoms if int(atom.OBAtom.GetFormalCharge()) > 0
     ).OBAtom
     assert positive_atom.IsAromatic()
-    assert metal_scoring_module._is_unsaturated_organic_cation(positive_atom)
+    assert not metal_scoring_module._is_unsaturated_organic_cation(positive_atom)
     no_metal_state = ReconstructionState(
         omol=no_metal,
         given_charge=0,

@@ -10,6 +10,10 @@
 官方数据来源、固定版本、SHA-256 和下载命令见
 [`MOLECULE_REVIEW_TOOL.zh-CN.md`](../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据)。
 
+重建输入严格限于 XYZ 坐标、数据集给出的全局电荷，以及本 benchmark 固定的闭壳层
+多重度 1（自由基电子数为 0）。tmQMg 的 `smiles` 字段只在重建完成后作为参考图用于
+比较和分子式一致性诊断；它绝不参与键、局部电荷、自由基或候选选择。
+
 子集筛选参数：
 
 - `--start-row` 和 `--end-row` 按 1-based CSV 行号筛选。
@@ -44,3 +48,11 @@ bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
 ## 输出
 
 benchmark 会在 `--out` 下写出 `results.csv` 和 `summary.csv`。
+
+## 准确率排除项
+
+版本化规则 `comparison_annotations.json` 将含有至少 4 个硼原子的 1176 个结构排除在
+重建准确率比较之外。tmQMg 答案和 MolGR 答案使用的普通 Lewis 图都不能表达这些硼簇中
+的多中心三中心二电子（3C2E）键，因此双方答案均标记为“不可判定”，而不是判定任一方
+正确或错误。benchmark 仍可运行重建以保留候选结构和耗时诊断，但这些条目不进入准确率
+分母。`YULBOY` 是当前 tmQMg 版本标记集合中明确记录的例外。
