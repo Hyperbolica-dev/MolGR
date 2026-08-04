@@ -23,7 +23,8 @@ flowchart TD
     E --> G
     F --> G
 
-    G --> H{GitHub release event}
+    G --> H{GitHub event}
+    H -->|manual build_release_wheels=true| L[Build and test release wheels only]
     H -->|published + prerelease=false + target=main + stable tag vX.Y.Z| I[GitHub CI: cibuildwheel + manylinux + sdist]
     H -->|prerelease or non-stable tag| J[No PyPI publish]
 
@@ -65,7 +66,8 @@ File: [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
 - Formal release wheel job uses `cibuildwheel` with platform-specific wheel groups:
   - Linux `cp38`-`cp312`: `manylinux2014` / glibc `>=2.17` for `x86_64` and `aarch64`.
   - Linux `cp313`-`cp314`: `manylinux_2_28` / glibc `>=2.28` for `x86_64` and `aarch64`.
-  - Windows: AMD64.
+  - Windows: AMD64; `delvewheel` repairs native dependencies while leaving
+    `openbabel-3.dll` to the declared Open Babel package.
   - macOS: native `x86_64` on `macos-13` and native `arm64` on `macos-14`.
 - Runtime dependency metadata keeps `rdkit>=2023.9.6` unpinned so modern systems can install newer RDKit wheels, while older glibc systems can fall back to the newest compatible RDKit wheel available for their Python and platform. The root [`uv.lock`](../../uv.lock) is only the local development resolution and may choose older RDKit for some Python splits; it is not the published wheel's version cap.
 - Deploy publishes to PyPI only when all are true:
@@ -74,6 +76,8 @@ File: [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
   - `target_commitish == main`
   - tag starts with `v`
   - tag does not contain `rc` / `.dev`
+- A manual `workflow_dispatch` run with `build_release_wheels=true` builds and
+  tests the complete release wheel matrix without running the PyPI deploy job.
 
 ## Tag Synchronization Policy
 
@@ -116,8 +120,10 @@ Recommended operation:
 2. Merge to `develop` for continuous internal test-package publishing.
 3. Merge to `main` after validation.
 4. For internal prerelease package validation, tag `main` with `vX.Y.ZrcN` or `vX.Y.Z.devN`.
-5. For formal release, tag `main` with stable `vX.Y.Z` and publish a non-prerelease GitHub Release.
-6. Verify PyPI artifacts and GitHub Release assets after deploy.
+5. Before the first public release, optionally run the GitHub workflow manually with
+   `build_release_wheels=true` and verify every wheel artifact.
+6. For formal release, tag `main` with stable `vX.Y.Z` and publish a non-prerelease GitHub Release.
+7. Verify PyPI artifacts and GitHub Release assets after deploy.
 
 ## Guardrails
 

@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      build_release_wheels:
+        description: Build the complete release wheel matrix without publishing
+        required: false
+        default: false
+        type: boolean
   release:
     types: [published]
 
@@ -123,7 +129,14 @@ jobs:
   build-release-wheels:
     name: Build release wheels (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease == false && github.event.release.target_commitish == 'main' && startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, 'rc') && !contains(github.event.release.tag_name, '.dev')
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.build_release_wheels == true) ||
+      (github.event_name == 'release' && github.event.action == 'published' &&
+      github.event.release.prerelease == false &&
+      github.event.release.target_commitish == 'main' &&
+      startsWith(github.event.release.tag_name, 'v') &&
+      !contains(github.event.release.tag_name, 'rc') &&
+      !contains(github.event.release.tag_name, '.dev'))
     strategy:
       fail-fast: false
       matrix:
@@ -204,10 +217,15 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
+          CIBW_BEFORE_BUILD_WINDOWS: python -m pip install delvewheel==1.13.0
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
             case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
             LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
+            python -m delvewheel repair
+            --exclude openbabel-3.dll
+            -w {dest_dir} {wheel}
           CIBW_BEFORE_BUILD_MACOS: >
             python -m pip install -i "$PIP_INDEX_URL"
             "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
@@ -240,10 +258,15 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
+          CIBW_BEFORE_BUILD_WINDOWS: python -m pip install delvewheel==1.13.0
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
             case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
             LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
+            python -m delvewheel repair
+            --exclude openbabel-3.dll
+            -w {dest_dir} {wheel}
           CIBW_BEFORE_BUILD_MACOS: >
             python -m pip install -i "$PIP_INDEX_URL"
             "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
