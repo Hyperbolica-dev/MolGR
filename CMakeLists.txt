@@ -108,6 +108,10 @@ add_library(molgr STATIC
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(MSVC)
+    target_compile_definitions(molgr PUBLIC _HAS_AUTO_PTR_ETC=1)
+endif()
+
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_definitions(molgr PUBLIC _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
 endif()
