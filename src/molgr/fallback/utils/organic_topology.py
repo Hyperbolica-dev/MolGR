@@ -134,10 +134,9 @@ def _rings_share_fused_bond(lhs: ob.OBRing, rhs: ob.OBRing) -> bool:
 
 
 def _aromatic_ring_systems(obmol: ob.OBMol) -> list[list[ob.OBRing]]:
+    sssr_rings = obmol.GetSSSR()
     aromatic_rings = [
-        cast(ob.OBRing, ring)
-        for ring in ob.OBMolRingIter(obmol)
-        if cast(ob.OBRing, ring).IsAromatic()
+        cast(ob.OBRing, ring) for ring in sssr_rings if cast(ob.OBRing, ring).IsAromatic()
     ]
     systems: list[list[ob.OBRing]] = []
     assigned: Set[int] = set()

@@ -110,7 +110,7 @@ set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
     target_compile_options(molgr PUBLIC
-        "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/include/molgr/compat/msvc_openbabel_stl.h"
+        "/FImolgr/compat/msvc_openbabel_stl.h"
     )
 endif()
 

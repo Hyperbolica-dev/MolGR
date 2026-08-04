@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import molgr
@@ -12,3 +13,10 @@ def test_uff_parameter_file_is_packaged() -> None:
 
 def test_delvewheel_entrypoint_is_ascii() -> None:
     Path(molgr.__file__).read_bytes().decode("ascii")
+
+
+def test_openbabel_data_dir_contains_uff_parameters() -> None:
+    configured_dir = os.environ.get("BABEL_DATADIR")
+
+    assert configured_dir is not None
+    assert (Path(configured_dir) / "UFF.prm").is_file()
