@@ -1,4 +1,5 @@
 const state = {
+  language: localStorage.getItem("moleculeReviewLanguage") === "en" ? "en" : "zh",
   cases: [],
   total: 0,
   offset: 0,
@@ -12,23 +13,378 @@ const state = {
   currentCandidateSdf: "",
   currentLiveCandidate: null,
   ketcherLoaded: false,
+  ketcherStatus: null,
   layout: null,
 };
 
-const labels = {
-  candidate: "当前候选重建",
-  reference: "Reference",
-  candidate_organic: "候选图 organic",
-  reference_organic: "Reference organic",
+const translations = {
+  zh: {
+    pageTitle: "分子图审核",
+    refresh: "刷新",
+    languageToggle: "English",
+    category: "类别",
+    reviewStatus: "审核状态",
+    search: "搜索",
+    searchPlaceholder: "id 或 row_index",
+    all: "全部",
+    previousPage: "上一页",
+    nextPage: "下一页",
+    chooseCase: "选择一个 case",
+    focusKetcher: "Ketcher 画布",
+    openTrace: "打开 Trace",
+    reloadCurrent: "重载当前",
+    manualConclusion: "人工结论",
+    removeFixture: "移除 fixture",
+    removeFixtureTitle: "移除 {file} 并将 {caseId} 标记为待复核",
+    reviewer: "审核人",
+    candidateGraph: "候选图为准",
+    referenceGraph: "参考图为准",
+    acceptBoth: "接受两者",
+    manualReference: "人工修图为准",
+    referenceAnswerWrong: "参考答案错误",
+    needsFollowup: "待复核",
+    skip: "跳过",
+    xyz3d: "3D XYZ",
+    inputXyz: "输入 XYZ",
+    currentCandidateTopology3d: "当前候选重建 3D 拓扑",
+    currentCandidateSdf: "当前候选重建 SDF",
+    xyzText: "XYZ 文本",
+    topologyCompare: "拓扑对比",
+    currentCandidate: "当前候选",
+    reference: "参考图",
+    candidateOrganic: "候选图 organic",
+    referenceOrganic: "参考图 organic",
+    manualEdit: "人工修图",
+    ketcherCorrection: "Ketcher 修正拓扑",
+    loadCandidateSdf: "载入候选 SDF",
+    loadReference: "载入参考图",
+    readCanvas: "读取画布",
+    correctedSmiles: "修正 SMILES",
+    correctedMolblock: "修正 Molfile / Molblock",
+    notes: "备注",
+    structure: "结构图",
+    close: "关闭",
+    closeZoomedImage: "关闭放大图片",
+    resizeSidebar: "调整左侧队列宽度",
+    resizeCompare: "调整 3D 与对比栏宽度",
+    resizeKetcher: "调整 Ketcher 高度",
+    cases: "cases",
+    row: "行",
+    unreviewed: "未审核",
+    noFixture: "无 fixture",
+    fixture: "fixture · {kind}",
+    candidateSnapshot: "候选快照 · {status}",
+    candidateSnapshotMismatch: "当前重建 != 候选快照",
+    traceTitle: "在新窗口打开 {caseId} 的 Trace",
+    selectCaseFirst: "请先选择 case",
+    statsAll: "全部",
+    statsUnreviewed: "未审核",
+    statsCandidate: "候选图为准",
+    statsReference: "参考图为准",
+    statsBoth: "接受两者",
+    statsManual: "人工修图",
+    statsWrong: "参考答案错误",
+    statusMissing: "missing",
+    statusLoading: "加载中...",
+    unavailable: "不可用",
+    generatedSnapshotMismatch: "已生成 · 与候选快照不一致",
+    generatedSnapshotMatch: "已生成 · 与候选快照一致",
+    generatedSnapshotIncomparable: "已生成 · 候选快照不可比",
+    emptyResult: "空结果",
+    rendered: "已渲染",
+    error: "错误",
+    rendering: "渲染中...",
+    emptyRender: "空渲染",
+    reconstructionUnavailable: "当前重建不可用",
+    emptyCandidate3d: "当前 case 没有可展示的候选 3D 拓扑。",
+    threeDmolUnavailableXyz: "3Dmol.js 未加载；仍可查看 XYZ 文本。",
+    threeDmolUnavailableSdf: "3Dmol.js 未加载；仍可查看 SDF 文本。",
+    saving: "保存中...",
+    savedFixture: "已保存 · {file}",
+    savedNoFixture: "已保存 · 无 fixture",
+    ketcherReady: "Ketcher 已就绪",
+    noLoadableSmiles: "当前 case 没有可载入的 SMILES",
+    loadingMolecule: "加载分子中...",
+    moleculeLoaded: "分子已载入",
+    readingCanvas: "读取画布中...",
+    canvasCopied: "画布内容已复制到表单",
+    ketcherNotReady: "Ketcher 尚未加载完成",
+    ketcherNoSetMolecule: "Ketcher API 缺少 setMolecule()",
+    manualSmilesRequired: "人工修图需要 Ketcher SMILES",
+    canvasEmpty: "Ketcher 画布为空",
+    removeFixtureConfirm: "确定移除 {file}，并将 {caseId} 标记为待复核吗？",
+    zoomImage: "放大{label}",
+    versionComparison: "Python 版本重建结果",
+    disagreement: "分歧",
+    consistent: "一致",
+    diagnostics: {
+      total_charge: "总电荷",
+      spin_multiplicity: "多重度",
+      total_radical_electrons: "总自由基电子数",
+      reference_smiles: "参考 SMILES",
+      candidate_snapshot_smiles: "候选快照 SMILES",
+      candidate_snapshot_runtime: "候选快照运行时",
+      live_candidate_smiles: "当前候选 SMILES",
+      live_candidate_smiles_exact_match: "当前候选 SMILES 精确匹配",
+      live_matches_candidate_snapshot: "当前候选匹配候选快照",
+      live_candidate_reason: "当前候选等价性原因",
+      candidate_organic: "候选图 organic",
+      reference_organic: "参考图 organic",
+      reference_formula_status: "参考分子式状态",
+      xyz_formula: "XYZ 分子式",
+      reference_formula_with_h: "参考分子式（含氢）",
+      reference_formula_mismatch: "参考分子式差异",
+      reference_answer_status: "参考答案状态",
+      reference_answer_reason: "参考答案原因",
+      accuracy_assessment_status: "准确性评估状态",
+      accuracy_assessment_reason: "准确性评估原因",
+      tmqmg_answer_assessment: "tmQMg 答案评估",
+      molgr_answer_assessment: "MolGR 答案评估",
+      error: "错误",
+    },
+    categories: {
+      graph_not_equivalent: "图不等价",
+      missing_reference_smiles: "缺参考",
+      candidate_failed: "候选生成失败",
+      backend_mismatch: "后端分歧",
+      python_version_mismatch: "版本分歧",
+      reference_not_comparable: "参考不可比",
+      reference_formula_mismatch: "参考氢数不守恒",
+      no_clear_evidence_boron_cluster: "硼簇结构不可判定",
+    },
+    status: {
+      accept_candidate: "候选图为准",
+      accept_reference: "参考图为准",
+      accept_both: "接受两者",
+      manual_reference: "人工修图为准",
+      reference_answer_wrong: "参考答案错误",
+      needs_followup: "待复核",
+      skip: "跳过",
+      unreviewed: "未审核",
+    },
+  },
+  en: {
+    pageTitle: "Molecule Graph Review",
+    refresh: "Refresh",
+    languageToggle: "中文",
+    category: "Category",
+    reviewStatus: "Review status",
+    search: "Search",
+    searchPlaceholder: "id or row_index",
+    all: "All",
+    previousPage: "Previous",
+    nextPage: "Next",
+    chooseCase: "Select a case",
+    focusKetcher: "Ketcher canvas",
+    openTrace: "Open Trace",
+    reloadCurrent: "Reload current",
+    manualConclusion: "Manual decision",
+    removeFixture: "Remove fixture",
+    removeFixtureTitle: "Remove {file} and mark {caseId} for follow-up",
+    reviewer: "Reviewer",
+    candidateGraph: "Accept candidate",
+    referenceGraph: "Accept reference",
+    acceptBoth: "Accept both",
+    manualReference: "Use manual edit",
+    referenceAnswerWrong: "Reference answer wrong",
+    needsFollowup: "Needs follow-up",
+    skip: "Skip",
+    xyz3d: "3D XYZ",
+    inputXyz: "Input XYZ",
+    currentCandidateTopology3d: "Current candidate 3D topology",
+    currentCandidateSdf: "Current candidate SDF",
+    xyzText: "XYZ text",
+    topologyCompare: "Topology comparison",
+    currentCandidate: "Current candidate",
+    reference: "Reference",
+    candidateOrganic: "Candidate organic",
+    referenceOrganic: "Reference organic",
+    manualEdit: "Manual editing",
+    ketcherCorrection: "Ketcher topology correction",
+    loadCandidateSdf: "Load candidate SDF",
+    loadReference: "Load reference",
+    readCanvas: "Read canvas",
+    correctedSmiles: "Corrected SMILES",
+    correctedMolblock: "Corrected Molfile / Molblock",
+    notes: "Notes",
+    structure: "Structure",
+    close: "Close",
+    closeZoomedImage: "Close enlarged image",
+    resizeSidebar: "Resize case queue",
+    resizeCompare: "Resize 3D and comparison panes",
+    resizeKetcher: "Resize Ketcher height",
+    cases: "cases",
+    row: "row",
+    unreviewed: "Unreviewed",
+    noFixture: "No fixture",
+    fixture: "fixture · {kind}",
+    candidateSnapshot: "Candidate snapshot · {status}",
+    candidateSnapshotMismatch: "Live reconstruction != candidate snapshot",
+    traceTitle: "Open Trace for {caseId} in a new window",
+    selectCaseFirst: "Select a case first",
+    statsAll: "All",
+    statsUnreviewed: "Unreviewed",
+    statsCandidate: "Accept candidate",
+    statsReference: "Accept reference",
+    statsBoth: "Accept both",
+    statsManual: "Manual edit",
+    statsWrong: "Reference answer wrong",
+    statusMissing: "missing",
+    statusLoading: "Loading...",
+    unavailable: "Unavailable",
+    generatedSnapshotMismatch: "Generated · differs from candidate snapshot",
+    generatedSnapshotMatch: "Generated · matches candidate snapshot",
+    generatedSnapshotIncomparable: "Generated · candidate snapshot incomparable",
+    emptyResult: "Empty result",
+    rendered: "Rendered",
+    error: "Error",
+    rendering: "Rendering...",
+    emptyRender: "Empty render",
+    reconstructionUnavailable: "Current reconstruction unavailable",
+    emptyCandidate3d: "No candidate 3D topology is available for this case.",
+    threeDmolUnavailableXyz: "3Dmol.js is not loaded; XYZ text remains available.",
+    threeDmolUnavailableSdf: "3Dmol.js is not loaded; SDF text remains available.",
+    saving: "Saving...",
+    savedFixture: "Saved · {file}",
+    savedNoFixture: "Saved · no fixture",
+    ketcherReady: "Ketcher ready",
+    noLoadableSmiles: "This case has no loadable SMILES",
+    loadingMolecule: "Loading molecule...",
+    moleculeLoaded: "Molecule loaded",
+    readingCanvas: "Reading canvas...",
+    canvasCopied: "Canvas copied to form",
+    ketcherNotReady: "Ketcher has not finished loading",
+    ketcherNoSetMolecule: "Ketcher API is missing setMolecule()",
+    manualSmilesRequired: "Manual editing requires a Ketcher SMILES",
+    canvasEmpty: "Ketcher canvas is empty",
+    removeFixtureConfirm: "Remove {file} and mark {caseId} for follow-up?",
+    zoomImage: "Enlarge {label}",
+    versionComparison: "Python version reconstruction",
+    disagreement: "Mismatch",
+    consistent: "Consistent",
+    diagnostics: {
+      total_charge: "Total charge",
+      spin_multiplicity: "Spin multiplicity",
+      total_radical_electrons: "Total radical electrons",
+      reference_smiles: "Reference SMILES",
+      candidate_snapshot_smiles: "Candidate snapshot SMILES",
+      candidate_snapshot_runtime: "Candidate snapshot runtime",
+      live_candidate_smiles: "Live candidate SMILES",
+      live_candidate_smiles_exact_match: "Live candidate exact SMILES match",
+      live_matches_candidate_snapshot: "Live candidate matches snapshot",
+      live_candidate_reason: "Live candidate equivalence reason",
+      candidate_organic: "Candidate organic",
+      reference_organic: "Reference organic",
+      reference_formula_status: "Reference formula status",
+      xyz_formula: "XYZ formula",
+      reference_formula_with_h: "Reference formula with H",
+      reference_formula_mismatch: "Reference formula mismatch",
+      reference_answer_status: "Reference answer status",
+      reference_answer_reason: "Reference answer reason",
+      accuracy_assessment_status: "Accuracy assessment status",
+      accuracy_assessment_reason: "Accuracy assessment reason",
+      tmqmg_answer_assessment: "tmQMg answer assessment",
+      molgr_answer_assessment: "MolGR answer assessment",
+      error: "Error",
+    },
+    categories: {
+      graph_not_equivalent: "Graph not equivalent",
+      missing_reference_smiles: "Missing reference",
+      candidate_failed: "Candidate reconstruction failed",
+      backend_mismatch: "Backend mismatch",
+      python_version_mismatch: "Python version mismatch",
+      reference_not_comparable: "Reference not comparable",
+      reference_formula_mismatch: "Reference H-count mismatch",
+      no_clear_evidence_boron_cluster: "Boron cluster not assessable",
+    },
+    status: {
+      accept_candidate: "Accept candidate",
+      accept_reference: "Accept reference",
+      accept_both: "Accept both",
+      manual_reference: "Use manual edit",
+      reference_answer_wrong: "Reference answer wrong",
+      needs_followup: "Needs follow-up",
+      skip: "Skip",
+      unreviewed: "Unreviewed",
+    },
+  },
 };
 
-const statusLabels = {
-  accept_candidate: "候选图为准",
-  accept_reference: "参考图为准",
-  accept_both: "接受两者",
-  manual_reference: "人工修图为准",
-  needs_followup: "待复核",
-  skip: "跳过",
+function tr(key, fallback = key) {
+  const dictionary = translations[state.language] || translations.zh;
+  const value = key.split(".").reduce((current, part) => current?.[part], dictionary);
+  return value === undefined ? fallback : value;
+}
+
+function msg(key, values = {}) {
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    tr(key),
+  );
+}
+
+function categoryLabel(category) {
+  return tr(`categories.${category}`, category);
+}
+
+function statusLabel(status) {
+  return status ? tr(`status.${status}`, status) : tr("status.unreviewed");
+}
+
+function applyLanguage() {
+  document.documentElement.lang = state.language === "en" ? "en" : "zh-CN";
+  document.title = tr("pageTitle");
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = tr(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.placeholder = tr(element.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+    element.title = tr(element.dataset.i18nTitle);
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+    element.setAttribute("aria-label", tr(element.dataset.i18nAriaLabel));
+  });
+  renderCaseList();
+  if (state.current) {
+    renderCaseHeader();
+    renderVersionComparison();
+    renderDiagnostics();
+    renderCandidateSdfStatus();
+    loadPair();
+  }
+  renderKetcherStatus();
+}
+
+function toggleLanguage() {
+  state.language = state.language === "zh" ? "en" : "zh";
+  localStorage.setItem("moleculeReviewLanguage", state.language);
+  applyLanguage();
+}
+
+function renderKetcherStatus() {
+  const status = state.ketcherStatus;
+  if (!status) return;
+  $("ketcherStatus").textContent = status.key ? msg(status.key, status.values) : status.text;
+}
+
+function setKetcherStatus(key, values = {}, text = "") {
+  state.ketcherStatus = { key, values, text };
+  renderKetcherStatus();
+}
+
+function localizedError(key) {
+  const error = new Error(tr(key));
+  error.i18nKey = key;
+  return error;
+}
+
+const labels = {
+  candidate: "currentCandidate",
+  reference: "reference",
+  candidate_organic: "candidateOrganic",
+  reference_organic: "referenceOrganic",
 };
 
 const layoutStorageKey = "moleculeReviewLayout.v1";
@@ -263,7 +619,7 @@ function setImageZoomState(box, label) {
   }
   box.setAttribute("role", "button");
   box.tabIndex = 0;
-  box.setAttribute("aria-label", `放大${label}`);
+  box.setAttribute("aria-label", msg("zoomImage", { label }));
   box.dataset.zoomLabel = label;
 }
 
@@ -271,7 +627,7 @@ function openImageLightbox(box) {
   const image = box.querySelector("svg, img");
   if (!image) return;
   const dialog = $("imageLightbox");
-  $("imageLightboxTitle").textContent = box.dataset.zoomLabel || "结构图";
+  $("imageLightboxTitle").textContent = box.dataset.zoomLabel || tr("structure");
   $("imageLightboxContent").replaceChildren(image.cloneNode(true));
   if (!dialog.open) dialog.showModal();
 }
@@ -287,31 +643,28 @@ function categoryKind(category) {
   if (category === "python_version_mismatch") return "warn";
   if (category === "reference_not_comparable") return "warn";
   if (category === "reference_formula_mismatch") return "bad";
+  if (category === "no_clear_evidence_boron_cluster") return "warn";
   if (category === "candidate_failed") return "bad";
   return "";
 }
 
+function reviewStatusKind(status) {
+  return status === "reference_answer_wrong" ? "bad" : "ok";
+}
+
 async function loadStats() {
   const stats = await api("/api/stats");
-  const categoryLabels = {
-    graph_not_equivalent: "图不等价",
-    missing_reference_smiles: "缺参考",
-    candidate_failed: "候选生成失败",
-    backend_mismatch: "后端分歧",
-    python_version_mismatch: "版本分歧",
-    reference_not_comparable: "参考不可比",
-    reference_formula_mismatch: "参考氢数不守恒",
-  };
   const categoryEntries = Object.entries(stats.categories || {})
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => [categoryLabels[key] || key, value]);
+    .map(([key, value]) => [categoryLabel(key), value]);
   const entries = [
-    ["全部", Object.values(stats.categories || {}).reduce((a, b) => a + b, 0)],
-    ["未审核", (stats.review_statuses || {}).unreviewed || 0],
-    ["候选图为准", (stats.review_statuses || {}).accept_candidate || 0],
-    ["参考图为准", (stats.review_statuses || {}).accept_reference || 0],
-    ["接受两者", (stats.review_statuses || {}).accept_both || 0],
-    ["人工修图", (stats.review_statuses || {}).manual_reference || 0],
+    [tr("statsAll"), Object.values(stats.categories || {}).reduce((a, b) => a + b, 0)],
+    [tr("statsUnreviewed"), (stats.review_statuses || {}).unreviewed || 0],
+    [tr("statsCandidate"), (stats.review_statuses || {}).accept_candidate || 0],
+    [tr("statsReference"), (stats.review_statuses || {}).accept_reference || 0],
+    [tr("statsBoth"), (stats.review_statuses || {}).accept_both || 0],
+    [tr("statsManual"), (stats.review_statuses || {}).manual_reference || 0],
+    [tr("statsWrong"), (stats.review_statuses || {}).reference_answer_wrong || 0],
     ...categoryEntries,
   ];
   $("stats").innerHTML = entries
@@ -357,14 +710,14 @@ function renderCaseList() {
   $("caseList").innerHTML = state.cases
     .map((item) => {
       const selected = state.current && state.current.case_id === item.case_id ? "selected" : "";
-      const status = item.review_status ? statusLabels[item.review_status] || item.review_status : "未审核";
-      const fixture = item.fixture ? `fixture · ${item.fixture.kind}` : "无 fixture";
+      const status = statusLabel(item.review_status);
+      const fixture = item.fixture ? msg("fixture", { kind: item.fixture.kind }) : tr("noFixture");
       return `
         <button class="case-item ${selected}" data-case-id="${escapeHtml(item.case_id)}" type="button">
           <span class="row"><strong>${escapeHtml(item.case_id)}</strong><span>#${item.row_index}</span></span>
           <span class="row">
-            ${badge(item.category, categoryKind(item.category))}
-            ${badge(status, item.review_status ? "ok" : "")}
+            ${badge(categoryLabel(item.category), categoryKind(item.category))}
+            ${badge(status, item.review_status ? reviewStatusKind(item.review_status) : "")}
             ${badge(fixture, item.fixture ? "ok" : "warn")}
           </span>
         </button>`;
@@ -398,22 +751,27 @@ function renderCaseHeader() {
   const item = state.current;
   const openTrace = $("openTrace");
   openTrace.disabled = !item;
-  openTrace.title = item ? `在新窗口打开 ${item.case_id} 的 Trace` : "请先选择 case";
+  openTrace.title = item ? msg("traceTitle", { caseId: item.case_id }) : tr("selectCaseFirst");
   const fixture = item.fixture;
   const fixtureBadge = fixture
-    ? badge(`fixture · ${fixture.kind}`, "ok")
-    : badge("无 fixture", "warn");
+    ? badge(msg("fixture", { kind: fixture.kind }), "ok")
+    : badge(tr("noFixture"), "warn");
   $("caseTitle").textContent = `${item.case_id} · row ${item.row_index}`;
   const liveMismatchBadge = item.live_matches_candidate_snapshot === false
-    ? badge("当前重建 != 候选快照", "bad")
+    ? badge(tr("candidateSnapshotMismatch"), "bad")
     : "";
   $("caseMeta").innerHTML = [
-    badge(item.category, categoryKind(item.category)),
+    badge(categoryLabel(item.category), categoryKind(item.category)),
     badge(
-      `候选快照 · ${item.candidate_snapshot_status || "missing"}`,
+      msg("candidateSnapshot", { status: item.candidate_snapshot_status || tr("statusMissing") }),
       item.candidate_snapshot_status === "ok" ? "ok" : "bad",
     ),
-    item.review_status ? badge(statusLabels[item.review_status] || item.review_status, "ok") : badge("未审核"),
+    item.review_status
+      ? badge(
+          statusLabel(item.review_status),
+          reviewStatusKind(item.review_status),
+        )
+      : badge(tr("unreviewed")),
     fixtureBadge,
     liveMismatchBadge,
   ].join(" ");
@@ -421,8 +779,8 @@ function renderCaseHeader() {
   removeFixture.hidden = !fixture;
   removeFixture.disabled = !fixture;
   removeFixture.title = fixture
-    ? `移除 ${fixture.structure_file} 并将审核状态设为待复核`
-    : "当前 case 没有 fixture";
+    ? msg("removeFixtureTitle", { file: fixture.structure_file, caseId: item.case_id })
+    : tr("noFixture");
 }
 
 function populateReviewForm() {
@@ -457,12 +815,16 @@ function renderDiagnostics() {
     ["reference_formula_mismatch", item.reference_formula_mismatch_detail],
     ["reference_answer_status", item.reference_answer_status],
     ["reference_answer_reason", item.reference_answer_reason],
+    ["accuracy_assessment_status", item.accuracy_assessment_status],
+    ["accuracy_assessment_reason", item.accuracy_assessment_reason],
+    ["tmqmg_answer_assessment", item.tmqmg_answer_assessment],
+    ["molgr_answer_assessment", item.molgr_answer_assessment],
     ["error", item.error],
   ];
   $("diagnostics").innerHTML = pairs
     .map(([key, value]) => {
       const displayValue = value === null || value === undefined ? "" : String(value);
-      return `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(displayValue)}</dd>`;
+      return `<dt>${escapeHtml(tr(`diagnostics.${key}`, key))}</dt><dd>${escapeHtml(displayValue)}</dd>`;
     })
     .join("");
 }
@@ -505,8 +867,8 @@ function renderVersionComparison() {
   const mismatch = item.category === "python_version_mismatch" || !sameStatus || !sameSmiles;
   $("versionComparison").innerHTML = `
     <header>
-      <h4>Python 版本重建结果</h4>
-      ${badge(mismatch ? "分歧" : "一致", mismatch ? "warn" : "ok")}
+      <h4>${escapeHtml(tr("versionComparison"))}</h4>
+      ${badge(mismatch ? tr("disagreement") : tr("consistent"), mismatch ? "warn" : "ok")}
     </header>
     <div class="version-grid">
       ${versionResultCard("Python 3.8 · candidate_cpp", py38Status, py38Smiles)}
@@ -514,9 +876,34 @@ function renderVersionComparison() {
     </div>`;
 }
 
+function renderCandidateSdfStatus() {
+  const item = state.current;
+  if (!item) return;
+  const status = $("candidateSdfStatus");
+  const modelStatus = $("candidateModelStatus");
+  if (item.live_candidate_status === "error") {
+    status.textContent = tr("error");
+    modelStatus.textContent = tr("error");
+    return;
+  }
+  if (!state.currentCandidateSdf) {
+    status.textContent = item.live_candidate_status ? tr("unavailable") : "";
+    modelStatus.textContent = tr("emptyResult");
+    return;
+  }
+  if (item.live_matches_candidate_snapshot === false) {
+    status.textContent = tr("generatedSnapshotMismatch");
+  } else if (item.live_matches_candidate_snapshot === true) {
+    status.textContent = tr("generatedSnapshotMatch");
+  } else {
+    status.textContent = tr("generatedSnapshotIncomparable");
+  }
+  modelStatus.textContent = tr("rendered");
+}
+
 async function loadXyz(item) {
   const container = $("viewer3d");
-  $("xyzText").textContent = "loading...";
+  $("xyzText").textContent = tr("statusLoading");
   try {
     const xyz = await fetch(`/api/cases/${encodeURIComponent(item.case_id)}/xyz`).then((r) => {
       if (!r.ok) throw new Error(`XYZ load failed: ${r.status}`);
@@ -534,7 +921,7 @@ async function loadCandidateSdf(item) {
   const text = $("candidateSdfText");
   const status = $("candidateSdfStatus");
   const modelStatus = $("candidateModelStatus");
-  text.textContent = "loading...";
+  text.textContent = tr("statusLoading");
   status.textContent = "";
   modelStatus.textContent = "";
   state.currentCandidateSdf = "";
@@ -551,27 +938,31 @@ async function loadCandidateSdf(item) {
     renderCaseHeader();
     renderDiagnostics();
     if (!data.available) {
-      text.textContent = data.error || "当前代码重建失败";
-      status.textContent = "不可用";
-      modelStatus.textContent = "不可用";
+      text.textContent = data.error || tr("reconstructionUnavailable");
+      item.live_candidate_status = "unavailable";
+      status.textContent = tr("unavailable");
+      modelStatus.textContent = tr("unavailable");
       renderCandidate3d("");
       return;
     }
     state.currentCandidateSdf = data.sdf || "";
     text.textContent = state.currentCandidateSdf;
     if (data.live_matches_candidate_snapshot === false) {
-      status.textContent = "已生成 · 与候选快照不一致";
+      status.textContent = tr("generatedSnapshotMismatch");
     } else if (data.live_matches_candidate_snapshot === true) {
-      status.textContent = "已生成 · 与候选快照一致";
+      status.textContent = tr("generatedSnapshotMatch");
     } else {
-      status.textContent = state.currentCandidateSdf ? "已生成 · 候选快照不可比" : "空结果";
+      status.textContent = state.currentCandidateSdf
+        ? tr("generatedSnapshotIncomparable")
+        : tr("emptyResult");
     }
     renderCandidate3d(state.currentCandidateSdf);
-    modelStatus.textContent = state.currentCandidateSdf ? "已渲染" : "空结果";
+    modelStatus.textContent = state.currentCandidateSdf ? tr("rendered") : tr("emptyResult");
   } catch (error) {
+    item.live_candidate_status = "error";
     text.textContent = error.message;
-    status.textContent = "错误";
-    modelStatus.textContent = "错误";
+    status.textContent = tr("error");
+    modelStatus.textContent = tr("error");
     renderCandidate3d("");
   }
 }
@@ -601,7 +992,7 @@ function render3d(xyz) {
   const container = $("viewer3d");
   container.innerHTML = "";
   if (!window.$3Dmol) {
-    container.innerHTML = '<div class="empty">3Dmol.js 未加载；仍可查看 XYZ 文本。</div>';
+    container.innerHTML = `<div class="empty">${escapeHtml(tr("threeDmolUnavailableXyz"))}</div>`;
     return;
   }
   requestAnimationFrame(() => {
@@ -624,12 +1015,12 @@ function renderCandidate3d(sdf) {
   const container = $("viewerCandidate3d");
   container.innerHTML = "";
   if (!sdf) {
-    container.innerHTML = '<div class="empty">当前 case 没有可展示的候选 3D 拓扑。</div>';
+    container.innerHTML = `<div class="empty">${escapeHtml(tr("emptyCandidate3d"))}</div>`;
     state.candidateViewer = null;
     return;
   }
   if (!window.$3Dmol) {
-    container.innerHTML = '<div class="empty">3Dmol.js 未加载；仍可查看 SDF 文本。</div>';
+    container.innerHTML = `<div class="empty">${escapeHtml(tr("threeDmolUnavailableSdf"))}</div>`;
     state.candidateViewer = null;
     return;
   }
@@ -657,10 +1048,17 @@ async function loadPair() {
 async function loadRender(kind, slot) {
   const item = state.current;
   const title = slot === "primary" ? $("primaryRenderTitle") : $("secondaryRenderTitle");
+  const reason =
+    slot === "primary" ? $("primaryReferenceReason") : $("secondaryReferenceReason");
   const box = slot === "primary" ? $("primarySvg") : $("secondarySvg");
   const smiles = slot === "primary" ? $("primarySmiles") : $("secondarySmiles");
-  title.textContent = labels[kind] || kind;
-  box.innerHTML = '<div class="empty">rendering...</div>';
+  title.textContent = tr(labels[kind], kind);
+  const referenceReason = String(item?.reference_answer_reason || "").trim();
+  reason.textContent = kind === "reference" && item?.reference_answer_wrong === "True"
+    ? referenceReason
+    : "";
+  reason.hidden = !reason.textContent;
+  box.innerHTML = `<div class="empty">${escapeHtml(tr("rendering"))}</div>`;
   setImageZoomState(box, title.textContent);
   smiles.textContent = "";
   try {
@@ -672,9 +1070,9 @@ async function loadRender(kind, slot) {
           );
     const renderError = kind === "candidate" ? data?.render_error || data?.error : data?.error;
     if (!data || renderError) {
-      box.innerHTML = `<div class="empty">${escapeHtml(renderError || "当前重建不可用")}</div>`;
+      box.innerHTML = `<div class="empty">${escapeHtml(renderError || tr("reconstructionUnavailable"))}</div>`;
     } else {
-      box.innerHTML = data.svg || '<div class="empty">empty render</div>';
+      box.innerHTML = data.svg || `<div class="empty">${escapeHtml(tr("emptyRender"))}</div>`;
     }
     setImageZoomState(box, title.textContent);
     smiles.textContent = kind === "candidate" ? data?.live_candidate_smiles || "" : data?.smiles || "";
@@ -686,7 +1084,7 @@ async function loadRender(kind, slot) {
 
 async function saveReview(status) {
   if (!state.current) return;
-  $("saveState").textContent = "saving...";
+  $("saveState").textContent = tr("saving");
   try {
     if (status === "manual_reference") {
       await readKetcherToForm({ rethrow: true, requireSmiles: true });
@@ -704,8 +1102,8 @@ async function saveReview(status) {
       body: JSON.stringify(payload),
     });
     $("saveState").textContent = result.fixture
-      ? `saved · ${result.fixture.structure_file}`
-      : "saved · no fixture";
+      ? msg("savedFixture", { file: result.fixture.structure_file })
+      : tr("savedNoFixture");
     await loadStats();
     await loadCase(state.current.case_id);
   } catch (error) {
@@ -717,7 +1115,7 @@ async function removeCurrentFixture() {
   const item = state.current;
   if (!item?.fixture) return;
   const confirmed = window.confirm(
-    `确定移除 ${item.fixture.structure_file}，并将 ${item.case_id} 标记为待复核吗？`,
+    msg("removeFixtureConfirm", { file: item.fixture.structure_file, caseId: item.case_id }),
   );
   if (!confirmed) return;
   await saveReview("needs_followup");
@@ -739,34 +1137,34 @@ async function waitForKetcher(timeoutMs = 20000) {
     const ketcher = getKetcher();
     if (ketcher) {
       state.ketcherLoaded = true;
-      $("ketcherStatus").textContent = "Ketcher ready";
+      setKetcherStatus("ketcherReady");
       return ketcher;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error("Ketcher 尚未加载完成");
+  throw localizedError("ketcherNotReady");
 }
 
 async function setKetcherMolecule(smiles) {
   if (!smiles) {
-    $("ketcherStatus").textContent = "当前 case 没有可载入的 SMILES";
+    setKetcherStatus("noLoadableSmiles");
     return;
   }
-  $("ketcherStatus").textContent = "loading molecule...";
+  setKetcherStatus("loadingMolecule");
   try {
     const ketcher = await waitForKetcher();
     if (typeof ketcher.setMolecule !== "function") {
-      throw new Error("Ketcher API 缺少 setMolecule()");
+      throw localizedError("ketcherNoSetMolecule");
     }
     await ketcher.setMolecule(smiles);
-    $("ketcherStatus").textContent = "molecule loaded";
+    setKetcherStatus("moleculeLoaded");
   } catch (error) {
-    $("ketcherStatus").textContent = error.message;
+    setKetcherStatus(error.i18nKey || "", {}, error.message);
   }
 }
 
 async function readKetcherToForm({ rethrow = false, requireSmiles = false } = {}) {
-  $("ketcherStatus").textContent = "reading canvas...";
+  setKetcherStatus("readingCanvas");
   try {
     const ketcher = await waitForKetcher();
     let molblock = "";
@@ -785,15 +1183,15 @@ async function readKetcherToForm({ rethrow = false, requireSmiles = false } = {}
       smiles = String((await ketcher.getSmiles()) || "").trim();
       if (smiles) $("correctedSmiles").value = smiles;
     }
-    if (requireSmiles && !smiles) throw new Error("人工修图需要 Ketcher SMILES");
+    if (requireSmiles && !smiles) throw localizedError("manualSmilesRequired");
     if (!molblock.trim() && !smiles) {
       if (molblockError) throw molblockError;
-      throw new Error("Ketcher 画布为空");
+      throw localizedError("canvasEmpty");
     }
-    $("ketcherStatus").textContent = "canvas copied to form";
+    setKetcherStatus("canvasCopied");
     return { molblock, smiles };
   } catch (error) {
-    $("ketcherStatus").textContent = error.message;
+    setKetcherStatus(error.i18nKey || "", {}, error.message);
     if (rethrow) throw error;
     return { molblock: "", smiles: "" };
   }
@@ -817,6 +1215,7 @@ function bindEvents() {
   initializeLayout();
   bindLayoutResizers();
   observeViewerContainer();
+  applyLanguage();
   window.addEventListener("load", () => {
     if (window.$3Dmol && $("xyzText").textContent) {
       render3d($("xyzText").textContent);
@@ -829,13 +1228,14 @@ function bindEvents() {
         if (workspace) workspace.scrollTop = 0;
       })
       .catch((error) => {
-        $("ketcherStatus").textContent = error.message;
+        setKetcherStatus(error.i18nKey || "", {}, error.message);
       });
   });
   $("refreshStats").addEventListener("click", () => {
     loadStats();
     loadCases(true);
   });
+  $("languageToggle").addEventListener("click", toggleLanguage);
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));

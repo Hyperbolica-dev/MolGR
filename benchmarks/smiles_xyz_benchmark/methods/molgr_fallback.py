@@ -8,6 +8,7 @@ from typing import Any
 from rdkit import Chem
 
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import remove_hs_without_sanitize
 
 
 @dataclass(frozen=True)
@@ -78,10 +79,9 @@ class MolGRFallbackMethod(BenchmarkMethod):
         timing_ms_breakdown["molgr_interface_ms"] = (
             time.perf_counter() - interface_started
         ) * 1000.0
-
         postprocess_started = time.perf_counter()
         try:
-            rdkit_mol = Chem.RemoveHs(rdkit_mol)
+            rdkit_mol = remove_hs_without_sanitize(rdkit_mol)
             predicted_smiles = Chem.MolToSmiles(
                 rdkit_mol,
                 canonical=True,

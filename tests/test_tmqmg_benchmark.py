@@ -10,11 +10,17 @@ from pathlib import Path
 import pytest
 from rdkit import Chem
 
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import remove_hs_without_sanitize
+from benchmarks.tmqmg_xyz_benchmark.comparison_annotations import (
+    find_comparison_annotation,
+    load_comparison_annotations,
+)
 from benchmarks.tmqmg_xyz_benchmark.io import summarize_results
 from benchmarks.tmqmg_xyz_benchmark.run import (
     TmqmgBenchmarkInput,
     _build_case,
     _build_cpp_backend_config_payload,
+    _resolve_total_radical_electrons,
     _run_case_method,
     _run_method_cases_worker,
     _run_method_subprocesses,
@@ -32,6 +38,35 @@ _TMQMG_DATA_DIR = (
 )
 _TMQMG_CSV = _TMQMG_DATA_DIR / "tmQMg_properties_and_targets.csv"
 _TMQMG_XYZ_DIR = _TMQMG_DATA_DIR / "tmQMg_xyz" / "xyz"
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "CC",
+        "[CH3]",
+        "[C]=S.[C]=S",
+    ],
+)
+def test_resolve_total_radical_electrons_is_fixed_closed_shell_target(smiles: str) -> None:
+    assert _resolve_total_radical_electrons({"smiles": smiles}) == 0
+
+
+def test_build_case_does_not_use_reference_smiles_for_reconstruction_state(tmp_path: Path) -> None:
+    xyz_dir = tmp_path / "xyz"
+    xyz_dir.mkdir()
+    (xyz_dir / "CASE.xyz").write_text("1\nCASE\nC 0 0 0\n", encoding="utf-8")
+
+    case = _build_case(
+        1,
+        {"id": "CASE", "charge": "-1", "smiles": "[CH3]"},
+        xyz_dir=xyz_dir,
+    )
+
+    assert case["xyz_block"] == "1\nCASE\nC 0 0 0\n"
+    assert case["total_charge"] == -1
+    assert case["total_radical_electrons"] == 0
+    assert case["ground_truth_smiles"] == "[CH3]"
 
 
 def test_tmqmg_subset_selection_respects_ids_and_row_bounds() -> None:
@@ -539,6 +574,69 @@ def test_reference_element_mismatch_skips_only_comparison_not_method(
     assert "Reference SMILES element counts differ from XYZ" in str(result.comparison_skip_reason)
 
 
+def test_boron_cluster_annotation_records_1176_cases_and_yulboy_exception() -> None:
+    annotations = load_comparison_annotations()
+
+    assert len(annotations) == 1
+    assert annotations[0].status == "no_clear_evidence_boron_cluster"
+    assert annotations[0].expected_case_count == 1176
+    assert find_comparison_annotation("ADOCOL", {"B": 4}) == annotations[0]
+    assert find_comparison_annotation("YULBOY", {"B": 4}) is None
+    assert find_comparison_annotation("ADOCOL", {"B": 3}) is None
+
+
+def test_boron_cluster_runs_reconstruction_but_skips_answer_comparison() -> None:
+    annotation = find_comparison_annotation("ADOCOL", {"B": 4})
+    assert annotation is not None
+    calls = {"count": 0}
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = "B.B.B.B"
+        rdkit_mol = Chem.MolFromSmiles("B.B.B.B")
+        equivalent = True
+        equivalence_method = "method-native"
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    def _runner(_case):
+        calls["count"] += 1
+        return _Output()
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "ADOCOL",
+            "input_smiles": "B.B.B.B",
+            "ground_truth_smiles": "B.B.B.B",
+            "ground_truth_rdmol": Chem.MolFromSmiles("B.B.B.B"),
+            "reference_error": None,
+            "provider_error": None,
+            "comparison_annotation": annotation,
+        },
+        "fake",
+        _runner,
+        case_timeout_seconds=1.0,
+    )
+
+    assert calls["count"] == 1
+    assert result.status == "ok"
+    assert result.predicted_smiles == "B.B.B.B"
+    assert result.equivalent is None
+    assert result.equivalence_method is None
+    assert result.comparison_skipped is True
+    assert "neither answer is treated as assessable" in str(result.comparison_skip_reason)
+
+
+def test_benchmark_hydrogen_removal_does_not_require_kekulization() -> None:
+    mol = Chem.MolFromSmiles("c1cccc1", sanitize=False)
+    assert mol is not None
+
+    mol_no_h = remove_hs_without_sanitize(mol)
+
+    assert Chem.MolToSmiles(mol_no_h) == "c1cccc1"
+
+
 def test_equivalence_reparses_recorded_smiles_instead_of_using_backend_object() -> None:
     ground_truth = Chem.MolFromSmiles("C")
     backend_object = Chem.MolFromSmiles("N")
@@ -571,6 +669,46 @@ def test_equivalence_reparses_recorded_smiles_instead_of_using_backend_object() 
 
     assert result.status == "ok"
     assert result.equivalent is True
+
+
+def test_equivalence_reparse_failure_does_not_mark_reconstruction_failed() -> None:
+    unsanitized = Chem.MolFromSmiles("c1cccc1", sanitize=False)
+    ground_truth = Chem.MolFromSmiles("C")
+    assert unsanitized is not None
+    assert ground_truth is not None
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = "c1cccc1"
+        rdkit_mol = unsanitized
+        equivalent = None
+        equivalence_method = None
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "A",
+            "input_smiles": "C",
+            "ground_truth_smiles": "C",
+            "ground_truth_rdmol": ground_truth,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
+    )
+
+    assert result.status == "ok"
+    assert result.error is None
+    assert result.predicted_smiles == "c1cccc1"
+    assert result.equivalent is None
+    assert result.comparison_skipped is True
+    assert result.comparison_skip_reason == (
+        "equivalence check failed: predicted_smiles could not be reparsed"
+    )
 
 
 def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(

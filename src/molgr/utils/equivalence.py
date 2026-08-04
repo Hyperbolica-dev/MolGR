@@ -215,8 +215,15 @@ def _standardize_metal_bonds(mol: Chem.Mol) -> Chem.Mol:
         ligand_atom = end_atom if begin_is_metal else begin_atom
         bond_order = max(1, int(round(bond.GetBondTypeAsDouble())))
 
-        metal_atom.SetFormalCharge(metal_atom.GetFormalCharge() + bond_order)
-        ligand_atom.SetFormalCharge(ligand_atom.GetFormalCharge() - bond_order)
+        if bond_order == 2:
+            # Return the metal-ligand double-bond electron pair to the ligand.
+            # Once the metal is removed, this is the carbene-like two-electron
+            # center represented by an explicit pair of radical electrons. A
+            # carbene coordination bond does not change the metal valence.
+            ligand_atom.SetNumRadicalElectrons(ligand_atom.GetNumRadicalElectrons() + 2)
+        else:
+            metal_atom.SetFormalCharge(metal_atom.GetFormalCharge() + bond_order)
+            ligand_atom.SetFormalCharge(ligand_atom.GetFormalCharge() - bond_order)
 
         bond.SetBondType(Chem.BondType.DATIVE)
         bond.SetBondDir(Chem.BondDir.NONE)
@@ -229,7 +236,7 @@ def _standardize_metal_bonds(mol: Chem.Mol) -> Chem.Mol:
 
 
 def _remove_coordination_bonds(mol: Chem.Mol) -> Chem.Mol:
-    rw_mol = Chem.RWMol(_safe_copy(mol))
+    rw_mol = Chem.RWMol(Chem.Mol(mol))
     bonds_to_remove: list[tuple[int, int]] = []
     for bond in rw_mol.GetBonds():
         begin_atom = bond.GetBeginAtom()
@@ -266,10 +273,139 @@ def _prepare_organic_mol(mol: Chem.Mol, *, already_standardized: bool = False) -
     return standardized
 
 
+# These elements are allowed to appear in tmQMg in hypervalent, multiple-bond
+# forms.  Equivalence comparison uses their charge-separated octet form only;
+# reconstruction output and stored reference graphs are left untouched.
+_OCTET_NORMALIZED_ATOMIC_NUMS = frozenset({7, 8, 9, 15, 16, 17, 33, 34, 35, 53})
+_OCTET_VALENCE_LIMITS = {
+    9: 1,
+    17: 1,
+    35: 1,
+    53: 1,
+}
+
+
+def _bond_type_for_order(order: int) -> Chem.BondType:
+    return {
+        1: Chem.BondType.SINGLE,
+        2: Chem.BondType.DOUBLE,
+        3: Chem.BondType.TRIPLE,
+        4: Chem.BondType.QUADRUPLE,
+    }[order]
+
+
+def _normalize_nonmetal_octet(mol: Chem.Mol) -> Chem.Mol:
+    """Canonicalize supported hypervalent nonmetals to charge-separated octets."""
+
+    rw_mol = Chem.RWMol(_safe_copy(mol))
+    # A single deterministic pass is insufficient when reducing one bond
+    # exposes another overvalent atom, so process until no excess remains.
+    changed = True
+    while changed:
+        changed = False
+        for atom in rw_mol.GetAtoms():
+            atomic_num = int(atom.GetAtomicNum())
+            if atomic_num not in _OCTET_NORMALIZED_ATOMIC_NUMS:
+                continue
+            limit = _OCTET_VALENCE_LIMITS.get(atomic_num, 4)
+            bond_order_sum = sum(
+                int(round(bond.GetBondTypeAsDouble()))
+                for bond in atom.GetBonds()
+                if bond.GetBondType() != Chem.BondType.DATIVE
+            )
+            if bond_order_sum <= limit:
+                continue
+
+            reducible = sorted(
+                (
+                    bond
+                    for bond in atom.GetBonds()
+                    if int(round(bond.GetBondTypeAsDouble())) > 1
+                    and not bond.GetIsAromatic()
+                    and bond.GetBondType() != Chem.BondType.DATIVE
+                ),
+                key=lambda bond: (
+                    -int(round(bond.GetBondTypeAsDouble())),
+                    int(bond.GetOtherAtomIdx(atom.GetIdx())),
+                ),
+            )
+            if not reducible:
+                continue
+            bond = reducible[0]
+            order = int(round(bond.GetBondTypeAsDouble()))
+            other = rw_mol.GetAtomWithIdx(bond.GetOtherAtomIdx(atom.GetIdx()))
+            bond.SetBondType(_bond_type_for_order(order - 1))
+            atom.SetFormalCharge(atom.GetFormalCharge() + 1)
+            other.SetFormalCharge(other.GetFormalCharge() - 1)
+            changed = True
+            break
+
+    normalized = rw_mol.GetMol()
+    normalized.UpdatePropertyCache(strict=False)
+    return normalized
+
+
 def _prepare_resonance_source(mol: Chem.Mol) -> Chem.Mol:
     source = _add_hs_without_sanitize(mol)
     _kekulize_if_possible(source, clear_aromatic_flags=True)
     return source
+
+
+def _charge_shift_resonance_forms(mol: Chem.Mol) -> tuple[Chem.Mol, ...]:
+    """Generate the generic ``[*-]-[*]=[*]`` charge-shift form.
+
+    RDKit's resonance supplier can omit this elementary migration when a
+    molecule has many other resonance states.  Keep the transformation local
+    and valence-safe: the negative endpoint gains a pi bond and is neutralized,
+    while the terminal atom receives the negative charge as its pi bond is
+    reduced to a single bond.
+    """
+
+    forms: list[Chem.Mol] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.SINGLE or bond.GetIsAromatic():
+            continue
+        for negative_idx, center_idx in (
+            (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()),
+            (bond.GetEndAtomIdx(), bond.GetBeginAtomIdx()),
+        ):
+            negative = mol.GetAtomWithIdx(negative_idx)
+            center = mol.GetAtomWithIdx(center_idx)
+            if (
+                negative.GetFormalCharge() != -1
+                or center.GetFormalCharge() != 0
+                or negative.GetNumRadicalElectrons() != 0
+                or center.GetNumRadicalElectrons() != 0
+            ):
+                continue
+            default_valence = pt.GetDefaultValence(negative.GetAtomicNum())
+            if default_valence <= 0 or negative.GetTotalValence() + 1 > default_valence:
+                continue
+            for pi_bond in center.GetBonds():
+                terminal = pi_bond.GetOtherAtom(center)
+                if terminal.GetIdx() == negative_idx:
+                    continue
+                if (
+                    pi_bond.GetBondType() != Chem.BondType.DOUBLE
+                    or pi_bond.GetIsAromatic()
+                    or terminal.GetFormalCharge() != 0
+                    or terminal.GetNumRadicalElectrons() != 0
+                ):
+                    continue
+                shifted = Chem.RWMol(mol)
+                shifted.GetBondBetweenAtoms(negative_idx, center_idx).SetBondType(
+                    Chem.BondType.DOUBLE
+                )
+                shifted.GetBondBetweenAtoms(center_idx, terminal.GetIdx()).SetBondType(
+                    Chem.BondType.SINGLE
+                )
+                shifted.GetAtomWithIdx(negative_idx).SetFormalCharge(0)
+                shifted.GetAtomWithIdx(terminal.GetIdx()).SetFormalCharge(-1)
+                form = shifted.GetMol()
+                form.UpdatePropertyCache(strict=False)
+                _sanitize_if_possible(form)
+                forms.append(form)
+    return tuple(forms)
 
 
 @lru_cache(maxsize=128)
@@ -285,6 +421,15 @@ def _cached_resonance_smiles(
         return ()
     source = _prepare_resonance_source(source_mol)
     seen: list[str] = []
+
+    def add_form(form: Chem.Mol) -> None:
+        if len(seen) >= max_resonance:
+            return
+        smiles = _resonance_form_smiles(form, use_chirality)
+        if smiles not in seen:
+            seen.append(smiles)
+
+    supplier_forms: list[Chem.Mol] = []
     try:
         supplier = ResonanceMolSupplier(
             source,
@@ -294,11 +439,37 @@ def _cached_resonance_smiles(
         for resonance_mol in supplier:
             if resonance_mol is None:
                 continue
-            seen.append(_resonance_form_smiles(resonance_mol, use_chirality))
+            supplier_forms.append(resonance_mol)
     except TimeoutError:
         raise
     except Exception:  # noqa: BLE001
-        return ()
+        supplier_forms = []
+
+    # Reserve the bounded result set for explicit charge-shift forms before
+    # adding RDKit's broader enumeration.  Walk the local transformation to a
+    # bounded closure because a charge may need to cross more than one
+    # conjugated bond before reaching the reference representation.
+    charge_shift_queue = [source, *supplier_forms]
+    queued_smiles: set[str] = set()
+    queue_index = 0
+    while queue_index < len(charge_shift_queue) and len(seen) < max_resonance:
+        resonance_form = charge_shift_queue[queue_index]
+        queue_index += 1
+        form_smiles = _resonance_form_smiles(resonance_form, use_chirality)
+        if form_smiles in queued_smiles:
+            continue
+        queued_smiles.add(form_smiles)
+        for shifted_form in _charge_shift_resonance_forms(resonance_form):
+            shifted_smiles = _resonance_form_smiles(shifted_form, use_chirality)
+            if shifted_smiles in queued_smiles:
+                continue
+            queued_smiles.add(shifted_smiles)
+            charge_shift_queue.append(shifted_form)
+            add_form(shifted_form)
+            if len(seen) >= max_resonance:
+                return tuple(dict.fromkeys(seen))
+    for resonance_form in supplier_forms:
+        add_form(resonance_form)
     return tuple(dict.fromkeys(seen))
 
 
@@ -433,46 +604,80 @@ def _resonance_match(
     max_resonance: int,
     resonance_flags: Chem.ResonanceFlags,
 ) -> tuple[bool, int, int, str | None]:
+    def match_sets(mol1_smiles: set[str], mol2_smiles: set[str], target_2_smiles: str):
+        if target_2_smiles in mol1_smiles:
+            return True, len(mol1_smiles), 0, target_2_smiles
+        intersection = mol1_smiles & mol2_smiles
+        if intersection:
+            return True, len(mol1_smiles), len(mol2_smiles), next(iter(intersection))
+        return False, len(mol1_smiles), len(mol2_smiles), None
+
+    def local_charge_shift_smiles(mol: Chem.Mol) -> set[str]:
+        source = _prepare_resonance_source(mol)
+        queue = [source]
+        smiles: set[str] = set()
+        queue_index = 0
+        while queue_index < len(queue) and len(smiles) < max_resonance:
+            form = queue[queue_index]
+            queue_index += 1
+            form_smiles = _resonance_form_smiles(form, use_chirality)
+            if form_smiles in smiles:
+                continue
+            smiles.add(form_smiles)
+            for shifted_form in _charge_shift_resonance_forms(form):
+                shifted_smiles = _resonance_form_smiles(shifted_form, use_chirality)
+                if shifted_smiles not in smiles:
+                    queue.append(shifted_form)
+        return smiles
+
+    def cached_resonance_sets(target_1_smiles: str, target_2_smiles: str):
+        try:
+            mol1_smiles = set(
+                _cached_resonance_smiles(
+                    target_1_smiles,
+                    use_chirality=use_chirality,
+                    max_resonance=max_resonance,
+                    resonance_flags=int(resonance_flags),
+                )
+            )
+            mol2_smiles = set(
+                _cached_resonance_smiles(
+                    target_2_smiles,
+                    use_chirality=use_chirality,
+                    max_resonance=max_resonance,
+                    resonance_flags=int(resonance_flags),
+                )
+            )
+        except TimeoutError:
+            raise
+        return match_sets(mol1_smiles, mol2_smiles, target_2_smiles)
+
     try:
+        # Preserve formal charges and bond orders for the generic local
+        # [*-]-[*]=[*] migration.  The special normalizer below intentionally
+        # collapses thiosemicarbazone-like motifs and would erase this input.
+        raw_target_1 = _canon_smiles(mol1, use_chirality)
+        raw_target_2 = _canon_smiles(mol2, use_chirality)
+        raw_result = match_sets(
+            local_charge_shift_smiles(mol1),
+            local_charge_shift_smiles(mol2),
+            raw_target_2,
+        )
+        if raw_result[0]:
+            return raw_result
+
         normalized_1 = _normalize_special_resonance_forms(mol1)
         normalized_2 = _normalize_special_resonance_forms(mol2)
-        target_1_smiles = _canon_smiles(normalized_1, use_chirality)
-        target_2_smiles = _canon_smiles(normalized_2, use_chirality)
+        normalized_target_1 = _canon_smiles(normalized_1, use_chirality)
+        normalized_target_2 = _canon_smiles(normalized_2, use_chirality)
     except TimeoutError:
         raise
     except Exception:  # noqa: BLE001
         return False, 0, 0, None
 
-    try:
-        mol1_smiles = set(
-            _cached_resonance_smiles(
-                target_1_smiles,
-                use_chirality=use_chirality,
-                max_resonance=max_resonance,
-                resonance_flags=int(resonance_flags),
-            )
-        )
-    except TimeoutError:
-        raise
-    if target_2_smiles in mol1_smiles:
-        return True, len(mol1_smiles), 0, target_2_smiles
-
-    try:
-        mol2_smiles = set(
-            _cached_resonance_smiles(
-                target_2_smiles,
-                use_chirality=use_chirality,
-                max_resonance=max_resonance,
-                resonance_flags=int(resonance_flags),
-            )
-        )
-    except TimeoutError:
-        raise
-    intersection = mol1_smiles & mol2_smiles
-    if intersection:
-        return True, len(mol1_smiles), len(mol2_smiles), next(iter(intersection))
-
-    return False, len(mol1_smiles), len(mol2_smiles), None
+    if (normalized_target_1, normalized_target_2) == (raw_target_1, raw_target_2):
+        return cached_resonance_sets(raw_target_1, raw_target_2)
+    return cached_resonance_sets(normalized_target_1, normalized_target_2)
 
 
 def _check_equivalence_impl(
@@ -486,8 +691,12 @@ def _check_equivalence_impl(
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
 
-    organic_1 = _prepare_organic_mol(standardized_1, already_standardized=True)
-    organic_2 = _prepare_organic_mol(standardized_2, already_standardized=True)
+    organic_1 = _normalize_nonmetal_octet(
+        _prepare_organic_mol(standardized_1, already_standardized=True)
+    )
+    organic_2 = _normalize_nonmetal_octet(
+        _prepare_organic_mol(standardized_2, already_standardized=True)
+    )
 
     formal_charge_1 = _total_formal_charge(organic_1)
     formal_charge_2 = _total_formal_charge(organic_2)

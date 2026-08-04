@@ -56,7 +56,7 @@ class MetalScoringConfig:
     same_element_multimetal_unify_threshold: int = 3
     max_mixed_valence_spread: Optional[int] = 3
     max_assignments_per_target: int = 64
-    metal_coordination_extra_tolerance_angstrom: float = 0.35
+    metal_coordination_extra_tolerance_angstrom: float = 0.75
     pi_dative_distance_difference_tolerance_angstrom: float = 0.10
     metal_access_radius_scale: float = 1.0
     metal_access_clearance_angstrom: float = 0.0
@@ -65,8 +65,6 @@ class MetalScoringConfig:
 
 @dataclass
 class MetalRadicalInferenceConfig:
-    coordination_cutoff_angstrom: float = 3.2
-    coordination_covalent_tolerance_angstrom: float = 0.75
     max_considered_donors: int = 6
     square_planar_planarity_tolerance_angstrom: float = 0.45
     trigonal_planar_planarity_tolerance_angstrom: float = 0.35

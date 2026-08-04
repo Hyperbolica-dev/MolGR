@@ -60,6 +60,7 @@ ALLOWED_STATUSES = {
     "accept_candidate",
     "accept_reference",
     "manual_reference",
+    "reference_answer_wrong",
     "needs_followup",
     "skip",
 }
@@ -201,20 +202,26 @@ def _svg_fragment_from_image(image: Any) -> str:
 
 
 def _safe_smiles(mol: Chem.Mol) -> str:
+    clone = Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
     try:
-        return Chem.MolToSmiles(
-            Chem.RemoveHs(Chem.Mol(mol)),
-            canonical=True,
-            isomericSmiles=True,
-        )
-    except Exception:  # noqa: BLE001
-        return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+        return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=True)
+    except Chem.KekulizeException:
+        rw_mol = Chem.RWMol(clone)
+        for atom in rw_mol.GetAtoms():
+            atom.SetIsAromatic(False)
+        for bond in rw_mol.GetBonds():
+            bond.SetIsAromatic(False)
+        fallback = rw_mol.GetMol()
+        fallback.UpdatePropertyCache(strict=False)
+        return Chem.MolToSmiles(fallback, canonical=True, isomericSmiles=True)
 
 
 def _benchmark_candidate_mol(mol: Chem.Mol) -> Chem.Mol:
     """Apply the same successful-result postprocessing as the tmQMg benchmark."""
 
-    return Chem.RemoveHs(Chem.Mol(mol))
+    # Candidate aromatic flags may be inconsistent after reconstruction edits;
+    # RemoveHs must not trigger a fresh sanitization/Kekule pass here.
+    return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
 
 
 def _mol_from_smiles(smiles: str) -> Chem.Mol | None:
@@ -270,7 +277,9 @@ def _render_mol_svg(mol: Chem.Mol, *, legend: str) -> str:
 
 
 def _mol_to_sdf_block(mol: Chem.Mol) -> str:
-    block = Chem.MolToMolBlock(mol)
+    # Candidate graphs may carry aromatic flags that are inconsistent after
+    # charge/bond edits. Preserve the explicit graph without forcing Kekule.
+    block = Chem.MolToMolBlock(mol, kekulize=False, forceV3000=True)
     if not block.endswith("\n"):
         block += "\n"
     return block + "$$$$\n"

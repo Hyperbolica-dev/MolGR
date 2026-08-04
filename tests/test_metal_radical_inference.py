@@ -61,7 +61,7 @@ def test_prepare_metal_state_includes_low_spin_ru_ii_when_hydrides_are_direct() 
     }
 
 
-def test_prepare_metal_state_uses_hunds_rule_for_free_ti_ii() -> None:
+def test_prepare_metal_state_keeps_both_spin_branches_for_free_ti_ii() -> None:
     state = prepare_metal_state(_TI_XYZ, total_charge=0, total_radical_electrons=0)
     metal_states = state.available_valence_radical_states[0]
 
@@ -70,7 +70,7 @@ def test_prepare_metal_state_uses_hunds_rule_for_free_ti_ii() -> None:
         for metal_state in metal_states
     }
     assert ("Ti", 2, 2) in python_signatures
-    assert ("Ti", 2, 0) not in python_signatures
+    assert ("Ti", 2, 0) in python_signatures
 
     omol = pybel.readstring("xyz", _TI_XYZ)
     cpp_states = _core.dev.pipeline.reconstruct_with_metals.build_metal_states_ptr(

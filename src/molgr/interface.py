@@ -48,6 +48,36 @@ def _handle_reconstruction_failure(xyz_block: str, *, config: MolGRConfig) -> Ch
     raise ValueError("xyz2omol failed")
 
 
+def _validate_spin_multiplicity(
+    xyz_block: str,
+    total_charge: int,
+    spin_multiplicity: int,
+) -> None:
+    """Reject spin states that are impossible for the input electron count."""
+
+    if spin_multiplicity < 1:
+        raise ValueError("spin_multiplicity must be >= 1")
+
+    omol = pybel.readstring("xyz", xyz_block)
+    total_electrons = sum(int(atom.atomicnum) for atom in omol.atoms) - total_charge
+    if total_electrons < 0:
+        raise ValueError(
+            f"total_charge={total_charge} leaves a negative total electron count "
+            f"({total_electrons})"
+        )
+    if spin_multiplicity > total_electrons + 1:
+        raise ValueError(
+            f"spin_multiplicity={spin_multiplicity} is impossible for "
+            f"{total_electrons} total electrons; the maximum is {total_electrons + 1}"
+        )
+    if total_electrons % 2 != (spin_multiplicity - 1) % 2:
+        required_parity = "odd" if total_electrons % 2 == 0 else "even"
+        raise ValueError(
+            f"spin_multiplicity={spin_multiplicity} is impossible for "
+            f"{total_electrons} total electrons; the multiplicity must be {required_parity}"
+        )
+
+
 def xyz_to_rdmol(
     xyz_block: str,
     total_charge: int = 0,
@@ -62,6 +92,7 @@ def xyz_to_rdmol(
     Convert XYZ block to RDKit Mol.
     """
     resolved_config = CONFIG if config is None else config
+    _validate_spin_multiplicity(xyz_block, total_charge, spin_multiplicity)
     total_radical_electrons = spin_multiplicity - 1
     if backend == "cpp":
         try:

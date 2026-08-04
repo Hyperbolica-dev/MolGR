@@ -20,6 +20,15 @@ from typing import Any, Iterable, Sequence
 
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from benchmarks.tmqmg_xyz_benchmark.comparison_annotations import (  # noqa: E402
+    ComparisonAnnotation,
+    find_comparison_annotation,
+)
+
+
 STATE_DIR = ROOT_DIR / ".local" / "molgr_review" / "tmqmg"
 DEFAULT_CASES_CSV = STATE_DIR / "tmqmg_cases.csv"
 DEFAULT_REVIEW_DB = ROOT_DIR / ".local" / "molgr_review" / "review.sqlite"
@@ -75,6 +84,10 @@ REVIEW_COLUMNS = (
     "reference_answer_wrong",
     "reference_answer_status",
     "reference_answer_reason",
+    "accuracy_assessment_status",
+    "accuracy_assessment_reason",
+    "tmqmg_answer_assessment",
+    "molgr_answer_assessment",
     "manual_whitelist_status",
     "manual_whitelist_reason",
     "effective_equivalent",
@@ -197,11 +210,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--python-version-comparison",
-        choices=("benchmark-verdict", "graph"),
-        default="benchmark-verdict",
+        choices=("graph",),
+        default="graph",
         help=(
-            "How to compare py38/py310 results. The default compares benchmark verdicts "
-            "and avoids expensive graph equivalence over every SMILES spelling difference."
+            "Compare py38/py310 candidate molecular graphs directly. Reference benchmark "
+            "verdicts are not used to determine Python-version agreement."
         ),
     )
     parser.add_argument("--run-dir", type=Path, default=None, help="Output run directory.")
@@ -500,33 +513,11 @@ def _results_equivalent(left: BenchmarkRow | None, right: BenchmarkRow | None) -
         return False, f"{type(exc).__name__}: {exc}"
 
 
-def _benchmark_verdict(row: BenchmarkRow | None) -> str:
-    if row is None:
-        return "missing"
-    if row.status != "ok":
-        return f"status:{row.status}"
-    if _truthy(row.comparison_skipped):
-        return "reference_not_comparable"
-    if not row.ground_truth_smiles.strip():
-        return "missing_reference_smiles"
-    if row.equivalent:
-        return f"equivalent:{str(_truthy(row.equivalent)).lower()}"
-    return "ok_without_equivalence"
-
-
 def _python_results_equivalent(
     left: BenchmarkRow | None,
     right: BenchmarkRow | None,
-    *,
-    comparison: str,
 ) -> tuple[bool, str]:
-    if comparison == "graph":
-        return _results_equivalent(left, right)
-    left_verdict = _benchmark_verdict(left)
-    right_verdict = _benchmark_verdict(right)
-    if left_verdict == right_verdict:
-        return True, left_verdict
-    return False, f"{left_verdict} != {right_verdict}"
+    return _results_equivalent(left, right)
 
 
 def _is_reference_missing(rows: Iterable[BenchmarkRow]) -> bool:
@@ -554,25 +545,52 @@ def _formula_mismatch_detail(
     )
 
 
+def _xyz_element_counts(xyz_path: Path) -> Counter[str]:
+    lines = xyz_path.read_text(encoding="utf-8").splitlines()
+    atom_count = int(lines[0].strip())
+    atom_lines = lines[2 : 2 + atom_count]
+    if len(atom_lines) != atom_count:
+        raise ValueError(f"XYZ atom count does not match coordinate lines: {xyz_path}")
+    return Counter(line.split()[0] for line in atom_lines)
+
+
+def _may_match_boron_annotation(rows: Iterable[BenchmarkRow]) -> bool:
+    for row in rows:
+        if _truthy(row.comparison_skipped):
+            return True
+        if not row.input_smiles or not row.ground_truth_smiles or not row.predicted_smiles:
+            return True
+        if "B" in f"{row.input_smiles}{row.ground_truth_smiles}{row.predicted_smiles}":
+            return True
+    return False
+
+
 def _reference_formula_mismatch_fields(
     reference_smiles: str,
     xyz_path: Path,
 ) -> dict[str, str]:
     from rdkit import Chem
 
-    lines = xyz_path.read_text(encoding="utf-8").splitlines()
-    atom_count = int(lines[0].strip())
-    atom_lines = lines[2 : 2 + atom_count]
-    if len(atom_lines) != atom_count:
-        raise ValueError(f"XYZ atom count does not match coordinate lines: {xyz_path}")
-    xyz_counts: Counter[str] = Counter(line.split()[0] for line in atom_lines)
+    xyz_counts = _xyz_element_counts(xyz_path)
 
     reference_mol = Chem.MolFromSmiles(reference_smiles)
     if reference_mol is None:
-        raise ValueError("reference SMILES could not be parsed")
+        return {
+            "reference_formula_check_status": "reference_parse_error",
+            "reference_formula_match": "False",
+            "xyz_atom_count": str(sum(xyz_counts.values())),
+            "reference_atom_count_with_h": "",
+            "xyz_formula": _formula_string(xyz_counts),
+            "reference_formula_with_h": "",
+            "reference_formula_mismatch_detail": "reference SMILES could not be parsed",
+            "reference_answer_wrong": "True",
+            "reference_answer_status": "reference_parse_error",
+            "reference_answer_reason": "Reference SMILES could not be parsed for formula validation.",
+        }
     reference_with_h = Chem.AddHs(reference_mol)
     reference_counts: Counter[str] = Counter(
-        atom.GetSymbol() for atom in reference_with_h.GetAtoms()
+        atom.GetSymbol()
+        for atom in reference_with_h.GetAtoms()  # pyright: ignore[reportCallIssue]
     )
     mismatch_detail = _formula_mismatch_detail(xyz_counts, reference_counts)
     return {
@@ -618,9 +636,25 @@ def _case_issue(
     *,
     labels: Sequence[str],
     method_ids: Sequence[str],
-    python_version_comparison: str,
+    comparison_annotation: ComparisonAnnotation | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     rows = list(rows_by_key.values())
+    if comparison_annotation is not None:
+        return comparison_annotation.status, {
+            "comparison_annotation": [comparison_annotation.comparison_skip_reason],
+            "rows": {
+                f"{row.label}/{row.method_id}": {
+                    "status": row.status,
+                    "error": row.error,
+                    "predicted_smiles": row.predicted_smiles,
+                    "equivalent": row.equivalent,
+                    "comparison_skipped": row.comparison_skipped,
+                    "comparison_skip_reason": row.comparison_skip_reason,
+                    "timing_ms_total": row.timing_ms_total,
+                }
+                for row in rows
+            },
+        }
     missing_keys = [
         f"{label}/{method_id}"
         for label in labels
@@ -670,7 +704,6 @@ def _case_issue(
             equivalent, reason = _python_results_equivalent(
                 baseline,
                 candidate,
-                comparison=python_version_comparison,
             )
             if not equivalent:
                 mismatched_reasons.append(f"{baseline_label}_vs_{label}:{reason}")
@@ -742,6 +775,7 @@ def _compact_reason(details: dict[str, Any]) -> str:
         "reference_not_comparable",
         "reference_formula_mismatches",
         "reference_failures",
+        "comparison_annotation",
     ):
         values = details.get(key) or []
         if values:
@@ -788,6 +822,8 @@ def _build_review_rows(
     method_ids: Sequence[str],
     python_version_comparison: str,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    if python_version_comparison != "graph":
+        raise ValueError("Python-version comparison must use direct candidate graph comparison")
     grouped: dict[tuple[int, str], dict[tuple[str, str], BenchmarkRow]] = defaultdict(dict)
     labels = tuple(result_paths)
     for label, path in result_paths.items():
@@ -798,16 +834,25 @@ def _build_review_rows(
     category_counts: Counter[str] = Counter()
     for case_key in sorted(grouped):
         rows_by_key = grouped[case_key]
+        row_index, case_id = case_key
+        element_counts = (
+            _xyz_element_counts(xyz_dir / f"{case_id}.xyz")
+            if _may_match_boron_annotation(rows_by_key.values())
+            else Counter()
+        )
+        comparison_annotation = find_comparison_annotation(
+            case_id,
+            element_counts,
+        )
         category, details = _case_issue(
             rows_by_key,
             labels=labels,
             method_ids=method_ids,
-            python_version_comparison=python_version_comparison,
+            comparison_annotation=comparison_annotation,
         )
         if category is None:
             continue
 
-        row_index, case_id = case_key
         meta = metadata.get(case_key, {})
         display_row = _select_display_row(rows_by_key)
         reference_smiles = (
@@ -850,6 +895,20 @@ def _build_review_rows(
                 reference_smiles,
                 xyz_dir / f"{case_id}.xyz",
             )
+        if comparison_annotation is not None:
+            formula_fields = {
+                "reference_formula_check_status": "not_applicable",
+                "reference_formula_match": "",
+                "xyz_atom_count": meta.get("n_atoms", ""),
+                "reference_atom_count_with_h": "",
+                "xyz_formula": "",
+                "reference_formula_with_h": "",
+                "reference_formula_mismatch_detail": "",
+                "reference_answer_wrong": "False",
+                "reference_answer_status": "not_assessable",
+                "reference_answer_reason": comparison_annotation.reason,
+            }
+            representative_equivalent = ""
         row = {
             "case_id": case_id,
             "source": "tmqmg",
@@ -872,8 +931,16 @@ def _build_review_rows(
             "molgr_smiles_canonical": molgr_smiles,
             "equivalent": representative_equivalent,
             "strict_equivalent": representative_equivalent,
-            "equivalence_method": "tmqmg_py38_py310_" + "_".join(method_ids) + "_benchmark",
-            "equivalence_reason": _compact_reason(details),
+            "equivalence_method": (
+                ""
+                if comparison_annotation is not None
+                else "tmqmg_py38_py310_" + "_".join(method_ids) + "_benchmark"
+            ),
+            "equivalence_reason": (
+                comparison_annotation.reason
+                if comparison_annotation is not None
+                else _compact_reason(details)
+            ),
             "spin_source": "reference_smiles",
             "total_radical_electrons_used": "",
             "spin_multiplicity_used": "",
@@ -891,9 +958,21 @@ def _build_review_rows(
             "reference_answer_wrong": formula_fields["reference_answer_wrong"],
             "reference_answer_status": formula_fields["reference_answer_status"],
             "reference_answer_reason": formula_fields["reference_answer_reason"],
+            "accuracy_assessment_status": (
+                comparison_annotation.status if comparison_annotation is not None else "assessable"
+            ),
+            "accuracy_assessment_reason": (
+                comparison_annotation.reason if comparison_annotation is not None else ""
+            ),
+            "tmqmg_answer_assessment": (
+                "not_assessable" if comparison_annotation is not None else "assessable"
+            ),
+            "molgr_answer_assessment": (
+                "not_assessable" if comparison_annotation is not None else "assessable"
+            ),
             "manual_whitelist_status": "",
             "manual_whitelist_reason": "",
-            "effective_equivalent": "False",
+            "effective_equivalent": "" if comparison_annotation is not None else "False",
             "molgr_organic_smiles": molgr_smiles,
             "reference_organic_smiles": reference_smiles,
             "molgr_organic_atom_count": "",

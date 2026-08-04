@@ -6,6 +6,27 @@ from rdkit import Chem
 from molgr.utils import equivalence
 
 
+@pytest.mark.parametrize(
+    ("multiple_bond", "octet_form"),
+    [
+        ("CP(=O)(C)C", "C[P+](C)(C)[O-]"),
+        ("CS(=O)(=O)C", "C[S+2](C)([O-])[O-]"),
+    ],
+)
+def test_equivalence_normalizes_supported_hypervalent_nonmetals_to_octets(
+    multiple_bond: str,
+    octet_form: str,
+) -> None:
+    mol1 = Chem.MolFromSmiles(multiple_bond)
+    mol2 = Chem.MolFromSmiles(octet_form)
+    assert mol1 is not None
+    assert mol2 is not None
+
+    equivalent, _ = equivalence.check_equivalence(mol1, mol2, use_chirality=False)
+
+    assert equivalent is True
+
+
 def test_equivalence_accepts_resonance_forms_after_standardization() -> None:
     mol1 = Chem.MolFromSmiles("CC1=[N+]=C(OC=[N-])[N]N1")
     mol2 = Chem.MolFromSmiles("Cc1nc(OC=[N])n[nH]1")
@@ -85,6 +106,39 @@ def test_resonance_match_compares_the_two_generated_sets() -> None:
     assert hit_smiles is not None
 
 
+def test_resonance_supplier_includes_generic_anion_charge_shift() -> None:
+    equivalence._cached_resonance_smiles.cache_clear()
+
+    forms = equivalence._cached_resonance_smiles(
+        "CC=C[O-]",
+        use_chirality=False,
+        max_resonance=1,
+        resonance_flags=int(Chem.ResonanceFlags.UNCONSTRAINED_ANIONS),
+    )
+
+    assert forms
+    assert any("C(=O)[C-]" in form for form in forms)
+    equivalence._cached_resonance_smiles.cache_clear()
+
+
+def test_resonance_charge_shift_survives_special_normalization() -> None:
+    # The two fragments differ by two local migrations:
+    # [C-]-N=N-C(=S) -> C=N-[N-]-C(=S) -> C=N-N=C([S-]).
+    candidate = Chem.MolFromSmiles("S=C(N)N=N[CH-]c1ccccc1.[S-]C(=NN=Cc1ccccc1)N")
+    reference = Chem.MolFromSmiles("[S-]C(=NN=Cc1ccccc1)N.[S-]C(=NN=Cc1ccccc1)N")
+    assert candidate is not None
+    assert reference is not None
+
+    equivalent, info = equivalence.check_equivalence(
+        candidate,
+        reference,
+        use_chirality=False,
+    )
+
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.RESONANCE
+
+
 def test_resonance_timeout_is_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
     class TimeoutSupplier:
         def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -151,6 +205,55 @@ def test_equivalence_rejects_metal_valence_mismatch() -> None:
     assert equivalent is False
     assert info.method is None
     assert info.reason == "Not equivalent: metal valence assignment differs."
+
+
+def test_metal_double_bond_becomes_carbene_after_metal_removal() -> None:
+    mol = Chem.MolFromSmiles("[CH2]=[Fe]")
+    assert mol is not None
+
+    standardized = equivalence._standardize_metal_bonds(mol)
+    organic = equivalence._prepare_organic_mol(standardized, already_standardized=True)
+    carbon = organic.GetAtomWithIdx(0)
+
+    assert carbon.GetAtomicNum() == 6
+    assert carbon.GetFormalCharge() == 0
+    assert carbon.GetNumRadicalElectrons() == 2
+
+
+def test_equivalence_normalizes_metal_double_bond_to_explicit_carbene_complex() -> None:
+    metal_double_bond = Chem.MolFromSmiles("[CH2]=[Fe]")
+    carbene_complex = Chem.MolFromSmiles("[CH2]->[Fe]")
+    assert metal_double_bond is not None
+    assert carbene_complex is not None
+
+    equivalent, info = equivalence.check_equivalence(
+        metal_double_bond,
+        carbene_complex,
+        use_chirality=False,
+    )
+
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.IDEAL
+
+
+def test_equivalence_normalizes_aqowuy_metal_double_bond_to_carbene_coordination() -> None:
+    reference = Chem.MolFromSmiles(
+        "COc1ccc(C=C[C](OC)->[Rh+]234(<-[C-]#[O+])<-C5=C->2CCC->3=C->4CC5)cc1"
+    )
+    candidate = Chem.MolFromSmiles(
+        "COC(C=Cc1ccc(OC)cc1)=[Rh+]123(<-[C-]#[O+])<-C4=C->1CCC->2=C->3CC4"
+    )
+    assert reference is not None
+    assert candidate is not None
+
+    equivalent, info = equivalence.check_equivalence(
+        reference,
+        candidate,
+        use_chirality=False,
+    )
+
+    assert equivalent is True
+    assert info.method == equivalence.EquivalenceMethod.IDEAL
 
 
 def test_equivalence_ignores_redundant_metal_radicals() -> None:

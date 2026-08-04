@@ -78,7 +78,7 @@ jobs:
       - name: Install dependencies
         run: |
           "$UV_BIN" sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
-          "$UV_BIN" pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$UV_BIN" pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Ensure CMake available
         run: |

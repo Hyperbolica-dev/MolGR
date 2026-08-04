@@ -99,11 +99,10 @@ def assign_charge_radical_for_atom(atom: ob.OBAtom) -> bool:
     old_lone_pair_count = get_lone_pair_count(atom)
     old_unresolved_center = has_unresolved_two_electron_center(atom)
 
-    if (
-        consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons == 3
-        and atom.GetTotalValence() == 4
-    ):
-        atom.SetFormalCharge(-1)
+    if consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons < atom.GetTotalValence():
+        atom.SetFormalCharge(
+            consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons - atom.GetTotalValence()
+        )
     else:
         total_elec = (
             consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons + atom.GetTotalValence()

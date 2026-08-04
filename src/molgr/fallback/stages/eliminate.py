@@ -27,6 +27,8 @@ class _ChargeAssignmentAction:
     consume_unresolved_center: bool
     charge_delta: int
     score_key: Tuple[int, ...]
+    bond_idx: int | None = None
+    charge_atom_idx: int | None = None
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,25 @@ def _apply_charge_assignment_action(
     """
 
     atom = cast(ob.OBAtom, obmol.GetAtom(action.atom_idx))
-    if atom is None or atom.GetFormalCharge() != 0:
+    if atom is None:
+        return False
+    if action.bond_idx is not None and action.charge_atom_idx is not None:
+        charge_atom = cast(ob.OBAtom, obmol.GetAtom(action.charge_atom_idx))
+        bond = cast(ob.OBBond, obmol.GetBond(action.atom_idx, action.charge_atom_idx))
+        if (
+            charge_atom is None
+            or bond is None
+            or get_unpaired_electron_count(atom) < action.spin_consumed
+            or has_unresolved_two_electron_center(atom)
+        ):
+            return False
+        set_unpaired_electron_count(
+            atom, get_unpaired_electron_count(atom) - action.spin_consumed
+        )
+        bond.SetBondOrder(bond.GetBondOrder() + 1)
+        charge_atom.SetFormalCharge(charge_atom.GetFormalCharge() + 1)
+        return True
+    if atom.GetFormalCharge() != 0:
         return False
     if action.consume_unresolved_center:
         if (
@@ -124,6 +144,7 @@ def _positive_charge_assignment_actions(
     omol: pybel.Molecule,
     obmol: ob.OBMol,
     given_charge: int,
+    total_radical_electrons: int = 0,
 ) -> list[_ChargeAssignmentAction]:
     """Rank cation actions from radicals or a pure unresolved 2e center.
 
@@ -132,8 +153,16 @@ def _positive_charge_assignment_actions(
     as an atomic ``+2`` action. Active lone pairs remain excluded.
     """
 
-    if given_charge <= 0:
-        return []
+    real_radicals = sum(
+        get_unpaired_electron_count(cast(ob.OBAtom, atom))
+        for atom in ob.OBMolAtomIter(obmol)
+    )
+    unresolved_electrons = sum(
+        1
+        for atom in ob.OBMolAtomIter(obmol)
+        if has_unresolved_two_electron_center(cast(ob.OBAtom, atom))
+    )
+    tier5_allowed = abs(given_charge - 1) <= real_radicals + unresolved_electrons * 2 - 1
 
     actions: list[_ChargeAssignmentAction] = []
     seen: set[tuple[int, int, int]] = set()
@@ -200,19 +229,46 @@ def _positive_charge_assignment_actions(
         cast(List[Tuple[int, int]], smarts.ELIM_POSITIVE_N.findall(omol))
     ):
         atom = cast(ob.OBAtom, obmol.GetAtom(n_idxs[1]))
-        if atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
+        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
             append_action(atom, tier=0, match_order=match_order, amount=1)
 
     for match_order, c_h_idxs in enumerate(
         cast(List[Tuple[int, int, int]], smarts.ELIM_POSITIVE_C_H.findall(omol))
     ):
         atom = cast(ob.OBAtom, obmol.GetAtom(c_h_idxs[0]))
-        if atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
+        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
             append_action(atom, tier=10, match_order=match_order, amount=1)
+
+    for match_order, dipole_idxs in enumerate(
+        cast(List[Tuple[int, int]], smarts.ELIM_POSITIVE_DIPOLE.findall(omol))
+    ):
+        radical_atom = cast(ob.OBAtom, obmol.GetAtom(dipole_idxs[0]))
+        charge_atom = cast(ob.OBAtom, obmol.GetAtom(dipole_idxs[1]))
+        bond = cast(ob.OBBond, obmol.GetBond(dipole_idxs[0], dipole_idxs[1]))
+        if (
+            tier5_allowed
+            and
+            radical_atom.GetFormalCharge() == 0
+            and get_unpaired_electron_count(radical_atom) == 1
+            and not has_unresolved_two_electron_center(radical_atom)
+            and bond is not None
+        ):
+            actions.append(
+                _ChargeAssignmentAction(
+                    atom_idx=_atom_idx(radical_atom),
+                    formal_charge=0,
+                    spin_consumed=1,
+                    consume_unresolved_center=False,
+                    charge_delta=-1,
+                    score_key=(5, abs(given_charge - 1), max(given_charge - 1, 0), _atom_idx(radical_atom), match_order),
+                    bond_idx=bond.GetIdx(),
+                    charge_atom_idx=_atom_idx(charge_atom),
+                )
+            )
 
     for match_order, atom_iter in enumerate(ob.OBMolAtomIter(obmol)):
         atom = cast(ob.OBAtom, atom_iter)
-        if atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
+        if given_charge > 0 and atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
             append_action(
                 atom,
                 tier=100,
@@ -347,41 +403,25 @@ def eliminate_high_positive_charge_atoms(
         idxs = cast(List[Tuple[int, int]], res.pop(0))
         atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
         atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+        atom2_neighbor_has_pending_electrons = any(
+            neighbor.GetIdx() != atom1.GetIdx()
+            and (
+                get_unpaired_electron_count(cast(ob.OBAtom, neighbor)) > 0
+                or has_unresolved_two_electron_center(cast(ob.OBAtom, neighbor))
+            )
+            for neighbor in ob.OBAtomAtomIter(atom2)
+        )
         if (
             -sum(cast(ob.OBAtom, atom).GetFormalCharge() for atom in ob.OBAtomAtomIter(atom1))
             > atom1.GetFormalCharge()
             or get_unpaired_electron_count(atom2) != 1
+            or atom2_neighbor_has_pending_electrons
         ):
             continue
         set_unpaired_electron_count(atom2, get_unpaired_electron_count(atom2) - 1)
         atom2.SetFormalCharge(atom2.GetFormalCharge() - 1)
         given_charge += 1
         hit = True
-    return omol, given_charge, hit
-
-
-def eliminate_CN_in_doubt(
-    omol: pybel.Molecule, given_charge: int
-) -> tuple[pybel.Molecule, int, bool]:
-    """Resolve ambiguous C/N charge assignments in paired motifs."""
-
-    obmol = cast(ob.OBMol, omol.OBMol)
-    doubt_pair: List[Tuple[int, int]] = smarts.ELIM_CN_IN_DOUBT.findall(omol)
-    cn_in_doubt = len(doubt_pair)
-    # confirm that all atoms in doubt_pair are unique
-    if len({atom_id for pair in doubt_pair for atom_id in pair}) != cn_in_doubt * 2:
-        return omol, given_charge, False
-    hit = False
-    if cn_in_doubt % 2 == 0 and cn_in_doubt > 0:
-        for atom_1_idx, atom_2_idx in doubt_pair[: cn_in_doubt // 2]:
-            atom_1 = cast(ob.OBAtom, obmol.GetAtom(atom_1_idx))
-            atom_2 = cast(ob.OBAtom, obmol.GetAtom(atom_2_idx))
-            bond = cast(ob.OBBond, obmol.GetBond(atom_1_idx, atom_2_idx))
-            atom_1.SetFormalCharge(-1)
-            bond.SetBondOrder(bond.GetBondOrder() - 1)
-            atom_2.SetFormalCharge(0)
-            given_charge += 2
-            hit = True
     return omol, given_charge, hit
 
 
@@ -618,7 +658,9 @@ def eliminate_possible_cp_like_radical_anion(
 
 
 def eliminate_positive_charges(
-    omol: pybel.Molecule, given_charge: int
+    omol: pybel.Molecule,
+    given_charge: int,
+    total_radical_electrons: int = 0,
 ) -> tuple[pybel.Molecule, int, bool]:
     """Consume classified electron sources into positive formal charge.
 
@@ -630,8 +672,10 @@ def eliminate_positive_charges(
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
 
-    while given_charge > 0:
-        actions = _positive_charge_assignment_actions(omol, obmol, given_charge)
+    while True:
+        actions = _positive_charge_assignment_actions(
+            omol, obmol, given_charge, total_radical_electrons
+        )
         if not actions:
             break
         action = actions[0]
@@ -681,7 +725,6 @@ def eliminate_negative_charges(
 
 __all__ = [
     "eliminate_1_3_dipole_postive",
-    "eliminate_CN_in_doubt",
     "eliminate_NNN",
     "eliminate_carboxyl",
     "eliminate_carbene_neighbor_heteroatom",

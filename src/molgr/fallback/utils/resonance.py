@@ -10,6 +10,8 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.stages.clean import (
+    clean_1_4_radicals,
+    clean_1_6_radicals,
     clean_neighbor_radicals,
     clean_possible_1_3_dipole,
     clean_resonances,
@@ -190,9 +192,28 @@ def _run_process_resonance(
         or hit
     )
     hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_1_4_radicals",
+            clean_1_4_radicals,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_1_6_radicals",
+            clean_1_6_radicals,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
         machine.run_omol_charge_stage(
             "process_resonance_eliminate_positive_charges_1",
             eliminate_positive_charges,
+            machine.total_radical_electrons,
         )
         or hit
     )
@@ -208,6 +229,7 @@ def _run_process_resonance(
         machine.run_omol_charge_stage(
             "process_resonance_eliminate_positive_charges_2",
             eliminate_positive_charges,
+            machine.total_radical_electrons,
         )
         or hit
     )

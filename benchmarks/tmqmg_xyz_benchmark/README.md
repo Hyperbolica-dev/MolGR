@@ -10,6 +10,12 @@ It reuses the shared method registry from the other benchmark entrypoints.
 The official source, pinned revision, checksums, and download commands are in the
 [molecule review development guide](../../docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md#获取-tmqmg-数据).
 
+Reconstruction input is restricted to the XYZ coordinates, the dataset global
+charge, and this benchmark's fixed closed-shell multiplicity (one; zero radical
+electrons). The tmQMg `smiles` field is loaded only after reconstruction as a
+reference graph for comparison and formula-consistency diagnostics; it never
+contributes bonds, charges, radicals, or candidate-selection information.
+
 Subset selection flags:
 
 - `--start-row` and `--end-row` filter by 1-based CSV row index.
@@ -47,3 +53,14 @@ bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
 ## Outputs
 
 The benchmark writes `results.csv` and `summary.csv` to `--out`.
+
+## Accuracy exclusions
+
+The versioned rules in `comparison_annotations.json` exclude 1,176 structures
+containing at least four boron atoms from reconstruction-accuracy comparisons.
+Conventional Lewis graphs used for both the tmQMg and MolGR answers cannot
+represent multicenter 3-center-2-electron (3c-2e) bonding in these boron
+clusters, so neither answer is treated as assessable. Reconstruction may still
+run to retain candidate and timing diagnostics, but these cases do not enter the
+accuracy denominator. `YULBOY` is the explicitly recorded exception to this
+tmQMg revision's annotation set.

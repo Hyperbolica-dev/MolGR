@@ -8,9 +8,10 @@ from typing import Dict, List, Sequence, Tuple, cast
 
 from openbabel import openbabel as ob
 
-from molgr.config import CONFIG, MetalRadicalInferenceConfig, MolGRConfig
+from molgr.config import CONFIG, MetalRadicalInferenceConfig, MetalScoringConfig, MolGRConfig
 from molgr.fallback.utils import consts
 from molgr.fallback.utils.dataclasses import FDSP
+from molgr.utils.coordination import coordination_distance_cutoff
 
 
 _D_BLOCK_REARRANGEMENT_METALS = {
@@ -46,16 +47,33 @@ _D_BLOCK_REARRANGEMENT_METALS = {
 }
 _DONOR_FIELD_STRENGTH: Dict[int, float] = {
     1: 1.20,
+    2: 0.00,
+    5: 1.30,
     6: 1.30,
     7: 1.00,
     8: 0.85,
     9: 0.65,
+    10: 0.00,
+    14: 1.30,
     # Phosphines are strong sigma donors; retain a distinct boost over N/O.
     15: 1.50,
     16: 0.75,
     17: 0.55,
+    18: 0.00,
+    32: 1.30,
+    33: 1.40,
+    # Selenium donors are treated as strong-field, including after the
+    # tetrahedral geometry penalty.
+    34: 1.50,
     35: 0.50,
+    36: 0.00,
+    51: 1.35,
+    52: 1.45,
     53: 0.45,
+    54: 0.00,
+    84: 1.40,
+    85: 0.40,
+    86: 0.00,
 }
 _GEOMETRY_FIELD_ADJUSTMENT: Dict[str, float] = {
     "free_ion": 0.0,
@@ -97,13 +115,6 @@ class MetalRadicalInferenceResult:
     geometry: str
     field_score: float
     field_strength: str
-
-
-def _resolve_metal_radical_inference_config(
-    config: MolGRConfig | None = None,
-) -> MetalRadicalInferenceConfig:
-    resolved_config = CONFIG if config is None else config
-    return resolved_config.metal_radical_inference
 
 
 def _vector_from_atoms(metal_atom: ob.OBAtom, donor_atom: ob.OBAtom) -> Tuple[float, float, float]:
@@ -198,6 +209,7 @@ def _collect_coordination_environment(
     metal_atom: ob.OBAtom,
     *,
     metal_radical_config: MetalRadicalInferenceConfig,
+    metal_scoring_config: MetalScoringConfig,
 ) -> Tuple[_DonorSample, ...]:
     parent = cast(ob.OBMol, metal_atom.GetParent())
     donors: List[_DonorSample] = []
@@ -215,15 +227,15 @@ def _collect_coordination_environment(
             if not _is_direct_metal_hydride(metal_atom, neighbor, distance):
                 continue
         else:
-            covalent_cutoff = (
-                _clamped_covalent_radius(metal_atom.GetAtomicNum())
-                + _clamped_covalent_radius(atomic_num)
-                + metal_radical_config.coordination_covalent_tolerance_angstrom
+            covalent_cutoff = coordination_distance_cutoff(
+                int(metal_atom.GetAtomicNum()),
+                int(atomic_num),
+                radius_scale=metal_scoring_config.metal_access_radius_scale,
+                extra_tolerance_angstrom=(
+                    metal_scoring_config.metal_coordination_extra_tolerance_angstrom
+                ),
             )
-            if distance > min(
-                metal_radical_config.coordination_cutoff_angstrom,
-                covalent_cutoff,
-            ):
+            if distance > covalent_cutoff:
                 continue
 
         donors.append(
@@ -339,6 +351,7 @@ def _candidate_d_unpaired_counts(
     geometry: str,
     field_strength: str,
     prefer_low_spin: bool,
+    allow_low_spin_alternative: bool,
 ) -> Tuple[int, ...]:
     if effective_d < 0 or effective_d >= len(consts.D_ELECTRONS_SPIN):
         return (0,)
@@ -360,14 +373,26 @@ def _candidate_d_unpaired_counts(
                 if prefer_low_spin
                 else (free_ion_candidates[-1], free_ion_candidates[0])
             )
-        return (free_ion_candidates[-1],)
+        return (
+            (free_ion_candidates[-1], free_ion_candidates[0])
+            if allow_low_spin_alternative
+            else (free_ion_candidates[-1],)
+        )
 
     if len(free_ion_candidates) == 1:
         return (free_ion_candidates[0],)
     if field_strength == "strong":
-        return (free_ion_candidates[0],)
+        return (
+            (free_ion_candidates[0], free_ion_candidates[-1])
+            if allow_low_spin_alternative
+            else (free_ion_candidates[0],)
+        )
     if field_strength == "weak":
-        return (free_ion_candidates[-1],)
+        return (
+            (free_ion_candidates[-1], free_ion_candidates[0])
+            if allow_low_spin_alternative
+            else (free_ion_candidates[-1],)
+        )
     return (
         (free_ion_candidates[0], free_ion_candidates[-1])
         if prefer_low_spin
@@ -381,7 +406,8 @@ def infer_metal_radical_state(
     *,
     config: MolGRConfig | None = None,
 ) -> MetalRadicalInferenceResult:
-    metal_radical_config = _resolve_metal_radical_inference_config(config)
+    resolved_config = CONFIG if config is None else config
+    metal_radical_config = resolved_config.metal_radical_inference
     symbol = ob.GetSymbol(metal_atom.GetAtomicNum())
 
     occupation = _shell_occupation_after_oxidation(symbol, valence)
@@ -400,6 +426,7 @@ def infer_metal_radical_state(
     donors = _collect_coordination_environment(
         metal_atom,
         metal_radical_config=metal_radical_config,
+        metal_scoring_config=resolved_config.metal_scoring,
     )
     geometry = _classify_geometry(donors, metal_radical_config=metal_radical_config)
     field_score = _donor_field_score(donors, geometry=geometry)
@@ -421,6 +448,7 @@ def infer_metal_radical_state(
             )
             / 2.0
         ),
+        allow_low_spin_alternative=True,
     )
     radical_counts = tuple(dict.fromkeys(base_unpaired + candidate for candidate in d_candidates))
     return MetalRadicalInferenceResult(

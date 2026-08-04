@@ -125,9 +125,9 @@ namespace molgr
                 return changed();
             }
 
-            if (info->num_outer_electrons == 3 && current_val == 4)
+            if (info->num_outer_electrons < current_val)
             {
-                atom.SetFormalCharge(-1);
+                atom.SetFormalCharge(info->num_outer_electrons - current_val);
             }
             else
             {

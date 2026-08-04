@@ -38,10 +38,15 @@ mol = xyz_to_rdmol(
 )
 ```
 
-`spin_multiplicity` is normalized at the API boundary as
-`total_radical_electrons = spin_multiplicity - 1`. By default, MolGR also completes
-possible dative bonds and stereochemistry. Pass `make_dative_bonds=False` or
-`make_stereochemistry=False` to disable those post-processing steps.
+Before reconstruction, MolGR calculates the total electron count as the sum of
+the atomic numbers minus `total_charge` and rejects impossible spin
+multiplicities. In particular, even-electron systems require odd multiplicities,
+while odd-electron systems require even multiplicities. The accepted
+`spin_multiplicity` is then normalized as
+`total_radical_electrons = spin_multiplicity - 1`. By default, MolGR also
+completes possible dative bonds and stereochemistry. Pass
+`make_dative_bonds=False` or `make_stereochemistry=False` to disable those
+post-processing steps.
 
 ## Configuration
 

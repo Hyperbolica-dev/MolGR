@@ -29,6 +29,28 @@ OB_RDKIT_BOND_ORDER_MAPPING = {
 METAL_UNPAIRED_ELECTRONS_PROP = "MOLGR_METAL_UNPAIRED_ELECTRONS"
 
 
+def _sanitize_preserving_explicit_bonds(rdmol: Chem.Mol, *, kekulize: bool) -> None:
+    """Sanitize a graph without rejecting a valid explicit-bond representation.
+
+    Reconstruction can leave an aromaticity assignment that RDKit cannot
+    Kekulize after charge/bond edits. In that case retain the explicit bond
+    orders supplied by Open Babel and skip only the failing Kekule step.
+    """
+
+    if not kekulize:
+        Chem.SanitizeMol(rdmol)
+        return
+    try:
+        Chem.SanitizeMol(rdmol)
+        Chem.Kekulize(rdmol)
+        return
+    except Chem.KekulizeException:
+        rdmol.ClearComputedProps()
+        sanitize_ops = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE
+        Chem.SanitizeMol(rdmol, sanitizeOps=sanitize_ops)
+        Chem.KekulizeIfPossible(rdmol, clearAromaticFlags=False)
+
+
 def _is_metal_atomic_num(atomic_num: int) -> bool:
     return atomic_num not in NON_METAL_DICT
 
@@ -198,9 +220,9 @@ def mol_data_to_rdkit(
     rdmol.AddConformer(conf)
 
     if sanitize:
-        Chem.SanitizeMol(rdmol)
-    if kekulize:
-        Chem.Kekulize(rdmol)
+        _sanitize_preserving_explicit_bonds(rdmol, kekulize=kekulize)
+    elif kekulize:
+        Chem.KekulizeIfPossible(rdmol)
     _restore_rdkit_unpaired_electrons(rdmol, unpaired_electrons)
     _finalize_metal_unpaired_electrons(rdmol)
     return rdmol
@@ -259,9 +281,9 @@ def pybel_to_rdmol(
     rdmol = rwmol.GetMol()
     rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
-        Chem.SanitizeMol(rdmol)
-    if kekulize:
-        Chem.Kekulize(rdmol)
+        _sanitize_preserving_explicit_bonds(rdmol, kekulize=kekulize)
+    elif kekulize:
+        Chem.KekulizeIfPossible(rdmol)
     _restore_rdkit_unpaired_electrons(rdmol, formal_radicals)
     _finalize_metal_unpaired_electrons(rdmol)
     return rdmol

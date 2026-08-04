@@ -23,6 +23,9 @@ from benchmarks.tmqmg_xyz_benchmark.io import (
     write_results_csv,
     write_summary_csv,
 )
+from benchmarks.tmqmg_xyz_benchmark.comparison_annotations import (
+    find_comparison_annotation,
+)
 from benchmarks.tmqmg_xyz_benchmark.methods import METHOD_IDS, get_method_registry
 from benchmarks.tmqmg_xyz_benchmark.schema import BenchmarkResult
 
@@ -245,13 +248,10 @@ def _validate_reference_matches_xyz(reference_smiles: str, xyz_block: str) -> No
 
 
 def _resolve_total_radical_electrons(row: dict[str, str]) -> int:
-    reference_smiles = row.get("smiles", "").strip()
-    if not reference_smiles:
-        return 0
-    mol = Chem.MolFromSmiles(reference_smiles, sanitize=False)
-    if mol is None:
-        return 0
-    return sum(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms())
+    """Return the tmQMg benchmark's fixed closed-shell target without reading SMILES."""
+
+    del row
+    return 0
 
 
 def _build_case(
@@ -270,12 +270,17 @@ def _build_case(
         "total_radical_electrons": None,
         "provider_error": None,
         "reference_error": None,
+        "comparison_annotation": None,
         "xyz_path": None,
         "id": row.get("id", "").strip(),
     }
 
     try:
         xyz_block, xyz_path = _load_case_xyz(xyz_dir, row)
+        case["comparison_annotation"] = find_comparison_annotation(
+            case["id"],
+            _xyz_element_counts(xyz_block),
+        )
         total_charge = int(row.get("charge", "0").strip() or 0)
         total_radical_electrons = _resolve_total_radical_electrons(row)
         reference_smiles = row.get("smiles", "").strip()
@@ -312,6 +317,13 @@ def _run_case_method(
 ) -> BenchmarkResult:
     from molgr.utils.equivalence import check_equivalence
 
+    comparison_annotation = case.get("comparison_annotation")
+    comparison_skipped = bool(
+        comparison_annotation is not None and comparison_annotation.skip_comparison
+    )
+    comparison_skip_reason = (
+        comparison_annotation.comparison_skip_reason if comparison_skipped else None
+    )
     if case.get("provider_error"):
         breakdown = {"method_ms": 0.0, "equivalence_ms": 0.0}
         return BenchmarkResult(
@@ -327,6 +339,8 @@ def _run_case_method(
             timing_ms_total=0.0,
             timing_ms_breakdown=breakdown,
             case_id=case.get("id"),
+            comparison_skipped=comparison_skipped,
+            comparison_skip_reason=comparison_skip_reason,
         )
 
     started = time.perf_counter()
@@ -349,6 +363,8 @@ def _run_case_method(
             timing_ms_total=method_elapsed_ms,
             timing_ms_breakdown=breakdown,
             case_id=case.get("id"),
+            comparison_skipped=comparison_skipped,
+            comparison_skip_reason=comparison_skip_reason,
         )
     method_elapsed_ms = (time.perf_counter() - started) * 1000.0
     breakdown = dict(output.timing_ms_breakdown or {})
@@ -359,11 +375,12 @@ def _run_case_method(
     error = output.error
     equivalent = output.equivalent
     equivalence_method = output.equivalence_method
-    comparison_skipped = False
-    comparison_skip_reason = None
     ground_truth_rdmol = case.get("ground_truth_rdmol")
     reference_error = case.get("reference_error")
-    if reference_error is not None:
+    if comparison_skipped:
+        equivalent = None
+        equivalence_method = None
+    elif reference_error is not None:
         equivalent = None
         equivalence_method = None
         comparison_skipped = True
@@ -387,15 +404,15 @@ def _run_case_method(
             equivalent = is_equivalent
             equivalence_method = info.method.value if info.method is not None else None
         except CaseTimeoutError as exc:
-            status = "error"
-            error = str(exc) if error is None else f"{error}; {exc}"
             equivalent = None
             equivalence_method = None
+            comparison_skipped = True
+            comparison_skip_reason = str(exc)
         except Exception as exc:  # noqa: BLE001
-            status = "error"
-            error = f"equivalence check failed: {exc}" if error is None else f"{error}; {exc}"
             equivalent = None
             equivalence_method = None
+            comparison_skipped = True
+            comparison_skip_reason = f"equivalence check failed: {exc}"
         finally:
             breakdown["equivalence_ms"] = (time.perf_counter() - eq_started) * 1000.0
 

@@ -36,7 +36,20 @@ def _order_to_bondtype(order: int) -> rdchem.BondType:
 def _kekulize_copy(mol: Chem.Mol) -> Chem.Mol:
     m = Chem.Mol(mol)
     # 对芳香体系：先 Kekulize 成显式单双键再做迁移
-    Chem.Kekulize(m, clearAromaticFlags=True)
+    try:
+        Chem.Kekulize(m, clearAromaticFlags=True)
+    except Chem.KekulizeException:
+        # Reconstruction may leave aromatic flags inconsistent with the
+        # explicit bond orders.  Keep the supplied graph usable and let the
+        # resonance walker skip transformations that require explicit pi
+        # bonds instead of failing the whole reconstruction.
+        m.ClearComputedProps()
+        sanitize_ops = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE
+        try:
+            Chem.SanitizeMol(m, sanitizeOps=sanitize_ops)
+        except Exception:  # noqa: BLE001
+            m.UpdatePropertyCache(strict=False)
+        Chem.KekulizeIfPossible(m, clearAromaticFlags=False)
     return m
 
 

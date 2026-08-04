@@ -991,9 +991,35 @@ namespace molgr
                       machine.given_charge,
                       machine.total_radical_electrons) ||
                   hit;
-            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
+            hit = machine.RunOmolStage(
+                      std::nullopt,
+                      molgr::reconstruct::Clean14Radicals,
+                      machine.given_charge,
+                      machine.total_radical_electrons) ||
+                  hit;
+            hit = machine.RunOmolStage(
+                      std::nullopt,
+                      molgr::reconstruct::Clean16Radicals,
+                      machine.given_charge,
+                      machine.total_radical_electrons) ||
+                  hit;
+            hit = machine.RunOmolChargeStage(
+                      std::nullopt,
+                      [total_radical_electrons](OpenBabel::OBMol &mol, int &charge)
+                      {
+                          return molgr::reconstruct::EliminatePositiveChargesWithTarget(
+                              mol, charge, total_radical_electrons);
+                      }) ||
+                  hit;
             hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateNegativeCharges) || hit;
-            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminatePositiveCharges) || hit;
+            hit = machine.RunOmolChargeStage(
+                      std::nullopt,
+                      [total_radical_electrons](OpenBabel::OBMol &mol, int &charge)
+                      {
+                          return molgr::reconstruct::EliminatePositiveChargesWithTarget(
+                              mol, charge, total_radical_electrons);
+                      }) ||
+                  hit;
             hit = machine.RunOmolStage(std::nullopt, molgr::reconstruct::CleanResonances) || hit;
             return std::make_tuple(
                 molgr::utils::CloneMolTopologyOnly(*machine.omol),

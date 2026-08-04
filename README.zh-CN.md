@@ -34,9 +34,11 @@ mol = xyz_to_rdmol(
 )
 ```
 
-`spin_multiplicity` 会在入口处转换为 `total_radical_electrons = spin_multiplicity - 1`。
-默认会补充可能的配位键和立体化学信息；需要关闭时可传入
-`make_dative_bonds=False` 或 `make_stereochemistry=False`。
+重建前，MolGR 会用原子序数之和减去 `total_charge` 得到总电子数，并拒绝不可能的
+自旋多重度：偶电子体系只能使用奇数多重度，奇电子体系只能使用偶数多重度。通过校验后，
+`spin_multiplicity` 会在入口处转换为
+`total_radical_electrons = spin_multiplicity - 1`。默认会补充可能的配位键和立体化学信息；
+需要关闭时可传入 `make_dative_bonds=False` 或 `make_stereochemistry=False`。
 
 ## 配置
 

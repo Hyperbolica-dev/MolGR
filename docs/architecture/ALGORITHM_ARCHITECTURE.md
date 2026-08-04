@@ -35,6 +35,8 @@ The current algorithm can be read as seven layers:
 
 1. API normalization
    - `xyz_to_rdmol(xyz_block, total_charge, spin_multiplicity, backend, config)`
+   - calculate the total electron count from the XYZ elements and `total_charge`,
+     then reject multiplicities with impossible parity or magnitude
    - normalize `spin_multiplicity` into `total_radical_electrons = spin_multiplicity - 1`
    - resolve config and route to Python or C++
 
@@ -90,7 +92,8 @@ Key state objects:
 
 ```mermaid
 flowchart TD
-    API["xyz_to_rdmol<br/>src/molgr/interface.py"] --> Normalize["total_radical_electrons = spin_multiplicity - 1"]
+    API["xyz_to_rdmol<br/>src/molgr/interface.py"] --> ValidateSpin["validate electron count and spin multiplicity"]
+    ValidateSpin --> Normalize["total_radical_electrons = spin_multiplicity - 1"]
     Normalize --> Backend{"backend"}
 
     Backend -->|"cpp"| CppEntry["_core.pipeline.reconstruct_with_metals.xyz2omol<br/>pybind: releases GIL"]
@@ -363,7 +366,9 @@ Typical discordance structures to record:
 1. Inner-sphere visible diradical atom
    - the atom is inside the metal coordination radius, defined as
      `metal_access_radius_scale * (metal covalent radius + atom covalent radius) + metal_coordination_extra_tolerance_angstrom`;
-     defaults are `metal_access_radius_scale=1.0` and extra tolerance `0.35 Å`.
+     defaults are `metal_access_radius_scale=1.0` and extra tolerance `0.75 Å`.
+     The inner-sphere check and dative-bond completion call the same cutoff
+     helper and configuration; there is no additional `3.2 Å` upper bound.
    - RDKit post-processing dative-bond completion uses the same
      radius-scale and `metal_coordination_extra_tolerance_angstrom` distance
      criterion as the inner-sphere check.
@@ -449,10 +454,12 @@ Typical discordance structures to record:
    - whenever the current candidate contains a metal, and the no-metal organic
      part contains an unsaturated positively charged non-metal atom, the
      candidate receives one discordance count regardless of metal valence sign
-   - an unsaturated organic cation is a positively charged atom whose bonded
-     atom count is smaller than its total valence, or whose total valence is
-     smaller than OpenBabel's `GetTypicalValence(atomic_num, total_valence,
-     formal_charge)` result; this includes under-valent onium-like cations
+   - an unsaturated organic cation is a positively charged atom whose assigned
+     outer-shell electron count, `outer_electrons - formal_charge +
+     total_bond_order`, is below the closed-shell target (2 for H, 8 otherwise);
+     bonded-atom degree is not compared with bond order, so a single triple bond
+     on `O(v3)+` is not misclassified; this includes under-valent onium-like
+     cations
    - zwitterionic forms are exempt: if the organic part has total formal charge
      zero, or if the unsaturated cation's charge plus the formal-charge sum over
      its adjacent non-metal atoms is zero, this feature does not count as
@@ -498,13 +505,7 @@ Typical discordance structures to record:
      ligand and breaks its delocalized pi form; it is a ring-local structural
      discordance, not a global aromaticity reward
 
-9. Multiple bond between visible coordinating heteroatoms
-   - a bond of order two or greater between two visible inner-sphere
-     `N/O/P/S` atoms contributes one discordance count
-   - this marks a candidate that consumes two coordinating donor sites by
-     forcing a localized heteroatom multiple bond
-
-10. Strong coordination-geometry mismatch
+9. Strong coordination-geometry mismatch
     - square-planar Pd/Pt candidates at formal valence IV or higher contribute
       one discordance count
     - linear Ag/Au candidates at formal valence III or higher contribute one

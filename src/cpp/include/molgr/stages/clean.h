@@ -11,6 +11,14 @@ namespace molgr
             OpenBabel::OBMol &mol,
             int given_charge,
             int total_radical_electrons);
+        bool Clean14Radicals(
+            OpenBabel::OBMol &mol,
+            int given_charge,
+            int total_radical_electrons);
+        bool Clean16Radicals(
+            OpenBabel::OBMol &mol,
+            int given_charge,
+            int total_radical_electrons);
         bool CleanPossible13Dipole(
             OpenBabel::OBMol &mol,
             int given_charge,

@@ -393,6 +393,13 @@ def test_deferred_dof_sdf_is_deduplicated_and_rendered_on_activation(tmp_path: P
     assert "detailRoot.replaceChildren(renderPanel(node))" in report
     assert 'lazyDetails("完整 JSON", node.metadata)' in report
     assert 'id="image-lightbox"' in report
+    assert 'id="language-toggle"' in report
+    assert 'localStorage.setItem("moleculeReviewLanguage", language)' in report
+    assert "function renderApplication(activeId" in report
+    assert 'src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"' in report
+    assert ".dof-visual-row" in report
+    assert "function renderDofMol3d" in report
+    assert "function syncDofVisualHeight" in report
     assert "function openImageLightbox" in report
     assert "setImageZoomState(box, node.label)" in report
     assert "showModal()" in report
@@ -418,12 +425,13 @@ def test_deferred_dof_sdf_is_deduplicated_and_rendered_on_activation(tmp_path: P
     assert "html { width:100%; overflow-x:auto; }" in report
     assert "body { margin:0; width:100%; min-width:1000px;" in report
     assert "align-self:start; position:relative;" in report
-    assert ".tree { flex:1 1 auto; min-height:0; overflow:auto;" in report
+    assert ".tree { flex:1 1 0; height:0; min-height:0; overflow:auto;" in report
     assert ".content { align-self:start; min-height:0; overflow:auto;" in report
     assert report.count("scrollbar-gutter:stable") == 2
     assert "function syncMainColumnHeights()" in report
     assert "window.visualViewport?.height || window.innerHeight" in report
     assert "viewportHeight - stickyHeaderHeight - 24" in report
+    assert "main.style.height = height;" in report
     assert "sidebar.style.height = height;" in report
     assert "content.style.height = height;" in report
     assert "ResizeObserver" not in report

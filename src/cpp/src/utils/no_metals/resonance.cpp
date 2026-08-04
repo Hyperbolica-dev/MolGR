@@ -133,9 +133,23 @@ namespace
             molgr::reconstruct::CleanNeighborRadicals,
             machine.given_charge,
             machine.total_radical_electrons);
+        machine.RunOmolStage(
+            "process_resonance_clean_1_4_radicals",
+            molgr::reconstruct::Clean14Radicals,
+            machine.given_charge,
+            machine.total_radical_electrons);
+        machine.RunOmolStage(
+            "process_resonance_clean_1_6_radicals",
+            molgr::reconstruct::Clean16Radicals,
+            machine.given_charge,
+            machine.total_radical_electrons);
         machine.RunOmolChargeStage(
             "process_resonance_eliminate_positive_charges_1",
-            molgr::reconstruct::EliminatePositiveCharges);
+            [target_radical_electrons](OpenBabel::OBMol &mol, int &charge)
+            {
+                return molgr::reconstruct::EliminatePositiveChargesWithTarget(
+                    mol, charge, target_radical_electrons);
+            });
         machine.RunOmolChargeStage(
             "process_resonance_eliminate_negative_charges",
             [target_radical_electrons](OpenBabel::OBMol &mol, int &charge)
@@ -156,7 +170,11 @@ namespace
             });
         machine.RunOmolChargeStage(
             "process_resonance_eliminate_positive_charges_2",
-            molgr::reconstruct::EliminatePositiveCharges);
+            [target_radical_electrons](OpenBabel::OBMol &mol, int &charge)
+            {
+                return molgr::reconstruct::EliminatePositiveChargesWithTarget(
+                    mol, charge, target_radical_electrons);
+            });
         machine.RunOmolStage(
             "process_resonance_clean_resonances",
             molgr::reconstruct::CleanResonances);

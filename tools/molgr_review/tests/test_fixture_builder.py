@@ -40,8 +40,14 @@ def test_review_page_exposes_fixture_removal_action() -> None:
     stylesheet = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
 
     assert 'id="removeFixture"' in html
+    assert 'id="languageToggle"' in html
+    assert 'data-i18n="languageToggle"' in html
     assert 'id="openTrace"' in html
     assert '$("removeFixture").addEventListener("click", removeCurrentFixture)' in javascript
+    assert 'localStorage.setItem("moleculeReviewLanguage", state.language)' in javascript
+    assert "function applyLanguage()" in javascript
+    assert "function renderKetcherStatus()" in javascript
+    assert 'setKetcherStatus("ketcherReady")' in javascript
     assert "window.open(" in javascript
     assert "`/trace/${encodeURIComponent(state.current.case_id)}`" in javascript
     assert 'await saveReview("needs_followup")' in javascript
@@ -389,6 +395,44 @@ def test_review_fixture_sync_stores_manual_xyz_smiles_and_removes_stale_files(
     assert reference_record["spin_multiplicity"] == 1
     frozen_xyz = fixtures_dir / str(reference_record["structure_file"])
     assert frozen_xyz.read_text(encoding="utf-8") == xyz_path.read_text(encoding="utf-8")
+
+
+def test_reference_answer_wrong_status_does_not_modify_fixture(tmp_path: Path) -> None:
+    fixtures_dir = tmp_path / "fixtures"
+    approved_dir = fixtures_dir / "approved_graph"
+    approved_dir.mkdir(parents=True)
+    approved_path = approved_dir / "WRONG.xyz"
+    approved_path.write_text("fixture\n", encoding="utf-8")
+    record = {
+        "case_id": "WRONG",
+        "kind": "approved_graph",
+        "structure_file": "approved_graph/WRONG.xyz",
+        "row_index": 1,
+        "total_charge": 0,
+        "total_radical_electrons": 0,
+        "spin_multiplicity": 1,
+        "reference_smiles": "C",
+        "approved_smiles": "C",
+        "accepted_smiles": ["C"],
+        "source": "molgr_reconstruction",
+        "review_status": "accept_candidate",
+    }
+    (fixtures_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "fixtures": [record]}),
+        encoding="utf-8",
+    )
+
+    result = sync_review_fixture(
+        {"case_id": "WRONG"},
+        {"status": "reference_answer_wrong"},
+        fixtures_dir=fixtures_dir,
+    )
+
+    assert result == record
+    assert approved_path.read_text(encoding="utf-8") == "fixture\n"
+    assert json.loads((fixtures_dir / "manifest.json").read_text(encoding="utf-8"))["fixtures"] == [
+        record
+    ]
 
 
 def test_review_api_writes_fixture_with_review_decision(tmp_path: Path) -> None:

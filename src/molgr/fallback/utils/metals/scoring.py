@@ -26,6 +26,7 @@ from molgr.fallback.utils.electrons import (
     has_unresolved_two_electron_center,
 )
 from molgr.fallback.utils.organic_topology import compute_organic_topology_metrics
+from molgr.utils.coordination import coordination_distance_cutoff
 from molgr.utils.coordination_visibility import (
     CoordinationBlockerArrays,
     Point3D,
@@ -181,11 +182,13 @@ def _coordination_radius_cutoff(
     *,
     metal_scoring_config: MetalScoringConfig,
 ) -> float:
-    atom_radius = float(ob.GetCovalentRad(int(atom.GetAtomicNum())))
-    metal_radius = float(ob.GetCovalentRad(int(metal_state.element_idx)))
-    return (
-        metal_scoring_config.metal_access_radius_scale * (atom_radius + metal_radius)
-        + metal_scoring_config.metal_coordination_extra_tolerance_angstrom
+    return coordination_distance_cutoff(
+        int(metal_state.element_idx),
+        int(atom.GetAtomicNum()),
+        radius_scale=metal_scoring_config.metal_access_radius_scale,
+        extra_tolerance_angstrom=(
+            metal_scoring_config.metal_coordination_extra_tolerance_angstrom
+        ),
     )
 
 
@@ -364,29 +367,6 @@ def _haptic_arene_reduction_count(
     return count
 
 
-def _visible_donor_multiple_bond_count(
-    obmol: ob.OBMol,
-    visible_inner_atom_indices: set[int],
-) -> int:
-    donor_atomic_numbers = {7, 8, 15, 16}
-    count = 0
-    for bond_iter in ob.OBMolBondIter(obmol):
-        bond = cast(ob.OBBond, bond_iter)
-        begin_atom = cast(ob.OBAtom, bond.GetBeginAtom())
-        end_atom = cast(ob.OBAtom, bond.GetEndAtom())
-        if int(begin_atom.GetIdx()) not in visible_inner_atom_indices:
-            continue
-        if int(end_atom.GetIdx()) not in visible_inner_atom_indices:
-            continue
-        if begin_atom.GetAtomicNum() not in donor_atomic_numbers:
-            continue
-        if end_atom.GetAtomicNum() not in donor_atomic_numbers:
-            continue
-        if int(bond.GetBondOrder()) >= 2:
-            count += 1
-    return count
-
-
 def _vector_norm(vector: tuple[float, float, float]) -> float:
     return math.sqrt(sum(component * component for component in vector))
 
@@ -486,14 +466,20 @@ def _inner_visible_atoms_to_metal(
         ),
         dtype=np.float64,
     )
-    atom_radii = np.asarray(
-        [float(ob.GetCovalentRad(int(atom.GetAtomicNum()))) for atom in atoms],
+    cutoff = np.asarray(
+        [
+            coordination_distance_cutoff(
+                int(metal_state.element_idx),
+                int(atom.GetAtomicNum()),
+                radius_scale=metal_scoring_config.metal_access_radius_scale,
+                extra_tolerance_angstrom=(
+                    metal_scoring_config.metal_coordination_extra_tolerance_angstrom
+                ),
+            )
+            for atom in atoms
+        ],
         dtype=np.float64,
     )
-    metal_radius = float(ob.GetCovalentRad(int(metal_state.element_idx)))
-    cutoff = float(metal_scoring_config.metal_access_radius_scale) * (
-        atom_radii + metal_radius
-    ) + float(metal_scoring_config.metal_coordination_extra_tolerance_angstrom)
     delta = atom_coordinates - metal_coordinates
     distance_sq = np.einsum("ij,ij->i", delta, delta)
     inner_mask = (distance_sq > 0.0) & (distance_sq <= cutoff * cutoff)
@@ -666,22 +652,19 @@ def _is_unsaturated_organic_cation(atom: ob.OBAtom) -> bool:
     if atom.IsMetal() or int(atom.GetFormalCharge()) <= 0:
         return False
 
-    total_degree = int(atom.GetTotalDegree())
+    element_info = consts.NON_METAL_DICT.get(int(atom.GetAtomicNum()))
+    if element_info is None:
+        return False
+
+    # Compare assigned outer-shell electrons with the closed-shell target.
+    # Degree is not a proxy for this: one triple bond gives O+ three
+    # bond-order units while still completing its octet.
     total_valence = int(atom.GetTotalValence())
-    # Open Babel's charge-aware typical-valence table treats a three-coordinate
-    # carbocation as valence-complete (typical valence 3).  For this
-    # discordance, a non-aromatic C+ is precisely an unsaturated organic
-    # cation: its neutral carbon valence target remains four.
-    if int(atom.GetAtomicNum()) == 6:
-        return total_valence < 4
-    typical_valence = int(
-        ob.GetTypicalValence(
-            int(atom.GetAtomicNum()),
-            total_valence,
-            int(atom.GetFormalCharge()),
-        )
+    local_electron_count = (
+        int(element_info.num_outer_electrons) - int(atom.GetFormalCharge()) + total_valence
     )
-    return total_degree < total_valence or total_valence < typical_valence
+    shell_target = 2 if int(atom.GetAtomicNum()) == 1 else 8
+    return local_electron_count < shell_target
 
 
 def _has_adjacent_formal_charge_cancellation(atom: ob.OBAtom) -> bool:
@@ -1176,10 +1159,6 @@ def _annotate_candidate_discordance_features(
         obmol,
         visible_atoms_by_metal,
     )
-    visible_donor_multiple_bond_count = _visible_donor_multiple_bond_count(
-        obmol,
-        visible_inner_atom_indices,
-    )
     coordination_geometry_discordance_count = _coordination_geometry_discordance_count(
         visible_atoms_by_metal,
         candidate.metal_states,
@@ -1199,7 +1178,6 @@ def _annotate_candidate_discordance_features(
         + unsaturated_organic_cation_discordance_count
         + repeated_component_charge_asymmetry_count
         + haptic_arene_reduction_count
-        + visible_donor_multiple_bond_count
         + coordination_geometry_discordance_count
     )
     discordance_count = structural_discordance_count
@@ -1258,9 +1236,6 @@ def _annotate_candidate_discordance_features(
     )
     candidate.metadata["metal_discordance_haptic_arene_reduction_count"] = (
         haptic_arene_reduction_count
-    )
-    candidate.metadata["metal_discordance_visible_donor_multiple_bond_count"] = (
-        visible_donor_multiple_bond_count
     )
     candidate.metadata["metal_discordance_coordination_geometry_count"] = (
         coordination_geometry_discordance_count

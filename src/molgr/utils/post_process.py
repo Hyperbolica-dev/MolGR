@@ -21,6 +21,7 @@ from molgr.utils.converter import (
     get_atom_unpaired_electrons,
     has_atom_unresolved_two_electron_center,
 )
+from molgr.utils.coordination import coordination_distance_cutoff
 from molgr.utils.coordination_visibility import (
     CoordinationBlockerArrays,
     Point3D,
@@ -168,13 +169,11 @@ def make_dative_bond(
             non_metal_atom = rwmol.GetAtomWithIdx(int(close_non_metal_atom_id))
             if non_metal_atom.GetAtomicNum() not in NON_METAL_DICT:
                 continue
-            coordination_cutoff = (
-                resolved_config.metal_scoring.metal_access_radius_scale
-                * (
-                    pt.GetRcovalent(non_metal_atom.GetAtomicNum())
-                    + pt.GetRcovalent(metal_atom.GetAtomicNum())
-                )
-                + extra_tolerance
+            coordination_cutoff = coordination_distance_cutoff(
+                int(metal_atom.GetAtomicNum()),
+                int(non_metal_atom.GetAtomicNum()),
+                radius_scale=resolved_config.metal_scoring.metal_access_radius_scale,
+                extra_tolerance_angstrom=extra_tolerance,
             )
             if distance_to_metal_atoms[close_non_metal_atom_id] > coordination_cutoff:
                 # out of bond distance, skip

@@ -27,7 +27,6 @@ from molgr.fallback.stages.clean import clean_carbene_neighbor_unsaturated
 from molgr.fallback.stages.eliminate import (
     eliminate_carbene_neighbor_heteroatom,
     eliminate_carboxyl,
-    eliminate_CN_in_doubt,
     eliminate_high_positive_charge_atoms,
     eliminate_NNN,
 )
@@ -95,7 +94,6 @@ def _run_linear_preparation(seed_state: ReconstructionState) -> ReconstructionSt
         "eliminate_high_positive_charge_atoms",
         eliminate_high_positive_charge_atoms,
     )
-    machine.run_omol_charge_stage("eliminate_CN_in_doubt", eliminate_CN_in_doubt)
     machine.run_omol_charge_stage("eliminate_NNN_positive", eliminate_NNN, True)
     machine.run_omol_charge_stage("eliminate_carboxyl", eliminate_carboxyl)
 
