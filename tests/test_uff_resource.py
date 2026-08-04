@@ -8,3 +8,7 @@ def test_uff_parameter_file_is_packaged() -> None:
 
     assert resource.is_file()
     assert resource.stat().st_size > 0
+
+
+def test_delvewheel_entrypoint_is_ascii() -> None:
+    Path(molgr.__file__).read_bytes().decode("ascii")

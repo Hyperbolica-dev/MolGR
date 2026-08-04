@@ -41,7 +41,7 @@ def set_log_level(level: core.LogLevel) -> None:
     Args:
         level: Can be LogLevel.DEBUG, LogLevel.INFO, etc., or int (0-4).
     """
-    # Pybind11 的枚举可以直接接受 int，也可以接受枚举对象
+    # Pybind11 enums accept either integers or enum instances.
     core.set_log_level(level)
 
 
