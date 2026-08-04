@@ -14,34 +14,44 @@ METHOD_IDS: tuple[str, ...] = (
     "xyzgraph_cheminf_full",
 )
 
+_METHOD_CLASS_IMPORTS: dict[str, tuple[str, str]] = {
+    "rdkit_determine_bonds": (
+        "benchmarks.smiles_xyz_benchmark.methods.rdkit_determine_bonds",
+        "RDKitDetermineBondsMethod",
+    ),
+    "openbabel_read_xyz": (
+        "benchmarks.smiles_xyz_benchmark.methods.openbabel_read_xyz",
+        "OpenBabelReadXYZMethod",
+    ),
+    "cell2mol_v2": (
+        "benchmarks.smiles_xyz_benchmark.methods.cell2mol_v2",
+        "Cell2MolV2Method",
+    ),
+    "molgr_fallback": (
+        "benchmarks.smiles_xyz_benchmark.methods.molgr_fallback",
+        "MolGRFallbackMethod",
+    ),
+    "molgr_cpp": (
+        "benchmarks.smiles_xyz_benchmark.methods.molgr_cpp",
+        "MolGRCppMethod",
+    ),
+    "xyzgraph_cheminf_full": (
+        "benchmarks.smiles_xyz_benchmark.methods.xyzgraph_cheminf_full",
+        "XYZGraphCheminfFullMethod",
+    ),
+}
 
-def get_method_registry() -> list[BenchmarkMethod]:
-    rdkit_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.rdkit_determine_bonds"
-    ).RDKitDetermineBondsMethod
-    openbabel_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.openbabel_read_xyz"
-    ).OpenBabelReadXYZMethod
-    cell2mol_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.cell2mol_v2"
-    ).Cell2MolV2Method
-    molgr_fallback_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.molgr_fallback"
-    ).MolGRFallbackMethod
-    molgr_cpp_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.molgr_cpp"
-    ).MolGRCppMethod
-    xyzgraph_method_cls = import_module(
-        "benchmarks.smiles_xyz_benchmark.methods.xyzgraph_cheminf_full"
-    ).XYZGraphCheminfFullMethod
-    return [
-        rdkit_method_cls(),
-        openbabel_method_cls(),
-        cell2mol_method_cls(),
-        molgr_fallback_method_cls(),
-        molgr_cpp_method_cls(),
-        xyzgraph_method_cls(),
-    ]
+
+def get_method_registry(method_ids: tuple[str, ...] | None = None) -> list[BenchmarkMethod]:
+    selected_ids = METHOD_IDS if method_ids is None else method_ids
+    registry: list[BenchmarkMethod] = []
+    for method_id in selected_ids:
+        if method_id not in _METHOD_CLASS_IMPORTS:
+            continue
+        module_name, class_name = _METHOD_CLASS_IMPORTS[method_id]
+        method_cls = getattr(import_module(module_name), class_name)
+        registry.append(method_cls())
+    return registry
 
 
 __all__ = ["METHOD_IDS", "get_method_registry", "BenchmarkMethod"]

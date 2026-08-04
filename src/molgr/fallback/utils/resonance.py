@@ -9,19 +9,33 @@ from typing import Dict, List, Optional, Protocol, Sequence, Tuple, cast
 from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.fallback.stages.clean import clean_neighbor_radicals, clean_resonances
+from molgr.fallback.stages.clean import (
+    clean_1_4_radicals,
+    clean_1_6_radicals,
+    clean_neighbor_radicals,
+    clean_possible_1_3_dipole,
+    clean_resonances,
+)
 from molgr.fallback.stages.eliminate import (
-    eliminate_1_3_dipole,
+    eliminate_1_3_dipole_postive,
     eliminate_negative_charges,
     eliminate_positive_charges,
+    eliminate_possible_cp_like_radical_anion,
 )
 from molgr.fallback.state import OmolStateMachine
 from molgr.fallback.utils import consts
+from molgr.fallback.utils.electrons import (
+    get_lone_pair_count,
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+    set_unpaired_electron_count,
+    set_unresolved_two_electron_center,
+)
 
 from . import smarts
 
 
-ResonanceAtomKey = Tuple[int, int, int, bool]
+ResonanceAtomKey = Tuple[int, int, int, int, bool, bool]
 ResonanceBondKey = Tuple[int, int, int, bool]
 ResonanceStateKey = Tuple[Tuple[ResonanceAtomKey, ...], Tuple[ResonanceBondKey, ...]]
 ProcessedResonanceKey = str
@@ -62,6 +76,7 @@ class ResonanceSearchNode:
     omol: pybel.Molecule
     state_key: ResonanceStateKey
     depth: int
+    discrepancy: int = 0
 
 
 @dataclass(frozen=True)
@@ -116,15 +131,117 @@ _LIMITED_DISCREPANCY_POLICY_TYPES = (
 def process_resonance(
     resonance: pybel.Molecule,
     charge: int,
+    *,
+    total_charge: int = 0,
+    total_radical_electrons: int = 0,
 ) -> tuple[pybel.Molecule, int, bool]:
-    """Normalize one resonance candidate before validation and scoring."""
+    """Normalize one resonance candidate using only classified electron states.
 
-    machine = OmolStateMachine(resonance, charge)
-    hit = machine.run_omol_charge_stage(None, eliminate_1_3_dipole)
-    hit = machine.run_omol_charge_stage(None, eliminate_positive_charges) or hit
-    hit = machine.run_omol_charge_stage(None, eliminate_negative_charges) or hit
-    hit = machine.run_omol_stage(None, clean_neighbor_radicals) or hit
-    hit = machine.run_omol_stage(None, clean_resonances) or hit
+    Radical-to-charge rules consume real unpaired electrons, adjacent-radical
+    cleanup pairs them into bonds, and closed-shell resonance rules may consume an
+    explicitly active lone pair. A pure unresolved two-electron center is normally
+    carried to validation, but a remaining charge deficit of magnitude at least
+    two may consume it directly as ``+2`` or ``-2``. This function never converts
+    that marker to radicals by parity.
+    """
+
+    machine = OmolStateMachine(
+        resonance,
+        charge,
+        total_charge=total_charge,
+        total_radical_electrons=total_radical_electrons,
+    )
+    return _run_process_resonance(machine, emit_summary=False)
+
+
+def _run_process_resonance(
+    machine: OmolStateMachine,
+    *,
+    emit_summary: bool,
+) -> tuple[pybel.Molecule, int, bool]:
+    """Run process_resonance stages on an existing machine for nested tracing."""
+
+    hit = machine.run_omol_charge_stage(
+        "process_resonance_eliminate_1_3_dipole_postive",
+        eliminate_1_3_dipole_postive,
+    )
+    hit = (
+        machine.run_omol_charge_stage(
+            "process_resonance_eliminate_possible_cp_like_radical_anion",
+            eliminate_possible_cp_like_radical_anion,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_possible_1_3_dipole",
+            clean_possible_1_3_dipole,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_neighbor_radicals",
+            clean_neighbor_radicals,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_1_4_radicals",
+            clean_1_4_radicals,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_1_6_radicals",
+            clean_1_6_radicals,
+            machine.given_charge,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_charge_stage(
+            "process_resonance_eliminate_positive_charges_1",
+            eliminate_positive_charges,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_charge_stage(
+            "process_resonance_eliminate_negative_charges",
+            eliminate_negative_charges,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_charge_stage(
+            "process_resonance_eliminate_positive_charges_2",
+            eliminate_positive_charges,
+            machine.total_radical_electrons,
+        )
+        or hit
+    )
+    hit = (
+        machine.run_omol_stage(
+            "process_resonance_clean_resonances",
+            clean_resonances,
+        )
+        or hit
+    )
+    if emit_summary:
+        machine.annotate("full_resonance_normalization")
     return machine.omol, machine.given_charge, hit
 
 
@@ -139,7 +256,9 @@ def build_resonance_state_key(omol: pybel.Molecule) -> ResonanceStateKey:
             (
                 atom.GetAtomicNum(),
                 atom.GetFormalCharge(),
-                atom.GetSpinMultiplicity(),
+                get_unpaired_electron_count(atom),
+                get_lone_pair_count(atom),
+                has_unresolved_two_electron_center(atom),
                 bool(atom.IsAromatic()),
             )
         )
@@ -157,7 +276,17 @@ def build_resonance_state_key(omol: pybel.Molecule) -> ResonanceStateKey:
 def build_processed_resonance_key(omol: pybel.Molecule) -> ProcessedResonanceKey:
     """Build the dedup key after `process_resonance` has normalized the candidate."""
 
-    return omol.write("molreport") or ""
+    atom_keys, bond_keys = build_resonance_state_key(omol)
+    atom_part = "".join(
+        f"{atomic_num},{formal_charge},{radical_num},{lone_pair_count},"
+        f"{int(unresolved_center)},{int(is_aromatic)};"
+        for atomic_num, formal_charge, radical_num, lone_pair_count, unresolved_center, is_aromatic in atom_keys
+    )
+    bond_part = "".join(
+        f"{begin_idx},{end_idx},{bond_order},{int(is_aromatic)};"
+        for begin_idx, end_idx, bond_order, is_aromatic in bond_keys
+    )
+    return f"A{len(atom_keys)}:{atom_part}|B{len(bond_keys)}:{bond_part}"
 
 
 def _build_resonance_search_context(
@@ -171,7 +300,9 @@ def _build_resonance_search_context(
             (
                 atom.GetAtomicNum(),
                 atom.GetFormalCharge(),
-                atom.GetSpinMultiplicity(),
+                get_unpaired_electron_count(atom),
+                get_lone_pair_count(atom),
+                has_unresolved_two_electron_center(atom),
                 bool(atom.IsAromatic()),
             )
         )
@@ -192,6 +323,8 @@ def _increment_resonance_state_key(
     state_key: ResonanceStateKey,
     bond_index_map: ResonanceBondIndexMap,
     idxs: Tuple[int, int, int],
+    *,
+    target_unresolved: bool = False,
 ) -> ResonanceStateKey:
     atom_keys, bond_keys = state_key
     atom_key_list = list(atom_keys)
@@ -202,8 +335,15 @@ def _increment_resonance_state_key(
 
     atom1 = atom_key_list[atom1_idx]
     atom3 = atom_key_list[atom3_idx]
-    atom_key_list[atom1_idx] = (atom1[0], atom1[1], atom1[2] - 1, atom1[3])
-    atom_key_list[atom3_idx] = (atom3[0], atom3[1], atom3[2] + 1, atom3[3])
+    atom_key_list[atom1_idx] = (atom1[0], atom1[1], atom1[2] - 1, atom1[3], atom1[4], atom1[5])
+    atom_key_list[atom3_idx] = (
+        atom3[0],
+        atom3[1],
+        0 if target_unresolved else atom3[2] + 1,
+        atom3[3],
+        target_unresolved or atom3[4],
+        atom3[5],
+    )
 
     bond1_pair = (min(idxs[0], idxs[1]), max(idxs[0], idxs[1]))
     bond2_pair = (min(idxs[1], idxs[2]), max(idxs[1], idxs[2]))
@@ -222,6 +362,14 @@ def _enumerate_one_step_resonance_moves(
     state_key: ResonanceStateKey,
     bond_index_map: ResonanceBondIndexMap,
 ) -> List[_IndexedResonanceTraversalMove]:
+    """Enumerate one-electron radical moves across an adjacent pi bond.
+
+    The target may carry zero or one unpaired electron. A zero-radical target
+    follows the ordinary ``r1-r0 -> r0-r1`` route. If a one-radical target becomes
+    a neutral C/N/P two-electron deficit after the bond shift, ``r1-r1`` becomes
+    ``r0-unresolved`` so validation can choose its singlet or triplet occupancy.
+    """
+
     obmol = cast(ob.OBMol, omol.OBMol)
     res: List[Tuple[int, int, int]] = list(smarts.RESONANCE_ONE_STEP.findall(omol))
     result: List[_IndexedResonanceTraversalMove] = []
@@ -231,15 +379,38 @@ def _enumerate_one_step_resonance_moves(
         bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
         bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
         if (
-            atom1.GetSpinMultiplicity() == 1
-            and atom3.GetSpinMultiplicity() == 0
+            get_unpaired_electron_count(atom1) == 1
+            and get_unpaired_electron_count(atom3) <= 1
             and bond1.GetBondOrder() <= 2
             and bond2.GetBondOrder() >= 2
+            and not has_unresolved_two_electron_center(atom3)
         ):
+            post_target_valence = atom3.GetTotalValence() - 1
+            target_unresolved = (
+                get_unpaired_electron_count(atom3) == 1
+                and atom3.GetAtomicNum() in (6, 7, 15)
+                and atom3.GetFormalCharge() == 0
+                and get_lone_pair_count(atom3) == 0
+                and max(
+                    0,
+                    ob.GetTypicalValence(
+                        atom3.GetAtomicNum(),
+                        post_target_valence,
+                        atom3.GetFormalCharge(),
+                    )
+                    - post_target_valence,
+                )
+                == 2
+            )
             result.append(
                 _IndexedResonanceTraversalMove(
                     idxs=idxs,
-                    next_state_key=_increment_resonance_state_key(state_key, bond_index_map, idxs),
+                    next_state_key=_increment_resonance_state_key(
+                        state_key,
+                        bond_index_map,
+                        idxs,
+                        target_unresolved=target_unresolved,
+                    ),
                 )
             )
     return result
@@ -249,6 +420,14 @@ def _materialize_one_step_resonance(
     omol: pybel.Molecule,
     idxs: Tuple[int, int, int],
 ) -> pybel.Molecule:
+    """Move one real unpaired electron and the coupled pi-bond pattern.
+
+    One unpaired electron is removed from the source and added to the target while
+    the intervening single/multiple bond orders swap by one. A resulting neutral
+    C/N/P two-electron deficit is represented by an unresolved marker instead of
+    being forced to two unpaired electrons.
+    """
+
     new_omol = omol.clone
     new_obmol = cast(ob.OBMol, new_omol.OBMol)
     atom1_clone = cast(ob.OBAtom, new_obmol.GetAtom(idxs[0]))
@@ -257,8 +436,30 @@ def _materialize_one_step_resonance(
     bond2_clone = cast(ob.OBBond, new_obmol.GetBond(idxs[1], idxs[2]))
     bond1_clone.SetBondOrder(bond1_clone.GetBondOrder() + 1)
     bond2_clone.SetBondOrder(bond2_clone.GetBondOrder() - 1)
-    atom1_clone.SetSpinMultiplicity(atom1_clone.GetSpinMultiplicity() - 1)
-    atom3_clone.SetSpinMultiplicity(atom3_clone.GetSpinMultiplicity() + 1)
+    set_unpaired_electron_count(atom1_clone, get_unpaired_electron_count(atom1_clone) - 1)
+    target_unpaired = get_unpaired_electron_count(atom3_clone)
+    target_valence = atom3_clone.GetTotalValence()
+    target_unresolved = (
+        target_unpaired == 1
+        and atom3_clone.GetAtomicNum() in (6, 7, 15)
+        and atom3_clone.GetFormalCharge() == 0
+        and get_lone_pair_count(atom3_clone) == 0
+        and max(
+            0,
+            ob.GetTypicalValence(
+                atom3_clone.GetAtomicNum(),
+                target_valence,
+                atom3_clone.GetFormalCharge(),
+            )
+            - target_valence,
+        )
+        == 2
+    )
+    if target_unresolved:
+        set_unpaired_electron_count(atom3_clone, 0)
+        set_unresolved_two_electron_center(atom3_clone, True)
+    else:
+        set_unpaired_electron_count(atom3_clone, target_unpaired + 1)
     return new_omol
 
 
@@ -554,20 +755,20 @@ def _compute_uff_lite_gain_resonance_metrics(
     ) - _local_angle_strain_energy(obmol, affected_angle_centers, bond_order_overrides)
     radical_penalty_before = _radical_penalty_for_atom(
         cast(int, old_atom.GetAtomicNum()),
-        cast(int, old_atom.GetSpinMultiplicity()),
+        cast(int, get_unpaired_electron_count(old_atom)),
         cast(int, old_atom.GetHvyDegree()),
     ) + _radical_penalty_for_atom(
         cast(int, new_atom.GetAtomicNum()),
-        cast(int, new_atom.GetSpinMultiplicity()),
+        cast(int, get_unpaired_electron_count(new_atom)),
         cast(int, new_atom.GetHvyDegree()),
     )
     radical_penalty_after = _radical_penalty_for_atom(
         cast(int, old_atom.GetAtomicNum()),
-        cast(int, old_atom.GetSpinMultiplicity()) - 1,
+        cast(int, get_unpaired_electron_count(old_atom)) - 1,
         cast(int, old_atom.GetHvyDegree()),
     ) + _radical_penalty_for_atom(
         cast(int, new_atom.GetAtomicNum()),
-        cast(int, new_atom.GetSpinMultiplicity()) + 1,
+        cast(int, get_unpaired_electron_count(new_atom)) + 1,
         cast(int, new_atom.GetHvyDegree()),
     )
     radical_penalty_gain = radical_penalty_before - radical_penalty_after

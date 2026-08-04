@@ -31,6 +31,10 @@ namespace molgr
                 const std::vector<molgr::state::MetalCandidateState> &candidates,
                 const molgr::config::MolGRConfig &config);
 
+            std::optional<molgr::state::MetalCandidateState> SelectBestCandidateInPlace(
+                std::vector<molgr::state::MetalCandidateState> *candidates,
+                const molgr::config::MolGRConfig &config);
+
             molgr::state::MetalCandidateState PrepareCandidateWithNoMetalState(
                 const molgr::state::MetalCandidateState &candidate,
                 const std::shared_ptr<molgr::state::ReconstructionState> &no_metal_state,

@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("openbabel")
 pytest.importorskip("rdkit")
 
-from molgr.config import PythonInterfaceConfig, make_default_config
+from molgr.config import MolGRConfig, PythonInterfaceConfig
 from molgr.interface import xyz_to_rdmol
 
 
@@ -44,7 +44,7 @@ def test_reconstruction_failure_policy_can_return_suspicious_initial_bond_percep
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _force_python_backend_failure(monkeypatch)
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         interface=PythonInterfaceConfig(reconstruction_failure_policy="return_suspicious"),
@@ -68,7 +68,7 @@ def test_reconstruction_failure_policy_applies_to_cpp_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _force_cpp_backend_failure(monkeypatch)
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         interface=PythonInterfaceConfig(reconstruction_failure_policy="return_suspicious"),
@@ -88,7 +88,7 @@ def test_reconstruction_failure_policy_can_catch_backend_exceptions(
         raise RuntimeError("backend failed")
 
     monkeypatch.setattr("molgr.interface.xyz2omol", fail)
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         interface=PythonInterfaceConfig(reconstruction_failure_policy="return_suspicious"),
@@ -103,7 +103,7 @@ def test_reconstruction_failure_policy_rejects_unknown_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _force_python_backend_failure(monkeypatch)
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         interface=PythonInterfaceConfig(reconstruction_failure_policy="return_suspicious"),

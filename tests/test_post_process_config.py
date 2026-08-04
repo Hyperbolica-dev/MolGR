@@ -11,7 +11,12 @@ pytest.importorskip("rdkit")
 
 from rdkit import Chem, RDLogger
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
+from molgr.fallback.utils.electrons import (
+    LONE_PAIR_COUNT_PROP,
+    UNRESOLVED_TWO_ELECTRON_CENTER_PROP,
+)
+from molgr.utils.converter import get_atom_lone_pair_count, get_atom_unpaired_electrons
 from molgr.utils.post_process import make_dative_bond
 
 
@@ -30,8 +35,116 @@ def _zinc_nitrogen_pair(distance: float) -> Chem.Mol:
     return result
 
 
+def _blocked_zinc_nitrogen_pair() -> Chem.Mol:
+    mol = Chem.RWMol()
+    zinc_idx = mol.AddAtom(Chem.Atom(30))
+    blocker_idx = mol.AddAtom(Chem.Atom(6))
+    nitrogen_idx = mol.AddAtom(Chem.Atom(7))
+    conf = Chem.Conformer(3)
+    conf.SetAtomPosition(zinc_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(blocker_idx, (1.05, 0.0, 0.0))
+    conf.SetAtomPosition(nitrogen_idx, (2.10, 0.0, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    return result
+
+
+def _nearly_blocked_zinc_nitrogen_pair() -> Chem.Mol:
+    mol = Chem.RWMol()
+    zinc_idx = mol.AddAtom(Chem.Atom(30))
+    blocker_idx = mol.AddAtom(Chem.Atom(6))
+    nitrogen_idx = mol.AddAtom(Chem.Atom(7))
+    conf = Chem.Conformer(3)
+    conf.SetAtomPosition(zinc_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(blocker_idx, (1.00, 1.00, 0.0))
+    conf.SetAtomPosition(nitrogen_idx, (2.00, 0.0, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    return result
+
+
+def _iron_alkene_pair(distance_1: float, distance_2: float) -> Chem.Mol:
+    mol = Chem.RWMol()
+    iron_idx = mol.AddAtom(Chem.Atom(26))
+    carbon_1_idx = mol.AddAtom(Chem.Atom(6))
+    carbon_2_idx = mol.AddAtom(Chem.Atom(6))
+    mol.AddBond(carbon_1_idx, carbon_2_idx, Chem.BondType.DOUBLE)
+    conf = Chem.Conformer(3)
+    conf.SetAtomPosition(iron_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(carbon_1_idx, (distance_1, 0.0, 0.0))
+    conf.SetAtomPosition(carbon_2_idx, (0.0, distance_2, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    return result
+
+
+def _blocked_iron_alkene_pair() -> Chem.Mol:
+    mol = Chem.RWMol()
+    iron_idx = mol.AddAtom(Chem.Atom(26))
+    carbon_1_idx = mol.AddAtom(Chem.Atom(6))
+    carbon_2_idx = mol.AddAtom(Chem.Atom(6))
+    blocker_idx = mol.AddAtom(Chem.Atom(6))
+    mol.AddBond(carbon_1_idx, carbon_2_idx, Chem.BondType.DOUBLE)
+    conf = Chem.Conformer(4)
+    conf.SetAtomPosition(iron_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(carbon_1_idx, (1.80, 0.0, 0.0))
+    conf.SetAtomPosition(carbon_2_idx, (0.0, 1.80, 0.0))
+    conf.SetAtomPosition(blocker_idx, (0.90, 0.0, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    return result
+
+
+def _metal_singlet_two_electron_center(atomic_num: int) -> tuple[Chem.Mol, int, int]:
+    mol = Chem.RWMol()
+    metal_idx = mol.AddAtom(Chem.Atom(26))
+    center_idx = mol.AddAtom(Chem.Atom(atomic_num))
+    center = mol.GetAtomWithIdx(center_idx)
+    center.SetNoImplicit(True)
+    center.SetFormalCharge(0)
+    center.SetNumRadicalElectrons(0)
+    center.SetIntProp(LONE_PAIR_COUNT_PROP, 1)
+
+    substituent_count = 2 if atomic_num == 6 else 1
+    substituent_indices = [mol.AddAtom(Chem.Atom(6)) for _ in range(substituent_count)]
+    for substituent_idx in substituent_indices:
+        mol.AddBond(center_idx, substituent_idx, Chem.BondType.SINGLE)
+
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    conf.SetAtomPosition(metal_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(center_idx, (1.80, 0.0, 0.0))
+    for offset, substituent_idx in enumerate(substituent_indices):
+        y = -0.65 if offset == 0 else 0.65
+        conf.SetAtomPosition(substituent_idx, (2.80, y, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    result.UpdatePropertyCache(strict=False)
+    return result, metal_idx, center_idx
+
+
+def _metal_carbyne_center(*, unpaired_electrons: int = 3) -> tuple[Chem.Mol, int, int]:
+    mol = Chem.RWMol()
+    metal_idx = mol.AddAtom(Chem.Atom(26))
+    center_idx = mol.AddAtom(Chem.Atom(6))
+    substituent_idx = mol.AddAtom(Chem.Atom(6))
+    center = mol.GetAtomWithIdx(center_idx)
+    center.SetNoImplicit(True)
+    center.SetFormalCharge(0)
+    center.SetNumRadicalElectrons(unpaired_electrons)
+    mol.AddBond(center_idx, substituent_idx, Chem.BondType.SINGLE)
+
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    conf.SetAtomPosition(metal_idx, (0.0, 0.0, 0.0))
+    conf.SetAtomPosition(center_idx, (1.80, 0.0, 0.0))
+    conf.SetAtomPosition(substituent_idx, (2.80, 0.0, 0.0))
+    result = mol.GetMol()
+    result.AddConformer(conf)
+    result.UpdatePropertyCache(strict=False)
+    return result, metal_idx, center_idx
+
+
 def test_make_dative_bond_uses_metal_coordination_tolerance_config() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     tight_config = replace(
         base_config,
         metal_scoring=replace(
@@ -54,3 +167,148 @@ def test_make_dative_bond_uses_metal_coordination_tolerance_config() -> None:
     loose_bond = loose_mol.GetBondBetweenAtoms(0, 1)
     assert loose_bond is not None
     assert loose_bond.GetBondType() == Chem.BondType.DATIVE
+
+
+@pytest.mark.parametrize("atomic_num", [6, 7, 15])
+def test_resolved_singlet_two_electron_center_forms_metal_double_bond(
+    atomic_num: int,
+) -> None:
+    mol, metal_idx, center_idx = _metal_singlet_two_electron_center(atomic_num)
+
+    result = make_dative_bond(mol)
+
+    bond = result.GetBondBetweenAtoms(center_idx, metal_idx)
+    assert bond is not None
+    assert bond.GetBondType() == Chem.BondType.DOUBLE
+    assert get_atom_lone_pair_count(result.GetAtomWithIdx(center_idx)) == 0
+
+
+def test_resolved_carbyne_center_forms_metal_triple_bond() -> None:
+    mol, metal_idx, center_idx = _metal_carbyne_center()
+
+    result = make_dative_bond(mol)
+
+    bond = result.GetBondBetweenAtoms(center_idx, metal_idx)
+    assert bond is not None
+    assert bond.GetBondType() == Chem.BondType.TRIPLE
+    assert get_atom_unpaired_electrons(result.GetAtomWithIdx(center_idx)) == 0
+
+
+def test_non_carbyne_carbon_radical_does_not_form_metal_triple_bond() -> None:
+    mol, metal_idx, center_idx = _metal_carbyne_center(unpaired_electrons=1)
+
+    result = make_dative_bond(mol)
+
+    assert result.GetBondBetweenAtoms(center_idx, metal_idx) is None
+
+
+@pytest.mark.parametrize("state", ["unresolved", "triplet"])
+def test_non_singlet_two_electron_center_does_not_form_metal_double_bond(state: str) -> None:
+    mol, metal_idx, center_idx = _metal_singlet_two_electron_center(7)
+    center = mol.GetAtomWithIdx(center_idx)
+    center.ClearProp(LONE_PAIR_COUNT_PROP)
+    if state == "unresolved":
+        center.SetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP, True)
+    else:
+        center.SetNumRadicalElectrons(2)
+
+    result = make_dative_bond(mol)
+
+    bond = result.GetBondBetweenAtoms(center_idx, metal_idx)
+    assert bond is not None
+    assert bond.GetBondType() == Chem.BondType.DATIVE
+
+
+def test_make_dative_bond_requires_visible_coordination_atom() -> None:
+    mol = make_dative_bond(_blocked_zinc_nitrogen_pair())
+
+    assert mol.GetBondBetweenAtoms(0, 2) is None
+
+
+def test_metal_access_radius_scale_expands_post_process_distance_cutoff() -> None:
+    base_config = MolGRConfig()
+    tight_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            metal_access_radius_scale=1.0,
+            metal_coordination_extra_tolerance_angstrom=0.10,
+        ),
+    )
+    loose_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            metal_access_radius_scale=1.50,
+            metal_coordination_extra_tolerance_angstrom=0.10,
+        ),
+    )
+
+    tight_mol = make_dative_bond(_zinc_nitrogen_pair(2.22), config=tight_config)
+    loose_mol = make_dative_bond(_zinc_nitrogen_pair(2.22), config=loose_config)
+
+    assert tight_mol.GetBondBetweenAtoms(0, 1) is None
+    loose_bond = loose_mol.GetBondBetweenAtoms(0, 1)
+    assert loose_bond is not None
+    assert loose_bond.GetBondType() == Chem.BondType.DATIVE
+
+
+def test_metal_access_radius_scale_expands_blocker_radius() -> None:
+    base_config = MolGRConfig()
+    unscaled_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            metal_access_radius_scale=1.0,
+            metal_coordination_extra_tolerance_angstrom=0.35,
+            metal_access_clearance_angstrom=0.0,
+        ),
+    )
+    scaled_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            metal_access_radius_scale=1.50,
+            metal_coordination_extra_tolerance_angstrom=0.35,
+            metal_access_clearance_angstrom=0.0,
+        ),
+    )
+
+    unscaled_mol = make_dative_bond(_nearly_blocked_zinc_nitrogen_pair(), config=unscaled_config)
+    scaled_mol = make_dative_bond(_nearly_blocked_zinc_nitrogen_pair(), config=scaled_config)
+
+    assert unscaled_mol.GetBondBetweenAtoms(0, 2).GetBondType() == Chem.BondType.DATIVE
+    assert scaled_mol.GetBondBetweenAtoms(0, 2) is None
+
+
+def test_make_dative_bond_uses_pi_dative_distance_difference_tolerance_config() -> None:
+    base_config = MolGRConfig()
+    tight_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            pi_dative_distance_difference_tolerance_angstrom=0.05,
+        ),
+    )
+    loose_config = replace(
+        base_config,
+        metal_scoring=replace(
+            base_config.metal_scoring,
+            pi_dative_distance_difference_tolerance_angstrom=0.15,
+        ),
+    )
+
+    tight_mol = make_dative_bond(_iron_alkene_pair(1.80, 1.90), config=tight_config)
+    loose_mol = make_dative_bond(_iron_alkene_pair(1.80, 1.90), config=loose_config)
+
+    assert tight_mol.GetBondBetweenAtoms(0, 1) is None
+    assert tight_mol.GetBondBetweenAtoms(0, 2) is None
+    assert loose_mol.GetBondBetweenAtoms(0, 1).GetBondType() == Chem.BondType.DATIVE
+    assert loose_mol.GetBondBetweenAtoms(0, 2).GetBondType() == Chem.BondType.DATIVE
+
+
+def test_make_pi_dative_bond_requires_both_atoms_visible_to_metal() -> None:
+    mol = make_dative_bond(_blocked_iron_alkene_pair())
+
+    assert mol.GetBondBetweenAtoms(0, 1) is None
+    assert mol.GetBondBetweenAtoms(0, 2) is None

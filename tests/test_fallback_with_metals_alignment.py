@@ -16,7 +16,7 @@ from openbabel import pybel
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
 
-from molgr.config import DEFAULT_MOLGR_CONFIG
+from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import reconstruct_with_metals as with_metals_module
 from molgr.fallback.pipeline import reconstruct_without_metals as without_metals_module
 from molgr.fallback.pipeline.reconstruct_with_metals import xyz2omol
@@ -27,6 +27,7 @@ from molgr.fallback.state import (
     make_metal_candidate_state,
 )
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
+from molgr.fallback.utils.electrons import set_lone_pair_count, set_unpaired_electron_count
 from molgr.fallback.utils.force_field import (
     build_force_field_score_key,
     organic_force_field_energy,
@@ -45,6 +46,7 @@ _MOLFILE_CASES_SPEC = importlib.util.spec_from_file_location(
     "molgr_cases_molfile",
     Path("scripts/molgr_cases_molfile.py").resolve(),
 )
+assert _MOLFILE_CASES_SPEC is not None
 _MOLFILE_CASES_MODULE = importlib.util.module_from_spec(_MOLFILE_CASES_SPEC)
 assert _MOLFILE_CASES_SPEC.loader is not None
 _MOLFILE_CASES_SPEC.loader.exec_module(_MOLFILE_CASES_MODULE)
@@ -68,6 +70,30 @@ def _seed_case(smiles: str) -> tuple[str, int, int]:
     assert int(embed_code) == 0
     total_charge, total_radical_electrons = _total_charge_and_radicals(mol_h)
     return Chem.MolToXYZBlock(mol_h), total_charge, total_radical_electrons
+
+
+def _patch_no_metal_seed_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+    no_metal_state: ReconstructionState,
+    *,
+    parse_calls: dict[str, int] | None = None,
+) -> None:
+    def fake_seed_omol_from_xyz(*args, **kwargs):
+        del args, kwargs
+        if parse_calls is not None:
+            parse_calls["count"] += 1
+        return no_metal_state.omol
+
+    monkeypatch.setattr(
+        with_metals_module.no_metal_preparation,
+        "_seed_omol_from_xyz",
+        fake_seed_omol_from_xyz,
+    )
+    monkeypatch.setattr(
+        without_metals_module,
+        "_seed_omol_to_omol_no_metal_state",
+        lambda *args, **kwargs: no_metal_state,
+    )
 
 
 def _load_parity_cases() -> list[object]:
@@ -122,6 +148,25 @@ O 3.2 0.0 0.0
         "serialize_no_metal_xyz",
     )
     assert state.metadata["metal_atom_count"] == 1
+
+
+def test_prepare_metal_state_preserves_metal_free_xyz_block() -> None:
+    xyz_block = """2
+NO
+N 0.0 0.0 0.0
+O 1.2 0.0 0.0
+"""
+
+    state = prepare_metal_state(xyz_block, 0, 1)
+
+    assert state.no_metal_xyz_block == xyz_block
+    assert state.available_valence_radical_states == ()
+    assert state.phase_history == (
+        "read_xyz",
+        "build_metal_state_options",
+        "preserve_no_metal_xyz",
+    )
+    assert state.metadata["metal_atom_count"] == 0
 
 
 def test_xyz2omol_state_prunes_open_shell_multimetal_state_space_for_monnmo(
@@ -250,10 +295,11 @@ O 1.2 0.0 0.0
         }
 
     monkeypatch.setattr(metal_search_module, "_group_candidates_by_target_dp", fake_group)
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
+    parse_calls = {"count": 0}
+    _patch_no_metal_seed_reconstruction(
+        monkeypatch,
+        no_metal_state,
+        parse_calls=parse_calls,
     )
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
@@ -280,9 +326,9 @@ O 1.2 0.0 0.0
         fake_prepare_candidate,
     )
     layered_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             open_shell_multimetal_state_penalty_window=0.0,
             open_shell_multimetal_min_state_options=1,
         ),
@@ -297,8 +343,124 @@ O 1.2 0.0 0.0
 
     assert result is not None
     assert layer_calls == [[1, 1], [2, 2]]
+    assert parse_calls == {"count": 1}
     assert result.metadata["search_layer_index"] == 1
     assert result.combined_omol == {"valences": (2, 2)}
+
+
+def test_xyz2omol_state_reuses_clean_no_metal_seed_across_target_buckets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_metal_state = MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0)
+    second_metal_state = MetalAtomPosition(1, "Li", 3, 2, 0, 0.0, 0.0, 0.0)
+    first_candidate = make_metal_candidate_state(
+        (),
+        (first_metal_state,),
+        -1,
+        0,
+        combination_index=0,
+    )
+    second_candidate = make_metal_candidate_state(
+        (),
+        (second_metal_state,),
+        -2,
+        0,
+        combination_index=1,
+    )
+    no_metal_seed = pybel.readstring(
+        "xyz",
+        """2
+CO
+C 0.0 0.0 0.0
+O 1.2 0.0 0.0
+""",
+    )
+    prepared_state = MetalPreparationState(
+        no_metal_xyz_block="clean-seed-xyz",
+        available_valence_radical_states=((first_metal_state, second_metal_state),),
+        total_charge=0,
+        total_radical_electrons=0,
+    )
+    no_metal_state = ReconstructionState(
+        omol=no_metal_seed,
+        given_charge=0,
+        total_charge=-1,
+        total_radical_electrons=0,
+    )
+
+    monkeypatch.setattr(
+        metal_preparation_module,
+        "prepare_metal_state",
+        lambda *args, **kwargs: prepared_state,
+    )
+    monkeypatch.setattr(
+        metal_search_module,
+        "_group_candidates_by_target_dp",
+        lambda *args, **kwargs: {
+            (
+                first_candidate.no_metal_charge_target,
+                first_candidate.no_metal_radical_target,
+            ): [first_candidate],
+            (
+                second_candidate.no_metal_charge_target,
+                second_candidate.no_metal_radical_target,
+            ): [second_candidate],
+        },
+    )
+    parse_calls = {"count": 0}
+
+    def fake_seed_omol_from_xyz(xyz_block):
+        assert xyz_block == "clean-seed-xyz"
+        parse_calls["count"] += 1
+        return no_metal_seed
+
+    monkeypatch.setattr(
+        with_metals_module.no_metal_preparation,
+        "_seed_omol_from_xyz",
+        fake_seed_omol_from_xyz,
+    )
+
+    captured_seeds: list[object] = []
+
+    def fake_seed_to_state(seed_omol, *args, **kwargs):
+        del args, kwargs
+        captured_seeds.append(seed_omol)
+        return no_metal_state
+
+    monkeypatch.setattr(
+        without_metals_module,
+        "_seed_omol_to_omol_no_metal_state",
+        fake_seed_to_state,
+    )
+
+    def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
+        del config
+        candidate.no_metal_state = no_metal_state
+        candidate.score = 1.0
+        candidate.metadata["score"] = 1.0
+        candidate.metadata["metal_assignment_rank"] = 0.0
+        candidate.metadata["organic_aromatic_atom_count"] = 0
+        candidate.metadata["organic_aromatic_ring_count"] = 0
+        candidate.metadata["organic_conjugated_atom_count"] = 0
+        candidate.metadata["organic_conjugated_bond_count"] = 0
+        candidate.metadata["organic_max_conjugated_component_size"] = 0
+        candidate.metadata["organic_radical_localization_penalty"] = 0.0
+        candidate.metadata["organic_charge_localization_penalty"] = 0.0
+        candidate.combined_omol = {"used_seed": True}
+        return candidate
+
+    monkeypatch.setattr(
+        metal_scoring_module,
+        "_prepare_candidate_with_no_metal_state",
+        fake_prepare_candidate,
+    )
+
+    result = with_metals_module.xyz2omol_state("ignored", 0, 0)
+
+    assert result is not None
+    assert parse_calls == {"count": 1}
+    assert captured_seeds == [no_metal_seed, no_metal_seed]
+    assert result.combined_omol == {"used_seed": True}
 
 
 def test_xyz2omol_state_reads_target_group_pruning_limits_from_config(
@@ -331,9 +493,9 @@ def test_xyz2omol_state_reads_target_group_pruning_limits_from_config(
     monkeypatch.setattr(metal_search_module, "_group_candidates_by_target_dp", fake_group)
 
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=5,
             max_assignments_per_target=7,
         ),
@@ -359,9 +521,9 @@ def test_group_candidates_by_target_dp_caps_candidates_per_target() -> None:
         for idx in range(1, 5)
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=None,
             max_assignments_per_target=1,
         ),
@@ -392,9 +554,9 @@ def test_group_candidates_by_target_dp_assigns_combination_indices_in_cpp_target
         ),
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=None,
             max_assignments_per_target=10,
         ),
@@ -439,9 +601,9 @@ def test_group_candidates_by_target_dp_uses_meet_in_the_middle_split(monkeypatch
         tracking_frontier,
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -464,9 +626,9 @@ def test_group_candidates_by_target_dp_preserves_cross_half_valence_spread_pruni
         (MetalAtomPosition(2, "Fe", 26, 6, 0, 2.0, 0.0, 0.0),),
     )
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -483,7 +645,7 @@ def test_group_candidates_by_target_dp_preserves_cross_half_valence_spread_pruni
     assert grouped == {}
 
 
-def test_combine_partial_assignment_frontiers_only_checks_radical_compatible_buckets(
+def test_combine_partial_assignment_frontiers_rejects_metal_spin_over_global_budget(
     monkeypatch,
 ) -> None:
     partial_assignment = metal_search_module._PartialMetalAssignment
@@ -529,9 +691,9 @@ def test_combine_partial_assignment_frontiers_only_checks_radical_compatible_buc
 
     monkeypatch.setattr(metal_search_module, "_merge_valence_bounds", tracking_merge)
     custom_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             max_mixed_valence_spread=3,
             max_assignments_per_target=1,
         ),
@@ -547,6 +709,43 @@ def test_combine_partial_assignment_frontiers_only_checks_radical_compatible_buc
 
     assert calls["count"] == 1
     assert sorted(grouped) == [(-1, 0)]
+
+
+def test_group_candidates_by_target_dp_rejects_single_metal_spin_over_global_budget() -> None:
+    grouped = _group_candidates_by_target_dp(
+        (),
+        ((MetalAtomPosition(1, "Fe", 26, 2, 1, 0.0, 0.0, 0.0),),),
+        total_charge=0,
+        total_radical_electrons=0,
+    )
+
+    assert grouped == {}
+
+
+def test_layered_search_removes_over_budget_states_for_single_metal_singlet() -> None:
+    closed_shell = MetalAtomPosition(1, "Fe", 26, 2, 0, 0.0, 0.0, 0.0)
+    open_shell = MetalAtomPosition(1, "Fe", 26, 2, 1, 0.0, 0.0, 0.0)
+
+    layers = metal_search_module._build_layered_metal_state_search_groups(
+        (((closed_shell,), (open_shell,)),),
+        total_radical_electrons=0,
+    )
+
+    assert len(layers) == 1
+    assert layers[0][0] == ((closed_shell,),)
+
+
+def test_final_metal_candidate_validation_rejects_excess_radicals() -> None:
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Fe", 26, 2, 1, 0.0, 0.0, 0.0),),
+        no_metal_charge_target=-2,
+        no_metal_radical_target=0,
+        combination_index=0,
+    )
+
+    assert with_metals_module._candidate_matches_global_electronic_state(candidate, 0, 1)
+    assert not with_metals_module._candidate_matches_global_electronic_state(candidate, 0, 0)
 
 
 def test_iter_reachable_radical_buckets_uses_prefix_cutoff() -> None:
@@ -676,7 +875,7 @@ O 3.2 0.0 0.0
     assert second.score == 1.25
 
 
-def test_xyz2omol_state_prefers_lower_total_discordance_after_aromatic_ring_loss(
+def test_xyz2omol_state_uses_aromatic_diagnostics_before_organic_score(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -724,11 +923,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
     calls = {"count": 0}
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
@@ -781,7 +976,7 @@ O 3.2 0.0 0.0
     assert result.combined_omol == {"valence": 1}
 
 
-def test_xyz2omol_state_ignores_metal_heuristics_when_organic_score_differs(
+def test_xyz2omol_state_uses_electronic_state_before_organic_score(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -830,11 +1025,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del config
@@ -849,7 +1040,7 @@ O 3.2 0.0 0.0
             candidate.metadata["organic_conjugated_bond_count"] = 6
             candidate.metadata["organic_max_conjugated_component_size"] = 6
             candidate.metadata["organic_radical_localization_penalty"] = 0.0
-            candidate.metadata["organic_charge_localization_penalty"] = 1.2
+            candidate.metadata["organic_charge_localization_penalty"] = 1.0
             candidate.metadata["metal_assignment_rank"] = 0.0
         else:
             candidate.metadata["organic_aromatic_atom_count"] = 6
@@ -858,7 +1049,7 @@ O 3.2 0.0 0.0
             candidate.metadata["organic_conjugated_bond_count"] = 6
             candidate.metadata["organic_max_conjugated_component_size"] = 6
             candidate.metadata["organic_radical_localization_penalty"] = 3.0
-            candidate.metadata["organic_charge_localization_penalty"] = 1.0
+            candidate.metadata["organic_charge_localization_penalty"] = 1.2
             candidate.metadata["metal_assignment_rank"] = 10.0
         candidate.combined_omol = {"valence": valence}
         return candidate
@@ -880,12 +1071,12 @@ O 3.2 0.0 0.0
     )
 
     assert result is not None
-    assert result.combined_omol == {"valence": 2}
-    assert result.score == 1.0
+    assert result.combined_omol == {"valence": 1}
+    assert result.score == 1.2
     assert "weighted_selection_score" not in result.metadata
 
 
-def test_xyz2omol_state_records_aromatic_ring_loss_in_total_discordance(
+def test_xyz2omol_state_uses_aromatic_ring_loss_before_force_field(
     monkeypatch,
 ) -> None:
     no_metal = pybel.readstring(
@@ -932,11 +1123,7 @@ O 3.2 0.0 0.0
             (fallback.no_metal_charge_target, fallback.no_metal_radical_target): [fallback],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del config
@@ -1034,11 +1221,7 @@ O 3.2 0.0 0.0
             (fallback.no_metal_charge_target, fallback.no_metal_radical_target): [fallback],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_combined_score(self):
         valence = self.metal_states[0].valence
@@ -1065,7 +1248,7 @@ O 3.2 0.0 0.0
     assert result.combined_omol == {"valence": 1}
 
 
-def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> None:
+def test_select_best_candidate_uses_aromatic_deficit_before_force_field() -> None:
     preferred = make_metal_candidate_state(
         (),
         (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
@@ -1081,6 +1264,7 @@ def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> No
             "metal_discordance_structural_count": 0,
             "organic_aromatic_atom_count": 6,
             "organic_aromatic_ring_count": 2,
+            "organic_aromatic_stability_score": 1.6,
             "organic_conjugated_atom_count": 6,
             "organic_conjugated_bond_count": 6,
             "organic_max_conjugated_component_size": 6,
@@ -1103,6 +1287,7 @@ def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> No
             "metal_discordance_structural_count": 0,
             "organic_aromatic_atom_count": 0,
             "organic_aromatic_ring_count": 0,
+            "organic_aromatic_stability_score": 0.0,
             "organic_conjugated_atom_count": 2,
             "organic_conjugated_bond_count": 1,
             "organic_max_conjugated_component_size": 2,
@@ -1116,12 +1301,651 @@ def test_select_best_candidate_adds_aromatic_ring_deficit_to_discordance() -> No
     assert result is preferred
     assert preferred.metadata["metal_discordance_structural_count"] == 0
     assert preferred.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
+    assert preferred.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(0.0)
     assert preferred.metadata["metal_discordance_count"] == 0
     assert preferred.metadata["metal_discordance_max_aromatic_ring_count"] == 2
+    assert preferred.metadata["metal_discordance_max_aromatic_stability_score"] == pytest.approx(
+        1.6
+    )
     assert fallback.metadata["metal_discordance_structural_count"] == 0
     assert fallback.metadata["metal_discordance_aromatic_ring_deficit_count"] == 2
-    assert fallback.metadata["metal_discordance_count"] == 2
+    assert fallback.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(1.6)
+    assert fallback.metadata["metal_discordance_count"] == pytest.approx(0.0)
     assert fallback.metadata["metal_discordance_max_aromatic_ring_count"] == 2
+    assert fallback.metadata["metal_discordance_max_aromatic_stability_score"] == pytest.approx(1.6)
+
+
+def test_select_best_candidate_preserves_conjugated_atoms_and_bonds_before_aromatic_gain() -> None:
+    preferred = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Ir", 77, 3, 0, 0.0, 0.0, 0.0),),
+        -3,
+        0,
+        combination_index=0,
+    )
+    over_reduced = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Ir", 77, 5, 0, 0.0, 0.0, 0.0),),
+        -5,
+        0,
+        combination_index=1,
+    )
+    for candidate, topology, score in (
+        (preferred, (11, 2, 1.7056, 12, 17, 19), 422.0),
+        (over_reduced, (15, 3, 2.7056, 10, 15, 16), 400.0),
+    ):
+        aromatic_atoms, aromatic_rings, stability, max_component, atoms, bonds = topology
+        candidate.score = score
+        candidate.metadata.update(
+            {
+                "score": score,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": aromatic_atoms,
+                "organic_aromatic_ring_count": aromatic_rings,
+                "organic_aromatic_stability_score": stability,
+                "organic_max_conjugated_component_size": max_component,
+                "organic_conjugated_atom_count": atoms,
+                "organic_conjugated_bond_count": bonds,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": 0.0,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([over_reduced, preferred])
+
+    assert result is preferred
+    assert preferred.metadata["selection_key"][:5] == (0.0, 0, 0, 0, 4)
+    assert preferred.metadata["metal_discordance_aromatic_atom_deficit_count"] == 4
+    assert over_reduced.metadata["metal_discordance_conjugated_atom_deficit_count"] == 2
+    assert over_reduced.metadata["metal_discordance_conjugated_bond_deficit_count"] == 3
+
+
+def test_select_best_candidate_uses_aromatic_deficit_to_break_score_ties() -> None:
+    over_oxidized = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cr", 24, 6, 0, 0.0, 0.0, 0.0),),
+        -6,
+        0,
+        combination_index=0,
+    )
+    neutral = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cr", 24, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=1,
+    )
+    for candidate, aromatic_ring_count, aromatic_stability_score in (
+        (over_oxidized, 0, 0.0),
+        (neutral, 2, 2.0),
+    ):
+        candidate.score = 10.0
+        candidate.metadata.update(
+            {
+                "score": 10.0,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": aromatic_ring_count,
+                "organic_aromatic_stability_score": aromatic_stability_score,
+                "organic_conjugated_atom_count": 0,
+                "organic_conjugated_bond_count": 0,
+                "organic_max_conjugated_component_size": 0,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": 0.0,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([over_oxidized, neutral])
+
+    assert result is neutral
+    assert neutral.metadata["selection_key"][:7] == (0.0, 0, 0, 0, 0, 0, 0.0)
+
+
+def test_select_best_candidate_uses_charge_localization_to_break_remaining_ties() -> None:
+    over_oxidized = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Mn", 25, 5, 0, 0.0, 0.0, 0.0),),
+        -4,
+        0,
+        combination_index=0,
+    )
+    preferred = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Mn", 25, 1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=1,
+    )
+    for candidate, charge_localization_penalty in (
+        (over_oxidized, 4.8),
+        (preferred, 2.7),
+    ):
+        candidate.score = 10.0
+        candidate.metadata.update(
+            {
+                "score": 10.0,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 6,
+                "organic_aromatic_ring_count": 1,
+                "organic_aromatic_stability_score": 1.0,
+                "organic_conjugated_atom_count": 6,
+                "organic_conjugated_bond_count": 6,
+                "organic_max_conjugated_component_size": 6,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": charge_localization_penalty,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([over_oxidized, preferred])
+
+    assert result is preferred
+    assert preferred.metadata["selection_key"][-4:] == (0, 0, 10.0, 1)
+    assert preferred.metadata["organic_charge_localization_margin_exceeded"] is False
+    assert over_oxidized.metadata["organic_charge_localization_margin_exceeded"] is True
+
+
+def test_select_best_candidate_uses_charge_localization_before_conjugation() -> None:
+    lower_charge_penalty = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Ru", 44, 6, 0, 0.0, 0.0, 0.0),),
+        -6,
+        0,
+        combination_index=0,
+    )
+    more_conjugated = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Ru", 44, 2, 0, 0.0, 0.0, 0.0),),
+        -2,
+        0,
+        combination_index=1,
+    )
+    for candidate, conjugated_atom_count, charge_penalty in (
+        (lower_charge_penalty, 5, 0.0),
+        (more_conjugated, 6, 1.0),
+    ):
+        candidate.score = 10.0
+        candidate.metadata.update(
+            {
+                "score": 10.0,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": 0,
+                "organic_aromatic_stability_score": 0.0,
+                "organic_conjugated_atom_count": conjugated_atom_count,
+                "organic_conjugated_bond_count": conjugated_atom_count - 1,
+                "organic_max_conjugated_component_size": conjugated_atom_count,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": charge_penalty,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([more_conjugated, lower_charge_penalty])
+
+    assert result is lower_charge_penalty
+    assert lower_charge_penalty.metadata["selection_key"][:4] == (0.0, 0, 1, 1)
+    assert more_conjugated.metadata["selection_key"][:4] == (0.0, 1, 0, 0)
+
+
+def test_select_best_candidate_uses_hyperconjugation_after_charge_localization_margin() -> None:
+    more_hyperconjugated = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 2, 0, 0.0, 0.0, 0.0),),
+        -2,
+        0,
+        combination_index=0,
+    )
+    less_hyperconjugated = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 2, 0, 0.0, 0.0, 0.0),),
+        -2,
+        0,
+        combination_index=1,
+    )
+    for candidate, hyperconjugation_score, force_field_score in (
+        (more_hyperconjugated, 6, 20.0),
+        (less_hyperconjugated, 2, 10.0),
+    ):
+        candidate.score = force_field_score
+        candidate.metadata.update(
+            {
+                "score": force_field_score,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": 0,
+                "organic_aromatic_stability_score": 0.0,
+                "organic_conjugated_atom_count": 0,
+                "organic_conjugated_bond_count": 0,
+                "organic_max_conjugated_component_size": 0,
+                "organic_hyperconjugation_score": hyperconjugation_score,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": 0.0,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate(
+        [less_hyperconjugated, more_hyperconjugated]
+    )
+
+    assert result is more_hyperconjugated
+    assert more_hyperconjugated.metadata["organic_hyperconjugation_deficit"] == 0
+    assert less_hyperconjugated.metadata["organic_hyperconjugation_deficit"] == 4
+    assert more_hyperconjugated.metadata["selection_key"][-4:] == (0, 0, 20.0, 0)
+    assert less_hyperconjugated.metadata["selection_key"][-4:] == (0, 4, 10.0, 1)
+
+
+@pytest.mark.parametrize(
+    ("charge_localization_penalty", "expected_selected"),
+    [(1.29, True), (1.3, False)],
+)
+def test_select_best_candidate_applies_charge_localization_margin(
+    charge_localization_penalty: float,
+    expected_selected: bool,
+) -> None:
+    minimum = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 2, 0, 0.0, 0.0, 0.0),),
+        -1,
+        0,
+        combination_index=0,
+    )
+    challenger = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 4, 0, 0.0, 0.0, 0.0),),
+        -3,
+        0,
+        combination_index=1,
+    )
+    for candidate, localization, score in (
+        (minimum, 1.0, 10.0),
+        (challenger, charge_localization_penalty, 8.0),
+    ):
+        candidate.score = score
+        candidate.metadata.update(
+            {
+                "score": score,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": 0,
+                "organic_aromatic_stability_score": 0.0,
+                "organic_conjugated_atom_count": 0,
+                "organic_conjugated_bond_count": 0,
+                "organic_max_conjugated_component_size": 0,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": localization,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([minimum, challenger])
+
+    assert (result is challenger) is expected_selected
+    assert challenger.metadata["organic_charge_localization_margin_exceeded"] is (
+        not expected_selected
+    )
+
+
+def test_select_best_candidate_uses_configured_charge_localization_margin() -> None:
+    minimum = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 2, 0, 0.0, 0.0, 0.0),),
+        -1,
+        0,
+        combination_index=0,
+    )
+    challenger = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 4, 0, 0.0, 0.0, 0.0),),
+        -3,
+        0,
+        combination_index=1,
+    )
+    for candidate, localization, score in (
+        (minimum, 1.0, 10.0),
+        (challenger, 1.15, 8.0),
+    ):
+        candidate.score = score
+        candidate.metadata.update(
+            {
+                "score": score,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": 0,
+                "organic_aromatic_stability_score": 0.0,
+                "organic_conjugated_atom_count": 0,
+                "organic_conjugated_bond_count": 0,
+                "organic_max_conjugated_component_size": 0,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": localization,
+            }
+        )
+    config = replace(
+        MolGRConfig(),
+        metal_scoring=replace(
+            MolGRConfig().metal_scoring,
+            charge_localization_selection_margin=0.1,
+        ),
+    )
+
+    result = metal_scoring_module.select_best_candidate(
+        [minimum, challenger],
+        config=config,
+    )
+
+    assert result is minimum
+    assert challenger.metadata["organic_charge_localization_selection_margin"] == pytest.approx(0.1)
+    assert challenger.metadata["organic_charge_localization_margin_exceeded"] is True
+
+
+def test_select_best_candidate_keeps_large_oxidation_state_jumps_charge_localized() -> None:
+    minimum = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Pt", 78, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+    challenger = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Pt", 78, 4, 0, 0.0, 0.0, 0.0),),
+        -4,
+        0,
+        combination_index=1,
+    )
+    for candidate, localization, score in (
+        (minimum, 1.0, 10.0),
+        (challenger, 1.2, 1.0),
+    ):
+        candidate.score = score
+        candidate.metadata.update(
+            {
+                "score": score,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 0,
+                "organic_aromatic_ring_count": 0,
+                "organic_aromatic_stability_score": 0.0,
+                "organic_conjugated_atom_count": 0,
+                "organic_conjugated_bond_count": 0,
+                "organic_max_conjugated_component_size": 0,
+                "organic_radical_localization_penalty": 0.0,
+                "organic_charge_localization_penalty": localization,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([challenger, minimum])
+
+    assert result is minimum
+    assert challenger.metadata["organic_charge_localization_margin_exceeded"] is True
+    assert challenger.metadata["organic_charge_localization_reference_metal_valence_max_delta"] == 4
+    assert challenger.metadata["organic_charge_localization_metal_valence_jump_exceeded"] is True
+
+
+def test_select_best_candidate_uses_charge_localization_before_radical_localization() -> None:
+    charge_localized = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Au", 79, 1, 0, 0.0, 0.0, 0.0),),
+        -1,
+        2,
+        combination_index=4,
+    )
+    radical_localized = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Au", 79, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        2,
+        combination_index=5,
+    )
+    for candidate, radical_penalty, charge_penalty in (
+        (charge_localized, 0.0, 0.514),
+        (radical_localized, 0.6, 0.0),
+    ):
+        candidate.score = 10.0
+        candidate.metadata.update(
+            {
+                "score": 10.0,
+                "metal_discordance_count": 0.0,
+                "metal_discordance_structural_count": 0.0,
+                "organic_aromatic_atom_count": 6,
+                "organic_aromatic_ring_count": 1,
+                "organic_aromatic_stability_score": 1.0,
+                "organic_conjugated_atom_count": 6,
+                "organic_conjugated_bond_count": 6,
+                "organic_max_conjugated_component_size": 6,
+                "organic_radical_localization_penalty": radical_penalty,
+                "organic_charge_localization_penalty": charge_penalty,
+            }
+        )
+
+    result = metal_scoring_module.select_best_candidate([radical_localized, charge_localized])
+
+    assert result is radical_localized
+    assert radical_localized.metadata["selection_key"][1] == 0
+    assert charge_localized.metadata["selection_key"][1] == 1
+
+
+def test_select_best_candidate_uses_aromatic_stability_before_force_field() -> None:
+    benzene_like = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+    benzene_like.score = 2.0
+    benzene_like.metadata.update(
+        {
+            "score": 2.0,
+            "metal_discordance_count": 0,
+            "metal_discordance_structural_count": 0,
+            "organic_aromatic_atom_count": 6,
+            "organic_aromatic_ring_count": 1,
+            "organic_aromatic_stability_score": 1.0,
+            "organic_conjugated_atom_count": 6,
+            "organic_conjugated_bond_count": 6,
+            "organic_max_conjugated_component_size": 6,
+            "organic_radical_localization_penalty": 0.0,
+            "organic_charge_localization_penalty": 0.0,
+        }
+    )
+    hetero_like = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=1,
+    )
+    hetero_like.score = 1.0
+    hetero_like.metadata.update(
+        {
+            "score": 1.0,
+            "metal_discordance_count": 0,
+            "metal_discordance_structural_count": 0,
+            "organic_aromatic_atom_count": 6,
+            "organic_aromatic_ring_count": 1,
+            "organic_aromatic_stability_score": 0.82,
+            "organic_conjugated_atom_count": 6,
+            "organic_conjugated_bond_count": 6,
+            "organic_max_conjugated_component_size": 6,
+            "organic_radical_localization_penalty": 0.0,
+            "organic_charge_localization_penalty": 0.0,
+        }
+    )
+
+    result = metal_scoring_module.select_best_candidate([benzene_like, hetero_like])
+
+    assert result is benzene_like
+    assert benzene_like.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
+    assert hetero_like.metadata["metal_discordance_aromatic_ring_deficit_count"] == 0
+    assert hetero_like.metadata["metal_discordance_aromatic_stability_deficit"] == pytest.approx(
+        0.18
+    )
+
+
+def test_select_best_candidate_preserves_fractional_discordance() -> None:
+    fractional = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Mo", 42, -1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+    fractional.score = 2.0
+    fractional.metadata.update(
+        {
+            "score": 2.0,
+            "metal_discordance_count": 0.5,
+            "metal_discordance_structural_count": 0.5,
+            "organic_aromatic_atom_count": 0,
+            "organic_aromatic_ring_count": 0,
+            "organic_conjugated_atom_count": 0,
+            "organic_conjugated_bond_count": 0,
+            "organic_max_conjugated_component_size": 0,
+            "organic_radical_localization_penalty": 0.0,
+            "organic_charge_localization_penalty": 0.0,
+        }
+    )
+    full = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Li", 3, 1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=1,
+    )
+    full.score = 1.0
+    full.metadata.update(
+        {
+            "score": 1.0,
+            "metal_discordance_count": 1.0,
+            "metal_discordance_structural_count": 1.0,
+            "organic_aromatic_atom_count": 0,
+            "organic_aromatic_ring_count": 0,
+            "organic_conjugated_atom_count": 0,
+            "organic_conjugated_bond_count": 0,
+            "organic_max_conjugated_component_size": 0,
+            "organic_radical_localization_penalty": 0.0,
+            "organic_charge_localization_penalty": 0.0,
+        }
+    )
+
+    result = metal_scoring_module.select_best_candidate([fractional, full])
+
+    assert result is fractional
+    assert fractional.metadata["passes_metal_discordance_filter"] is True
+    assert full.metadata["passes_metal_discordance_filter"] is False
+    assert fractional.metadata["metal_discordance_count"] == pytest.approx(0.5)
+
+
+def test_metal_discordance_counts_charge_asymmetry_only_for_repeated_components() -> None:
+    asymmetric = pybel.readstring("smi", "[CH3-].[CH3]")
+    symmetric = pybel.readstring("smi", "[CH3-].[CH3-]")
+    unrelated = pybel.readstring("smi", "[CH3-].N")
+
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(asymmetric.OBMol) == 1
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(symmetric.OBMol) == 0
+    assert metal_scoring_module._repeated_component_charge_asymmetry_count(unrelated.OBMol) == 0
+
+
+def test_metal_discordance_haptic_ring_reduction_is_ring_and_metal_local() -> None:
+    ring = pybel.readstring("smi", "C1CCCCC1")
+    ring.OBMol.GetAtom(1).SetFormalCharge(-1)
+
+    assert (
+        metal_scoring_module._haptic_arene_reduction_count(
+            ring.OBMol,
+            ((ring.OBMol.GetAtom(1), ring.OBMol.GetAtom(2)),),
+        )
+        == 0
+    )
+    assert (
+        metal_scoring_module._haptic_arene_reduction_count(
+            ring.OBMol,
+            (
+                (ring.OBMol.GetAtom(1), ring.OBMol.GetAtom(2)),
+                (ring.OBMol.GetAtom(3), ring.OBMol.GetAtom(4)),
+            ),
+        )
+        == 0
+    )
+    assert (
+        metal_scoring_module._haptic_arene_reduction_count(
+            ring.OBMol,
+            ((ring.OBMol.GetAtom(1), ring.OBMol.GetAtom(2), ring.OBMol.GetAtom(3)),),
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize("smiles", ["C1=CC=CC=[C-]1", "C1=CC=C[C-]1"])
+def test_metal_discordance_haptic_ring_reduction_preserves_complete_pi_rings(
+    smiles: str,
+) -> None:
+    ring = pybel.readstring("smi", smiles)
+
+    assert (
+        metal_scoring_module._haptic_arene_reduction_count(
+            ring.OBMol,
+            ((ring.OBMol.GetAtom(1), ring.OBMol.GetAtom(2), ring.OBMol.GetAtom(3)),),
+        )
+        == 0
+    )
+
+
+def test_metal_discordance_coordination_geometry_is_metal_state_specific() -> None:
+    square_planar = pybel.readstring(
+        "xyz",
+        """4
+square planar donors
+N 1.0 0.0 0.0
+N -1.0 0.0 0.0
+N 0.0 1.0 0.0
+N 0.0 -1.0 0.0
+""",
+    )
+    linear = pybel.readstring(
+        "xyz",
+        """2
+linear donors
+S 1.0 0.0 0.0
+S -1.0 0.0 0.0
+""",
+    )
+    square_planar_atoms = tuple(square_planar.OBMol.GetAtom(idx) for idx in range(1, 5))
+    linear_atoms = tuple(linear.OBMol.GetAtom(idx) for idx in range(1, 3))
+
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (square_planar_atoms,),
+            (MetalAtomPosition(1, "Pd", 46, 4, 0, 0.0, 0.0, 0.0),),
+        )
+        == 1
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (square_planar_atoms,),
+            (MetalAtomPosition(1, "Pd", 46, 2, 0, 0.0, 0.0, 0.0),),
+        )
+        == 0
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (linear_atoms,),
+            (MetalAtomPosition(1, "Au", 79, 3, 0, 0.0, 0.0, 0.0),),
+        )
+        == 1
+    )
+    assert (
+        metal_scoring_module._coordination_geometry_discordance_count(
+            (linear_atoms,),
+            (MetalAtomPosition(1, "Au", 79, 1, 0, 0.0, 0.0, 0.0),),
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize(
@@ -1183,7 +2007,11 @@ C 5.2 0.0 0.0
 
 @pytest.mark.parametrize(
     ("distance", "expected_count"),
-    [(2.4, 1), (2.6, 0)],
+<<<<<<< HEAD
+    [(2.4, 1), (2.6, 1)],
+=======
+        [(2.4, 1), (2.6, 1)],
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 )
 def test_metal_discordance_inner_same_sign_charge_uses_coordination_radius(
     distance: float,
@@ -1223,6 +2051,78 @@ N {distance} 0.0 0.0
     assert (
         scored.metadata["metal_discordance_inner_visible_same_sign_charge_count"] == expected_count
     )
+
+
+@pytest.mark.parametrize(
+    (
+        "metal_valence",
+        "inner_atom_symbol",
+        "inner_atom_charge",
+        "adjacent_atom_symbol",
+        "adjacent_atom_charge",
+        "expected_count",
+    ),
+    [
+        (2, "N", 1, "B", -1, 1),
+        (-1, "O", -1, "N", 1, 1),
+        (2, "N", 1, "O", -1, 0),
+        (0, "N", 1, "O", -1, 0),
+    ],
+)
+def test_metal_discordance_inner_same_sign_charge_exempts_local_anionic_polarization(
+    metal_valence: int,
+    inner_atom_symbol: str,
+    inner_atom_charge: int,
+    adjacent_atom_symbol: str,
+    adjacent_atom_charge: int,
+    expected_count: int,
+) -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        f"""2
+{inner_atom_symbol}{adjacent_atom_symbol}
+{inner_atom_symbol} 2.0 0.0 0.0
+{adjacent_atom_symbol} 3.2 0.0 0.0
+""",
+    )
+    if no_metal.OBMol.GetBond(1, 2) is None:
+        no_metal.OBMol.AddBond(1, 2, 1)
+    no_metal.OBMol.GetAtom(1).SetFormalCharge(inner_atom_charge)
+    no_metal.OBMol.GetAtom(2).SetFormalCharge(adjacent_atom_charge)
+    total_charge = inner_atom_charge + adjacent_atom_charge
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=total_charge,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, metal_valence, 0, 0.0, 0.0, 0.0),),
+        total_charge,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert (
+        scored.metadata["metal_discordance_inner_visible_same_sign_charge_count"] == expected_count
+    )
+
+
+def test_local_anionic_polarization_cancellation_covers_perchlorate() -> None:
+    perchlorate = pybel.readstring("smi", "[O-][Cl+3]([O-])([O-])[O-]")
+    chlorine = perchlorate.OBMol.GetAtom(2)
+
+    assert metal_scoring_module._has_adjacent_anionic_polarization_cancellation(chlorine)
 
 
 @pytest.mark.parametrize(
@@ -1267,18 +2167,25 @@ N 2.4 0.0 0.0
     assert (
         scored.metadata["metal_discordance_inner_visible_same_sign_charge_count"] == expected_count
     )
-    expected_zero_valent_cation_count = 1 if formal_charge > 0 else 0
+    expected_zero_valent_cation_count = 0
     assert (
         scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"]
         == expected_zero_valent_cation_count
     )
+    expected_unsaturated_cation_count = 1 if formal_charge > 0 else 0
+    assert (
+        scored.metadata["metal_discordance_unsaturated_organic_cation_count"]
+        == expected_unsaturated_cation_count
+    )
     assert (
         scored.metadata["metal_discordance_structural_count"]
-        == expected_count + expected_zero_valent_cation_count
+        == expected_count + expected_zero_valent_cation_count + expected_unsaturated_cation_count
     )
 
 
-def test_metal_discordance_all_zero_valence_counts_any_organic_cation() -> None:
+def test_metal_discordance_all_zero_valence_exempts_organic_cation_when_global_charge_positive() -> (
+    None
+):
     no_metal = pybel.readstring(
         "xyz",
         """1
@@ -1311,8 +2218,299 @@ N 5.0 0.0 0.0
     )
 
     assert scored.metadata["metal_discordance_inner_visible_same_sign_charge_count"] == 0
-    assert scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] == 1
+    assert scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
     assert scored.metadata["metal_discordance_structural_count"] == 1
+
+
+@pytest.mark.parametrize(
+    (
+        "xyz_block",
+        "positive_atom_idx",
+        "metal_valence",
+        "expected_unsaturated_cation_count",
+    ),
+    [
+        pytest.param(
+            """4
+NH3
+N 5.0 0.0 0.0
+H 5.0 0.0 1.0
+H 5.0 1.0 0.0
+H 6.0 0.0 0.0
+""",
+            1,
+            1,
+            1,
+            id="under-valent-ammonium",
+        ),
+        pytest.param(
+            """5
+NH4
+N 5.0 0.0 0.0
+H 5.0 0.0 1.0
+H 5.0 1.0 0.0
+H 6.0 0.0 0.0
+H 4.0 0.0 0.0
+""",
+            1,
+            1,
+            0,
+            id="saturated-onium",
+        ),
+        pytest.param(
+            """2
+CO
+C 5.0 0.0 0.0
+O 6.2 0.0 0.0
+""",
+            1,
+            1,
+            1,
+            id="bond-order-exceeds-degree",
+        ),
+        pytest.param(
+            """4
+NH3
+N 5.0 0.0 0.0
+H 5.0 0.0 1.0
+H 5.0 1.0 0.0
+H 6.0 0.0 0.0
+""",
+            1,
+            -1,
+            1,
+            id="negative-metal-candidate",
+        ),
+    ],
+)
+def test_metal_discordance_counts_unsaturated_organic_cation_for_any_metal_valence(
+    xyz_block: str,
+    positive_atom_idx: int,
+    metal_valence: int,
+    expected_unsaturated_cation_count: int,
+) -> None:
+    no_metal = pybel.readstring("xyz", xyz_block)
+    no_metal.OBMol.GetAtom(positive_atom_idx).SetFormalCharge(1)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, metal_valence, 0, 0.0, 0.0, 0.0),),
+        1,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert (
+        scored.metadata["metal_discordance_unsaturated_organic_cation_count"]
+        == expected_unsaturated_cation_count
+    )
+
+
+def test_metal_discordance_counts_three_coordinate_carbocation() -> None:
+    no_metal = pybel.readstring("smi", "CC[C+]C")
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Ir", 77, -1, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
+
+
+def test_metal_discordance_does_not_count_valence_three_oxygen_cation() -> None:
+    molecule = pybel.readstring("smi", "[O+](C)=C")
+    oxygen = molecule.OBMol.GetAtom(1)
+    assert oxygen.GetTotalDegree() == 2
+    assert oxygen.GetTotalValence() == 3
+    assert not metal_scoring_module._is_unsaturated_organic_cation(oxygen)
+
+
+def test_metal_discordance_exempts_aromatic_unsaturated_organic_cation() -> None:
+    no_metal = pybel.readstring("smi", "[nH+]1ccccc1")
+    positive_atom = next(
+        atom for atom in no_metal.atoms if int(atom.OBAtom.GetFormalCharge()) > 0
+    ).OBAtom
+    assert positive_atom.IsAromatic()
+    assert not metal_scoring_module._is_unsaturated_organic_cation(positive_atom)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, 1, 0, 100.0, 0.0, 0.0),),
+        1,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_structural_count"] == 0
+
+
+def test_metal_discordance_counts_unsaturated_cation_when_only_global_charge_is_zero() -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        """4
+NOH2
+N 5.0 0.0 0.0
+O 15.0 0.0 0.0
+H 5.0 1.0 0.0
+H 5.0 0.0 1.0
+""",
+    )
+    no_metal.OBMol.GetAtom(1).SetFormalCharge(1)
+    no_metal.OBMol.GetAtom(2).SetFormalCharge(-1)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, 0, 0, 100.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] == 1
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
+    assert scored.metadata["metal_discordance_structural_count"] == 2
+
+
+def test_metal_discordance_exempts_locally_zwitterionic_unsaturated_cation() -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        """5
+NOH2_O
+N 5.0 0.0 0.0
+O 6.2 0.0 0.0
+H 5.0 1.0 0.0
+H 5.0 0.0 1.0
+O 15.0 0.0 0.0
+""",
+    )
+    for begin_idx, end_idx in ((1, 2), (1, 3), (1, 4)):
+        if no_metal.OBMol.GetBond(begin_idx, end_idx) is None:
+            no_metal.OBMol.AddBond(begin_idx, end_idx, 1)
+    no_metal.OBMol.GetAtom(1).SetFormalCharge(1)
+    no_metal.OBMol.GetAtom(2).SetFormalCharge(-1)
+    no_metal.OBMol.GetAtom(5).SetFormalCharge(-1)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=-1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Cd", 48, 0, 0, 100.0, 0.0, 0.0),),
+        -1,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_structural_count"] == 0
+
+
+def test_metal_discordance_exempts_high_valent_nonmetal_cation_with_excess_adjacent_anions() -> (
+    None
+):
+    no_metal = pybel.readstring(
+        "smi",
+        "[O-][N+](=O)[O-] nitrate",
+    )
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=-1,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 2, 0, 100.0, 0.0, 0.0),),
+        -1,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 0
+    assert scored.metadata["metal_discordance_structural_count"] == 0
 
 
 def test_metal_inner_sphere_radius_uses_coordination_tolerance_config() -> None:
@@ -1323,7 +2521,7 @@ N
 N 2.10 0.0 0.0
 """,
     )
-    no_metal.OBMol.GetAtom(1).SetSpinMultiplicity(2)
+    set_unpaired_electron_count(no_metal.OBMol.GetAtom(1), 2)
     no_metal_state = ReconstructionState(
         omol=no_metal,
         given_charge=0,
@@ -1342,16 +2540,16 @@ N 2.10 0.0 0.0
         combination_index=0,
     )
     tight_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_coordination_extra_tolerance_angstrom=0.10,
         ),
     )
     loose_config = replace(
-        DEFAULT_MOLGR_CONFIG,
+        MolGRConfig(),
         metal_scoring=replace(
-            DEFAULT_MOLGR_CONFIG.metal_scoring,
+            MolGRConfig().metal_scoring,
             metal_coordination_extra_tolerance_angstrom=0.35,
         ),
     )
@@ -1371,7 +2569,207 @@ N 2.10 0.0 0.0
     assert loose_scored.metadata["metal_discordance_inner_visible_diradical_count"] == 1
 
 
-def test_metal_discordance_counts_negative_metal_without_charge_balance_exception() -> None:
+def test_metal_inner_sphere_radius_uses_metal_access_radius_scale_for_scoring() -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        """1
+N
+N 2.22 0.0 0.0
+""",
+    )
+    set_unpaired_electron_count(no_metal.OBMol.GetAtom(1), 2)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=1,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        1,
+        combination_index=0,
+    )
+    unscaled_config = replace(
+        MolGRConfig(),
+        metal_scoring=replace(
+            MolGRConfig().metal_scoring,
+            metal_access_radius_scale=1.0,
+            metal_coordination_extra_tolerance_angstrom=0.10,
+        ),
+    )
+    scaled_config = replace(
+        MolGRConfig(),
+        metal_scoring=replace(
+            MolGRConfig().metal_scoring,
+            metal_access_radius_scale=1.10,
+            metal_coordination_extra_tolerance_angstrom=0.10,
+        ),
+    )
+
+    unscaled_scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+        config=unscaled_config,
+    )
+    scaled_scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+        config=scaled_config,
+    )
+
+    assert unscaled_scored.metadata["metal_discordance_inner_visible_diradical_count"] == 0
+    assert scaled_scored.metadata["metal_discordance_inner_visible_diradical_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "atomic_symbol",
+    ["N", "O", "P", "S", "Cl", "Br", "I"],
+)
+def test_metal_discordance_counts_explicit_diradicals_for_every_element(
+    atomic_symbol: str,
+) -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        f"""1
+{atomic_symbol}
+{atomic_symbol} 2.0 0.0 0.0
+""",
+    )
+    set_unpaired_electron_count(no_metal.OBMol.GetAtom(1), 2)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=1,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        1,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_inner_visible_diradical_count"] == 1
+
+
+@pytest.mark.parametrize("atomic_symbol", ["P", "S", "Cl", "Br", "I"])
+def test_metal_discordance_does_not_count_explicit_lone_pairs(atomic_symbol: str) -> None:
+    no_metal = pybel.readstring(
+        "xyz",
+        f"""1
+{atomic_symbol}
+{atomic_symbol} 2.0 0.0 0.0
+""",
+    )
+    set_lone_pair_count(no_metal.OBMol.GetAtom(1), 1)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=0,
+        metadata={
+            "organic_core_score": organic_force_field_energy(no_metal),
+            "force_field_score_key": build_force_field_score_key(no_metal),
+        },
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "Zn", 30, 0, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+
+    scored = metal_scoring_module._prepare_candidate_with_no_metal_state(
+        candidate,
+        no_metal_state,
+    )
+
+    assert scored.metadata["metal_discordance_inner_visible_diradical_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("center_count", "expected_excess_count"),
+    [(1, 0), (2, 1)],
+)
+def test_metal_discordance_counts_only_excess_visible_singlet_two_electron_centers(
+    center_count: int,
+    expected_excess_count: int,
+) -> None:
+    no_metal = pybel.readstring("smi", ".".join("[CH2]" for _ in range(center_count)))
+    for atom, coordinates in zip(
+        no_metal.atoms,
+        ((2.0, 0.0, 0.0), (0.0, 2.0, 0.0)),
+    ):
+        atom.OBAtom.SetVector(*coordinates)
+        set_unpaired_electron_count(atom.OBAtom, 0)
+        set_lone_pair_count(atom.OBAtom, 1)
+    no_metal_state = ReconstructionState(
+        omol=no_metal,
+        given_charge=0,
+        total_charge=0,
+        total_radical_electrons=0,
+    )
+    candidate = make_metal_candidate_state(
+        (),
+        (MetalAtomPosition(1, "W", 74, 2, 0, 0.0, 0.0, 0.0),),
+        0,
+        0,
+        combination_index=0,
+    )
+    candidate.no_metal_state = no_metal_state
+
+    metal_scoring_module._annotate_candidate_discordance_features(candidate)
+
+    assert (
+        candidate.metadata["metal_discordance_excess_visible_singlet_two_electron_center_count"]
+        == expected_excess_count
+    )
+
+
+def test_metal_discordance_counts_bent_but_not_linear_ring_allene() -> None:
+    no_metal = pybel.readstring("smi", "C1=C=CCC1")
+    coordinates = (
+        (1.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+        (-0.5, 0.866, 0.0),
+        (-1.0, 1.7, 0.0),
+        (0.5, 1.0, 0.0),
+    )
+    for atom, position in zip(no_metal.atoms, coordinates):
+        atom.OBAtom.SetVector(*position)
+
+    assert metal_scoring_module._bent_cumulated_ring_allene_count(no_metal.OBMol) == 1
+
+    no_metal.OBMol.GetAtom(3).SetVector(-1.0, 0.05, 0.0)
+
+    assert metal_scoring_module._bent_cumulated_ring_allene_count(no_metal.OBMol) == 0
+
+
+@pytest.mark.parametrize(
+    ("metal_valence", "expected_negative_metal_count"),
+    [(-1, 1), (-2, 2)],
+)
+def test_metal_discordance_counts_negative_metal_without_charge_balance_exception(
+    metal_valence: int,
+    expected_negative_metal_count: int,
+) -> None:
     no_metal = pybel.readstring(
         "xyz",
         """1
@@ -1391,7 +2789,7 @@ C 5.0 0.0 0.0
     )
     candidate = make_metal_candidate_state(
         (),
-        (MetalAtomPosition(1, "Mo", 42, -1, 0, 0.0, 0.0, 0.0),),
+        (MetalAtomPosition(1, "Mo", 42, metal_valence, 0, 0.0, 0.0, 0.0),),
         0,
         0,
         combination_index=0,
@@ -1402,7 +2800,9 @@ C 5.0 0.0 0.0
         no_metal_state,
     )
 
-    assert scored.metadata["metal_discordance_negative_metal_count"] == 1
+    assert (
+        scored.metadata["metal_discordance_negative_metal_count"] == expected_negative_metal_count
+    )
     assert (
         scored.metadata["metal_discordance_negative_metal_outer_sphere_cation_exception"] is False
     )
@@ -1410,7 +2810,16 @@ C 5.0 0.0 0.0
         scored.metadata["metal_discordance_negative_metal_positive_metal_counterion_exception"]
         is False
     )
-    assert scored.metadata["metal_discordance_structural_count"] == 1
+    assert scored.metadata["metal_discordance_negative_metal_penalty"] == pytest.approx(
+        0.5 * expected_negative_metal_count
+    )
+    assert scored.metadata["metal_discordance_structural_count"] == pytest.approx(
+        0.5 * expected_negative_metal_count
+        + scored.metadata["metal_discordance_unsaturated_organic_cation_count"]
+    )
+    assert scored.metadata["metal_discordance_count"] == pytest.approx(
+        0.5 * expected_negative_metal_count
+    )
 
 
 @pytest.mark.parametrize(
@@ -1473,7 +2882,13 @@ def test_metal_discordance_negative_metal_only_uses_outer_sphere_proton_exceptio
         scored.metadata["metal_discordance_negative_metal_positive_metal_counterion_exception"]
         is False
     )
-    assert scored.metadata["metal_discordance_structural_count"] == expected_negative_metal_count
+    assert scored.metadata["metal_discordance_negative_metal_penalty"] == pytest.approx(
+        0.5 * expected_negative_metal_count
+    )
+    assert scored.metadata["metal_discordance_structural_count"] == pytest.approx(
+        0.5 * expected_negative_metal_count
+        + scored.metadata["metal_discordance_unsaturated_organic_cation_count"]
+    )
 
 
 def test_metal_discordance_allows_negative_metal_with_positive_metal_counterion() -> None:
@@ -1604,7 +3019,8 @@ C 1.2 0.0 0.0
 
     assert scored.metadata["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] == 0
     assert scored.metadata["metal_discordance_inner_visible_adjacent_carbanion_pair_count"] == 1
-    assert scored.metadata["metal_discordance_structural_count"] == 1
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
+    assert scored.metadata["metal_discordance_structural_count"] == 2
 
 
 def test_metal_discordance_counts_inner_visible_adjacent_carbanion_pair() -> None:
@@ -1698,6 +3114,7 @@ C 4.1 0.0 0.0
     assert scored.metadata["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] == 0
     assert scored.metadata["metal_discordance_inner_visible_adjacent_carbanion_pair_count"] == 0
     assert scored.metadata["metal_discordance_inner_visible_conjugated_carbanion_pair_count"] == 1
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 0
     assert scored.metadata["metal_discordance_structural_count"] == 1
 
 
@@ -1750,10 +3167,11 @@ C 4.1 0.0 0.0
     assert scored.metadata["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] == 0
     assert scored.metadata["metal_discordance_inner_visible_adjacent_carbanion_pair_count"] == 0
     assert scored.metadata["metal_discordance_inner_visible_conjugated_carbanion_pair_count"] == 1
-    assert scored.metadata["metal_discordance_structural_count"] == 1
+    assert scored.metadata["metal_discordance_unsaturated_organic_cation_count"] == 1
+    assert scored.metadata["metal_discordance_structural_count"] == 2
 
 
-def test_organic_radical_localization_penalty_uses_spin_parity() -> None:
+def test_organic_radical_localization_penalty_counts_real_diradical() -> None:
     sulfur = pybel.readstring(
         "xyz",
         """1
@@ -1762,15 +3180,15 @@ S 0.0 0.0 0.0
 """,
     )
     sulfur_atom = sulfur.OBMol.GetAtom(1)
-    sulfur_atom.SetSpinMultiplicity(2)
+    set_unpaired_electron_count(sulfur_atom, 2)
 
     assert metal_scoring_module._radical_localization_penalty_for_atom(
         sulfur_atom,
         is_conjugated=False,
-    ) == pytest.approx(0.0)
+    ) == pytest.approx(6.0)
 
 
-def test_xyz2omol_state_uses_organic_score_before_metal_consistency(monkeypatch) -> None:
+def test_xyz2omol_state_does_not_treat_nonprior_valence_as_discordance(monkeypatch) -> None:
     no_metal = pybel.readstring(
         "xyz",
         """2
@@ -1814,11 +3232,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_combined_score(self):
         valence = self.metal_states[0].valence
@@ -1891,11 +3305,7 @@ O 3.2 0.0 0.0
             ],
         },
     )
-    monkeypatch.setattr(
-        without_metals_module,
-        "xyz_to_omol_no_metal_state",
-        lambda *args, **kwargs: no_metal_state,
-    )
+    _patch_no_metal_seed_reconstruction(monkeypatch, no_metal_state)
 
     def fake_prepare_candidate(candidate, no_metal_state, *, config=None):
         del no_metal_state, config

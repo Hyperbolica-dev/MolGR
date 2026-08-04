@@ -8,6 +8,7 @@ from typing import Any
 from rdkit import Chem
 
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import remove_hs_without_sanitize
 
 
 @dataclass(frozen=True)
@@ -75,15 +76,8 @@ class MolGRCppMethod(BenchmarkMethod):
             except Exception:  # noqa: BLE001
                 return
 
-            timing_ms_breakdown["cpp_no_metal_pipeline_ms"] = float(
-                raw.get("no_metal_pipeline_ms", 0.0)
-            )
-            timing_ms_breakdown["cpp_resonance_handling_enumeration_ms"] = float(
-                raw.get("resonance_handling_enumeration_ms", 0.0)
-            )
-            timing_ms_breakdown["cpp_metal_enumeration_combination_ms"] = float(
-                raw.get("metal_enumeration_combination_ms", 0.0)
-            )
+            for key, value in raw.items():
+                timing_ms_breakdown[f"cpp_{key}"] = float(value)
 
         interface_started = time.perf_counter()
         try:
@@ -108,10 +102,9 @@ class MolGRCppMethod(BenchmarkMethod):
             time.perf_counter() - interface_started
         ) * 1000.0
         _merge_cpp_internal_timing()
-
         postprocess_started = time.perf_counter()
         try:
-            rdkit_mol = Chem.RemoveHs(rdkit_mol)
+            rdkit_mol = remove_hs_without_sanitize(rdkit_mol)
             predicted_smiles = Chem.MolToSmiles(
                 rdkit_mol,
                 canonical=True,

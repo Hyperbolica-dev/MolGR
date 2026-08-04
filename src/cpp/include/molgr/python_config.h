@@ -7,6 +7,4 @@
 namespace molgr::config
 {
     MolGRConfig FromPython(pybind11::handle config);
-    void SetDefaultConfigFromPython(pybind11::handle config);
-    pybind11::dict DefaultConfigSummary();
 }

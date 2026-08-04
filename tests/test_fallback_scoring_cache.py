@@ -17,6 +17,7 @@ from molgr.fallback.state import (
 )
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
 from molgr.fallback.utils.force_field import (
+    _build_force_field_setup_key,
     _build_score_key,
     build_force_field_score_key,
     force_field_evaluation_cache_clear,
@@ -117,6 +118,27 @@ O 4.2 0.0 0.0
 
     selection_force_field_energy(second)
     assert force_field_evaluation_cache_info() == (0, 2, 2)
+
+
+def test_force_field_cache_keys_distinguish_atom_hybridization() -> None:
+    force_field_evaluation_cache_clear()
+    base = pybel.readstring(
+        "xyz",
+        """2
+CO
+C 2.0 0.0 0.0
+O 3.2 0.0 0.0
+""",
+    )
+    first = base.clone
+    second = base.clone
+    first.OBMol.SetHybridizationPerceived(True)
+    second.OBMol.SetHybridizationPerceived(True)
+    first.OBMol.GetAtom(2).SetHyb(2)
+    second.OBMol.GetAtom(2).SetHyb(3)
+
+    assert build_force_field_score_key(first) != build_force_field_score_key(second)
+    assert _build_force_field_setup_key(first.OBMol) != _build_force_field_setup_key(second.OBMol)
 
 
 def test_reconstruction_state_caches_force_field_score_key_until_omol_changes(

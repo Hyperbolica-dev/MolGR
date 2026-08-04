@@ -17,7 +17,7 @@ namespace molgr
 {
     namespace resonance
     {
-        using ResonanceAtomKey = std::tuple<int, int, int, bool>;
+        using ResonanceAtomKey = std::tuple<int, int, int, int, bool, bool>;
         using ResonanceBondKey = std::tuple<int, int, int, bool>;
         using ResonanceBondIndexMap = std::map<std::pair<int, int>, std::size_t>;
         using UffLiteGainMetrics = std::array<double, 4>;
@@ -44,6 +44,8 @@ namespace molgr
             const OpenBabel::OBMol &omol;
             const ResonanceStateKey &state_key;
             int depth;
+            int discrepancy;
+            std::shared_ptr<OpenBabel::OBMol> omol_owner;
         };
 
         struct IndexedResonanceTraversalMove
@@ -71,7 +73,8 @@ namespace molgr
         ResonanceStateKey IncrementResonanceStateKey(
             const ResonanceStateKey &state_key,
             const ResonanceBondIndexMap &bond_index_map,
-            const std::tuple<int, int, int> &idxs);
+            const std::tuple<int, int, int> &idxs,
+            bool target_unresolved = false);
 
         std::vector<IndexedResonanceTraversalMove> EnumerateOneStepResonanceMoves(
             const OpenBabel::OBMol &mol,
@@ -99,9 +102,13 @@ namespace molgr
 
         std::tuple<OpenBabel::OBMol, int, bool> ProcessResonanceDetailed(
             const OpenBabel::OBMol &mol,
-            int charge);
+            int charge,
+            int total_charge = 0,
+            int total_radical_electrons = 0);
         std::pair<OpenBabel::OBMol, int> ProcessResonance(
             const OpenBabel::OBMol &mol,
-            int charge);
+            int charge,
+            int total_charge = 0,
+            int total_radical_electrons = 0);
     }
 }

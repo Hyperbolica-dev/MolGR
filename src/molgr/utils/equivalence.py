@@ -1,46 +1,24 @@
-"""
-Author: TMJ
-Date: 2026-02-22 20:18:39
-LastEditors: TMJ
-LastEditTime: 2026-04-28 22:58:17
-Description: 用于判定对于同一个分子坐标输入下不同的分子图重建算法结果的一致性，只要和标准答案在共振异构级别上有一个一致，就认为是一致的。
-"""
-
+# pyright: reportCallIssue=false
 from __future__ import annotations
 
 from collections import Counter
-from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
-from functools import partial
+from functools import lru_cache
 from typing import Optional, Tuple
 
-from rdkit import Chem
+from rdkit import Chem, rdBase
 from rdkit.Chem import ResonanceMolSupplier, inchi
-
-from .radical_resonance import enumerate_resonance_radical
 
 
 pt = Chem.GetPeriodicTable()
 
 
-# ================================
-# Enum
-# ================================
-
-
 class EquivalenceMethod(str, Enum):
     IDEAL = "ideal"
-    ISOMORPHIC = "isomorphic"
+    INCHI_KEY = "inchi_key"
     CARBENE_ZWITTERION = "carbene_zwitterion"
-    COORDINATION_STRIPPED = "coordination_stripped"
     RESONANCE = "resonance"
-    INCHI_CONNECTIVITY = "inchi_connectivity"
-
-
-# ================================
-# Dataclasses
-# ================================
 
 
 @dataclass
@@ -58,29 +36,18 @@ class CanonicalSmilesDetail:
 
 
 @dataclass
-class IsomorphicDetail:
-    mol1_in_mol2: bool
-    mol2_in_mol1: bool
-
-
-@dataclass
-class ResonanceDetail:
-    max_resonance: int
-    resonance_flags: int
-    mol2_resonance_count: int
-    hit_smiles: Optional[str] = None
-
-
-@dataclass
 class CarbeneZwitterionDetail:
     mol1_normalized: str
     mol2_normalized: str
 
 
 @dataclass
-class CoordinationStrippedDetail:
-    mol1_stripped: str
-    mol2_stripped: str
+class ResonanceDetail:
+    max_resonance: int
+    resonance_flags: int
+    mol1_resonance_count: int
+    mol2_resonance_count: int
+    hit_smiles: Optional[str] = None
 
 
 @dataclass
@@ -88,7 +55,8 @@ class EquivalenceChecks:
     formal_charge: PropertyCheck
     radical_electrons: PropertyCheck
     num_atoms: PropertyCheck
-    formula: PropertyCheck
+    heavy_atom_formula: PropertyCheck
+    explicit_h_formula: PropertyCheck
 
 
 @dataclass
@@ -96,38 +64,16 @@ class EquivalenceInfo:
     equivalent: bool = False
     method: Optional[EquivalenceMethod] = None
     reason: str = ""
-
     checks: Optional[EquivalenceChecks] = None
-
     canonical_smiles: Optional[CanonicalSmilesDetail] = None
-    isomorphic: Optional[IsomorphicDetail] = None
     carbene_zwitterion: Optional[CarbeneZwitterionDetail] = None
-    coordination_stripped: Optional[CoordinationStrippedDetail] = None
     resonance: Optional[ResonanceDetail] = None
 
 
-_NON_METAL_ATOMIC_NUMBERS = frozenset(
-    {
-        1,
-        5,
-        6,
-        7,
-        8,
-        9,
-        14,
-        15,
-        16,
-        17,
-        33,
-        34,
-        35,
-        51,
-        52,
-        53,
-    }
-)
+_NON_METAL_ATOMIC_NUMBERS = frozenset({1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 34, 35, 51, 52, 53})
 
 _SULFIMIDE_RESONANCE_PATTERN = Chem.MolFromSmarts("[N:1]=[S:2](=[O:3])([O-:4])[!#1:5]")
+_CARBENE_ZWITTERION_PATTERN = Chem.MolFromSmarts("[*-]=[*+]")
 _THIOSEMICARBAZONE_RESONANCE_PATTERNS = tuple(
     pattern
     for pattern in (
@@ -138,42 +84,104 @@ _THIOSEMICARBAZONE_RESONANCE_PATTERNS = tuple(
 )
 
 
-def _canon_smiles(m: Chem.Mol, use_chirality: bool) -> str:
-    if Chem.SanitizeMol(m) != Chem.SanitizeFlags.SANITIZE_NONE:
-        raise ValueError("Molecule is not sanitized.")
-    return Chem.CanonSmiles(Chem.MolToSmiles(m, canonical=True, isomericSmiles=use_chirality))
-
-
-def _inchi_connectivity_key(m: Chem.Mol) -> str | None:
-    try:
-        key = inchi.MolToInchiKey(m)
-    except Exception:  # noqa: BLE001
-        return None
-    if not key:
-        return None
-    return key.split("-")[0]
-
-
 def _is_metal_atom(atom: Chem.Atom) -> bool:
     return int(atom.GetAtomicNum()) not in _NON_METAL_ATOMIC_NUMBERS
 
 
-def _safe_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
+def _total_formal_charge(mol: Chem.Mol) -> int:
+    return sum(int(atom.GetFormalCharge()) for atom in mol.GetAtoms())
+
+
+def _total_radical_electrons(mol: Chem.Mol) -> int:
+    return sum(int(atom.GetNumRadicalElectrons()) for atom in mol.GetAtoms())
+
+
+def _formula_key(mol: Chem.Mol, *, include_hydrogen: bool) -> str:
+    counts = Counter(
+        atom.GetSymbol() for atom in mol.GetAtoms() if include_hydrogen or atom.GetAtomicNum() != 1
+    )
+    if not counts:
+        return ""
+    ordered_symbols: list[str] = []
+    if "C" in counts:
+        ordered_symbols.append("C")
+    if include_hydrogen and "H" in counts:
+        ordered_symbols.append("H")
+    ordered_symbols.extend(symbol for symbol in sorted(counts) if symbol not in ordered_symbols)
+    return "".join(
+        f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols
+    )
+
+
+def _safe_copy(mol: Chem.Mol) -> Chem.Mol:
     clone = Chem.Mol(mol)
     clone.UpdatePropertyCache(strict=False)
-    with suppress(Exception):
-        Chem.SanitizeMol(clone)
-    return Chem.CanonSmiles(Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality))
+    _sanitize_if_possible(clone)
+    return clone
 
 
-def _best_effort_sanitize(mol: Chem.Mol) -> str | None:
-    mol.UpdatePropertyCache(strict=False)
+def _sanitize_if_possible(mol: Chem.Mol) -> None:
     try:
         Chem.SanitizeMol(mol)
-    except Exception as exc:  # noqa: BLE001
-        mol.UpdatePropertyCache(strict=False)
-        return f"{type(exc).__name__}: {exc}"
-    return None
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _kekulize_if_possible(mol: Chem.Mol, *, clear_aromatic_flags: bool = False) -> None:
+    try:
+        Chem.Kekulize(mol, clearAromaticFlags=clear_aromatic_flags)
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _clear_metal_radicals(mol: Chem.Mol) -> Chem.Mol:
+    rw_mol = Chem.RWMol(mol)
+    for atom in rw_mol.GetAtoms():
+        if _is_metal_atom(atom):
+            atom.SetNumRadicalElectrons(0)
+    normalized = rw_mol.GetMol()
+    normalized.UpdatePropertyCache(strict=False)
+    return normalized
+
+
+def _safe_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
+    clone = _safe_copy(mol)
+    if not use_chirality:
+        Chem.RemoveStereochemistry(clone)
+        clone.UpdatePropertyCache(strict=False)
+    return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality)
+
+
+def _canon_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
+    # MolToSmiles(canonical=True) already canonicalizes the molecular graph.
+    return _safe_smiles(mol, use_chirality=use_chirality)
+
+
+def _resonance_form_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
+    try:
+        # ResonanceMolSupplier returns sanitized molecules. Avoid copying and
+        # sanitizing every form in the hot loop, but retain the safe fallback.
+        return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=use_chirality)
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        return _canon_smiles(mol, use_chirality)
+
+
+def _inchi_key(mol: Chem.Mol) -> str | None:
+    try:
+        key = inchi.MolToInchiKey(_safe_copy(mol))
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+    if not key:
+        return None
+    return key
 
 
 def _remove_hs_without_sanitize(mol: Chem.Mol) -> Chem.Mol:
@@ -185,138 +193,363 @@ def _remove_hs_without_sanitize(mol: Chem.Mol) -> Chem.Mol:
     return stripped
 
 
-def _prepare_equivalence_mol(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
-    prepared = Chem.Mol(mol)
-    prep_errors: list[str] = []
-
-    sanitize_error = _best_effort_sanitize(prepared)
-    if sanitize_error is not None:
-        prep_errors.append(f"sanitize failed: {sanitize_error}")
-
-    try:
-        prepared = _remove_hs_without_sanitize(prepared)
-    except Exception as exc:  # noqa: BLE001
-        prep_errors.append(f"RemoveHs failed: {type(exc).__name__}: {exc}")
-        return prepared, prep_errors
-
-    post_removehs_error = _best_effort_sanitize(prepared)
-    if post_removehs_error is not None:
-        prep_errors.append(f"post-RemoveHs sanitize failed: {post_removehs_error}")
-
-    return prepared, prep_errors
+def _add_hs_without_sanitize(mol: Chem.Mol) -> Chem.Mol:
+    added = Chem.AddHs(mol)
+    added.UpdatePropertyCache(strict=False)
+    return added
 
 
-def _iter_resonance_structures(
-    mol: Chem.Mol,
-    *,
-    max_resonance: int,
-    resonance_flags: Chem.ResonanceFlags,
-):
-    for resonance_mol in ResonanceMolSupplier(
-        mol,
-        maxStructs=max_resonance,
-        flags=resonance_flags,
-    ):
-        if resonance_mol is not None:
-            yield resonance_mol
+def _standardize_metal_bonds(mol: Chem.Mol) -> Chem.Mol:
+    rw_mol = Chem.RWMol(_safe_copy(_clear_metal_radicals(_add_hs_without_sanitize(mol))))
+    for bond in list(rw_mol.GetBonds()):
+        begin_atom = bond.GetBeginAtom()
+        end_atom = bond.GetEndAtom()
+        begin_is_metal = _is_metal_atom(begin_atom)
+        end_is_metal = _is_metal_atom(end_atom)
+        if begin_is_metal == end_is_metal:
+            continue
+        if bond.GetBondType() == Chem.BondType.DATIVE:
+            continue
+
+        metal_atom = begin_atom if begin_is_metal else end_atom
+        ligand_atom = end_atom if begin_is_metal else begin_atom
+        bond_order = max(1, int(round(bond.GetBondTypeAsDouble())))
+
+        if bond_order == 2:
+            # Return the metal-ligand double-bond electron pair to the ligand.
+            # Once the metal is removed, this is the carbene-like two-electron
+            # center represented by an explicit pair of radical electrons. A
+            # carbene coordination bond does not change the metal valence.
+            ligand_atom.SetNumRadicalElectrons(ligand_atom.GetNumRadicalElectrons() + 2)
+        else:
+            metal_atom.SetFormalCharge(metal_atom.GetFormalCharge() + bond_order)
+            ligand_atom.SetFormalCharge(ligand_atom.GetFormalCharge() - bond_order)
+
+        bond.SetBondType(Chem.BondType.DATIVE)
+        bond.SetBondDir(Chem.BondDir.NONE)
+        bond.SetIsAromatic(False)
+
+    standardized = rw_mol.GetMol()
+    standardized.UpdatePropertyCache(strict=False)
+    _sanitize_if_possible(standardized)
+    return standardized
 
 
-def _formula_key_without_hydrogen(mol: Chem.Mol) -> str:
-    counts = Counter(
-        mol.GetAtomWithIdx(atom_idx).GetSymbol()
-        for atom_idx in range(mol.GetNumAtoms())
-        if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() != 1
-    )
-    if not counts:
-        return ""
-
-    ordered_symbols: list[str] = []
-    if "C" in counts:
-        ordered_symbols.append("C")
-    ordered_symbols.extend(symbol for symbol in sorted(counts) if symbol != "C")
-    return "".join(
-        f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols
-    )
-
-
-def _total_formal_charge(mol: Chem.Mol) -> int:
-    return sum(
-        mol.GetAtomWithIdx(atom_idx).GetFormalCharge() for atom_idx in range(mol.GetNumAtoms())
-    )
-
-
-def _total_radical_electrons(mol: Chem.Mol) -> int:
-    return sum(
-        mol.GetAtomWithIdx(atom_idx).GetNumRadicalElectrons()
-        for atom_idx in range(mol.GetNumAtoms())
-    )
-
-
-def _strip_metal_coordination_bonds(mol: Chem.Mol) -> tuple[Chem.Mol, bool]:
+def _remove_coordination_bonds(mol: Chem.Mol) -> Chem.Mol:
     rw_mol = Chem.RWMol(Chem.Mol(mol))
     bonds_to_remove: list[tuple[int, int]] = []
-    for bond_idx in range(rw_mol.GetNumBonds()):
-        bond = rw_mol.GetBondWithIdx(bond_idx)
+    for bond in rw_mol.GetBonds():
         begin_atom = bond.GetBeginAtom()
         end_atom = bond.GetEndAtom()
         if _is_metal_atom(begin_atom) == _is_metal_atom(end_atom):
             continue
-        bonds_to_remove.append((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))
-    for begin_atom_idx, end_atom_idx in bonds_to_remove:
-        rw_mol.RemoveBond(begin_atom_idx, end_atom_idx)
+        if bond.GetBondType() == Chem.BondType.DATIVE:
+            bonds_to_remove.append((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))
+    for begin_idx, end_idx in bonds_to_remove:
+        rw_mol.RemoveBond(begin_idx, end_idx)
     stripped = rw_mol.GetMol()
     stripped.UpdatePropertyCache(strict=False)
-    with suppress(Exception):
-        Chem.SanitizeMol(stripped)
-    return stripped, bool(bonds_to_remove)
+    _sanitize_if_possible(stripped)
+    return stripped
 
 
-def _normalize_carbene_zwitterion_forms(mol: Chem.Mol) -> Chem.Mol:
-    normalized = Chem.Mol(mol)
+def _remove_metal_atoms(mol: Chem.Mol) -> Chem.Mol:
+    rw_mol = Chem.RWMol(_safe_copy(mol))
+    metal_indices = [atom.GetIdx() for atom in rw_mol.GetAtoms() if _is_metal_atom(atom)]
+    for atom_idx in sorted(metal_indices, reverse=True):
+        rw_mol.RemoveAtom(int(atom_idx))
+    stripped = rw_mol.GetMol()
+    stripped.UpdatePropertyCache(strict=False)
+    _sanitize_if_possible(stripped)
+    return stripped
+
+
+def _prepare_organic_mol(mol: Chem.Mol, *, already_standardized: bool = False) -> Chem.Mol:
+    standardized = mol if already_standardized else _standardize_metal_bonds(mol)
+    standardized = _remove_coordination_bonds(standardized)
+    standardized = _remove_metal_atoms(standardized)
+    standardized.UpdatePropertyCache(strict=False)
+    _sanitize_if_possible(standardized)
+    return standardized
+
+
+# These elements are allowed to appear in tmQMg in hypervalent, multiple-bond
+# forms.  Equivalence comparison uses their charge-separated octet form only;
+# reconstruction output and stored reference graphs are left untouched.
+_OCTET_NORMALIZED_ATOMIC_NUMS = frozenset({7, 8, 9, 15, 16, 17, 33, 34, 35, 53})
+_OCTET_VALENCE_LIMITS = {
+    9: 1,
+    17: 1,
+    35: 1,
+    53: 1,
+}
+
+
+def _bond_type_for_order(order: int) -> Chem.BondType:
+    return {
+        1: Chem.BondType.SINGLE,
+        2: Chem.BondType.DOUBLE,
+        3: Chem.BondType.TRIPLE,
+        4: Chem.BondType.QUADRUPLE,
+    }[order]
+
+
+def _normalize_nonmetal_octet(mol: Chem.Mol) -> Chem.Mol:
+    """Canonicalize supported hypervalent nonmetals to charge-separated octets."""
+
+    rw_mol = Chem.RWMol(_safe_copy(mol))
+    # A single deterministic pass is insufficient when reducing one bond
+    # exposes another overvalent atom, so process until no excess remains.
+    changed = True
+    while changed:
+        changed = False
+        for atom in rw_mol.GetAtoms():
+            atomic_num = int(atom.GetAtomicNum())
+            if atomic_num not in _OCTET_NORMALIZED_ATOMIC_NUMS:
+                continue
+            limit = _OCTET_VALENCE_LIMITS.get(atomic_num, 4)
+            bond_order_sum = sum(
+                int(round(bond.GetBondTypeAsDouble()))
+                for bond in atom.GetBonds()
+                if bond.GetBondType() != Chem.BondType.DATIVE
+            )
+            if bond_order_sum <= limit:
+                continue
+
+            reducible = sorted(
+                (
+                    bond
+                    for bond in atom.GetBonds()
+                    if int(round(bond.GetBondTypeAsDouble())) > 1
+                    and not bond.GetIsAromatic()
+                    and bond.GetBondType() != Chem.BondType.DATIVE
+                ),
+                key=lambda bond: (
+                    -int(round(bond.GetBondTypeAsDouble())),
+                    int(bond.GetOtherAtomIdx(atom.GetIdx())),
+                ),
+            )
+            if not reducible:
+                continue
+            bond = reducible[0]
+            order = int(round(bond.GetBondTypeAsDouble()))
+            other = rw_mol.GetAtomWithIdx(bond.GetOtherAtomIdx(atom.GetIdx()))
+            bond.SetBondType(_bond_type_for_order(order - 1))
+            atom.SetFormalCharge(atom.GetFormalCharge() + 1)
+            other.SetFormalCharge(other.GetFormalCharge() - 1)
+            changed = True
+            break
+
+    normalized = rw_mol.GetMol()
+    normalized.UpdatePropertyCache(strict=False)
+    return normalized
+
+
+def _prepare_resonance_source(mol: Chem.Mol) -> Chem.Mol:
+    source = _add_hs_without_sanitize(mol)
+    _kekulize_if_possible(source, clear_aromatic_flags=True)
+    return source
+
+
+def _charge_shift_resonance_forms(mol: Chem.Mol) -> tuple[Chem.Mol, ...]:
+    """Generate the generic ``[*-]-[*]=[*]`` charge-shift form.
+
+    RDKit's resonance supplier can omit this elementary migration when a
+    molecule has many other resonance states.  Keep the transformation local
+    and valence-safe: the negative endpoint gains a pi bond and is neutralized,
+    while the terminal atom receives the negative charge as its pi bond is
+    reduced to a single bond.
+    """
+
+    forms: list[Chem.Mol] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.SINGLE or bond.GetIsAromatic():
+            continue
+        for negative_idx, center_idx in (
+            (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()),
+            (bond.GetEndAtomIdx(), bond.GetBeginAtomIdx()),
+        ):
+            negative = mol.GetAtomWithIdx(negative_idx)
+            center = mol.GetAtomWithIdx(center_idx)
+            if (
+                negative.GetFormalCharge() != -1
+                or center.GetFormalCharge() != 0
+                or negative.GetNumRadicalElectrons() != 0
+                or center.GetNumRadicalElectrons() != 0
+            ):
+                continue
+            default_valence = pt.GetDefaultValence(negative.GetAtomicNum())
+            if default_valence <= 0 or negative.GetTotalValence() + 1 > default_valence:
+                continue
+            for pi_bond in center.GetBonds():
+                terminal = pi_bond.GetOtherAtom(center)
+                if terminal.GetIdx() == negative_idx:
+                    continue
+                if (
+                    pi_bond.GetBondType() != Chem.BondType.DOUBLE
+                    or pi_bond.GetIsAromatic()
+                    or terminal.GetFormalCharge() != 0
+                    or terminal.GetNumRadicalElectrons() != 0
+                ):
+                    continue
+                shifted = Chem.RWMol(mol)
+                shifted.GetBondBetweenAtoms(negative_idx, center_idx).SetBondType(
+                    Chem.BondType.DOUBLE
+                )
+                shifted.GetBondBetweenAtoms(center_idx, terminal.GetIdx()).SetBondType(
+                    Chem.BondType.SINGLE
+                )
+                shifted.GetAtomWithIdx(negative_idx).SetFormalCharge(0)
+                shifted.GetAtomWithIdx(terminal.GetIdx()).SetFormalCharge(-1)
+                form = shifted.GetMol()
+                form.UpdatePropertyCache(strict=False)
+                _sanitize_if_possible(form)
+                forms.append(form)
+    return tuple(forms)
+
+
+@lru_cache(maxsize=128)
+def _cached_resonance_smiles(
+    source_smiles: str,
+    *,
+    use_chirality: bool,
+    max_resonance: int,
+    resonance_flags: int,
+) -> tuple[str, ...]:
+    source_mol = Chem.MolFromSmiles(source_smiles)
+    if source_mol is None:
+        return ()
+    source = _prepare_resonance_source(source_mol)
+    seen: list[str] = []
+
+    def add_form(form: Chem.Mol) -> None:
+        if len(seen) >= max_resonance:
+            return
+        smiles = _resonance_form_smiles(form, use_chirality)
+        if smiles not in seen:
+            seen.append(smiles)
+
+    supplier_forms: list[Chem.Mol] = []
+    try:
+        supplier = ResonanceMolSupplier(
+            source,
+            maxStructs=max_resonance,
+            flags=Chem.ResonanceFlags(resonance_flags),
+        )
+        for resonance_mol in supplier:
+            if resonance_mol is None:
+                continue
+            supplier_forms.append(resonance_mol)
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        supplier_forms = []
+
+    # Reserve the bounded result set for explicit charge-shift forms before
+    # adding RDKit's broader enumeration.  Walk the local transformation to a
+    # bounded closure because a charge may need to cross more than one
+    # conjugated bond before reaching the reference representation.
+    charge_shift_queue = [source, *supplier_forms]
+    queued_smiles: set[str] = set()
+    queue_index = 0
+    while queue_index < len(charge_shift_queue) and len(seen) < max_resonance:
+        resonance_form = charge_shift_queue[queue_index]
+        queue_index += 1
+        form_smiles = _resonance_form_smiles(resonance_form, use_chirality)
+        if form_smiles in queued_smiles:
+            continue
+        queued_smiles.add(form_smiles)
+        for shifted_form in _charge_shift_resonance_forms(resonance_form):
+            shifted_smiles = _resonance_form_smiles(shifted_form, use_chirality)
+            if shifted_smiles in queued_smiles:
+                continue
+            queued_smiles.add(shifted_smiles)
+            charge_shift_queue.append(shifted_form)
+            add_form(shifted_form)
+            if len(seen) >= max_resonance:
+                return tuple(dict.fromkeys(seen))
+    for resonance_form in supplier_forms:
+        add_form(resonance_form)
+    return tuple(dict.fromkeys(seen))
+
+
+def _resonance_topology_key(mol: Chem.Mol) -> str:
+    rw_mol = Chem.RWMol(Chem.Mol(mol))
+    for atom in rw_mol.GetAtoms():
+        atom.SetFormalCharge(0)
+        atom.SetNumRadicalElectrons(0)
+        atom.SetIsAromatic(False)
+        atom.SetNoImplicit(True)
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    for bond in rw_mol.GetBonds():
+        bond.SetBondType(Chem.BondType.SINGLE)
+        bond.SetIsAromatic(False)
+        bond.SetBondDir(Chem.BondDir.NONE)
+        bond.SetStereo(Chem.BondStereo.STEREONONE)
+    topology = rw_mol.GetMol()
+    topology.UpdatePropertyCache(strict=False)
+    return Chem.MolToSmiles(topology, canonical=True, isomericSmiles=False)
+
+
+def _has_defined_stereochemistry(mol: Chem.Mol) -> bool:
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+        return True
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+
+
+def _component_electron_signature(mol: Chem.Mol) -> tuple[tuple[str, int, int], ...]:
+    signature = []
+    for fragment in Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False):
+        signature.append(
+            (
+                _resonance_topology_key(fragment),
+                _total_formal_charge(fragment),
+                _total_radical_electrons(fragment),
+            )
+        )
+    return tuple(sorted(signature))
+
+
+def _metal_signature_key(mol: Chem.Mol) -> tuple[tuple[int, int], ...]:
+    signature = []
+    for atom in mol.GetAtoms():
+        if not _is_metal_atom(atom):
+            continue
+        signature.append((int(atom.GetAtomicNum()), int(atom.GetFormalCharge())))
+    return tuple(sorted(signature))
+
+
+def _carbene_zwitterion_normalized_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
+    normalized = _safe_copy(mol)
     rw_mol = Chem.RWMol(normalized)
-    Chem.Kekulize(rw_mol)
+    _kekulize_if_possible(rw_mol)
 
-    smarts = Chem.MolFromSmarts("[*-]=[*+]")
-    for match in rw_mol.GetSubstructMatches(smarts):
-        begin_idx, end_idx = (int(atom_idx) for atom_idx in match)
-        bond = rw_mol.GetBondBetweenAtoms(begin_idx, end_idx)
-        atom_begin = rw_mol.GetAtomWithIdx(begin_idx)
-        atom_end = rw_mol.GetAtomWithIdx(end_idx)
-        if (
-            pt.GetDefaultValence(atom_begin.GetAtomicNum()) - atom_begin.GetTotalValence() == 1
-        ) and (pt.GetDefaultValence(atom_end.GetAtomicNum()) - atom_end.GetTotalValence() == -1):
-            bond.SetBondType(Chem.BondType.SINGLE)
-            atom_begin.SetFormalCharge(atom_begin.GetFormalCharge() + 1)
-            atom_end.SetFormalCharge(atom_end.GetFormalCharge() - 1)
-            atom_begin.SetNumRadicalElectrons(2)
-            atom_end.SetNumRadicalElectrons(0)
+    if _CARBENE_ZWITTERION_PATTERN is not None:
+        for match in rw_mol.GetSubstructMatches(_CARBENE_ZWITTERION_PATTERN):
+            begin_idx, end_idx = (int(atom_idx) for atom_idx in match)
+            bond = rw_mol.GetBondBetweenAtoms(begin_idx, end_idx)
+            atom_begin = rw_mol.GetAtomWithIdx(begin_idx)
+            atom_end = rw_mol.GetAtomWithIdx(end_idx)
+            if bond is None:
+                continue
+            if (
+                pt.GetDefaultValence(atom_begin.GetAtomicNum()) - atom_begin.GetTotalValence() == 1
+                and pt.GetDefaultValence(atom_end.GetAtomicNum()) - atom_end.GetTotalValence() == -1
+            ):
+                bond.SetBondType(Chem.BondType.SINGLE)
+                atom_begin.SetFormalCharge(atom_begin.GetFormalCharge() + 1)
+                atom_end.SetFormalCharge(atom_end.GetFormalCharge() - 1)
+                atom_begin.SetNumRadicalElectrons(2)
+                atom_end.SetNumRadicalElectrons(0)
 
     normalized_mol = rw_mol.GetMol()
     normalized_mol.UpdatePropertyCache(strict=False)
-    Chem.Cleanup(normalized_mol)
-    for atom_idx in range(normalized_mol.GetNumAtoms()):
-        normalized_mol.GetAtomWithIdx(atom_idx).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
-        normalized_mol.GetAtomWithIdx(atom_idx).SetIsAromatic(False)
-    return normalized_mol
-
-
-def _carbene_zwitterion_normalized_smiles(
-    mol: Chem.Mol,
-    *,
-    use_chirality: bool,
-) -> str:
-    normalized = _normalize_carbene_zwitterion_forms(mol)
-    return Chem.CanonSmiles(
-        Chem.MolToSmiles(
-            normalized,
-            canonical=True,
-            isomericSmiles=use_chirality,
-        )
-    )
+    _sanitize_if_possible(normalized_mol)
+    return _canon_smiles(normalized_mol, use_chirality)
 
 
 def _normalize_special_resonance_forms(mol: Chem.Mol) -> Chem.Mol:
-    normalized = Chem.Mol(mol)
+    normalized = _safe_copy(mol)
     rw_mol = Chem.RWMol(normalized)
 
     if _SULFIMIDE_RESONANCE_PATTERN is not None:
@@ -336,13 +569,12 @@ def _normalize_special_resonance_forms(mol: Chem.Mol) -> Chem.Mol:
 
     def collapse_thiosemicarbazone_match(match: tuple[int, ...]) -> None:
         n1_idx, n2_idx, c_idx, s_idx, n3_idx = (int(atom_idx) for atom_idx in match)
-        bond_pairs = (
+        for begin_idx, end_idx in (
             (n1_idx, n2_idx),
             (n2_idx, c_idx),
             (c_idx, s_idx),
             (c_idx, n3_idx),
-        )
-        for begin_idx, end_idx in bond_pairs:
+        ):
             bond = rw_mol.GetBondBetweenAtoms(begin_idx, end_idx)
             if bond is not None:
                 bond.SetBondType(Chem.BondType.SINGLE)
@@ -360,96 +592,311 @@ def _normalize_special_resonance_forms(mol: Chem.Mol) -> Chem.Mol:
 
     normalized_mol = rw_mol.GetMol()
     normalized_mol.UpdatePropertyCache(strict=False)
-    with suppress(Exception):
-        Chem.SanitizeMol(normalized_mol)
+    _sanitize_if_possible(normalized_mol)
     return normalized_mol
 
 
-def _special_resonance_normalized_smiles(
-    mol: Chem.Mol,
-    *,
-    use_chirality: bool,
-) -> str:
-    normalized = _normalize_special_resonance_forms(mol)
-    return Chem.CanonSmiles(
-        Chem.MolToSmiles(
-            normalized,
-            canonical=True,
-            isomericSmiles=use_chirality,
-        )
-    )
-
-
-def _apply_exception_fallback(
-    info: EquivalenceInfo,
-    m1: Chem.Mol,
-    m2: Chem.Mol,
-    phase_errors: list[str],
-) -> Tuple[bool, EquivalenceInfo]:
-    inchi_key1 = _inchi_connectivity_key(m1)
-    inchi_key2 = _inchi_connectivity_key(m2)
-    joined_errors = "; ".join(phase_errors)
-
-    if inchi_key1 is not None and inchi_key1 == inchi_key2:
-        info.equivalent = True
-        info.method = EquivalenceMethod.INCHI_CONNECTIVITY
-        info.reason = (
-            "Equivalent: InChI connectivity key fallback matched after equivalence-phase exception(s): "
-            f"{joined_errors}"
-        )
-        return True, info
-
-    info.reason = (
-        "Not equivalent: equivalence-phase exception(s) prevented full comparison and "
-        f"InChI connectivity fallback did not match: {joined_errors}"
-    )
-    return False, info
-
-
-def _check_coordination_stripped_equivalence(
-    info: EquivalenceInfo,
-    m1: Chem.Mol,
-    m2: Chem.Mol,
+def _resonance_match(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
     *,
     use_chirality: bool,
     max_resonance: int,
     resonance_flags: Chem.ResonanceFlags,
-    phase_errors: list[str],
-    coordination_bonds_already_stripped: bool,
+) -> tuple[bool, int, int, str | None]:
+    def match_sets(mol1_smiles: set[str], mol2_smiles: set[str], target_2_smiles: str):
+        if target_2_smiles in mol1_smiles:
+            return True, len(mol1_smiles), 0, target_2_smiles
+        intersection = mol1_smiles & mol2_smiles
+        if intersection:
+            return True, len(mol1_smiles), len(mol2_smiles), next(iter(intersection))
+        return False, len(mol1_smiles), len(mol2_smiles), None
+
+    def local_charge_shift_smiles(mol: Chem.Mol) -> set[str]:
+        source = _prepare_resonance_source(mol)
+        queue = [source]
+        smiles: set[str] = set()
+        queue_index = 0
+        while queue_index < len(queue) and len(smiles) < max_resonance:
+            form = queue[queue_index]
+            queue_index += 1
+            form_smiles = _resonance_form_smiles(form, use_chirality)
+            if form_smiles in smiles:
+                continue
+            smiles.add(form_smiles)
+            for shifted_form in _charge_shift_resonance_forms(form):
+                shifted_smiles = _resonance_form_smiles(shifted_form, use_chirality)
+                if shifted_smiles not in smiles:
+                    queue.append(shifted_form)
+        return smiles
+
+    def cached_resonance_sets(target_1_smiles: str, target_2_smiles: str):
+        try:
+            mol1_smiles = set(
+                _cached_resonance_smiles(
+                    target_1_smiles,
+                    use_chirality=use_chirality,
+                    max_resonance=max_resonance,
+                    resonance_flags=int(resonance_flags),
+                )
+            )
+            mol2_smiles = set(
+                _cached_resonance_smiles(
+                    target_2_smiles,
+                    use_chirality=use_chirality,
+                    max_resonance=max_resonance,
+                    resonance_flags=int(resonance_flags),
+                )
+            )
+        except TimeoutError:
+            raise
+        return match_sets(mol1_smiles, mol2_smiles, target_2_smiles)
+
+    try:
+        # Preserve formal charges and bond orders for the generic local
+        # [*-]-[*]=[*] migration.  The special normalizer below intentionally
+        # collapses thiosemicarbazone-like motifs and would erase this input.
+        raw_target_1 = _canon_smiles(mol1, use_chirality)
+        raw_target_2 = _canon_smiles(mol2, use_chirality)
+        raw_result = match_sets(
+            local_charge_shift_smiles(mol1),
+            local_charge_shift_smiles(mol2),
+            raw_target_2,
+        )
+        if raw_result[0]:
+            return raw_result
+
+        normalized_1 = _normalize_special_resonance_forms(mol1)
+        normalized_2 = _normalize_special_resonance_forms(mol2)
+        normalized_target_1 = _canon_smiles(normalized_1, use_chirality)
+        normalized_target_2 = _canon_smiles(normalized_2, use_chirality)
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        return False, 0, 0, None
+
+    if (normalized_target_1, normalized_target_2) == (raw_target_1, raw_target_2):
+        return cached_resonance_sets(raw_target_1, raw_target_2)
+    return cached_resonance_sets(normalized_target_1, normalized_target_2)
+
+
+def _check_equivalence_impl(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    use_chirality: bool = True,
+    max_resonance: int = 50,
+    resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
+    | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
 ) -> Tuple[bool, EquivalenceInfo]:
-    if coordination_bonds_already_stripped:
+    standardized_1 = _standardize_metal_bonds(mol1)
+    standardized_2 = _standardize_metal_bonds(mol2)
+
+<<<<<<< HEAD
+    prepared_organic_1 = _prepare_organic_mol(standardized_1, already_standardized=True)
+    prepared_organic_2 = _prepare_organic_mol(standardized_2, already_standardized=True)
+    organic_1 = _normalize_nonmetal_octet(prepared_organic_1)
+    organic_2 = _normalize_nonmetal_octet(prepared_organic_2)
+=======
+    organic_1 = _normalize_nonmetal_octet(
+        _prepare_organic_mol(standardized_1, already_standardized=True)
+    )
+    organic_2 = _normalize_nonmetal_octet(
+        _prepare_organic_mol(standardized_2, already_standardized=True)
+    )
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
+
+    formal_charge_1 = _total_formal_charge(organic_1)
+    formal_charge_2 = _total_formal_charge(organic_2)
+    radical_electrons_1 = _total_radical_electrons(organic_1)
+    radical_electrons_2 = _total_radical_electrons(organic_2)
+    num_atoms_1 = organic_1.GetNumAtoms()
+    num_atoms_2 = organic_2.GetNumAtoms()
+    heavy_atom_formula_1 = _formula_key(organic_1, include_hydrogen=False)
+    heavy_atom_formula_2 = _formula_key(organic_2, include_hydrogen=False)
+    explicit_h_formula_1 = _formula_key(organic_1, include_hydrogen=True)
+    explicit_h_formula_2 = _formula_key(organic_2, include_hydrogen=True)
+
+    checks = EquivalenceChecks(
+        formal_charge=PropertyCheck(
+            formal_charge_1,
+            formal_charge_2,
+            formal_charge_1 == formal_charge_2,
+        ),
+        radical_electrons=PropertyCheck(
+            radical_electrons_1,
+            radical_electrons_2,
+            radical_electrons_1 == radical_electrons_2,
+        ),
+        num_atoms=PropertyCheck(
+            num_atoms_1,
+            num_atoms_2,
+            num_atoms_1 == num_atoms_2,
+        ),
+        heavy_atom_formula=PropertyCheck(
+            heavy_atom_formula_1,
+            heavy_atom_formula_2,
+            heavy_atom_formula_1 == heavy_atom_formula_2,
+        ),
+        explicit_h_formula=PropertyCheck(
+            explicit_h_formula_1,
+            explicit_h_formula_2,
+            explicit_h_formula_1 == explicit_h_formula_2,
+        ),
+    )
+    info = EquivalenceInfo(checks=checks)
+    topology_matches: bool | None = None
+    component_electrons_match: bool | None = None
+
+    if not checks.heavy_atom_formula.passed:
+        info.reason = "Not equivalent: heavy-atom element counts differ."
+        return False, info
+
+    if _metal_signature_key(standardized_1) != _metal_signature_key(standardized_2):
+        info.reason = "Not equivalent: metal valence assignment differs."
+        return False, info
+
+    if not checks.explicit_h_formula.passed:
+        info.reason = "Not equivalent: explicit-hydrogen element counts differ."
+        return False, info
+
+    if not checks.num_atoms.passed:
+        info.reason = "Not equivalent: explicit-hydrogen atom counts differ."
         return False, info
 
     try:
-        stripped_m1, stripped_m1_changed = _strip_metal_coordination_bonds(m1)
-        stripped_m2, stripped_m2_changed = _strip_metal_coordination_bonds(m2)
-        if not stripped_m1_changed and not stripped_m2_changed:
+        smiles_1 = _canon_smiles(organic_1, use_chirality)
+        smiles_2 = _canon_smiles(organic_2, use_chirality)
+        info.canonical_smiles = CanonicalSmilesDetail(smiles_1, smiles_2, use_chirality)
+        if smiles_1 == smiles_2:
+            info.equivalent = True
+            info.method = EquivalenceMethod.IDEAL
+            info.reason = "Equivalent: canonical SMILES are identical after standardization."
+            return True, info
+
+        # RDKit releases can switch between aromatic, kekulized, and explicit-
+        # hydrogen forms while preserving the same stereochemical structure.
+        # Compare the pre-octet-normalization organic graphs through InChI in
+        # that case.  This is deliberately after the charge, radical, formula,
+        # and atom-count checks above, and InChI still distinguishes E/Z and
+        # enantiomeric stereochemistry.
+        prepared_inchi_key_1 = _inchi_key(prepared_organic_1)
+        prepared_inchi_key_2 = _inchi_key(prepared_organic_2)
+        if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
+            _is_metal_atom(atom) for atom in mol2.GetAtoms()
+        ):
+            # Standardization itself may materialize hydrogens differently on
+            # the two RDKit versions.  For metal-free inputs the original
+            # graphs are already the correct coordination-free source.
+            prepared_inchi_key_1 = _inchi_key(mol1)
+            prepared_inchi_key_2 = _inchi_key(mol2)
+        if (
+            use_chirality
+            and prepared_inchi_key_1 is not None
+            and prepared_inchi_key_1 == prepared_inchi_key_2
+        ):
+            info.equivalent = True
+            info.method = EquivalenceMethod.INCHI_KEY
+            info.reason = "Equivalent: prepared organic InChIKey matches after standardization."
+            return True, info
+
+        if use_chirality and _canon_smiles(organic_1, False) == _canon_smiles(organic_2, False):
+            info.reason = "Not equivalent: stereochemistry differs."
             return False, info
 
-        info.coordination_stripped = CoordinationStrippedDetail(
-            mol1_stripped=_safe_smiles(stripped_m1, use_chirality=use_chirality),
-            mol2_stripped=_safe_smiles(stripped_m2, use_chirality=use_chirality),
-        )
-
-        stripped_equivalent, stripped_info = check_equivalence(
-            stripped_m1,
-            stripped_m2,
-            use_chirality=use_chirality,
-            max_resonance=max_resonance,
-            resonance_flags=resonance_flags,
-            _coordination_bonds_already_stripped=True,
-        )
-        if stripped_equivalent:
-            info.equivalent = True
-            info.method = EquivalenceMethod.COORDINATION_STRIPPED
-            info.reason = (
-                "Equivalent after stripping metal-ligand coordination bonds: "
-                f"{stripped_info.reason}"
-            )
-            return True, info
+        topology_1 = _resonance_topology_key(organic_1)
+        topology_2 = _resonance_topology_key(organic_2)
+        topology_matches = topology_1 == topology_2
+        if not topology_matches:
+            info.reason = "Not equivalent: non-metal connectivity differs."
+            return False, info
+        component_electrons_match = _component_electron_signature(
+            organic_1
+        ) == _component_electron_signature(organic_2)
+    except TimeoutError:
+        raise
     except Exception as exc:  # noqa: BLE001
-        phase_errors.append(f"coordination-stripped check failed: {type(exc).__name__}: {exc}")
+        info.reason = (
+            f"Not equivalent: canonical SMILES comparison failed: {type(exc).__name__}: {exc}"
+        )
 
+    inchi_key_1 = _inchi_key(organic_1)
+    inchi_key_2 = _inchi_key(organic_2)
+    if inchi_key_1 is not None and inchi_key_1 == inchi_key_2:
+        info.equivalent = True
+        info.method = EquivalenceMethod.INCHI_KEY
+        info.reason = "Equivalent: full InChIKey matches after standardization."
+        return True, info
+
+    try:
+        normalized_1 = _carbene_zwitterion_normalized_smiles(organic_1, use_chirality=use_chirality)
+        normalized_2 = _carbene_zwitterion_normalized_smiles(organic_2, use_chirality=use_chirality)
+        info.carbene_zwitterion = CarbeneZwitterionDetail(
+            mol1_normalized=normalized_1,
+            mol2_normalized=normalized_2,
+        )
+        if normalized_1 == normalized_2:
+            info.equivalent = True
+            info.method = EquivalenceMethod.CARBENE_ZWITTERION
+            info.reason = "Equivalent: carbene/zwitterion normalization matched."
+            return True, info
+    except TimeoutError:
+        raise
+    except Exception:
+        pass
+
+    # Resonance preserves the explicit-hydrogen sigma graph and the electron
+    # totals of every disconnected component.  For radical resonance this
+    # invariant covers migrations RDKit does not enumerate.
+    if (
+        topology_matches
+        and component_electrons_match
+        and checks.formal_charge.passed
+        and checks.radical_electrons.passed
+        and radical_electrons_1 > 0
+        and (
+            not use_chirality
+            or (
+                not _has_defined_stereochemistry(organic_1)
+                and not _has_defined_stereochemistry(organic_2)
+            )
+        )
+    ):
+        info.equivalent = True
+        info.method = EquivalenceMethod.RESONANCE
+        info.resonance = ResonanceDetail(
+            max_resonance=max_resonance,
+            resonance_flags=int(resonance_flags),
+            mol1_resonance_count=0,
+            mol2_resonance_count=0,
+        )
+        info.reason = "Equivalent: resonance topology and component electron counts match."
+        return True, info
+
+    if topology_matches and component_electrons_match is False:
+        info.reason = "Not equivalent: charge or radical count differs within a component."
+        return False, info
+
+    resonance_matched, mol1_count, mol2_count, hit_smiles = _resonance_match(
+        organic_1,
+        organic_2,
+        use_chirality=use_chirality,
+        max_resonance=max_resonance,
+        resonance_flags=resonance_flags,
+    )
+    if resonance_matched:
+        info.equivalent = True
+        info.method = EquivalenceMethod.RESONANCE
+        info.resonance = ResonanceDetail(
+            max_resonance=max_resonance,
+            resonance_flags=int(resonance_flags),
+            mol1_resonance_count=mol1_count,
+            mol2_resonance_count=mol2_count,
+            hit_smiles=hit_smiles,
+        )
+        info.reason = "Equivalent: resonance normalization matched."
+        return True, info
+
+    info.reason = "Not equivalent: no standardized comparison path matched."
     return False, info
 
 
@@ -460,236 +907,12 @@ def check_equivalence(
     max_resonance: int = 50,
     resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
     | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
-    _coordination_bonds_already_stripped: bool = False,
 ) -> Tuple[bool, EquivalenceInfo]:
-    """
-    Judge whether two molecules are equivalent.
-
-    1) ideally equivalence: when canonical SMILES are equal.
-
-    2) isomorphic equivalence: when two molecules are isomorphic, which means they are the subgraph of each other.
-
-    3) resonance equivalence: when two molecules can be transformed into each other by resonance.
-
-    Any of the above three methods is True, then the two molecules are equivalent.
-
-    Parameters:
-        mol1 (Chem.Mol): The first molecule.
-        mol2 (Chem.Mol): The second molecule.
-        use_chirality (bool, optional): Whether to use chirality. Defaults to True.
-        max_resonance (int, optional): The maximum number of resonance structures to generate. Defaults to 100.
-        resonance_flags (Chem.ResonanceFlags, optional): The resonance flags. Defaults to Chem.ResonanceFlags.UNCONSTRAINED_CATIONS | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS.
-
-    Returns:
-        (Tuple[bool, EquivalenceInfo]): Whether the two molecules are equivalent and the reason.
-    """
-    original_m1 = Chem.Mol(mol1)
-    original_m2 = Chem.Mol(mol2)
-    m1, prep_errors_1 = _prepare_equivalence_mol(mol1)
-    m2, prep_errors_2 = _prepare_equivalence_mol(mol2)
-
-    fc1 = _total_formal_charge(m1)
-    fc2 = _total_formal_charge(m2)
-
-    rad1 = _total_radical_electrons(m1)
-    rad2 = _total_radical_electrons(m2)
-
-    n1 = m1.GetNumAtoms()
-    n2 = m2.GetNumAtoms()
-
-    f1 = _formula_key_without_hydrogen(m1)
-    f2 = _formula_key_without_hydrogen(m2)
-
-    checks = EquivalenceChecks(
-        formal_charge=PropertyCheck(fc1, fc2, fc1 == fc2),
-        radical_electrons=PropertyCheck(rad1, rad2, rad1 == rad2),
-        num_atoms=PropertyCheck(n1, n2, n1 == n2),
-        formula=PropertyCheck(f1, f2, f1 == f2),
-    )
-
-    info = EquivalenceInfo(checks=checks)
-    phase_errors: list[str] = [*prep_errors_1, *prep_errors_2]
-
-    # Early exits
-    if not checks.formal_charge.passed:
-        info.reason = "Not equivalent: total formal charges differ."
-        return False, info
-
-    if not checks.num_atoms.passed:
-        inchi_key1 = _inchi_connectivity_key(m1)
-        inchi_key2 = _inchi_connectivity_key(m2)
-        if inchi_key1 is not None and inchi_key1 == inchi_key2:
-            info.equivalent = True
-            info.method = EquivalenceMethod.INCHI_CONNECTIVITY
-            info.reason = "Equivalent: InChI connectivity key matches despite explicit-hydrogen atom-count mismatch."
-            return True, info
-        info.reason = "Not equivalent: number of atoms differs."
-        return False, info
-
-    if not checks.formula.passed:
-        info.reason = "Not equivalent: molecular formulas differ."
-        return False, info
-
-    if not checks.radical_electrons.passed:
-        try:
-            normalized_smiles_1 = _carbene_zwitterion_normalized_smiles(
-                m1,
-                use_chirality=use_chirality,
-            )
-            normalized_smiles_2 = _carbene_zwitterion_normalized_smiles(
-                m2,
-                use_chirality=use_chirality,
-            )
-            info.carbene_zwitterion = CarbeneZwitterionDetail(
-                mol1_normalized=normalized_smiles_1,
-                mol2_normalized=normalized_smiles_2,
-            )
-            if normalized_smiles_1 == normalized_smiles_2:
-                info.equivalent = True
-                info.method = EquivalenceMethod.CARBENE_ZWITTERION
-                info.reason = (
-                    "Equivalent: carbene/zwitterion normalization matched despite "
-                    "different local charge or radical representation."
-                )
-                return True, info
-        except Exception as exc:  # noqa: BLE001
-            phase_errors.append(f"carbene/zwitterion check failed: {type(exc).__name__}: {exc}")
-        stripped_equivalent, info = _check_coordination_stripped_equivalence(
-            info,
-            original_m1,
-            original_m2,
+    with rdBase.BlockLogs():
+        return _check_equivalence_impl(
+            mol1,
+            mol2,
             use_chirality=use_chirality,
             max_resonance=max_resonance,
             resonance_flags=resonance_flags,
-            phase_errors=phase_errors,
-            coordination_bonds_already_stripped=_coordination_bonds_already_stripped,
         )
-        if stripped_equivalent:
-            return True, info
-        info.reason = "Not equivalent: total radical electron counts differ."
-        return False, info
-
-    # 1) Ideal equivalence
-    try:
-        s1 = _canon_smiles(m1, use_chirality)
-        s2 = _canon_smiles(m2, use_chirality)
-
-        info.canonical_smiles = CanonicalSmilesDetail(s1, s2, use_chirality)
-
-        if s1 == s2:
-            info.equivalent = True
-            info.method = EquivalenceMethod.IDEAL
-            info.reason = "Equivalent: canonical SMILES are identical."
-            return True, info
-    except Exception as exc:  # noqa: BLE001
-        phase_errors.append(f"ideal check failed: {type(exc).__name__}: {exc}")
-
-    # 2) Isomorphic equivalence
-    m1_in_m2 = False
-    m2_in_m1 = False
-    try:
-        m1_in_m2 = m2.HasSubstructMatch(m1, useChirality=use_chirality)
-        m2_in_m1 = m1.HasSubstructMatch(m2, useChirality=use_chirality)
-    except Exception as exc:  # noqa: BLE001
-        phase_errors.append(f"isomorphic check failed: {type(exc).__name__}: {exc}")
-
-    info.isomorphic = IsomorphicDetail(m1_in_m2, m2_in_m1)
-
-    if m1_in_m2 and m2_in_m1:
-        info.equivalent = True
-        info.method = EquivalenceMethod.ISOMORPHIC
-        info.reason = "Equivalent: molecules are mutually substructure-matching (graph isomorphic)."
-        return True, info
-
-    # 3) Resonance equivalence
-    hit_smiles = None
-    resonance_count = 0
-    try:
-        canon = partial(_canon_smiles, use_chirality=use_chirality)
-
-        mh1 = Chem.AddHs(m1)
-        mh2 = Chem.AddHs(m2)
-        try:
-            Chem.Kekulize(mh1, clearAromaticFlags=True)
-            Chem.Kekulize(mh2, clearAromaticFlags=True)
-        except Chem.rdchem.KekulizeException:
-            pass
-
-        res2_set = {
-            canon(rm_radical)
-            for rm_charge in _iter_resonance_structures(
-                mh2,
-                max_resonance=max_resonance,
-                resonance_flags=resonance_flags,
-            )
-            for rm_radical in enumerate_resonance_radical(rm_charge, depth=3)
-            if rm_radical is not None and _total_formal_charge(rm_radical) == fc2
-        }
-        resonance_count = len(res2_set)
-
-        for rm_charge in _iter_resonance_structures(
-            mh1,
-            max_resonance=max_resonance,
-            resonance_flags=resonance_flags,
-        ):
-            for rm_radical in enumerate_resonance_radical(rm_charge, depth=3):
-                if rm_radical is None:
-                    continue
-                if _total_formal_charge(rm_radical) != fc1:
-                    continue
-                s = canon(rm_radical)
-                if s in res2_set:
-                    hit_smiles = s
-                    break
-    except Exception as exc:  # noqa: BLE001
-        phase_errors.append(f"resonance check failed: {type(exc).__name__}: {exc}")
-
-    info.resonance = ResonanceDetail(
-        max_resonance=max_resonance,
-        resonance_flags=int(resonance_flags),
-        mol2_resonance_count=resonance_count,
-        hit_smiles=hit_smiles,
-    )
-
-    if hit_smiles is not None:
-        info.equivalent = True
-        info.method = EquivalenceMethod.RESONANCE
-        info.reason = "Equivalent: at least one resonance structure matches in canonical SMILES."
-        return True, info
-
-    try:
-        normalized_smiles_1 = _special_resonance_normalized_smiles(
-            m1,
-            use_chirality=use_chirality,
-        )
-        normalized_smiles_2 = _special_resonance_normalized_smiles(
-            m2,
-            use_chirality=use_chirality,
-        )
-        if normalized_smiles_1 == normalized_smiles_2:
-            info.resonance.hit_smiles = normalized_smiles_1
-            info.equivalent = True
-            info.method = EquivalenceMethod.RESONANCE
-            info.reason = "Equivalent: special resonance normalization matched canonical SMILES."
-            return True, info
-    except Exception as exc:  # noqa: BLE001
-        phase_errors.append(f"special resonance normalization failed: {type(exc).__name__}: {exc}")
-
-    stripped_equivalent, info = _check_coordination_stripped_equivalence(
-        info,
-        original_m1,
-        original_m2,
-        use_chirality=use_chirality,
-        max_resonance=max_resonance,
-        resonance_flags=resonance_flags,
-        phase_errors=phase_errors,
-        coordination_bonds_already_stripped=_coordination_bonds_already_stripped,
-    )
-    if stripped_equivalent:
-        return True, info
-
-    if phase_errors:
-        return _apply_exception_fallback(info, m1, m2, phase_errors)
-
-    info.reason = "Not equivalent: none of ideal, isomorphic, or resonance checks matched."
-    return False, info

@@ -1,0 +1,81 @@
+{
+  "reconstruction": [
+    {
+      "id": "ABACAL",
+      "classification": "primary_no_neighbor_branch",
+      "reason": "Primary unified resonance pool without neighbor-radical or recovery actions."
+    },
+    {
+      "id": "ABIRIO",
+      "classification": "neighbor_bond_order",
+      "reason": "Multiple adjacent-radical pairs resolved through bond-order actions with a published reference graph."
+    },
+    {
+      "id": "ABELOK",
+      "classification": "radical_charge_localization",
+      "reason": "Primary pool winner uses radical-to-anion charge localization."
+    },
+    {
+      "id": "ABUMUH",
+      "classification": "neighbor_bond_order",
+      "reason": "Progressive search succeeds in the bond-order-only neighbor-radical layer."
+    },
+    {
+      "id": "ABAGAM",
+      "classification": "primary_no_neighbor_branch",
+      "reason": "Unified resonance pool succeeds without neighbor-radical or recovery actions."
+    },
+    {
+      "id": "ACEKAU",
+      "classification": "recovery_bond_break_with_neighbor",
+      "reason": "Neighbor bond-order resolution followed by last-tier bond recovery."
+    }
+  ],
+  "source_issues": [
+    {
+      "id": "ABARAX",
+      "classification": "missing_reference_graph",
+      "reason": "tmQMg provides an XYZ structure but no reference SMILES graph."
+    },
+    {
+      "id": "ABEGOD",
+      "classification": "accepted_reference_issue",
+      "reason": "Manual review found the MolGR Co(III) assignment chemically preferable to the tmQMg reference graph."
+    },
+    {
+      "id": "ABETIK",
+      "classification": "accepted_reference_issue",
+      "reason": "Manual review found the MolGR Zr complex graph chemically preferable to the tmQMg reference graph."
+    },
+    {
+      "id": "ABETOQ",
+      "classification": "accepted_reference_issue",
+      "reason": "Manual review found the MolGR reconstruction chemically preferable to the tmQMg reference graph."
+    },
+    {
+      "id": "ABATEC",
+      "classification": "accepted_reference_issue",
+      "reason": "Manual review accepted the MolGR metal-hydride graph over the tmQMg reference graph."
+    },
+    {
+      "id": "ABEVAG",
+      "classification": "reference_formula_mismatch",
+      "reason": "Reference contains Br:3,C:10,H:30,La:1,N:5 while XYZ contains Br:3,C:10,H:15,La:1,N:5."
+    },
+    {
+      "id": "ACUGIP",
+      "classification": "reference_formula_mismatch",
+      "reason": "Reference contains C:20,H:45,La:1,N:9,O:11 while XYZ contains C:20,H:20,La:1,N:9,O:11."
+    },
+    {
+      "id": "ACUGOV",
+      "classification": "reference_formula_mismatch",
+      "reason": "Reference contains C:18,H:38,La:1,N:9,O:10 while XYZ contains C:18,H:14,La:1,N:9,O:10."
+    },
+    {
+      "id": "AKAGEZ",
+      "classification": "reference_formula_mismatch",
+      "reason": "Reference contains C:26,H:34,N:2,O:5,P:1,S:1,W:1 while XYZ contains C:26,H:33,N:2,O:5,P:1,S:1,W:1."
+    }
+  ]
+}

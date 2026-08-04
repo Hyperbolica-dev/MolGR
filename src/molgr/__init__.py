@@ -1,10 +1,4 @@
-"""
-Author: TMJ
-Date: 2025-12-19 21:00:20
-LastEditors: TMJ
-LastEditTime: 2026-04-22 02:13:56
-Description: 请填写简介
-"""
+from __future__ import annotations
 
 import importlib.metadata
 
@@ -14,20 +8,16 @@ from . import _core as core
 from . import config
 from ._core import pipeline
 from .config import (
-    DEFAULT_MOLGR_CONFIG,
+    CONFIG,
     CppBackendConfig,
     MetalRadicalInferenceConfig,
     MetalScoringConfig,
     MolGRConfig,
+    OrganicTopologyConfig,
     PythonInterfaceConfig,
     ReconstructionFailurePolicy,
     ResonanceConfig,
     ResonanceTraversalScore,
-    get_config,
-    make_default_config,
-    reset_config,
-    set_config,
-    sync_cpp_backend_default_config,
 )
 
 
@@ -52,25 +42,21 @@ def set_log_level(level: core.LogLevel):
 
 
 __all__ = [
-    "DEFAULT_MOLGR_CONFIG",
+    "CONFIG",
     "CppBackendConfig",
     "MetalRadicalInferenceConfig",
     "MetalScoringConfig",
     "MolGRConfig",
+    "OrganicTopologyConfig",
     "PythonInterfaceConfig",
     "ReconstructionFailurePolicy",
     "ResonanceConfig",
     "ResonanceTraversalScore",
     "config",
     "set_log_level",
-    "get_config",
-    "make_default_config",
-    "reset_config",
-    "set_config",
-    "sync_cpp_backend_default_config",
     "pipeline",
 ]
 
-# 默认可以设为 WARN
-set_log_level(core.LogLevel.WARN)
-sync_cpp_backend_default_config(get_config())
+_log_level = getattr(core, "LogLevel", None)
+if _log_level is not None:
+    set_log_level(_log_level.WARN)

@@ -6,10 +6,16 @@
  * @Description: 请填写简介
  */
 #include "bindings.h"
+#include "molgr/python_config.h"
 #include "molgr/utils/consts.h"
+#include "molgr/utils/force_field.h"
 #include "molgr/utils/scoring.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/organic_topology.h"
 #include "molgr/utils/utils.h"
+#include "molgr/utils/xyz.h"
+#include "molgr/vendor/forcefielduff.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/obconversion.h>
 #include <openbabel/mol.h>
@@ -30,15 +36,7 @@ static std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smil
 static std::unique_ptr<OpenBabel::OBMol> mol_from_xyz(const std::string &xyz)
 {
     auto mol = std::make_unique<OpenBabel::OBMol>();
-    OpenBabel::OBConversion conv;
-    conv.SetInFormat("xyz");
-    if (!conv.ReadString(mol.get(), xyz))
-    {
-        return nullptr;
-    }
-    mol->ConnectTheDots();
-    mol->PerceiveBondOrders();
-    return mol;
+    return molgr::utils::ReadXyzBlockToMol(xyz, mol.get()) ? std::move(mol) : nullptr;
 }
 
 void molgr::bind::bind_utils(py::module_ &m)
@@ -100,6 +98,9 @@ void molgr::bind::bind_utils(py::module_ &m)
         .def_readwrite("atomic_num", &molgr::utils::AtomData::atomic_num)
         .def_readwrite("formal_charge", &molgr::utils::AtomData::formal_charge)
         .def_readwrite("radical_num", &molgr::utils::AtomData::radical_num)
+        .def_readwrite("lone_pair_count", &molgr::utils::AtomData::lone_pair_count)
+        .def_readwrite("unresolved_two_electron_center", &molgr::utils::AtomData::unresolved_two_electron_center)
+        .def_readwrite("hybridization", &molgr::utils::AtomData::hybridization)
         .def_readwrite("x", &molgr::utils::AtomData::x)
         .def_readwrite("y", &molgr::utils::AtomData::y)
         .def_readwrite("z", &molgr::utils::AtomData::z)
@@ -107,6 +108,10 @@ void molgr::bind::bind_utils(py::module_ &m)
              { return "<AtomData Z=" + std::to_string(a.atomic_num) +
                       " charge=" + std::to_string(a.formal_charge) +
                       " radical_num=" + std::to_string(a.radical_num) +
+                      " lone_pair_count=" + std::to_string(a.lone_pair_count) +
+                      " unresolved_two_electron_center=" +
+                      (a.unresolved_two_electron_center ? "true" : "false") +
+                      " hyb=" + std::to_string(a.hybridization) +
                       " pos=(" + std::to_string(a.x) + "," +
                       std::to_string(a.y) + "," + std::to_string(a.z) + ")>"; },
              "Return a concise debug representation of AtomData.");
@@ -115,9 +120,11 @@ void molgr::bind::bind_utils(py::module_ &m)
         .def_readwrite("begin_atom_idx", &molgr::utils::BondData::begin_atom_idx)
         .def_readwrite("end_atom_idx", &molgr::utils::BondData::end_atom_idx)
         .def_readwrite("order", &molgr::utils::BondData::order)
+        .def_readwrite("aromatic", &molgr::utils::BondData::aromatic)
         .def("__repr__", [](const molgr::utils::BondData &b)
              { return "<BondData " + std::to_string(b.begin_atom_idx) + "-" +
-                      std::to_string(b.end_atom_idx) + " order=" + std::to_string(b.order) + ">"; },
+                      std::to_string(b.end_atom_idx) + " order=" + std::to_string(b.order) +
+                      " aromatic=" + (b.aromatic ? "true" : "false") + ">"; },
              "Return a concise debug representation of BondData.");
 
     py::class_<molgr::utils::MoleculeData>(m, "MoleculeData")
@@ -143,6 +150,104 @@ void molgr::bind::bind_utils(py::module_ &m)
 
 void molgr::bind::bind_dev_utils(py::module_ &m)
 {
+    m.def("debug_xyz_seed_molecule_data",
+          [](const std::string &xyz_block)
+          {
+              OpenBabel::OBMol mol;
+              molgr::utils::MoleculeData molecule_data;
+              {
+                  py::gil_scoped_release release;
+                  if (!molgr::utils::ReadXyzBlockToMol(xyz_block, &mol))
+                  {
+                      throw std::runtime_error("failed to parse XYZ block");
+                  }
+                  molecule_data = molgr::utils::MoleculeDataFromOBMol(mol);
+              }
+              return molecule_data;
+          },
+          "Return the C++ vendor-perceived seed molecule data for an XYZ block.",
+          py::arg("xyz_block"));
+
+    m.def("compute_organic_topology_metrics_ptr",
+          [](intptr_t mol_ptr, py::object config)
+          {
+              if (mol_ptr == 0)
+              {
+                  throw std::runtime_error("null OBMol pointer");
+              }
+              const auto runtime_config = molgr::config::FromPython(config);
+              auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+              const auto metrics = molgr::organic_topology::ComputeOrganicTopologyMetrics(
+                  *mol,
+                  runtime_config.organic_topology);
+              py::dict out;
+              out["aromatic_atom_count"] = metrics.aromatic_atom_count;
+              out["aromatic_ring_count"] = metrics.aromatic_ring_count;
+              out["aromatic_stability_score"] = metrics.aromatic_stability_score;
+              out["conjugated_atom_count"] = metrics.conjugated_atom_count;
+              out["conjugated_bond_count"] = metrics.conjugated_bond_count;
+              out["max_conjugated_component_size"] = metrics.max_conjugated_component_size;
+              out["conjugated_atom_indices"] = metrics.conjugated_atom_indices;
+              out["hyperconjugative_donor_count"] = metrics.hyperconjugative_donor_count;
+              out["hyperconjugation_score"] = metrics.hyperconjugation_score;
+              return out;
+          },
+          "Compute C++ organic topology metrics for an OBMol pointer.",
+          py::arg("mol_ptr"),
+          py::kw_only(),
+          py::arg("config") = py::none());
+
+    m.def("organic_force_field_energy_ptr",
+          [](intptr_t mol_ptr, py::object config)
+          {
+              if (mol_ptr == 0)
+              {
+                  throw std::runtime_error("null OBMol pointer");
+              }
+              const auto runtime_config = molgr::config::FromPython(config);
+              auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+              return molgr::scoring::OrganicForceFieldEvaluation(*mol, runtime_config).energy_kj_mol;
+          },
+          "Compute C++ organic force-field energy for an OBMol pointer.",
+          py::arg("mol_ptr"),
+          py::kw_only(),
+          py::arg("config") = py::none());
+
+    m.def("debug_vendor_uff_ptr",
+          [](intptr_t mol_ptr)
+          {
+              if (mol_ptr == 0)
+              {
+                  throw std::runtime_error("null OBMol pointer");
+              }
+              auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
+              OpenBabel::OBMol working = molgr::utils::CloneMolTopologyOnly(*mol);
+              molgr::vendor::openbabel_threading::SetAromaticPerceived(working, false);
+              OpenBabel::MolgrForceFieldUFF force_field("MolGR-UFF-debug", false);
+              force_field.SetLogLevel(OBFF_LOGLVL_NONE);
+              py::dict out;
+              const bool setup_ok = force_field.Setup(working);
+              out["setup_ok"] = setup_ok;
+              py::list atom_types;
+              if (setup_ok)
+              {
+                  for (const std::string &atom_type : force_field.DebugAtomTypes())
+                  {
+                      atom_types.append(atom_type);
+                  }
+                  out["energy"] = force_field.Energy(false);
+                  out["bond"] = force_field.E_Bond(false);
+                  out["angle"] = force_field.E_Angle(false);
+                  out["torsion"] = force_field.E_Torsion(false);
+                  out["oop"] = force_field.E_OOP(false);
+                  out["vdw"] = force_field.E_VDW(false);
+              }
+              out["atom_types"] = atom_types;
+              return out;
+          },
+          "Return MolGR vendor UFF atom types and energy terms for an OBMol pointer.",
+          py::arg("mol_ptr"));
+
     m.def("test_symmetry_penalty", [](const std::string &smiles)
           {
               auto mol = mol_from_smiles(smiles);

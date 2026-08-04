@@ -15,7 +15,6 @@
 #include <pybind11/pybind11.h>
 #include <cstdint> // 用于 intptr_t
 
-#include "molgr/python_config.h"
 #include "molgr/utils/logger.h" // 日志模块
 #include "bindings.h"
 #include <openbabel/mol.h>
@@ -41,13 +40,6 @@ PYBIND11_MODULE(_core, m)
     m.def("set_log_level", &molgr::SetLogLevel,
           "Set the logging level for the C++ core (DEBUG=0, INFO=1, WARN=2, ERROR=3, OFF=4)",
           py::arg("level"));
-
-    m.def("set_default_config", &molgr::config::SetDefaultConfigFromPython,
-          "Set the default runtime configuration used by the C++ backend.",
-          py::arg("config"));
-
-    m.def("get_default_config", &molgr::config::DefaultConfigSummary,
-          "Return a summary of the default runtime configuration used by the C++ backend.");
 
     m.def("free_obmol_ptr", [](intptr_t mol_ptr)
           {

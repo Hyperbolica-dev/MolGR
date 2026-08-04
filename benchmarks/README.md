@@ -11,8 +11,10 @@ root project dependency graph so they do not affect package releases.
 - `smiles_xyz_benchmark`: builds XYZ cases from SMILES inputs and compares reconstruction methods.
 - `molfile_xyz_benchmark`: loads `.mol`, `.molfile`, and `.sdf` inputs, converts them to XYZ cases,
   and runs the same method registry.
+- `tmqmg_xyz_benchmark`: runs the shared method registry on tmQMg CSV/XYZ pairs and supports
+  row/id subset selection.
 
-Both benchmarks currently use the same methods:
+All benchmark entrypoints use the same shared method registry:
 
 - `rdkit_determine_bonds`
 - `openbabel_read_xyz`
@@ -64,6 +66,37 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --out benchmarks/_runs/molfile-demo
 ```
 
+Run a small tmQMg benchmark on a selected subset:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --start-row 1 \
+  --end-row 100 \
+  --ids ABC123,DEF456 \
+  --limit 10 \
+  --out benchmarks/_runs/tmqmg-demo
+```
+
+For backend parity checks, restrict tmQMg to MolGR's two backends:
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/tmqmg-parity \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback
+```
+
+`tmqmg_xyz_benchmark` also supports `--process-workers N`. Each method is split
+across worker subprocesses, while the C++ backend can still use its internal
+target-bucket threads. High process counts can compete for CPU with C++ threads, so
+measure the target machine instead of assuming the largest value is fastest.
+
 For repeated commands, switch the current shell to the benchmark project:
 
 ```bash
@@ -106,6 +139,9 @@ Shared flags:
 
 - `--limit`: cap the number of cases for quick checks.
 - `--out`: output run directory.
+- `--methods`: for tmQMg, restrict the shared method registry by method id.
+- `--process-workers`: for tmQMg, split each method across worker subprocesses.
+- `--cpp-accelerations`: for tmQMg, choose the C++ acceleration preset.
 
 ## Outputs
 
@@ -154,3 +190,5 @@ ensure your usage complies with its license terms, including GPL obligations whe
 - [`smiles_xyz_benchmark/README.zh-CN.md`](smiles_xyz_benchmark/README.zh-CN.md)
 - [`molfile_xyz_benchmark/README.md`](molfile_xyz_benchmark/README.md)
 - [`molfile_xyz_benchmark/README.zh-CN.md`](molfile_xyz_benchmark/README.zh-CN.md)
+- [`tmqmg_xyz_benchmark/README.md`](tmqmg_xyz_benchmark/README.md)
+- [`tmqmg_xyz_benchmark/README.zh-CN.md`](tmqmg_xyz_benchmark/README.zh-CN.md)

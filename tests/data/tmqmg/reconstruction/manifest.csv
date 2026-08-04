@@ -1,0 +1,7 @@
+case_id,row_index,charge,metal_center,reference_smiles,classification,reason,xyz_file
+ABACAL,1,0,Cu,CC(C)(C)[N+]#[C-]->[Cu+]1<-[O-]C=C2C=CC=N->12,primary_no_neighbor_branch,Primary unified resonance pool without neighbor-radical or recovery actions.,ABACAL.xyz
+ABIRIO,108,0,Ru,Cc1ccn(->[Ru+4]23456(<-[Cl-])(<-[Cl-])<-C=C->2(C)[CH-]->3CCC->4=C->5(C)[CH2-]->6)[nH]1,neighbor_bond_order,Multiple adjacent-radical pairs resolved through bond-order actions with a published reference graph.,ABIRIO.xyz
+ABELOK,53,0,Au,Cc1cc(C)c(N2C(c3ccccc3)=S=C(->[Au+]<-[Cl-])=C2c2ccccc2)c(C)c1,radical_charge_localization,Primary pool winner uses radical-to-anion charge localization.,ABELOK.xyz
+ABUMUH,168,0,Zn,O.O=S1(=O)OOS(=O)(=O)[O-]->[Zn+2]23(<-[O-]1)(<-n1cccc4ccc5cccn->2c5c41)<-n1cccc2ccc4cccn->3c4c21,neighbor_bond_order,Progressive search succeeds in the bond-order-only neighbor-radical layer.,ABUMUH.xyz
+ABAGAM,4,0,Pd,CN1(CCN(C)(Cc2c3ccccc3cc3ccccc23)->[Pd+2]<-1(<-[Cl-])<-[Cl-])Cc1c2ccccc2cc2ccccc12,primary_no_neighbor_branch,Unified resonance pool succeeds without neighbor-radical or recovery actions.,ABAGAM.xyz
+ACEKAU,215,0,Ni,CC(C)P1(CCP(C(C)C)(C(C)C)->[Ni]<-12<-N#C->2c1ccccc1)C(C)C,recovery_bond_break_with_neighbor,Neighbor bond-order resolution followed by last-tier bond recovery.,ACEKAU.xyz

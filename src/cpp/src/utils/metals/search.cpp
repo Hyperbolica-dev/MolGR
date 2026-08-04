@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <future>
 #include <map>
 #include <set>
 #include <tuple>
@@ -295,9 +294,24 @@ namespace molgr
                 int total_radical_electrons,
                 const molgr::config::MolGRConfig &config)
             {
+                MetalStateSearchLayer reachable_state_search_groups;
+                reachable_state_search_groups.reserve(available_state_search_groups.size());
+                const int radical_budget = std::max(0, total_radical_electrons);
+                for (const auto &state_search_group : available_state_search_groups)
+                {
+                    MetalStateChoiceGroup reachable_state_options;
+                    for (const auto &state_choice : state_search_group)
+                    {
+                        if (MetalStateChoiceRadicals(state_choice) <= radical_budget)
+                        {
+                            reachable_state_options.push_back(state_choice);
+                        }
+                    }
+                    reachable_state_search_groups.push_back(std::move(reachable_state_options));
+                }
                 if (total_radical_electrons <= 0 || available_state_search_groups.size() < 2)
                 {
-                    return {available_state_search_groups};
+                    return {reachable_state_search_groups};
                 }
 
                 const double penalty_window =
@@ -308,18 +322,9 @@ namespace molgr
                 std::vector<std::vector<std::pair<MetalStateChoice, double>>> ranked_group_entries;
                 std::vector<std::vector<double>> group_thresholds;
                 std::size_t layer_count = 1;
-                for (const auto &state_search_group : available_state_search_groups)
+                for (const auto &state_search_group : reachable_state_search_groups)
                 {
-                    MetalStateChoiceGroup reachable_state_options;
-                    for (const auto &state_choice : state_search_group)
-                    {
-                        if (MetalStateChoiceRadicals(state_choice) <= total_radical_electrons)
-                        {
-                            reachable_state_options.push_back(state_choice);
-                        }
-                    }
-                    const MetalStateChoiceGroup &candidate_state_options =
-                        reachable_state_options.empty() ? state_search_group : reachable_state_options;
+                    const MetalStateChoiceGroup &candidate_state_options = state_search_group;
 
                     std::vector<std::pair<MetalStateChoice, double>> ranked_state_entries;
                     ranked_state_entries.reserve(candidate_state_options.size());
@@ -633,18 +638,37 @@ namespace molgr
                 int max_assignments_per_target)
             {
                 std::map<TargetBucket, std::vector<PartialMetalAssignment>> grouped_entries;
-                int next_order = 0;
                 const int trim_trigger = std::max(1, max_assignments_per_target) * 4;
                 const RadicalBucketIndex left_bucket_index =
                     BucketPartialAssignmentsByChargeRadicals(left_frontier);
                 const RadicalBucketIndex right_bucket_index =
                     BucketPartialAssignmentsByChargeRadicals(right_frontier);
+                int right_order_stride = 1;
+                for (const auto &entry : right_frontier)
+                {
+                    for (const auto &assignment : entry.second)
+                    {
+                        right_order_stride =
+                            std::max(right_order_stride, assignment.order + 1);
+                    }
+                }
 
-                int max_combined_metal_radicals = total_radical_electrons;
+                int max_left_radicals = 0;
+                int max_right_radicals = 0;
+                for (const auto &entry : right_bucket_index)
+                {
+                    max_right_radicals = std::max(max_right_radicals, entry.first);
+                }
+                for (const auto &entry : left_bucket_index)
+                {
+                    max_left_radicals = std::max(max_left_radicals, entry.first);
+                }
+                int max_combined_metal_radicals = std::max(0, total_radical_electrons);
                 if (max_total_metal_radicals.has_value())
                 {
-                    max_combined_metal_radicals =
-                        std::min(max_combined_metal_radicals, *max_total_metal_radicals);
+                    max_combined_metal_radicals = std::min(
+                        max_combined_metal_radicals,
+                        std::max(0, *max_total_metal_radicals));
                 }
 
                 for (const auto &left_radical_bucket : left_bucket_index)
@@ -662,7 +686,8 @@ namespace molgr
                     {
                         const int right_radicals = right_it->first;
                         const int total_metal_radicals = left_radicals + right_radicals;
-                        const int target_radicals = total_radical_electrons - total_metal_radicals;
+                        const int target_radicals =
+                            total_radical_electrons - total_metal_radicals;
 
                         for (const auto &left_charge_group : left_radical_bucket.second)
                         {
@@ -709,7 +734,9 @@ namespace molgr
                                                     left_entry.metal_assignment_rank +
                                                     right_entry.metal_assignment_rank;
                                                 combined_entry.valence_bounds = *merged_bounds;
-                                                combined_entry.order = next_order++;
+                                                combined_entry.order =
+                                                    left_entry.order * right_order_stride +
+                                                    right_entry.order;
                                                 bucket.push_back(std::move(combined_entry));
                                             }
                                         }
@@ -783,46 +810,16 @@ namespace molgr
                     config.metal_scoring.max_mixed_valence_spread;
                 const int max_assignments_per_target =
                     std::max(1, config.metal_scoring.max_assignments_per_target);
-                const bool parallelize_frontiers =
-                    config.cpp_backend.enable_target_bucket_parallelism &&
-                    molgr::utils::parallel::ConfiguredParallelism(config, 2) > 1 &&
-                    !left_options.empty() &&
-                    !right_options.empty();
-                if (parallelize_frontiers)
-                {
-                    auto left_future = std::async(
-                        std::launch::async,
-                        [left_options = std::move(left_options),
-                         total_radical_electrons,
-                         max_mixed_valence_spread,
-                         max_assignments_per_target]()
-                        {
-                            return EnumeratePartialAssignmentFrontier(
-                                left_options,
-                                max_mixed_valence_spread,
-                                total_radical_electrons,
-                                max_assignments_per_target);
-                        });
-                    right_frontier = EnumeratePartialAssignmentFrontier(
-                        right_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                    left_frontier = left_future.get();
-                }
-                else
-                {
-                    left_frontier = EnumeratePartialAssignmentFrontier(
-                        left_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                    right_frontier = EnumeratePartialAssignmentFrontier(
-                        right_options,
-                        max_mixed_valence_spread,
-                        total_radical_electrons,
-                        max_assignments_per_target);
-                }
+                left_frontier = EnumeratePartialAssignmentFrontier(
+                    left_options,
+                    max_mixed_valence_spread,
+                    total_radical_electrons,
+                    max_assignments_per_target);
+                right_frontier = EnumeratePartialAssignmentFrontier(
+                    right_options,
+                    max_mixed_valence_spread,
+                    total_radical_electrons,
+                    max_assignments_per_target);
                 if (left_frontier.empty() || right_frontier.empty())
                 {
                     return {};
@@ -853,6 +850,7 @@ namespace molgr
                         machine.Annotate("enumerate_metal_combination");
                         machine.Annotate("reconstruct_no_metal_candidate");
                         machine.metadata["metal_assignment_rank"] = entry.metal_assignment_rank;
+                        machine.Annotate("rank_metal_assignment_for_target");
                         bucket.push_back(machine.Freeze());
                         ++combination_index;
                     }

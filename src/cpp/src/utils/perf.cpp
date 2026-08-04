@@ -21,10 +21,82 @@ namespace molgr
                 timing_.no_metal_pipeline_ms += delta_ms;
             }
 
+            void RunTimingReducer::AddNoMetalLinearPipelineMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.no_metal_linear_pipeline_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddNoMetalValidateMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.no_metal_validate_ms += delta_ms;
+            }
+
             void RunTimingReducer::AddResonanceHandlingEnumerationMs(double delta_ms)
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 timing_.resonance_handling_enumeration_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonanceWalkMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_walk_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonancePrepareMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_prepare_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonanceDedupScoreMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_dedup_score_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonanceScoreMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_score_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonanceTopologyMs(double delta_ms)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_topology_ms += delta_ms;
+            }
+
+            void RunTimingReducer::AddResonanceRawCandidates(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_raw_candidates += delta_count;
+            }
+
+            void RunTimingReducer::AddResonancePrunedExpansions(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_pruned_expansions += delta_count;
+            }
+
+            void RunTimingReducer::AddResonancePreparedCandidates(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_prepared_candidates += delta_count;
+            }
+
+            void RunTimingReducer::AddResonanceValidCandidates(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_valid_candidates += delta_count;
+            }
+
+            void RunTimingReducer::AddResonanceDedupCandidates(double delta_count)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                timing_.resonance_dedup_candidates += delta_count;
             }
 
             void RunTimingReducer::AddMetalEnumerationCombinationMs(double delta_ms)
@@ -101,6 +173,17 @@ namespace molgr
             {
                 t_active_run_timing_reducer = previous_;
                 SetRunTimingBreakdown(reducer_.Snapshot());
+            }
+
+            ActiveRunTimingReducerScope::ActiveRunTimingReducerScope(RunTimingReducer *reducer)
+                : previous_(t_active_run_timing_reducer)
+            {
+                t_active_run_timing_reducer = reducer;
+            }
+
+            ActiveRunTimingReducerScope::~ActiveRunTimingReducerScope()
+            {
+                t_active_run_timing_reducer = previous_;
             }
 
             RunTimingReducer *GetActiveRunTimingReducer()

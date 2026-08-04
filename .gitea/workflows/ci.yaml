@@ -19,8 +19,7 @@ env:
   PIP_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
   PIP_DEFAULT_TIMEOUT: "120"
   SERVER_URL: ${{ vars.SERVER_URL }}
-  HTTP_PROXY: http://10.72.200.48:7890
-  HTTPS_PROXY: http://10.72.200.48:7890
+  CIBW_CACHE_PATH: ${{ vars.CIBW_CACHE_PATH }}
 
 jobs:
   lint:
@@ -28,28 +27,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv
-        run: |
-          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python 3.11
-        run: $HOME/.local/bin/uv python install 3.11
+        run: |
+          "$UV_BIN" python install 3.11
 
       - name: Install dependencies
         run: |
-          "$HOME/.local/bin/uv" sync --python 3.11 --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
-          "$HOME/.local/bin/uv" pip install --python 3.11 ruff --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$UV_BIN" sync --python 3.11 --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$UV_BIN" pip install --python 3.11 ruff --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Lint and format check
         run: |
-          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff check src
-          "$HOME/.local/bin/uv" run --no-sync --python 3.11 ruff format --check src
+          "$UV_BIN" run --no-sync --python 3.11 ruff check src
+          "$UV_BIN" run --no-sync --python 3.11 ruff format --check src
 
   build-test-linux-matrix:
     name: Build/Test ubuntu-latest Py${{ matrix.python-version }}
@@ -61,35 +61,44 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv
-        run: |
-          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python ${{ matrix.python-version }}
-        run: $HOME/.local/bin/uv python install ${{ matrix.python-version }}
+        run: |
+          "$UV_BIN" python install ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
-          "$HOME/.local/bin/uv" sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
-          "$HOME/.local/bin/uv" pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+          "$UV_BIN" sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+<<<<<<< HEAD
+          "$UV_BIN" pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions 'rdkit-dof>=0.2.1' --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+=======
+          "$UV_BIN" pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
       - name: Ensure CMake available
-        run: $HOME/.local/bin/uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+        run: |
+          "$UV_BIN" pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Build extension (editable install)
-        run: $HOME/.local/bin/uv pip install -e . -v --no-build-isolation --python ${{ matrix.python-version }} --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
+        run: |
+          "$UV_BIN" pip install -e . -v --no-build-isolation --constraint ci/rdkit-constraints.txt --python ${{ matrix.python-version }} --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL"
 
       - name: Compile smoke check
-        run: $HOME/.local/bin/uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
+        run: |
+          "$UV_BIN" run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
 
       - name: Run tests
-        run: $HOME/.local/bin/uv run --no-sync --python ${{ matrix.python-version }} pytest
+        run: |
+          "$UV_BIN" run --no-sync --python ${{ matrix.python-version }} pytest
 
   build-internal-release-linux-x86_64-manylinux2014-wheels:
     name: Build internal Linux x86_64 manylinux2014 wheel (${{ matrix.python_abi }})
@@ -103,9 +112,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -118,12 +130,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --user -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv
-          USER_BIN="$(python3 -m site --user-base)/bin"
-          echo "$USER_BIN" >> "$GITHUB_PATH"
-          "$USER_BIN/uv" --version
-          "$USER_BIN/uv" python install 3.11
-          "$USER_BIN/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" python -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          sh scripts/ci_install_uv.sh
+          sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -133,14 +141,14 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          "$(python3 -m site --user-base)/bin/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel --platform linux
+          "$CIBUILDWHEEL" --platform linux
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -153,7 +161,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-aarch64-manylinux2014-wheels:
     name: Build internal Linux aarch64 manylinux2014 wheel (${{ matrix.python_abi }})
@@ -167,9 +179,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -182,12 +197,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --user -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv
-          USER_BIN="$(python3 -m site --user-base)/bin"
-          echo "$USER_BIN" >> "$GITHUB_PATH"
-          "$USER_BIN/uv" --version
-          "$USER_BIN/uv" python install 3.11
-          "$USER_BIN/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" python -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          sh scripts/ci_install_uv.sh
+          sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -197,14 +208,14 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          "$(python3 -m site --user-base)/bin/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel --platform linux
+          "$CIBUILDWHEEL" --platform linux
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -217,7 +228,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-x86_64-manylinux-2-28-wheels:
     name: Build internal Linux x86_64 manylinux_2_28 wheel (${{ matrix.python_abi }})
@@ -231,9 +246,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -246,12 +264,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --user -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv
-          USER_BIN="$(python3 -m site --user-base)/bin"
-          echo "$USER_BIN" >> "$GITHUB_PATH"
-          "$USER_BIN/uv" --version
-          "$USER_BIN/uv" python install 3.11
-          "$USER_BIN/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" python -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          sh scripts/ci_install_uv.sh
+          sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -261,14 +275,14 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          "$(python3 -m site --user-base)/bin/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel --platform linux
+          "$CIBUILDWHEEL" --platform linux
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -281,7 +295,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-linux-aarch64-manylinux-2-28-wheels:
     name: Build internal Linux aarch64 manylinux_2_28 wheel (${{ matrix.python_abi }})
@@ -295,9 +313,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -310,12 +331,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --user -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv
-          USER_BIN="$(python3 -m site --user-base)/bin"
-          echo "$USER_BIN" >> "$GITHUB_PATH"
-          "$USER_BIN/uv" --version
-          "$USER_BIN/uv" python install 3.11
-          "$USER_BIN/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" python -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          sh scripts/ci_install_uv.sh
+          sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -325,14 +342,14 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          "$(python3 -m site --user-base)/bin/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel --platform linux
+          "$CIBUILDWHEEL" --platform linux
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -345,7 +362,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   build-internal-release-macos-arm64-wheels:
     name: Build internal macOS arm64 wheel (${{ matrix.python_abi }})
@@ -359,9 +380,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -374,12 +398,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --user -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv
-          USER_BIN="$(python3 -m site --user-base)/bin"
-          echo "$USER_BIN" >> "$GITHUB_PATH"
-          "$USER_BIN/uv" --version
-          "$USER_BIN/uv" python install 3.11
-          "$USER_BIN/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" python -c "import importlib.metadata as m; print('cibuildwheel', m.version('cibuildwheel'))"
+          sh scripts/ci_install_uv.sh
+          sh scripts/ci_install_cibuildwheel.sh
 
       - name: Build wheels via cibuildwheel
         env:
@@ -389,17 +409,19 @@ jobs:
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=14.0
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_BEFORE_BUILD_MACOS: >
-            python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
+            python -m pip install -i "$PIP_INDEX_URL"
+            "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
             DYLD_LIBRARY_PATH="$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), 'lib'))")"
-            delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+            delocate-wheel
+            --exclude libopenbabel.
+            --require-archs {delocate_archs}
+            -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          "$(python3 -m site --user-base)/bin/uv" run --no-project --python 3.11 --with cibuildwheel==3.4.1 --index "$PYPI_INDEX_URL" --default-index "$PYPI_INDEX_URL" cibuildwheel --platform macos
+          "$CIBUILDWHEEL" --platform macos
 
       - name: Publish wheels to Gitea Registry
         env:
@@ -412,7 +434,11 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$(python3 -m site --user-base)/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" wheelhouse/*.whl
+
+      - name: Cleanup cibuildwheel environment
+        if: always()
+        run: sh scripts/ci_cleanup_cibuildwheel.sh
 
   publish-internal-sdist:
     name: Publish internal sdist
@@ -427,9 +453,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: http://10.72.201.58:13000/actions/checkout@v6
+        uses: http://nas.asymcatml.net:13000/actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Validate prerelease tag is on main
         if: startsWith(github.ref, 'refs/tags/')
@@ -441,16 +470,15 @@ jobs:
           fi
 
       - name: Install uv
-        run: |
-          python3 -m pip install --user --break-system-packages -i "$PYPI_INDEX_URL" uv || python3 -m pip install --user -i "$PYPI_INDEX_URL" uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python 3.11
-        run: $HOME/.local/bin/uv python install 3.11
+        run: |
+          "$UV_BIN" python install 3.11
 
       - name: Build sdist
-        run: $HOME/.local/bin/uv build -p 3.11 --sdist --out-dir dist
+        run: |
+          "$UV_BIN" build -p 3.11 --sdist --out-dir dist
 
       - name: Publish sdist to Gitea Registry
         env:
@@ -463,4 +491,4 @@ jobs:
           fi
           PUBLISH_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi"
           CHECK_URL="${SERVER_URL%/}/api/packages/${{ github.repository_owner }}/pypi/simple"
-          "$HOME/.local/bin/uv" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.tar.gz
+          "$UV_BIN" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*.tar.gz

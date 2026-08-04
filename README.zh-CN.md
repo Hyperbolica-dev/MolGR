@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-MolGR 名称来源于 Moleculer Graph Reconstructer。
+MolGR 名称来源于 Moleculer Graph Reconstructor。
 
 MolGR 是一个从 XYZ 坐标重建分子图的 Python 包。它接收 XYZ 文本、总电荷和自旋多重度，
 输出带有键级、三维构象、可选配位键和可选立体化学信息的 `rdkit.Chem.Mol`。
@@ -34,9 +34,28 @@ mol = xyz_to_rdmol(
 )
 ```
 
-`spin_multiplicity` 会在入口处转换为 `total_radical_electrons = spin_multiplicity - 1`。
-默认会补充可能的配位键和立体化学信息；需要关闭时可传入
-`make_dative_bonds=False` 或 `make_stereochemistry=False`。
+重建前，MolGR 会用原子序数之和减去 `total_charge` 得到总电子数，并拒绝不可能的
+自旋多重度：偶电子体系只能使用奇数多重度，奇电子体系只能使用偶数多重度。通过校验后，
+`spin_multiplicity` 会在入口处转换为
+`total_radical_electrons = spin_multiplicity - 1`。默认会补充可能的配位键和立体化学信息；
+需要关闭时可传入 `make_dative_bonds=False` 或 `make_stereochemistry=False`。
+
+## 配置
+
+运行时配置基于 dataclass。默认使用包级全局对象
+[`molgr.config.CONFIG`](src/molgr/config.py)；调用方可以直接修改这个全局配置对象，也可以向
+`xyz_to_rdmol(..., config=...)` 传入独立的 [`MolGRConfig`](src/molgr/config.py)。
+
+```python
+from molgr.config import CONFIG
+
+CONFIG.cpp_backend.enable_target_bucket_parallelism = True
+CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
+CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
+```
+
+C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
+vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。
 
 ## 安装
 
@@ -94,6 +113,7 @@ uv pip install -e . -v --no-build-isolation \
 - [`tests/`](tests/)：公开行为测试、fallback 测试、转换器测试和 C++ 一致性测试。
 - [`benchmarks/`](benchmarks/)：benchmark 入口、专用依赖和运行说明。
 - [`docs/`](docs/)：架构说明和发布流程文档。
+- [`docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md`](docs/development/MOLECULE_REVIEW_TOOL.zh-CN.md)：MolGR 分子图重建审核与 Trace 工具说明。
 
 ## 算法概览
 
@@ -102,7 +122,8 @@ MolGR 把 Python fallback 作为语义参考，把 C++ 后端作为加速路径�
 
 1. 解析 XYZ 输入，并根据总电荷、自旋多重度和运行时配置确定重建目标。
 2. 根据 `backend="cpp"` 或 `backend="python"` 分发到对应后端。
-3. 对不含金属的结构，执行有机骨架重建流程；如果直接候选无效，则进入共振候选恢复。
+3. 对不含金属的结构，按电荷分离动作数递增搜索邻位自由基种子层；各层共享共振去重状态，并在首个有效层停止。
+   只有全部主层为空时，才进入畸变 pi 键和断键恢复层。
 4. 对含金属的结构，先把金属从有机骨架中临时分离，枚举可能的金属状态，并把这些状态按照
    诱导出的有机部分电荷和自由基目标分桶。
 5. 每个有机目标桶只重建一次，然后复用于对应的金属候选组合。
@@ -132,6 +153,7 @@ uv pip install -e . -v --no-build-isolation
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
+uv run pyright
 uv run pytest
 ```
 
@@ -146,9 +168,13 @@ uv build
 - `make format`：运行 Ruff formatter，会修改文件。
 - `make lint`：运行 `ruff check . --fix`，会修改文件。
 - `make test`：运行 pytest。
-- `make type-check`：对 `src` 运行 MyPy。
+- `make type-check`：对 `src` 运行 MyPy 和 Pyright。
 - `make cpp-build`：重新构建可编辑 C++ 扩展，并刷新 C++ IDE 配置。
 - `make stubs`：重新生成编译扩展的类型存根。
+
+`make stubs` 会对 `molgr._core` 运行 `pybind11-stubgen`，保留公开 `pipeline`
+stubs 以及 [`src/molgr/_core/dev/`](src/molgr/_core/dev/) 下的开发/一致性测试 helper
+stubs，然后格式化并 lint 生成的 `.pyi` 文件。
 
 可选：根据当前环境生成 VSCode/clangd C++ 配置：
 
@@ -178,8 +204,15 @@ uv run pytest tests/test_fallback_get_possible_metal_radicals.py
 1. 使用 `make cpp-build` 重新构建扩展。
 2. 运行相关的 C++/Python 后端一致性测试，例如
    [`tests/test_backend_reconstruction_regression.py`](tests/test_backend_reconstruction_regression.py)
-   和 [`tests/test_cpp_uff_atom_typing_cache.py`](tests/test_cpp_uff_atom_typing_cache.py)。
+   [`tests/test_cpp_python_metal_candidate_parity.py`](tests/test_cpp_python_metal_candidate_parity.py)、
+   [`tests/test_cpp_uff_atom_typing_cache.py`](tests/test_cpp_uff_atom_typing_cache.py)
+   和 [`tests/test_force_field_scoring_policy.py`](tests/test_force_field_scoring_policy.py)。
 3. 如果绑定接口变化，运行 `make stubs`，并检查生成的 `.pyi` 文件。
+
+C++ 后端是 Python fallback 语义的加速实现。修改 SMARTS 匹配、UFF setup 状态、
+共振候选选择或 C++ 专属加速开关时，需要同步检查
+[`docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md`](docs/architecture/ALGORITHM_ARCHITECTURE.zh-CN.md#cpppython-后端一致性护栏)
+中的后端一致性护栏。
 
 部分测试依赖 OpenBabel；如果当前环境缺少对应依赖，这些测试可能会被跳过。
 
@@ -211,6 +244,19 @@ bash scripts/benchmark_env.sh run python benchmarks/molfile_xyz_benchmark/run.py
   --input tests/data/sdf/MoNNMo.sdf \
   --limit 1 \
   --out benchmarks/_runs/molfile-demo
+```
+
+运行一个 tmQMg 后端对齐子集：
+
+```bash
+bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
+  --csv /path/to/tmqmg.csv \
+  --xyz-dir /path/to/xyz \
+  --limit 1000 \
+  --out benchmarks/_runs/tmqmg-parity \
+  --case-timeout-seconds 1.0 \
+  --cpp-accelerations all \
+  --methods molgr_cpp,molgr_fallback
 ```
 
 连续运行 benchmark 命令时，也可以切换当前 shell 环境：

@@ -1,10 +1,11 @@
 #include "molgr/utils/metal_radical_inference.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/coordination.h"
 
 #include <openbabel/elements.h>
 #include <openbabel/mol.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -41,8 +42,11 @@ namespace
         "Hg"};
 
     const std::map<int, double> kDonorFieldStrength = {
-        {6, 1.30},  {7, 1.00},  {8, 0.85},  {9, 0.65}, {15, 1.15},
-        {16, 0.75}, {17, 0.55}, {35, 0.50}, {53, 0.45},
+        {1, 1.20},  {2, 0.00},  {5, 1.30},  {6, 1.30},  {7, 1.00},  {8, 0.85},
+        {9, 0.65},  {10, 0.00}, {14, 1.30}, {15, 1.50}, {16, 0.75}, {17, 0.55},
+        {18, 0.00}, {32, 1.30}, {33, 1.40}, {34, 1.50}, {35, 0.50}, {36, 0.00},
+        {51, 1.35}, {52, 1.45}, {53, 0.45}, {54, 0.00}, {84, 1.40}, {85, 0.40},
+        {86, 0.00},
     };
 
     const std::map<std::string, double> kGeometryFieldAdjustment = {
@@ -56,6 +60,9 @@ namespace
         {"square_planar", 0.35},
         {"octahedral_like", 0.05},
     };
+
+    constexpr double kMetalHydrideCovalentToleranceAngstrom = 0.45;
+    constexpr double kMinMetalHydrideCutoffAngstrom = 1.25;
 
     Vector3 VectorFromAtoms(OpenBabel::OBAtom &metal_atom, OpenBabel::OBAtom &donor_atom)
     {
@@ -72,6 +79,33 @@ namespace
             std::get<0>(vector) * std::get<0>(vector) +
             std::get<1>(vector) * std::get<1>(vector) +
             std::get<2>(vector) * std::get<2>(vector));
+    }
+
+    double ClampedCovalentRadius(int atomic_num)
+    {
+        const double value = OpenBabel::OBElements::GetCovalentRad(atomic_num);
+        if (value <= 0.0 || !std::isfinite(value))
+        {
+            return 0.0;
+        }
+        return value;
+    }
+
+    double MetalHydrideCutoffAngstrom(int metal_atomic_num)
+    {
+        return std::max(
+            kMinMetalHydrideCutoffAngstrom,
+            ClampedCovalentRadius(metal_atomic_num) + ClampedCovalentRadius(1) +
+                kMetalHydrideCovalentToleranceAngstrom);
+    }
+
+    bool IsDirectMetalHydride(
+        OpenBabel::OBAtom &metal_atom,
+        OpenBabel::OBAtom &donor_atom,
+        double distance)
+    {
+        return static_cast<int>(donor_atom.GetAtomicNum()) == 1 &&
+               distance <= MetalHydrideCutoffAngstrom(static_cast<int>(metal_atom.GetAtomicNum()));
     }
 
     Vector3 Cross(const Vector3 &lhs, const Vector3 &rhs)
@@ -146,7 +180,7 @@ namespace
 
     std::vector<DonorSample> CollectCoordinationEnvironment(
         OpenBabel::OBAtom &metal_atom,
-        const molgr::config::MetalRadicalInferenceConfig &config)
+        const molgr::config::MolGRConfig &config)
     {
         OpenBabel::OBMol *parent = metal_atom.GetParent();
         if (parent == nullptr)
@@ -163,16 +197,26 @@ namespace
                 continue;
             }
             const int atomic_num = static_cast<int>(neighbor.GetAtomicNum());
-            if (atomic_num <= 1)
-            {
-                continue;
-            }
 
             const Vector3 vector = VectorFromAtoms(metal_atom, neighbor);
             const double distance = VectorNorm(vector);
-            if (distance > config.coordination_cutoff_angstrom)
+            if (atomic_num <= 1)
             {
-                continue;
+                if (!IsDirectMetalHydride(metal_atom, neighbor, distance))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                const double covalent_cutoff = molgr::coordination::CoordinationDistanceCutoff(
+                    static_cast<int>(metal_atom.GetAtomicNum()),
+                    atomic_num,
+                    config.metal_scoring);
+                if (distance > covalent_cutoff)
+                {
+                    continue;
+                }
             }
 
             donors.push_back(DonorSample{
@@ -190,9 +234,10 @@ namespace
             {
                 return lhs.distance_angstrom < rhs.distance_angstrom;
             });
-        if (static_cast<int>(donors.size()) > config.max_considered_donors)
+        if (static_cast<int>(donors.size()) > config.metal_radical_inference.max_considered_donors)
         {
-            donors.resize(static_cast<std::size_t>(config.max_considered_donors));
+            donors.resize(
+                static_cast<std::size_t>(config.metal_radical_inference.max_considered_donors));
         }
         return donors;
     }
@@ -274,15 +319,16 @@ namespace
         double field_score,
         const molgr::config::MetalRadicalInferenceConfig &config)
     {
-        if (field_score >= config.strong_field_threshold)
+        const double ambiguity_margin = std::max(0.0, config.field_ambiguity_margin);
+        if (field_score >= config.strong_field_threshold + ambiguity_margin)
         {
             return "strong";
         }
-        if (field_score <= config.weak_field_threshold)
+        if (field_score <= config.weak_field_threshold - ambiguity_margin)
         {
             return "weak";
         }
-        return "intermediate";
+        return "ambiguous";
     }
 
     std::optional<ShellOccupation> ShellOccupationAfterOxidation(
@@ -325,7 +371,9 @@ namespace
     std::vector<int> CandidateDUnpairedCounts(
         int effective_d,
         const std::string &geometry,
-        const std::string &field_strength)
+        const std::string &field_strength,
+        bool prefer_low_spin,
+        bool allow_low_spin_alternative)
     {
         if (effective_d < 0 || effective_d >= static_cast<int>(molgr::kDElectronsSpin.size()))
         {
@@ -353,13 +401,45 @@ namespace
 
         if (geometry == "tetrahedral")
         {
+            if (field_strength == "strong")
+            {
+                return {free_ion_candidates.front()};
+            }
+            if (field_strength == "ambiguous")
+            {
+                return prefer_low_spin
+                           ? std::vector<int>{free_ion_candidates.front(), free_ion_candidates.back()}
+                           : std::vector<int>{free_ion_candidates.back(), free_ion_candidates.front()};
+            }
+            if (allow_low_spin_alternative)
+            {
+                return {free_ion_candidates.back(), free_ion_candidates.front()};
+            }
             return {free_ion_candidates.back()};
         }
         if (free_ion_candidates.size() == 1)
         {
             return {free_ion_candidates.front()};
         }
-        return {free_ion_candidates.front(), free_ion_candidates.back()};
+        if (field_strength == "strong")
+        {
+            if (allow_low_spin_alternative)
+            {
+                return {free_ion_candidates.front(), free_ion_candidates.back()};
+            }
+            return {free_ion_candidates.front()};
+        }
+        if (field_strength == "weak")
+        {
+            if (allow_low_spin_alternative)
+            {
+                return {free_ion_candidates.back(), free_ion_candidates.front()};
+            }
+            return {free_ion_candidates.back()};
+        }
+        return prefer_low_spin
+                   ? std::vector<int>{free_ion_candidates.front(), free_ion_candidates.back()}
+                   : std::vector<int>{free_ion_candidates.back(), free_ion_candidates.front()};
     }
 }
 
@@ -382,22 +462,35 @@ namespace molgr
                 return {};
             }
 
-            const auto donors = CollectCoordinationEnvironment(metal_atom, metal_radical_config);
+            const auto donors = CollectCoordinationEnvironment(metal_atom, config);
             const std::string geometry = ClassifyGeometry(donors, metal_radical_config);
             const double field_score = DonorFieldScore(donors, geometry);
             const std::string field_strength = ClassifyFieldStrength(field_score, metal_radical_config);
             const int base_unpaired = (occupation->remaining_f + occupation->residual_sp) % 2;
 
             const auto d_candidates =
-                CandidateDUnpairedCounts(occupation->effective_d, geometry, field_strength);
-            std::set<int> radical_counts_set;
+                CandidateDUnpairedCounts(
+                    occupation->effective_d,
+                    geometry,
+                    field_strength,
+                    field_score >=
+                        (metal_radical_config.weak_field_threshold +
+                         metal_radical_config.strong_field_threshold) /
+                            2.0,
+                    true);
+            std::vector<int> radical_counts;
             for (const int candidate : d_candidates)
             {
-                radical_counts_set.insert(base_unpaired + candidate);
+                const int radical_count = base_unpaired + candidate;
+                if (std::find(radical_counts.begin(), radical_counts.end(), radical_count) ==
+                    radical_counts.end())
+                {
+                    radical_counts.push_back(radical_count);
+                }
             }
 
             MetalRadicalInferenceResult result;
-            result.radical_counts.assign(radical_counts_set.begin(), radical_counts_set.end());
+            result.radical_counts = radical_counts;
             result.effective_d_electrons = occupation->effective_d;
             result.residual_sp_electrons = occupation->residual_sp;
             result.remaining_f_electrons = occupation->remaining_f;

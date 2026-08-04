@@ -20,8 +20,24 @@ from openbabel import pybel
 from molgr.config import MolGRConfig
 from molgr.fallback.state import MetalCandidateState, MetalCandidateStateMachine
 from molgr.fallback.utils.metals import preparation, scoring, search
+from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
 
 from . import reconstruct_without_metals
+
+
+def _candidate_matches_global_electronic_state(
+    candidate: MetalCandidateState,
+    total_charge: int,
+    total_radical_electrons: int,
+) -> bool:
+    return (
+        candidate.no_metal_charge_target
+        + sum(int(state.valence) for state in candidate.metal_states)
+        == total_charge
+        and candidate.no_metal_radical_target
+        + sum(int(state.radical_num) for state in candidate.metal_states)
+        == total_radical_electrons
+    )
 
 
 def xyz2omol_state(
@@ -48,7 +64,7 @@ def xyz2omol_state(
         total_radical_electrons,
         config=config,
     )
-
+    no_metal_seed_omol: Optional[pybel.Molecule] = None
     scored_candidates: List[MetalCandidateState] = []
     winning_layer_index = 0
     for layer_index, available_valence_radical_states in enumerate(layered_state_search_groups):
@@ -62,14 +78,22 @@ def xyz2omol_state(
         if not grouped_candidates:
             continue
 
+        if no_metal_seed_omol is None:
+            try:
+                no_metal_seed_omol = no_metal_preparation._seed_omol_from_xyz(
+                    base_state.no_metal_xyz_block
+                )
+            except (OSError, ValueError):
+                return None
+
         current_layer_scored_candidates: list[MetalCandidateState] = []
         for candidates in grouped_candidates.values():
             if not candidates:
                 continue
             prototype = candidates[0]
             try:
-                no_metal_state = reconstruct_without_metals.xyz_to_omol_no_metal_state(
-                    base_state.no_metal_xyz_block,
+                no_metal_state = reconstruct_without_metals._seed_omol_to_omol_no_metal_state(
+                    no_metal_seed_omol,
                     prototype.no_metal_charge_target,
                     prototype.no_metal_radical_target,
                     config=config,
@@ -106,6 +130,12 @@ def xyz2omol_state(
 
     best_candidate = scoring.select_best_candidate(scored_candidates, config=config)
     if best_candidate is None:
+        return None
+    if not _candidate_matches_global_electronic_state(
+        best_candidate,
+        total_charge,
+        total_radical_electrons,
+    ):
         return None
     if best_candidate.combined_omol is None:
         best_candidate.materialize_combined_omol(preparation.combine_metal_with_omol)

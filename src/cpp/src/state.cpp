@@ -1,5 +1,6 @@
 #include "molgr/state.h"
 
+#include "molgr/utils/conversions.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/scoring.h"
 
@@ -9,11 +10,24 @@
 
 namespace
 {
-    constexpr std::array<const char *, 4> kOmolDerivedMetadataKeys = {
+    constexpr std::array<const char *, 17> kOmolDerivedMetadataKeys = {
         "force_field_energy",
         "force_field_score_key",
         "organic_core_score",
         "score",
+        "organic_aromatic_atom_count",
+        "organic_aromatic_ring_count",
+        "organic_aromatic_stability_score",
+        "organic_conjugated_atom_count",
+        "organic_conjugated_bond_count",
+        "organic_max_conjugated_component_size",
+        "organic_hyperconjugative_donor_count",
+        "organic_hyperconjugation_score",
+        "organic_formal_charge_absolute_sum",
+        "organic_conjugation_charge_penalty",
+        "organic_adjusted_max_conjugated_component_size",
+        "organic_adjusted_conjugated_atom_count",
+        "organic_adjusted_conjugated_bond_count",
     };
 
     constexpr std::array<const char *, 2> kCandidateDerivedMetadataKeys = {
@@ -106,7 +120,10 @@ namespace molgr
         {
             PreheatedNoMetalScoreBundle bundle;
             bundle.post_reinsertion_base_key = molgr::scoring::BuildScoreKey(Mol());
-            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluationWithScoreKey(
+                Mol(),
+                bundle.post_reinsertion_base_key,
+                config);
             bundle.organic_core_score = evaluation.energy_kj_mol;
             const auto base_components = molgr::scoring::BuildPostReinsertionBaseComponents(Mol());
             bundle.base_symmetry_penalty = base_components.first;
@@ -162,7 +179,10 @@ namespace molgr
                 return organic_core_score_cache->second;
             }
             const std::string score_key = PostReinsertionBaseKey();
-            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluation(Mol(), config);
+            const auto evaluation = molgr::scoring::OrganicForceFieldEvaluationWithScoreKey(
+                Mol(),
+                score_key,
+                config);
             const double score = evaluation.energy_kj_mol;
             organic_core_score_cache = std::make_pair(omol_revision, score);
             StoreNoMetalForceFieldMetadata(
@@ -217,9 +237,13 @@ namespace molgr
             int given_charge_,
             std::vector<std::string> phase_history_,
             MetadataMap metadata_,
-            int omol_revision_)
+            int omol_revision_,
+            int total_charge_,
+            int total_radical_electrons_)
             : omol(std::move(omol_)),
               given_charge(given_charge_),
+              total_charge(total_charge_),
+              total_radical_electrons(total_radical_electrons_),
               phase_history(std::move(phase_history_)),
               metadata(std::move(metadata_)),
               omol_revision(omol_revision_)
@@ -233,7 +257,9 @@ namespace molgr
                 state.given_charge,
                 state.phase_history,
                 state.metadata,
-                state.omol_revision);
+                state.omol_revision,
+                state.total_charge,
+                state.total_radical_electrons);
             machine.organic_score_key_cache = state.organic_score_key_cache;
             machine.organic_core_score_cache = state.organic_core_score_cache;
             machine.full_score_cache = state.full_score_cache;
@@ -253,7 +279,8 @@ namespace molgr
             }
             else if (!omol.unique())
             {
-                omol = std::make_shared<OpenBabel::OBMol>(*omol);
+                omol = std::make_shared<OpenBabel::OBMol>(
+                    molgr::utils::CloneMolTopologyOnly(*omol));
             }
             return *omol;
         }
@@ -291,14 +318,26 @@ namespace molgr
             std::optional<int> next_given_charge,
             MetadataMap branch_metadata) const
         {
+            const bool replaces_omol = static_cast<bool>(next_omol);
+            std::shared_ptr<OpenBabel::OBMol> branch_omol;
+            if (replaces_omol)
+            {
+                branch_omol = std::move(next_omol);
+            }
+            else
+            {
+                branch_omol = omol;
+            }
             OmolStateMachine machine(
-                next_omol ? std::move(next_omol) : omol,
+                std::move(branch_omol),
                 next_given_charge.has_value() ? *next_given_charge : given_charge,
                 phase_history,
                 metadata,
-                next_omol ? omol_revision + 1 : omol_revision);
+                replaces_omol ? omol_revision + 1 : omol_revision,
+                total_charge,
+                total_radical_electrons);
 
-            if (!next_omol)
+            if (!replaces_omol)
             {
                 machine.organic_score_key_cache = organic_score_key_cache;
                 machine.organic_core_score_cache = organic_core_score_cache;
@@ -311,6 +350,9 @@ namespace molgr
             }
             else
             {
+                auto &branch_mol = machine.EnsureUniqueMol();
+                branch_mol.SetHybridizationPerceived(false);
+                branch_mol.SetAtomTypesPerceived(false);
                 machine.InvalidateOmolDerivedCache();
             }
 

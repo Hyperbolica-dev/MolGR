@@ -1,6 +1,7 @@
 #pragma once
 
 #include <openbabel/mol.h>
+#include <openbabel/parsmart.h>
 
 #include <cstddef>
 #include <vector>
@@ -14,21 +15,45 @@ namespace molgr
             PREPROCESS_DONATE = 0,
             PREPROCESS_ACCEPT,
             PRE_CLEAN_HYPERVALENT,
+            PRE_CLEAN_HYPER_PI_BOND,
             PRE_CLEAN_BCP_RING_5,
             PRE_CLEAN_BCP_RING_4,
             PRE_CLEAN_SI_O_F,
             ELIM_HIGH_POSITIVE,
-            ELIM_CN_IN_DOUBT,
             ELIM_CARBOXYL,
             ELIM_NNN_NEGATIVE,
             ELIM_NNN_POSITIVE,
-            ELIM_1_3_DIPOLE,
+            ELIM_1_3_DIPOLE_POSTIVE,
             ELIM_POSITIVE_N,
             ELIM_POSITIVE_C_H,
+            ELIM_POSITIVE_DIPOLE,
+            ELIM_NEGATIVE_F,
+            ELIM_NEGATIVE_O,
+            ELIM_NEGATIVE_O_1,
+            ELIM_NEGATIVE_CL,
+            ELIM_NEGATIVE_N,
+            ELIM_NEGATIVE_N_1,
+            ELIM_NEGATIVE_N_2,
+            ELIM_NEGATIVE_BR,
+            ELIM_NEGATIVE_I,
+            ELIM_NEGATIVE_S,
+            ELIM_NEGATIVE_S_1,
+            ELIM_NEGATIVE_SE,
+            ELIM_NEGATIVE_SE_1,
+            ELIM_NEGATIVE_P,
+            ELIM_NEGATIVE_P_1,
+            ELIM_NEGATIVE_P_2,
+            ELIM_NEGATIVE_B,
+            ELIM_NEGATIVE_B_1,
+            ELIM_NEGATIVE_B_2,
             ELIM_NEGATIVE_C_V3,
             ELIM_NEGATIVE_H,
             ELIM_NEGATIVE_C_LOW,
+            ELIM_NEGATIVE_CP,
             CLEAN_CARBENE_NEIGHBOR_UNSAT,
+            CLEAN_POSSIBLE_1_3_DIPOLE,
+            CLEAN_1_4_RADICALS,
+            CLEAN_1_6_RADICALS,
             CLEAN_RESONANCE_0,
             CLEAN_RESONANCE_1,
             CLEAN_RESONANCE_2,
@@ -43,6 +68,9 @@ namespace molgr
             CLEAN_RESONANCE_11,
             CLEAN_RESONANCE_12,
             CLEAN_RESONANCE_13,
+            CLEAN_RESONANCE_14,
+            CLEAN_RESONANCE_16,
+            CLEAN_RESONANCE_17,
             BREAK_DEFORMED_ENE_A,
             BREAK_DEFORMED_ENE_B,
             BREAK_ONE_BOND_MULTIPLE,
@@ -53,6 +81,11 @@ namespace molgr
             COUNT,
         };
 
-        std::vector<std::vector<int>> Match(OpenBabel::OBMol &mol, PatternId pattern_id);
+        // Match SMARTS with the same semantics as Python pybel.Smarts.findall():
+        // OpenBabel::OBSmartsPattern::Match(mol), followed by GetUMapList().
+        std::vector<std::vector<int>> FindAll(
+            OpenBabel::OBSmartsPattern &pattern,
+            OpenBabel::OBMol &mol);
+        std::vector<std::vector<int>> FindAll(OpenBabel::OBMol &mol, PatternId pattern_id);
     }
 }

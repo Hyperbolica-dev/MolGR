@@ -199,6 +199,8 @@ namespace OpenBabel
     static bool IgnoreCalculation(int a, int b, int c);
     static bool IgnoreCalculation(int a, int b, int c, int d);
     void ConfigureAtomTypingCache(bool enabled, std::string cache_key);
+    void CopyPerceivedHybridizationTo(OBMol &mol) const;
+    std::vector<std::string> DebugAtomTypes() const;
 
     //! Get the description for this force field
     const char* Description()

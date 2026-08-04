@@ -71,10 +71,13 @@ add_library(molgr STATIC
     src/cpp/src/utils/force_field.cpp
     src/cpp/src/utils/metal_radical_inference.cpp
     src/cpp/src/vendor/forcefielduff.cpp
+    src/cpp/src/vendor/openbabel_threading.cpp
     src/cpp/src/utils/metals/preparation.cpp
     src/cpp/src/utils/metals/scoring.cpp
     src/cpp/src/utils/metals/search.cpp
+    src/cpp/src/utils/no_metals/neighbor_radicals.cpp
     src/cpp/src/utils/no_metals/preparation.cpp
+    src/cpp/src/utils/no_metals/recovery.cpp
     src/cpp/src/utils/no_metals/resonance.cpp
     src/cpp/src/utils/no_metals/selection.cpp
     src/cpp/src/utils/organic_topology.cpp

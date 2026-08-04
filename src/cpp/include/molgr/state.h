@@ -85,6 +85,8 @@ namespace molgr
         public:
             std::shared_ptr<OpenBabel::OBMol> omol;
             int given_charge = 0;
+            int total_charge = 0;
+            int total_radical_electrons = 0;
             std::vector<std::string> phase_history;
             mutable MetadataMap metadata;
             int omol_revision = 0;
@@ -104,7 +106,9 @@ namespace molgr
                 int given_charge_ = 0,
                 std::vector<std::string> phase_history_ = {},
                 MetadataMap metadata_ = {},
-                int omol_revision_ = 0);
+                int omol_revision_ = 0,
+                int total_charge_ = 0,
+                int total_radical_electrons_ = 0);
 
             static OmolStateMachine FromReconstructionState(const ReconstructionState &state);
 
@@ -122,6 +126,8 @@ namespace molgr
                     std::forward<Args>(args)...);
                 if (hit)
                 {
+                    mol.SetHybridizationPerceived(false);
+                    mol.SetAtomTypesPerceived(false);
                     ++omol_revision;
                     InvalidateOmolDerivedCache();
                 }
@@ -145,6 +151,8 @@ namespace molgr
                 const bool charge_hit = before_charge != given_charge;
                 if (molecule_hit)
                 {
+                    mol.SetHybridizationPerceived(false);
+                    mol.SetAtomTypesPerceived(false);
                     ++omol_revision;
                     InvalidateOmolDerivedCache();
                 }

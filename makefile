@@ -131,8 +131,9 @@ lint:
 	uv run ruff check . --fix
 
 type-check:
-	@echo "🦆 Running Mypy Type Checker..."
+	@echo "🦆 Running Mypy and Pyright Type Checkers..."
 	uv run mypy src
+	uv run pyright
 
 check: format lint type-check
 
@@ -239,7 +240,10 @@ docker-down:
 
 cpp-dev-install:
 	@echo "Installing C++ dev dependencies"
-	uv pip install scikit-build-core pybind11 "openbabel-wheel>=3.1.1" pybind11-stubgen setuptools-scm
+	uv pip install scikit-build-core pybind11 pybind11-stubgen setuptools-scm
+	uv run python -c "import sys; raise SystemExit(0 if sys.version_info < (3, 10) else 1)" \
+		&& uv pip install "openbabel-wheel>=3.1.1" \
+		|| uv pip install "openbabel>=3.2.0"
 # 🔨 快速编译 C++ 扩展
 # 使用 --no-build-isolation 避免每次重新安装构建依赖，加快重编速度
 # -v 显示 CMake/编译器 输出，方便调试

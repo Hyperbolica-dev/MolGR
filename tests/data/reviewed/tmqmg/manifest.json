@@ -1,0 +1,143 @@
+{
+  "fixtures": [
+    {
+      "accepted_smiles": [
+        "[H]C([H])([H])O[P@@+]1([O-])[O-]->[Y+3]2345678<-[O-][P@+]([O-])(OC([H])([H])[H])/C(=N->2/C([H])([H])C([H])([H])N->32C([H])([H])C([H])([H])N->4(C([H])([H])C([H])([H])/N->5=C/1C([H])([H])[H])C([H])([H])C([H])([H])N->6(C([H])([H])C([H])([H])/N->7=C(\\C([H])([H])[H])[P@@+]([O-])(OC([H])([H])[H])[O-]->8)C([H])([H])C2([H])[H])C([H])([H])[H]"
+      ],
+      "approved_smiles": "[H]C([H])([H])O[P@@+]1([O-])[O-]->[Y+3]2345678<-[O-][P@+]([O-])(OC([H])([H])[H])/C(=N->2/C([H])([H])C([H])([H])N->32C([H])([H])C([H])([H])N->4(C([H])([H])C([H])([H])/N->5=C/1C([H])([H])[H])C([H])([H])C([H])([H])N->6(C([H])([H])C([H])([H])/N->7=C(\\C([H])([H])[H])[P@@+]([O-])(OC([H])([H])[H])[O-]->8)C([H])([H])C2([H])[H])C([H])([H])[H]",
+      "case_id": "ABARAX",
+      "kind": "approved_graph",
+      "reference_smiles": "",
+      "review_status": "accept_candidate",
+      "row_index": 16,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ABARAX.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456789%10(<-Fc%11c(F)c(F)c(F)c(F)c%11[B-](c%11c(F)c(F)c(F)c(F)c%11F)(c%11c(F)c(F)c(F)c(F)c%11F)C1([H])[H])<-c1([H])c->2([H])c->3([Si](C([H])([H])[H])(C([H])([H])[H])c->42c->5([H])c->6([H])c->7([H])[c-]->82[H])[c-]->9([H])c->%101[H]"
+      ],
+      "approved_smiles": "[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456789%10(<-Fc%11c(F)c(F)c(F)c(F)c%11[B-](c%11c(F)c(F)c(F)c(F)c%11F)(c%11c(F)c(F)c(F)c(F)c%11F)C1([H])[H])<-c1([H])c->2([H])c->3([Si](C([H])([H])[H])(C([H])([H])[H])c->42c->5([H])c->6([H])c->7([H])[c-]->82[H])[c-]->9([H])c->%101[H]",
+      "case_id": "ABETIK",
+      "kind": "approved_graph",
+      "reference_smiles": "C[Si]1(C)c23->[Zr+6]456789%10%11%12(<-[F-])(<-[CH2-]C->4=C->5C[B-](c4[c-]c(F)c(F)c(F)c4F)(c4c(F)c(F)c(F)c(F)c4F)c4c(F)c(F)c(F)c(F)c4F)(<-c(c->6[cH-]->72)c->83)<-c2c->9c->%10[c-]->%111c->%122",
+      "review_status": "accept_candidate",
+      "row_index": 62,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ABETIK.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456(<-Fc7c(F)c(F)c(F)c(F)c7[B-](c7c(F)c(F)c(F)c(F)c7F)(c7c(F)c(F)c(F)c(F)c7F)C1([H])[H])<-c1([H])c->2([H])c->3([Si](C([H])([H])[H])(C([H])([H])[H])[c-]->42c([H])c([H])c(C([H])([H])[H])c2[H])[c-]->5([H])c->61C([H])([H])[H]"
+      ],
+      "approved_smiles": "[H]/C1=C(/[H])[C-]([H])([H])->[Zr+4]23456(<-Fc7c(F)c(F)c(F)c(F)c7[B-](c7c(F)c(F)c(F)c(F)c7F)(c7c(F)c(F)c(F)c(F)c7F)C1([H])[H])<-c1([H])c->2([H])c->3([Si](C([H])([H])[H])(C([H])([H])[H])[c-]->42c([H])c([H])c(C([H])([H])[H])c2[H])[c-]->5([H])c->61C([H])([H])[H]",
+      "case_id": "ABETOQ",
+      "kind": "approved_graph",
+      "reference_smiles": "Cc12->[Zr+6]3456789%10%11%12(<-[F-])(<-[CH2-]C->3=C->4C[B-](c3[c-]c(F)c(F)c(F)c3F)(c3c(F)c(F)c(F)c(F)c3F)c3c(F)c(F)c(F)c(F)c3F)<-c1c->5[c-]->6([Si](C)(C)[c-]->71c->8c->9c->%10(C)c->%111)c->%122",
+      "review_status": "accept_candidate",
+      "row_index": 63,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ABETOQ.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]C([H])([H])C#N->[La+3](<-[Br-])(<-[Br-])(<-[Br-])(<-N#CC([H])([H])[H])(<-N#CC([H])([H])[H])(<-N#CC([H])([H])[H])<-N#CC([H])([H])[H]"
+      ],
+      "approved_smiles": "[H]C([H])([H])C#N->[La+3](<-[Br-])(<-[Br-])(<-[Br-])(<-N#CC([H])([H])[H])(<-N#CC([H])([H])[H])(<-N#CC([H])([H])[H])<-N#CC([H])([H])[H]",
+      "case_id": "ABEVAG",
+      "kind": "approved_graph",
+      "reference_smiles": "CCN[La+3](<-[Br-])(<-[Br-])(<-[Br-])(NCC)(NCC)(NCC)NCC",
+      "review_status": "accept_candidate",
+      "row_index": 65,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ABEVAG.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]c1c([H])c([H])c(/N=N/c2c([H])c([H])c(C#[C-]->[Au+]<-n3c(-c4c([H])c([H])c([H])c([H])c4[H])c([H])c4n5c([H])c([H])c([H])c([H])c5c5c([H])c([H])c([H])c([H])c5c3-4)c([H])c2[H])c([H])c1[H]"
+      ],
+      "approved_smiles": "[H]c1c([H])c([H])c(/N=N/c2c([H])c([H])c(C#[C-]->[Au+]<-n3c(-c4c([H])c([H])c([H])c([H])c4[H])c([H])c4n5c([H])c([H])c([H])c([H])c5c5c([H])c([H])c([H])c([H])c5c3-4)c([H])c2[H])c([H])c1[H]",
+      "case_id": "ACEGAT",
+      "kind": "approved_graph",
+      "reference_smiles": "[C]([C-3]->[Au+3]<-n1c(-c2ccccc2)cc2n3ccccc3c3ccccc3c1-2)c1ccc(N=Nc2ccccc2)cc1",
+      "review_status": "accept_candidate",
+      "row_index": 213,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ACEGAT.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]456(<-O=[N+]([O-])[O-]->4)(<-[O-][N+](=O)[O-])(<-[O-][N+](=O)[O-]->5)(<-n3c(-c3c([H])c([H])c([H])c([H])n->63)n2)(<-O([H])C([H])([H])[H])<-O([H])C([H])([H])[H])c([H])c([H])c1[H]"
+      ],
+      "approved_smiles": "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]456(<-O=[N+]([O-])[O-]->4)(<-[O-][N+](=O)[O-])(<-[O-][N+](=O)[O-]->5)(<-n3c(-c3c([H])c([H])c([H])c([H])n->63)n2)(<-O([H])C([H])([H])[H])<-O([H])C([H])([H])[H])c([H])c([H])c1[H]",
+      "case_id": "ACUGIP",
+      "kind": "approved_graph",
+      "reference_smiles": "CO->[La]123456(ON(O)O)(<-OC)(<-N(O)(O1)O2)(<-N(O)(O3)O4)N1CCCCC1C1NC(C2CCCCN2)NC(C2CCCCN25)N16",
+      "review_status": "accept_candidate",
+      "row_index": 314,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ACUGIP.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]4567(<-O=[N+]([O-])[O-]->4)(<-O=[N+]([O-])[O-]->5)(<-O=[N+]([O-])[O-]->6)(<-n3c(-c3c([H])c([H])c([H])c([H])n->73)n2)<-O([H])[H])c([H])c([H])c1[H]"
+      ],
+      "approved_smiles": "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]4567(<-O=[N+]([O-])[O-]->4)(<-O=[N+]([O-])[O-]->5)(<-O=[N+]([O-])[O-]->6)(<-n3c(-c3c([H])c([H])c([H])c([H])n->73)n2)<-O([H])[H])c([H])c([H])c1[H]",
+      "case_id": "ACUGOV",
+      "kind": "approved_graph",
+      "reference_smiles": "ON12->[La]345678(<-O)(<-N(O)(O3)O4)(<-N(O)(O5)O6)(O1)(O2)N1CCCCC1C1NC(C2CCCCN2)NC(C2CCCCN27)N18",
+      "review_status": "accept_candidate",
+      "row_index": 315,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ACUGOV.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    },
+    {
+      "accepted_smiles": [
+        "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]4567(<-O=[N+]([O-])[O-]->4)(<-O=[N+]([O-])[O-]->5)(<-O=[N+]([O-])[O-]->6)(<-n3c(-c3c([H])c([H])c([H])c([H])n->73)n2)<-O([H])[H])c([H])c([H])c1[H]"
+      ],
+      "approved_smiles": "[H]c1nc(-c2nc3-c4c([H])c([H])c([H])c([H])n4->[La+3]4567(<-O=[N+]([O-])[O-]->4)(<-O=[N+]([O-])[O-]->5)(<-O=[N+]([O-])[O-]->6)(<-n3c(-c3c([H])c([H])c([H])c([H])n->73)n2)<-O([H])[H])c([H])c([H])c1[H]",
+      "case_id": "ACUHAI",
+      "kind": "approved_graph",
+      "reference_smiles": "ON12->[La]345678(<-O)(<-N(O)(O3)O4)(<-N(O)(O5)O6)(O1)(O2)N1CCCCC1C1NC(C2CCCCN2)NC(C2CCCCN27)N18",
+      "review_status": "accept_candidate",
+      "row_index": 318,
+      "source": "molgr_reconstruction",
+      "spin_multiplicity": 1,
+      "structure_file": "approved_graph/ACUHAI.sdf",
+      "total_charge": 0,
+      "total_radical_electrons": 0
+    }
+  ],
+  "schema_version": 1,
+  "source_dataset": {
+    "name": "tmQMg",
+    "properties_file": "tmQMg_properties_and_targets.csv",
+    "properties_sha256": "3920c1c8f4ec81bc8e44b8d0256a7da1e36c8805c3c0adfd47e50c46e633f473",
+    "publication_doi": "10.1039/D2DD00129B",
+    "repository": "https://github.com/uiocompcat/tmQMg",
+    "revision": "e1dc9887b8f20a217a1db6ca972d726bcbaab45b",
+    "xyz_file": "tmQMg_xyz.zip",
+    "xyz_sha256": "e0d15a70bcba294717cd9f9792e7fac99ef0c5c61c3a6e08dcc8a8643f53660a"
+  }
+}

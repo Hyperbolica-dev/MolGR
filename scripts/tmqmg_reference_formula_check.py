@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Validate tmQMg reference graphs against XYZ element counts.
 
 This script checks whether the dataset reference SMILES can reproduce the
@@ -23,7 +24,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 if __package__ in (None, ""):
@@ -137,7 +138,14 @@ def _read_xyz_element_counts(xyz_path: Path) -> Counter[str]:
 def _smiles_element_counts_with_h(reference_smiles: str) -> Counter[str]:
     mol = Chem.MolFromSmiles(reference_smiles)
     if mol is None:
-        raise ValueError("reference_parse_failed")
+        # Some RDKit releases reject the unusual hypervalent metal notation
+        # during sanitization even though the graph is still usable for the
+        # formula audit.  Keep the unsanitized graph and calculate implicit
+        # hydrogens with a non-strict property-cache update.
+        mol = Chem.MolFromSmiles(reference_smiles, sanitize=False)
+        if mol is None:
+            raise ValueError("reference_parse_failed")
+        mol.UpdatePropertyCache(strict=False)
     mol_h = Chem.AddHs(mol)
     return Counter(atom.GetSymbol() for atom in mol_h.GetAtoms())
 
@@ -247,7 +255,7 @@ def main() -> int:
                 break
 
             result = _process_row(row_index, row, xyz_dir=args.xyz_dir)
-            writer.writerow(result)
+            writer.writerow(cast(Any, result))
             processed += 1
 
             parse_status_counter.update([result["reference_parse_status"] or "missing"])

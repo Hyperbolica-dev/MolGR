@@ -6,6 +6,9 @@ from pathlib import Path
 
 CORE_ROOT = Path("src/molgr/_core")
 PIPELINE_ROOT = CORE_ROOT / "pipeline"
+DEV_ROOT = CORE_ROOT / "dev"
+DEV_PIPELINE_ROOT = DEV_ROOT / "pipeline"
+DEV_STAGES_ROOT = DEV_ROOT / "stages"
 
 MODULE_TO_PACKAGE_INIT = ((CORE_ROOT / "pipeline.pyi", PIPELINE_ROOT / "__init__.pyi"),)
 
@@ -15,11 +18,22 @@ REQUIRED_PATHS = (
     PIPELINE_ROOT / "__init__.pyi",
     PIPELINE_ROOT / "reconstruct_with_metals.pyi",
     PIPELINE_ROOT / "reconstruct_without_metals.pyi",
+    DEV_ROOT / "__init__.pyi",
+    DEV_ROOT / "utils.pyi",
+    DEV_PIPELINE_ROOT / "__init__.pyi",
+    DEV_PIPELINE_ROOT / "reconstruct_with_metals.pyi",
+    DEV_PIPELINE_ROOT / "reconstruct_without_metals.pyi",
+    DEV_PIPELINE_ROOT / "resonance.pyi",
+    DEV_STAGES_ROOT / "__init__.pyi",
+    DEV_STAGES_ROOT / "break_bond.pyi",
+    DEV_STAGES_ROOT / "clean.pyi",
+    DEV_STAGES_ROOT / "eliminate.pyi",
+    DEV_STAGES_ROOT / "fresh.pyi",
+    DEV_STAGES_ROOT / "preprocess.pyi",
 )
 
 STALE_PATHS = (
     CORE_ROOT / "dev.pyi",
-    CORE_ROOT / "dev",
     CORE_ROOT / "stages.pyi",
     CORE_ROOT / "stages",
     PIPELINE_ROOT / "resonance.pyi",

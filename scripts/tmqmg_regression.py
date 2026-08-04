@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Run tmQMg regression and report organic-only UFF diagnostics.
 
 The tmQMg CSV provides one reference SMILES per entry, while the XYZ atom order
@@ -21,12 +22,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import multiprocessing as mp
+import os
 import sys
 import time
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator, cast
+
+from typing_extensions import Literal
 
 
 if __package__ in (None, ""):
@@ -37,6 +43,7 @@ from openbabel import pybel
 from rdkit import Chem, RDLogger
 
 from molgr.fallback.utils.consts import NON_METAL_DICT
+from molgr.fallback.utils.electrons import set_unpaired_electron_count
 from molgr.fallback.utils.force_field import force_field_evaluation
 from molgr.interface import xyz_to_rdmol
 from molgr.utils.equivalence import check_equivalence
@@ -45,6 +52,13 @@ from molgr.utils.equivalence import check_equivalence
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
 
 NON_METAL_ATOMIC_NUMBERS = frozenset(NON_METAL_DICT)
+_DEFAULT_MAX_AUTO_JOBS = 8
+_WORKER_XYZ_DIR: Path | None = None
+BackendName = Literal["cpp", "python"]
+_WORKER_BACKEND: BackendName | None = None
+_WORKER_SPIN_SOURCE: str | None = None
+_WORKER_MANUAL_WHITELIST: dict[str, dict[str, str]] | None = None
+
 RESULT_FIELDNAMES = (
     "row_index",
     "id",
@@ -175,6 +189,22 @@ def _parse_args() -> argparse.Namespace:
         default=10,
         help="Print one stderr progress line every N processed entries. Use 0 to silence.",
     )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=0,
+        help=(
+            "Number of worker processes for row reconstruction. Use 1 for serial execution. "
+            f"Default 0 auto-selects up to {_DEFAULT_MAX_AUTO_JOBS} processes."
+        ),
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=1,
+        help="Process-pool map chunksize. Larger values reduce overhead for many small rows.",
+    )
     args = parser.parse_args()
     if args.start_row < 1:
         parser.error("--start-row must be >= 1")
@@ -182,6 +212,12 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--end-row must be >= --start-row")
     if args.limit < 1:
         parser.error("--limit must be >= 1")
+    if args.jobs < 0:
+        parser.error("--jobs must be >= 0")
+    if args.jobs == 0:
+        args.jobs = max(1, min(args.limit, os.cpu_count() or 1, _DEFAULT_MAX_AUTO_JOBS))
+    if args.chunksize < 1:
+        parser.error("--chunksize must be >= 1")
     return args
 
 
@@ -264,12 +300,14 @@ def _load_manual_whitelist(path: Path) -> dict[str, dict[str, str]]:
 
 def _safe_canonical_smiles(mol: Chem.Mol) -> str:
     try:
-        return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol), sanitize=False), canonical=True)
+        heavy_only, _ = _copy_without_hydrogens_with_source_indices(mol)
+        return Chem.MolToSmiles(heavy_only, canonical=True)
     except Exception:  # noqa: BLE001
         try:
             clone = Chem.Mol(mol)
             Chem.SanitizeMol(clone)
-            return Chem.MolToSmiles(Chem.RemoveHs(clone, sanitize=False), canonical=True)
+            heavy_only, _ = _copy_without_hydrogens_with_source_indices(clone)
+            return Chem.MolToSmiles(heavy_only, canonical=True)
         except Exception:  # noqa: BLE001
             return ""
 
@@ -367,15 +405,67 @@ def _hydrogen_atom_indices(mol: Chem.Mol) -> list[int]:
     return [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 1]
 
 
-def _remove_hs_with_source_indices(mol: Chem.Mol) -> tuple[Chem.Mol, list[int]]:
-    tagged = Chem.Mol(mol)
-    for atom in tagged.GetAtoms():
-        atom.SetAtomMapNum(atom.GetIdx() + 1)
-    reduced = Chem.RemoveHs(tagged, sanitize=False)
-    source_indices = [atom.GetAtomMapNum() - 1 for atom in reduced.GetAtoms()]
-    for atom in reduced.GetAtoms():
-        atom.SetAtomMapNum(0)
-    return reduced, source_indices
+def _heavy_atom_count(mol: Chem.Mol) -> int:
+    return len(_heavy_atom_indices(mol))
+
+
+def _copy_without_hydrogens_with_source_indices(mol: Chem.Mol) -> tuple[Chem.Mol, list[int]]:
+    heavy_rw = Chem.RWMol()
+    source_indices: list[int] = []
+    atom_index_map: dict[int, int] = {}
+    deferred_bond_stereo: list[tuple[int, Chem.BondStereo, list[int]]] = []
+
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 1:
+            continue
+        source_indices.append(atom.GetIdx())
+        atom_index_map[atom.GetIdx()] = heavy_rw.AddAtom(Chem.Atom(atom))
+
+    for bond in mol.GetBonds():
+        begin_atom_idx = bond.GetBeginAtomIdx()
+        end_atom_idx = bond.GetEndAtomIdx()
+        new_begin_atom_idx = atom_index_map.get(begin_atom_idx)
+        new_end_atom_idx = atom_index_map.get(end_atom_idx)
+        if new_begin_atom_idx is None or new_end_atom_idx is None:
+            continue
+        heavy_rw.AddBond(new_begin_atom_idx, new_end_atom_idx, bond.GetBondType())
+        new_bond = heavy_rw.GetBondBetweenAtoms(new_begin_atom_idx, new_end_atom_idx)
+        if new_bond is None:
+            continue
+        new_bond.SetIsAromatic(bond.GetIsAromatic())
+        new_bond.SetBondDir(bond.GetBondDir())
+        stereo_atoms = [
+            atom_index_map[atom_idx]
+            for atom_idx in bond.GetStereoAtoms()
+            if atom_idx in atom_index_map
+        ]
+        deferred_bond_stereo.append((new_bond.GetIdx(), bond.GetStereo(), stereo_atoms))
+
+    heavy = heavy_rw.GetMol()
+    # RDKit requires the neighboring bonds referenced by stereo atoms to already
+    # exist on the owning molecule before SetStereoAtoms() is called.
+    for bond_idx, stereo, stereo_atoms in deferred_bond_stereo:
+        heavy_bond = heavy.GetBondWithIdx(bond_idx)
+        if len(stereo_atoms) == 2:
+            heavy_bond.SetStereoAtoms(*stereo_atoms)
+            heavy_bond.SetStereo(stereo)
+        else:
+            heavy_bond.SetStereo(Chem.BondStereo.STEREONONE)
+    if mol.GetNumConformers():
+        conformer = mol.GetConformer()
+        heavy_conformer = Chem.Conformer(heavy.GetNumAtoms())
+        for new_atom_idx, source_atom_idx in enumerate(source_indices):
+            heavy_conformer.SetAtomPosition(
+                new_atom_idx,
+                conformer.GetAtomPosition(source_atom_idx),
+            )
+        heavy.RemoveAllConformers()
+        heavy.AddConformer(heavy_conformer)
+
+    heavy.UpdatePropertyCache(strict=False)
+    with suppress(Exception):
+        Chem.SanitizeMol(heavy)
+    return heavy, source_indices
 
 
 def _build_reference_organic_with_molgr_coords(
@@ -403,10 +493,12 @@ def _build_reference_organic_with_molgr_coords(
             aligned_reference_organic.UpdatePropertyCache(strict=False)
             return aligned_reference_organic
 
-    reference_heavy, reference_reduced_source_indices = _remove_hs_with_source_indices(
+    reference_heavy, reference_reduced_source_indices = _copy_without_hydrogens_with_source_indices(
         reference_organic
     )
-    molgr_heavy, molgr_reduced_source_indices = _remove_hs_with_source_indices(molgr_organic)
+    molgr_heavy, molgr_reduced_source_indices = _copy_without_hydrogens_with_source_indices(
+        molgr_organic
+    )
     if reference_heavy.GetNumAtoms() != molgr_heavy.GetNumAtoms():
         raise OrganicCoordinateMappingError(
             "heavy_atom_count_mismatch",
@@ -541,7 +633,7 @@ def _rdkit_to_pybel_with_coords(mol: Chem.Mol) -> pybel.Molecule:
             obatom = obmol.NewAtom()
             obatom.SetAtomicNum(atom.GetAtomicNum())
             obatom.SetFormalCharge(atom.GetFormalCharge())
-            obatom.SetSpinMultiplicity(atom.GetNumRadicalElectrons())
+            set_unpaired_electron_count(obatom, atom.GetNumRadicalElectrons())
             position = conformer.GetAtomPosition(atom_idx - 1)
             obatom.SetVector(float(position.x), float(position.y), float(position.z))
         for bond in mol.GetBonds():
@@ -571,7 +663,7 @@ def _process_row(
     row: dict[str, str],
     *,
     xyz_dir: Path,
-    backend: str,
+    backend: BackendName,
     spin_source: str,
     manual_whitelist: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
@@ -697,13 +789,14 @@ def _process_row(
             result["equivalence_reason"] = f"equivalence_failed: {type(exc).__name__}: {exc}"
 
     whitelist_entry = manual_whitelist.get(result["id"])
-    whitelist_applied = whitelist_entry is not None and result["strict_equivalent"] is not True
+    whitelist_applied = False
     if formula_proves_reference_wrong:
         result["reference_answer_wrong"] = True
         result["reference_answer_status"] = "formula_mismatch"
         result["reference_answer_reason"] = formula_wrong_reason
         result["equivalent"] = "formula_mismatch"
-    elif whitelist_applied:
+    elif whitelist_entry is not None and result["strict_equivalent"] is not True:
+        whitelist_applied = True
         whitelist_status = whitelist_entry["status"]
         result["equivalent"] = whitelist_status
         result["reference_answer_reason"] = whitelist_entry["reason"]
@@ -719,7 +812,7 @@ def _process_row(
     else:
         result["reference_answer_wrong"] = False
         result["reference_answer_status"] = "not_flagged"
-    if whitelist_applied:
+    if whitelist_applied and whitelist_entry is not None:
         result["manual_whitelist_status"] = whitelist_entry["status"]
         result["manual_whitelist_reason"] = whitelist_entry["reason"]
     result["effective_equivalent"] = bool(
@@ -730,10 +823,7 @@ def _process_row(
         molgr_organic = _copy_without_metals(molgr_mol)
         result["molgr_organic_smiles"] = _safe_canonical_smiles(molgr_organic)
         result["molgr_organic_atom_count"] = molgr_organic.GetNumAtoms()
-        result["molgr_organic_heavy_atom_count"] = Chem.RemoveHs(
-            molgr_organic,
-            sanitize=False,
-        ).GetNumAtoms()
+        result["molgr_organic_heavy_atom_count"] = _heavy_atom_count(molgr_organic)
         result["molgr_organic_uff_kj_mol"] = _organic_uff_energy_kj_mol(molgr_organic)
         result["molgr_organic_uff_status"] = "ok"
     except Exception as exc:  # noqa: BLE001
@@ -752,10 +842,7 @@ def _process_row(
         reference_organic = _copy_without_metals(reference_mol)
         result["reference_organic_smiles"] = _safe_canonical_smiles(reference_organic)
         result["reference_organic_atom_count"] = reference_organic.GetNumAtoms()
-        result["reference_organic_heavy_atom_count"] = Chem.RemoveHs(
-            reference_organic,
-            sanitize=False,
-        ).GetNumAtoms()
+        result["reference_organic_heavy_atom_count"] = _heavy_atom_count(reference_organic)
     except Exception as exc:  # noqa: BLE001
         result["reference_organic_mapping_status"] = f"failed:{type(exc).__name__}"
         result["reference_organic_uff_status"] = f"failed:{type(exc).__name__}"
@@ -804,12 +891,167 @@ def _process_row(
     return result
 
 
+def _select_input_rows(
+    reader: csv.DictReader,
+    *,
+    start_row: int,
+    end_row: int | None,
+    limit: int,
+) -> list[tuple[int, dict[str, str]]]:
+    selected_rows: list[tuple[int, dict[str, str]]] = []
+    for row_index, row in enumerate(reader, start=1):
+        if row_index < start_row:
+            continue
+        if end_row is not None and row_index > end_row:
+            break
+        if len(selected_rows) >= limit:
+            break
+        selected_rows.append((row_index, dict(row)))
+    return selected_rows
+
+
+def _worker_init(
+    xyz_dir: str,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> None:
+    global _WORKER_XYZ_DIR
+    global _WORKER_BACKEND
+    global _WORKER_SPIN_SOURCE
+    global _WORKER_MANUAL_WHITELIST
+
+    _WORKER_XYZ_DIR = Path(xyz_dir)
+    _WORKER_BACKEND = backend
+    _WORKER_SPIN_SOURCE = spin_source
+    _WORKER_MANUAL_WHITELIST = manual_whitelist
+    RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
+
+
+def _unexpected_row_error_result(
+    row_index: int,
+    row: dict[str, str],
+    *,
+    xyz_dir: Path,
+    spin_source: str,
+    started_at: float,
+    exc: Exception,
+) -> dict[str, Any]:
+    xyz_path = xyz_dir / f"{row.get('id', '')}.xyz"
+    result = _empty_result(row_index, row, xyz_path)
+    result["spin_source"] = spin_source
+    result["molgr_status"] = f"failed:{type(exc).__name__}"
+    result["molgr_organic_uff_status"] = "skipped_worker_error"
+    result["reference_organic_mapping_status"] = "skipped_worker_error"
+    result["reference_organic_uff_status"] = "skipped_worker_error"
+    result["error"] = str(exc)
+    result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
+    return result
+
+
+def _process_row_task(task: tuple[int, dict[str, str]]) -> dict[str, Any]:
+    row_index, row = task
+    started_at = time.perf_counter()
+    if (
+        _WORKER_XYZ_DIR is None
+        or _WORKER_BACKEND is None
+        or _WORKER_SPIN_SOURCE is None
+        or _WORKER_MANUAL_WHITELIST is None
+    ):
+        raise RuntimeError("tmQMg regression worker was not initialized")
+    try:
+        return _process_row(
+            row_index,
+            row,
+            xyz_dir=_WORKER_XYZ_DIR,
+            backend=_WORKER_BACKEND,
+            spin_source=_WORKER_SPIN_SOURCE,
+            manual_whitelist=_WORKER_MANUAL_WHITELIST,
+        )
+    except Exception as exc:
+        return _unexpected_row_error_result(
+            row_index,
+            row,
+            xyz_dir=_WORKER_XYZ_DIR,
+            spin_source=_WORKER_SPIN_SOURCE,
+            started_at=started_at,
+            exc=exc,
+        )
+
+
+def _process_row_serial_task(
+    task: tuple[int, dict[str, str]],
+    *,
+    xyz_dir: Path,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    row_index, row = task
+    started_at = time.perf_counter()
+    try:
+        return _process_row(
+            row_index,
+            row,
+            xyz_dir=xyz_dir,
+            backend=backend,
+            spin_source=spin_source,
+            manual_whitelist=manual_whitelist,
+        )
+    except Exception as exc:
+        return _unexpected_row_error_result(
+            row_index,
+            row,
+            xyz_dir=xyz_dir,
+            spin_source=spin_source,
+            started_at=started_at,
+            exc=exc,
+        )
+
+
+def _iter_processed_rows(
+    row_tasks: list[tuple[int, dict[str, str]]],
+    *,
+    jobs: int,
+    chunksize: int,
+    xyz_dir: Path,
+    backend: BackendName,
+    spin_source: str,
+    manual_whitelist: dict[str, dict[str, str]],
+) -> Iterator[dict[str, Any]]:
+    if jobs <= 1 or len(row_tasks) <= 1:
+        for task in row_tasks:
+            yield _process_row_serial_task(
+                task,
+                xyz_dir=xyz_dir,
+                backend=backend,
+                spin_source=spin_source,
+                manual_whitelist=manual_whitelist,
+            )
+        return
+
+    with ProcessPoolExecutor(
+        max_workers=jobs,
+        mp_context=mp.get_context("spawn"),
+        initializer=_worker_init,
+        initargs=(str(xyz_dir), backend, spin_source, manual_whitelist),
+    ) as executor:
+        yield from executor.map(_process_row_task, row_tasks, chunksize=chunksize)
+
+
+def _normalize_backend(backend: str) -> BackendName:
+    if backend not in ("cpp", "python"):
+        raise ValueError(f"Unsupported backend: {backend}")
+    return cast(BackendName, backend)
+
+
 def _counter_to_dict(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
 def main() -> int:
     args = _parse_args()
+    backend = _normalize_backend(args.backend)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     summary_out = args.summary_out or _summary_path_from_output(args.out)
     summary_out.parent.mkdir(parents=True, exist_ok=True)
@@ -835,28 +1077,29 @@ def main() -> int:
     organic_uff_abs_delta_sum = 0.0
     started_at = time.perf_counter()
 
-    with args.csv.open(newline="") as input_fh, args.out.open("w", newline="") as output_fh:
+    with args.csv.open(newline="") as input_fh:
         reader = csv.DictReader(input_fh)
+        row_tasks = _select_input_rows(
+            reader,
+            start_row=args.start_row,
+            end_row=args.end_row,
+            limit=args.limit,
+        )
+
+    with args.out.open("w", newline="") as output_fh:
         writer = csv.DictWriter(output_fh, fieldnames=RESULT_FIELDNAMES)
         writer.writeheader()
 
-        for row_index, row in enumerate(reader, start=1):
-            if row_index < args.start_row:
-                continue
-            if args.end_row is not None and row_index > args.end_row:
-                break
-            if processed >= args.limit:
-                break
-
-            result = _process_row(
-                row_index,
-                row,
-                xyz_dir=args.xyz_dir,
-                backend=args.backend,
-                spin_source=args.spin_source,
-                manual_whitelist=manual_whitelist,
-            )
-            writer.writerow(result)
+        for result in _iter_processed_rows(
+            row_tasks,
+            jobs=args.jobs,
+            chunksize=args.chunksize,
+            xyz_dir=args.xyz_dir,
+            backend=backend,
+            spin_source=args.spin_source,
+            manual_whitelist=manual_whitelist,
+        ):
+            writer.writerow(cast(Any, result))
             processed += 1
 
             reference_parse_counter.update([result["reference_parse_status"] or "missing"])
@@ -893,8 +1136,8 @@ def main() -> int:
 
             if args.progress_every > 0 and processed % args.progress_every == 0:
                 print(
-                    f"[tmQMg] processed {processed} rows; latest id={result['id']} "
-                    f"molgr_status={result['molgr_status']}",
+                    f"[tmQMg] processed {processed}/{len(row_tasks)} rows; "
+                    f"latest id={result['id']} molgr_status={result['molgr_status']}",
                     file=sys.stderr,
                 )
 
@@ -902,11 +1145,14 @@ def main() -> int:
     summary = {
         "input_csv": str(args.csv),
         "xyz_dir": str(args.xyz_dir),
-        "backend": args.backend,
+        "backend": backend,
         "spin_source": args.spin_source,
+        "jobs": args.jobs,
+        "chunksize": args.chunksize,
         "limit": args.limit,
         "start_row": args.start_row,
         "end_row": args.end_row,
+        "selected_row_count": len(row_tasks),
         "processed": processed,
         "equivalent_count": equivalent_count,
         "equivalent_fraction": (equivalent_count / processed) if processed else 0.0,

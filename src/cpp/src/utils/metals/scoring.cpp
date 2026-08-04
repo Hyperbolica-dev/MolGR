@@ -1,21 +1,32 @@
 #include "molgr/utils/metals/scoring.h"
 
+#include "molgr/utils/coordination.h"
+
 #include "molgr/utils/consts.h"
+#include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/organic_topology.h"
 #include "molgr/utils/scoring.h"
+#include "molgr/stages/fresh.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
 #include <openbabel/mol.h>
-#include <openbabel/obiter.h>
+#include <openbabel/obfunctions.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <tuple>
@@ -43,11 +54,16 @@ namespace
     {
         int aromatic_atom_count = 0;
         int aromatic_ring_count = 0;
+        double aromatic_stability_score = 0.0;
         int conjugated_atom_count = 0;
         int conjugated_bond_count = 0;
         int max_conjugated_component_size = 0;
+        int hyperconjugative_donor_count = 0;
+        int hyperconjugation_score = 0;
         double radical_localization_penalty = 0.0;
         double charge_localization_penalty = 0.0;
+        double charge_localization_component_cancellation = 0.0;
+        double charge_localization_polarity_inversion_penalty = 0.0;
     };
 
     struct NegativeMetalDiscordance
@@ -56,6 +72,13 @@ namespace
         bool has_outer_sphere_cation_exception = false;
         bool has_positive_metal_counterion_exception = false;
     };
+
+    constexpr double kNegativeMetalDiscordancePenalty = 0.5;
+    constexpr double kMinimumRingAlleneAngleDegrees = 150.0;
+    constexpr double kMinimumChargePolarityInversionElectronegativityGap = 0.3;
+    constexpr int kMaxChargeLocalizationReferenceOxidationStateDelta = 2;
+    constexpr std::uint64_t kConnectivityHashOffset = 1469598103934665603ULL;
+    constexpr std::uint64_t kConnectivityHashPrime = 1099511628211ULL;
 
     std::optional<double> LookupMapValue(
         const std::map<int, double> &values,
@@ -83,14 +106,81 @@ namespace
         return (clamped - lower) / (upper - lower);
     }
 
-    bool AtomHasOddSpin(const OpenBabel::OBAtom &atom)
+    bool IsInnerVisibleDiradicalDiscordanceAtom(const OpenBabel::OBAtom &atom)
     {
-        return static_cast<int>(atom.GetSpinMultiplicity()) % 2 == 1;
+        return static_cast<int>(molgr::utils::GetUnpairedElectronCount(atom)) >= 2;
+    }
+
+    bool IsExplicitSingletTwoElectronCenter(OpenBabel::OBAtom &atom)
+    {
+        const int atomic_num = atom.GetAtomicNum();
+        return (atomic_num == 6 || atomic_num == 7 || atomic_num == 15) &&
+               atom.GetFormalCharge() == 0 &&
+               molgr::utils::GetUnpairedElectronCount(atom) == 0 &&
+               molgr::utils::GetLonePairCount(atom) == 1 &&
+               !molgr::utils::HasUnresolvedTwoElectronCenter(atom) &&
+               molgr::reconstruct::AssignRadicalDots(atom) == 2;
+    }
+
+    int BentCumulatedRingAlleneCount(OpenBabel::OBMol &mol)
+    {
+        int count = 0;
+        FOR_ATOMS_OF_MOL(center_iter, mol)
+        {
+            OpenBabel::OBAtom &center = *center_iter;
+            if (!center.IsInRing())
+            {
+                continue;
+            }
+            std::vector<OpenBabel::OBAtom *> ring_double_neighbors;
+            FOR_BONDS_OF_ATOM(bond_iter, &center)
+            {
+                OpenBabel::OBBond &bond = *bond_iter;
+                if (molgr::vendor::openbabel_threading::BondIsAromatic(bond) ||
+                    bond.GetBondOrder() != 2)
+                {
+                    continue;
+                }
+                OpenBabel::OBAtom *neighbor = bond.GetNbrAtom(&center);
+                if (neighbor != nullptr && neighbor->IsInRing())
+                {
+                    ring_double_neighbors.push_back(neighbor);
+                }
+            }
+            bool is_bent = false;
+            for (std::size_t left_index = 0;
+                 left_index < ring_double_neighbors.size() && !is_bent;
+                 ++left_index)
+            {
+                for (std::size_t right_index = left_index + 1;
+                     right_index < ring_double_neighbors.size();
+                     ++right_index)
+                {
+                    const double angle = mol.GetAngle(
+                        ring_double_neighbors[left_index],
+                        &center,
+                        ring_double_neighbors[right_index]);
+                    if (std::isfinite(angle) && angle < kMinimumRingAlleneAngleDegrees)
+                    {
+                        is_bent = true;
+                        break;
+                    }
+                }
+            }
+            if (is_bent)
+            {
+                ++count;
+            }
+        }
+        return count;
     }
 
     int BondOrder(const OpenBabel::OBBond &bond)
     {
-        return bond.IsAromatic() ? 2 : static_cast<int>(bond.GetBondOrder());
+        return molgr::vendor::openbabel_threading::BondIsAromatic(
+                   const_cast<OpenBabel::OBBond &>(bond))
+                   ? 2
+                   : static_cast<int>(bond.GetBondOrder());
     }
 
     OpenBabel::OBAtom *OtherBondAtom(OpenBabel::OBBond &bond, OpenBabel::OBAtom &atom)
@@ -111,6 +201,300 @@ namespace
             }
         }
         return nullptr;
+    }
+
+    std::vector<std::vector<int>> ComponentAtomIndexGroups(OpenBabel::OBMol &mol)
+    {
+        std::set<int> unseen;
+        FOR_ATOMS_OF_MOL(atom_iter, mol)
+        {
+            unseen.insert(static_cast<int>(atom_iter->GetIdx()));
+        }
+
+        std::vector<std::vector<int>> components;
+        while (!unseen.empty())
+        {
+            const int start_idx = *unseen.begin();
+            unseen.erase(start_idx);
+            std::vector<int> stack{start_idx};
+            std::vector<int> component{start_idx};
+            while (!stack.empty())
+            {
+                const int atom_idx = stack.back();
+                stack.pop_back();
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom == nullptr)
+                {
+                    continue;
+                }
+                FOR_BONDS_OF_ATOM(bond_iter, atom)
+                {
+                    OpenBabel::OBAtom *neighbor = OtherBondAtom(*bond_iter, *atom);
+                    if (neighbor == nullptr)
+                    {
+                        continue;
+                    }
+                    const int neighbor_idx = static_cast<int>(neighbor->GetIdx());
+                    const auto unseen_it = unseen.find(neighbor_idx);
+                    if (unseen_it == unseen.end())
+                    {
+                        continue;
+                    }
+                    unseen.erase(unseen_it);
+                    stack.push_back(neighbor_idx);
+                    component.push_back(neighbor_idx);
+                }
+            }
+            std::sort(component.begin(), component.end());
+            components.push_back(std::move(component));
+        }
+        return components;
+    }
+
+    std::uint64_t ConnectivityHash(const std::vector<std::uint64_t> &values)
+    {
+        std::uint64_t hash = kConnectivityHashOffset;
+        for (const std::uint64_t value : values)
+        {
+            hash ^= value;
+            hash *= kConnectivityHashPrime;
+        }
+        return hash;
+    }
+
+    std::vector<std::uint64_t> ComponentConnectivitySignature(
+        OpenBabel::OBMol &mol,
+        const std::vector<int> &atom_indices)
+    {
+        std::map<int, std::uint64_t> labels;
+        for (const int atom_idx : atom_indices)
+        {
+            OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            labels[atom_idx] =
+                atom == nullptr ? 0U : static_cast<std::uint64_t>(atom->GetAtomicNum());
+        }
+        for (int iteration = 0; iteration < 4; ++iteration)
+        {
+            std::map<int, std::uint64_t> next_labels;
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom == nullptr)
+                {
+                    next_labels[atom_idx] = 0U;
+                    continue;
+                }
+                std::vector<std::uint64_t> neighbor_labels;
+                FOR_BONDS_OF_ATOM(bond_iter, atom)
+                {
+                    OpenBabel::OBAtom *neighbor = OtherBondAtom(*bond_iter, *atom);
+                    if (neighbor != nullptr)
+                    {
+                        neighbor_labels.push_back(labels[static_cast<int>(neighbor->GetIdx())]);
+                    }
+                }
+                std::sort(neighbor_labels.begin(), neighbor_labels.end());
+                std::vector<std::uint64_t> values{
+                    labels[atom_idx],
+                    static_cast<std::uint64_t>(neighbor_labels.size())};
+                values.insert(values.end(), neighbor_labels.begin(), neighbor_labels.end());
+                next_labels[atom_idx] = ConnectivityHash(values);
+            }
+            labels = std::move(next_labels);
+        }
+
+        std::vector<std::uint64_t> signature;
+        signature.reserve(atom_indices.size());
+        for (const int atom_idx : atom_indices)
+        {
+            signature.push_back(labels[atom_idx]);
+        }
+        std::sort(signature.begin(), signature.end());
+        return signature;
+    }
+
+    int RepeatedComponentChargeAsymmetryCount(OpenBabel::OBMol &mol)
+    {
+        std::map<std::vector<std::uint64_t>, std::vector<int>> charges_by_connectivity;
+        for (const auto &atom_indices : ComponentAtomIndexGroups(mol))
+        {
+            int total_charge = 0;
+            for (const int atom_idx : atom_indices)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom != nullptr)
+                {
+                    total_charge += static_cast<int>(atom->GetFormalCharge());
+                }
+            }
+            charges_by_connectivity[ComponentConnectivitySignature(mol, atom_indices)]
+                .push_back(total_charge);
+        }
+
+        int count = 0;
+        for (const auto &entry : charges_by_connectivity)
+        {
+            const auto &charges = entry.second;
+            if (charges.size() > 1 &&
+                *std::min_element(charges.begin(), charges.end()) !=
+                    *std::max_element(charges.begin(), charges.end()))
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    int HapticAreneReductionCount(
+        OpenBabel::OBMol &mol,
+        const std::vector<std::vector<OpenBabel::OBAtom *>> &visible_atoms_by_metal)
+    {
+        std::vector<std::set<int>> visible_carbon_indices_by_metal;
+        visible_carbon_indices_by_metal.reserve(visible_atoms_by_metal.size());
+        for (const auto &visible_atoms : visible_atoms_by_metal)
+        {
+            std::set<int> visible_indices;
+            for (OpenBabel::OBAtom *atom : visible_atoms)
+            {
+                if (atom != nullptr && atom->GetAtomicNum() == 6)
+                {
+                    visible_indices.insert(static_cast<int>(atom->GetIdx()));
+                }
+            }
+            visible_carbon_indices_by_metal.push_back(std::move(visible_indices));
+        }
+
+        const auto is_complete_kekule_pi_ring = [&](const std::vector<int> &ring_atom_indices)
+        {
+            std::vector<OpenBabel::OBAtom *> ring_atoms;
+            std::vector<OpenBabel::OBBond *> ring_bonds;
+            ring_atoms.reserve(ring_atom_indices.size());
+            ring_bonds.reserve(ring_atom_indices.size());
+            for (std::size_t offset = 0; offset < ring_atom_indices.size(); ++offset)
+            {
+                const int begin_idx = ring_atom_indices[offset];
+                const int end_idx = ring_atom_indices[(offset + 1) % ring_atom_indices.size()];
+                OpenBabel::OBAtom *atom = mol.GetAtom(begin_idx);
+                OpenBabel::OBBond *bond = mol.GetBond(begin_idx, end_idx);
+                if (atom == nullptr || bond == nullptr ||
+                    (bond->GetBondOrder() != 1 && bond->GetBondOrder() != 2))
+                {
+                    return false;
+                }
+                ring_atoms.push_back(atom);
+                ring_bonds.push_back(bond);
+            }
+            bool all_aromatic = true;
+            for (std::size_t index = 0; index < ring_atom_indices.size(); ++index)
+            {
+                if (!molgr::vendor::openbabel_threading::AtomIsAromatic(*ring_atoms[index]) ||
+                    !molgr::vendor::openbabel_threading::BondIsAromatic(*ring_bonds[index]))
+                {
+                    all_aromatic = false;
+                    break;
+                }
+            }
+            if (all_aromatic)
+            {
+                return true;
+            }
+
+            std::set<std::size_t> pi_bond_indices;
+            for (std::size_t index = 0; index < ring_bonds.size(); ++index)
+            {
+                if (ring_bonds[index]->GetBondOrder() == 2)
+                {
+                    pi_bond_indices.insert(index);
+                }
+            }
+            for (const std::size_t index : pi_bond_indices)
+            {
+                if (pi_bond_indices.find((index + 1) % ring_atom_indices.size()) !=
+                    pi_bond_indices.end())
+                {
+                    return false;
+                }
+            }
+            std::vector<int> pi_edge_count_by_atom(ring_atom_indices.size(), 0);
+            for (const std::size_t index : pi_bond_indices)
+            {
+                ++pi_edge_count_by_atom[index];
+                ++pi_edge_count_by_atom[(index + 1) % ring_atom_indices.size()];
+            }
+            if (std::any_of(
+                    pi_edge_count_by_atom.begin(),
+                    pi_edge_count_by_atom.end(),
+                    [](const int count) { return count > 1; }))
+            {
+                return false;
+            }
+            std::vector<std::size_t> missing_pi_atoms;
+            for (std::size_t index = 0; index < pi_edge_count_by_atom.size(); ++index)
+            {
+                if (pi_edge_count_by_atom[index] == 0)
+                {
+                    missing_pi_atoms.push_back(index);
+                }
+            }
+            if (ring_atom_indices.size() % 2 == 0)
+            {
+                return missing_pi_atoms.empty() &&
+                       pi_bond_indices.size() == ring_atom_indices.size() / 2;
+            }
+            return missing_pi_atoms.size() == 1 &&
+                   pi_bond_indices.size() == ring_atom_indices.size() / 2 &&
+                   ring_atoms[missing_pi_atoms.front()]->GetAtomicNum() == 6 &&
+                   ring_atoms[missing_pi_atoms.front()]->GetFormalCharge() < 0;
+        };
+
+        int count = 0;
+        FOR_RINGS_OF_MOL(ring_iter, mol)
+        {
+            OpenBabel::OBRing *ring = &(*ring_iter);
+            if (ring == nullptr || ring->_path.size() < 5 || ring->_path.size() > 6)
+            {
+                continue;
+            }
+            bool all_carbon = true;
+            int negative_count = 0;
+            for (const int atom_idx : ring->_path)
+            {
+                OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+                if (atom == nullptr || atom->GetAtomicNum() != 6)
+                {
+                    all_carbon = false;
+                    break;
+                }
+                if (atom->GetFormalCharge() < 0)
+                {
+                    ++negative_count;
+                }
+            }
+            if (!all_carbon || negative_count == 0)
+            {
+                continue;
+            }
+            bool haptically_visible = false;
+            for (const auto &visible_indices : visible_carbon_indices_by_metal)
+            {
+                int visible_count = 0;
+                for (const int atom_idx : ring->_path)
+                {
+                    visible_count += visible_indices.find(atom_idx) != visible_indices.end();
+                }
+                if (visible_count >= 3)
+                {
+                    haptically_visible = true;
+                    break;
+                }
+            }
+            if (!haptically_visible || is_complete_kekule_pi_ring(ring->_path))
+            {
+                continue;
+            }
+            count += negative_count;
+        }
+        return count;
     }
 
     bool HasConjugatedBridgeBetweenChargedCarbons(
@@ -206,8 +590,9 @@ namespace
 
         const double magnitude = static_cast<double>(std::abs(formal_charge));
         const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        const bool is_aromatic = atom.IsAromatic();
-        const int radical_electrons = static_cast<int>(atom.GetSpinMultiplicity()) % 2;
+        const bool is_aromatic = molgr::vendor::openbabel_threading::AtomIsAromatic(
+            const_cast<OpenBabel::OBAtom &>(atom));
+        const int radical_electrons = static_cast<int>(molgr::utils::GetUnpairedElectronCount(atom));
 
         const auto generic_penalty = [&]()
         {
@@ -327,18 +712,27 @@ namespace
     }
 
     double RadicalLocalizationPenaltyForAtom(
-        const OpenBabel::OBAtom &atom,
+        OpenBabel::OBAtom &atom,
         bool is_conjugated)
     {
-        const int radical_electrons = static_cast<int>(atom.GetSpinMultiplicity()) % 2;
-        if (radical_electrons <= 0)
+        const int radical_electrons = static_cast<int>(molgr::utils::GetUnpairedElectronCount(atom));
+        // A validated neutral C/N/P two-electron deficit can be represented as
+        // a singlet (0 unpaired electrons, one active lone pair). It remains a
+        // localized carbene-/nitrene-/phosphinidene-like state. Singlet/triplet
+        // relative stability is system-dependent, so both occupations contribute
+        // equally until a reliable environment-specific model is available.
+        // Ordinary active lone pairs do not satisfy this strict topology predicate.
+        const double localized_electron_equivalents =
+            static_cast<double>(radical_electrons) +
+            (IsExplicitSingletTwoElectronCenter(atom) ? 2.0 : 0.0);
+        if (localized_electron_equivalents <= 0.0)
         {
             return 0.0;
         }
 
-        const double magnitude = static_cast<double>(radical_electrons);
+        const double magnitude = localized_electron_equivalents;
         const int atomic_num = static_cast<int>(atom.GetAtomicNum());
-        const bool is_aromatic = atom.IsAromatic();
+        const bool is_aromatic = molgr::vendor::openbabel_threading::AtomIsAromatic(atom);
 
         if (atomic_num == 1)
         {
@@ -359,11 +753,56 @@ namespace
         return (is_conjugated || is_aromatic ? 1.2 : 2.5) * magnitude;
     }
 
-    OrganicElectronicStateMetrics ComputeOrganicElectronicStateMetrics(const OpenBabel::OBMol &mol)
+    std::string SelectionKeyString(
+        double discordance_count,
+        int charge_localization_margin_exceeded,
+        int conjugated_atom_deficit_count,
+        int conjugated_bond_deficit_count,
+        int aromatic_atom_deficit_count,
+        int aromatic_ring_deficit_count,
+        double aromatic_stability_deficit,
+        double radical_localization_penalty,
+        int hyperconjugation_deficit,
+        double score_value,
+        int combination_index)
+    {
+        std::ostringstream out;
+        out << std::setprecision(17) << discordance_count << ","
+            << charge_localization_margin_exceeded << ","
+            << conjugated_atom_deficit_count << "," << conjugated_bond_deficit_count << ","
+            << aromatic_atom_deficit_count << "," << aromatic_ring_deficit_count << ","
+            << aromatic_stability_deficit << ","
+            << radical_localization_penalty << ","
+            << hyperconjugation_deficit << ","
+            << score_value << "," << combination_index;
+        return out.str();
+    }
+
+    std::shared_ptr<molgr::state::ReconstructionState> CloneNoMetalStateForCandidate(
+        const std::shared_ptr<molgr::state::ReconstructionState> &state)
+    {
+        if (!state)
+        {
+            return nullptr;
+        }
+        auto clone = std::make_shared<molgr::state::ReconstructionState>(*state);
+        if (state->omol)
+        {
+            clone->omol = std::make_shared<OpenBabel::OBMol>(
+                molgr::utils::CloneMolTopologyOnly(*state->omol));
+        }
+        return clone;
+    }
+
+    OrganicElectronicStateMetrics ComputeOrganicElectronicStateMetrics(
+        const OpenBabel::OBMol &mol,
+        const molgr::config::MolGRConfig &config)
     {
         try
         {
-            const auto topology_metrics = molgr::organic_topology::ComputeOrganicTopologyMetrics(mol);
+            const auto topology_metrics = molgr::organic_topology::ComputeOrganicTopologyMetrics(
+                mol,
+                config.organic_topology);
             std::set<int> conjugated_atom_indices(
                 topology_metrics.conjugated_atom_indices.begin(),
                 topology_metrics.conjugated_atom_indices.end());
@@ -371,21 +810,120 @@ namespace
             OrganicElectronicStateMetrics metrics;
             metrics.aromatic_atom_count = topology_metrics.aromatic_atom_count;
             metrics.aromatic_ring_count = topology_metrics.aromatic_ring_count;
+            metrics.aromatic_stability_score = topology_metrics.aromatic_stability_score;
             metrics.conjugated_atom_count = topology_metrics.conjugated_atom_count;
             metrics.conjugated_bond_count = topology_metrics.conjugated_bond_count;
             metrics.max_conjugated_component_size = topology_metrics.max_conjugated_component_size;
+            metrics.hyperconjugative_donor_count = topology_metrics.hyperconjugative_donor_count;
+            metrics.hyperconjugation_score = topology_metrics.hyperconjugation_score;
 
+            const std::size_t atom_count = static_cast<std::size_t>(mol.NumAtoms());
+            std::vector<double> signed_charge_penalties(atom_count, 0.0);
+            std::vector<std::vector<int>> neighbor_indices(atom_count);
+            std::vector<int> atomic_numbers(atom_count, 0);
+            double unsigned_charge_localization_penalty = 0.0;
             FOR_ATOMS_OF_MOL(atom_iter, const_cast<OpenBabel::OBMol &>(mol))
             {
                 OpenBabel::OBAtom &atom = *atom_iter;
                 const int atom_idx = static_cast<int>(atom.GetIdx()) - 1;
+                atomic_numbers[static_cast<std::size_t>(atom_idx)] =
+                    static_cast<int>(atom.GetAtomicNum());
                 const bool is_conjugated =
                     conjugated_atom_indices.find(atom_idx) != conjugated_atom_indices.end();
                 metrics.radical_localization_penalty +=
                     RadicalLocalizationPenaltyForAtom(atom, is_conjugated);
-                metrics.charge_localization_penalty +=
+                const double atom_charge_penalty =
                     ChargeLocalizationPenaltyForAtom(atom, is_conjugated);
+                unsigned_charge_localization_penalty += atom_charge_penalty;
+                signed_charge_penalties[static_cast<std::size_t>(atom_idx)] =
+                    atom.GetFormalCharge() < 0 ? -atom_charge_penalty : atom_charge_penalty;
             }
+
+            double polarity_inversion_penalty = 0.0;
+            FOR_BONDS_OF_MOL(bond_iter, const_cast<OpenBabel::OBMol &>(mol))
+            {
+                const int begin_idx = static_cast<int>(bond_iter->GetBeginAtomIdx()) - 1;
+                const int end_idx = static_cast<int>(bond_iter->GetEndAtomIdx()) - 1;
+                const double begin_penalty =
+                    signed_charge_penalties[static_cast<std::size_t>(begin_idx)];
+                const double end_penalty =
+                    signed_charge_penalties[static_cast<std::size_t>(end_idx)];
+                const bool opposite_charges = begin_penalty * end_penalty < 0.0;
+                bool allows_cancellation = true;
+                const bool both_conjugated =
+                    conjugated_atom_indices.find(begin_idx) != conjugated_atom_indices.end() &&
+                    conjugated_atom_indices.find(end_idx) != conjugated_atom_indices.end();
+                if (opposite_charges && bond_iter->GetBondOrder() == 1 &&
+                    !molgr::vendor::openbabel_threading::BondIsAromatic(*bond_iter) &&
+                    !bond_iter->IsInRing() &&
+                    !both_conjugated)
+                {
+                    const int positive_idx = begin_penalty > 0.0 ? begin_idx : end_idx;
+                    const int negative_idx = begin_penalty > 0.0 ? end_idx : begin_idx;
+                    const auto positive_electronegativity = LookupMapValue(
+                        molgr::kNonMetalPaulingElectronegativity,
+                        atomic_numbers[static_cast<std::size_t>(positive_idx)]);
+                    const auto negative_electronegativity = LookupMapValue(
+                        molgr::kNonMetalPaulingElectronegativity,
+                        atomic_numbers[static_cast<std::size_t>(negative_idx)]);
+                    if (positive_electronegativity.has_value() &&
+                        negative_electronegativity.has_value() &&
+                        *positive_electronegativity >
+                            *negative_electronegativity +
+                                kMinimumChargePolarityInversionElectronegativityGap)
+                    {
+                        allows_cancellation = false;
+                        polarity_inversion_penalty += 2.0 * std::min(
+                            std::abs(begin_penalty),
+                            std::abs(end_penalty));
+                    }
+                }
+                if (!allows_cancellation)
+                {
+                    continue;
+                }
+                neighbor_indices[static_cast<std::size_t>(begin_idx)].push_back(end_idx);
+                neighbor_indices[static_cast<std::size_t>(end_idx)].push_back(begin_idx);
+            }
+
+            // Neutral atoms do not bridge otherwise remote charge centers in
+            // one large ligand component.
+            std::vector<bool> visited_charged_atoms(atom_count, false);
+            for (std::size_t root_idx = 0; root_idx < atom_count; ++root_idx)
+            {
+                if (visited_charged_atoms[root_idx] ||
+                    signed_charge_penalties[root_idx] == 0.0)
+                {
+                    continue;
+                }
+                double component_signed_penalty = 0.0;
+                std::vector<int> pending_indices = {static_cast<int>(root_idx)};
+                visited_charged_atoms[root_idx] = true;
+                while (!pending_indices.empty())
+                {
+                    const int atom_idx = pending_indices.back();
+                    pending_indices.pop_back();
+                    component_signed_penalty +=
+                        signed_charge_penalties[static_cast<std::size_t>(atom_idx)];
+                    for (const int neighbor_idx : neighbor_indices[static_cast<std::size_t>(atom_idx)])
+                    {
+                        if (visited_charged_atoms[static_cast<std::size_t>(neighbor_idx)] ||
+                            signed_charge_penalties[static_cast<std::size_t>(neighbor_idx)] == 0.0)
+                        {
+                            continue;
+                        }
+                        visited_charged_atoms[static_cast<std::size_t>(neighbor_idx)] = true;
+                        pending_indices.push_back(neighbor_idx);
+                    }
+                }
+                metrics.charge_localization_penalty += std::abs(component_signed_penalty);
+            }
+            metrics.charge_localization_component_cancellation = std::max(
+                0.0,
+                unsigned_charge_localization_penalty - metrics.charge_localization_penalty);
+            metrics.charge_localization_penalty += polarity_inversion_penalty;
+            metrics.charge_localization_polarity_inversion_penalty =
+                polarity_inversion_penalty;
             return metrics;
         }
         catch (...)
@@ -415,6 +953,120 @@ namespace
         const double dy = static_cast<double>(atom.GetY()) - metal_state.position_y;
         const double dz = static_cast<double>(atom.GetZ()) - metal_state.position_z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    double VectorNorm(const Point3D &vector)
+    {
+        return std::sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+    }
+
+    double DotProduct(const Point3D &lhs, const Point3D &rhs)
+    {
+        return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+    }
+
+    Point3D CrossProduct(const Point3D &lhs, const Point3D &rhs)
+    {
+        return {
+            lhs.y * rhs.z - lhs.z * rhs.y,
+            lhs.z * rhs.x - lhs.x * rhs.z,
+            lhs.x * rhs.y - lhs.y * rhs.x};
+    }
+
+    std::string CoordinationGeometry(
+        const std::vector<OpenBabel::OBAtom *> &visible_atoms,
+        const molgr::MetalAtomPosition &metal_state,
+        const molgr::config::MetalRadicalInferenceConfig &config)
+    {
+        std::vector<Point3D> vectors;
+        vectors.reserve(visible_atoms.size());
+        for (const OpenBabel::OBAtom *atom : visible_atoms)
+        {
+            if (atom != nullptr)
+            {
+                vectors.push_back(
+                    Point3D{
+                        atom->GetX() - metal_state.position_x,
+                        atom->GetY() - metal_state.position_y,
+                        atom->GetZ() - metal_state.position_z});
+            }
+        }
+        if (vectors.size() == 2)
+        {
+            const double denominator = VectorNorm(vectors[0]) * VectorNorm(vectors[1]);
+            if (denominator <= 1.0e-8)
+            {
+                return "bent";
+            }
+            const double cosine = std::max(
+                -1.0,
+                std::min(1.0, DotProduct(vectors[0], vectors[1]) / denominator));
+            const double angle_degrees = std::acos(cosine) * 180.0 / std::acos(-1.0);
+            return angle_degrees >= config.linear_angle_min_degrees ? "linear" : "bent";
+        }
+        if (vectors.size() != 4)
+        {
+            return "other";
+        }
+
+        std::optional<Point3D> best_normal;
+        double best_norm = 0.0;
+        for (std::size_t i = 0; i < vectors.size(); ++i)
+        {
+            for (std::size_t j = i + 1; j < vectors.size(); ++j)
+            {
+                const Point3D normal = CrossProduct(vectors[i], vectors[j]);
+                const double normal_norm = VectorNorm(normal);
+                if (normal_norm > best_norm)
+                {
+                    best_normal = normal;
+                    best_norm = normal_norm;
+                }
+            }
+        }
+        if (!best_normal.has_value() || best_norm <= 1.0e-8)
+        {
+            return "other";
+        }
+        const Point3D unit_normal{
+            best_normal->x / best_norm,
+            best_normal->y / best_norm,
+            best_normal->z / best_norm};
+        double planarity_distance = 0.0;
+        for (const Point3D &vector : vectors)
+        {
+            planarity_distance += std::abs(DotProduct(vector, unit_normal));
+        }
+        planarity_distance /= static_cast<double>(vectors.size());
+        return planarity_distance <= config.square_planar_planarity_tolerance_angstrom
+                   ? "square_planar"
+                   : "tetrahedral";
+    }
+
+    int CoordinationGeometryDiscordanceCount(
+        const std::vector<std::vector<OpenBabel::OBAtom *>> &visible_atoms_by_metal,
+        const std::vector<molgr::MetalAtomPosition> &metal_states,
+        const molgr::config::MetalRadicalInferenceConfig &config)
+    {
+        int count = 0;
+        const std::size_t pair_count = std::min(visible_atoms_by_metal.size(), metal_states.size());
+        for (std::size_t idx = 0; idx < pair_count; ++idx)
+        {
+            const auto &metal_state = metal_states[idx];
+            const std::string geometry =
+                CoordinationGeometry(visible_atoms_by_metal[idx], metal_state, config);
+            const bool high_valent_square_planar_group_ten =
+                (metal_state.symbol == "Pd" || metal_state.symbol == "Pt") &&
+                metal_state.valence >= 4 && geometry == "square_planar";
+            const bool high_valent_linear_group_eleven =
+                (metal_state.symbol == "Ag" || metal_state.symbol == "Au") &&
+                metal_state.valence >= 3 && geometry == "linear";
+            if (high_valent_square_planar_group_ten || high_valent_linear_group_eleven)
+            {
+                ++count;
+            }
+        }
+        return count;
     }
 
     int ChargeSign(int charge)
@@ -547,11 +1199,10 @@ namespace
         const molgr::MetalAtomPosition &metal_state,
         const molgr::config::MetalScoringConfig &config)
     {
-        const double atom_radius =
-            OpenBabel::OBElements::GetCovalentRad(static_cast<int>(atom.GetAtomicNum()));
-        const double metal_radius =
-            OpenBabel::OBElements::GetCovalentRad(static_cast<int>(metal_state.element_idx));
-        return atom_radius + metal_radius + config.metal_coordination_extra_tolerance_angstrom;
+        return molgr::coordination::CoordinationDistanceCutoff(
+            static_cast<int>(metal_state.element_idx),
+            static_cast<int>(atom.GetAtomicNum()),
+            config);
     }
 
     bool IsInnerSphereAtom(
@@ -621,7 +1272,7 @@ namespace
         {
             if (metal_state.valence < 0)
             {
-                ++negative_metal_count;
+                negative_metal_count += std::abs(metal_state.valence);
             }
             else if (metal_state.valence > 0)
             {
@@ -644,10 +1295,134 @@ namespace
         return NegativeMetalDiscordance{negative_metal_count, false, false};
     }
 
+    bool IsUnsaturatedOrganicCation(OpenBabel::OBAtom &atom)
+    {
+        if (atom.IsMetal() || static_cast<int>(atom.GetFormalCharge()) <= 0)
+        {
+            return false;
+        }
+
+        const auto element_info = molgr::kNonMetalDict.find(
+            static_cast<int>(atom.GetAtomicNum()));
+        if (element_info == molgr::kNonMetalDict.end())
+        {
+            return false;
+        }
+
+        // Compare assigned outer-shell electrons with the closed-shell target.
+        // Degree is not a proxy for this: one triple bond gives O+ three
+        // bond-order units while still completing its octet.
+        const int total_valence = static_cast<int>(atom.GetTotalValence());
+        const int local_electron_count =
+            static_cast<int>(element_info->second.num_outer_electrons) -
+            static_cast<int>(atom.GetFormalCharge()) + total_valence;
+        const int shell_target = atom.GetAtomicNum() == 1 ? 2 : 8;
+        return local_electron_count < shell_target;
+    }
+
+    bool HasAdjacentFormalChargeCancellation(OpenBabel::OBAtom &atom)
+    {
+        const int formal_charge = static_cast<int>(atom.GetFormalCharge());
+        if (formal_charge == 0)
+        {
+            return false;
+        }
+        int adjacent_charge = 0;
+        FOR_BONDS_OF_ATOM(bond_iter, &atom)
+        {
+            OpenBabel::OBBond &bond = *bond_iter;
+            OpenBabel::OBAtom *neighbor = OtherBondAtom(bond, atom);
+            if (neighbor != nullptr && !neighbor->IsMetal())
+            {
+                adjacent_charge += static_cast<int>(neighbor->GetFormalCharge());
+            }
+        }
+        return formal_charge + adjacent_charge == 0;
+    }
+
+    bool HasAdjacentAnionicPolarizationCancellation(OpenBabel::OBAtom &atom)
+    {
+        const int formal_charge = static_cast<int>(atom.GetFormalCharge());
+        const auto central_electronegativity = molgr::kNonMetalPaulingElectronegativity.find(
+            static_cast<int>(atom.GetAtomicNum()));
+        if (formal_charge <= 0 ||
+            central_electronegativity == molgr::kNonMetalPaulingElectronegativity.end())
+        {
+            return false;
+        }
+        int adjacent_negative_charge = 0;
+        FOR_BONDS_OF_ATOM(bond_iter, &atom)
+        {
+            OpenBabel::OBAtom *neighbor = OtherBondAtom(*bond_iter, atom);
+            if (neighbor == nullptr || neighbor->IsMetal())
+            {
+                continue;
+            }
+            const int neighbor_charge = static_cast<int>(neighbor->GetFormalCharge());
+            const auto neighbor_electronegativity =
+                molgr::kNonMetalPaulingElectronegativity.find(
+                    static_cast<int>(neighbor->GetAtomicNum()));
+            if (neighbor_charge < 0 &&
+                neighbor_electronegativity != molgr::kNonMetalPaulingElectronegativity.end() &&
+                neighbor_electronegativity->second > central_electronegativity->second)
+            {
+                adjacent_negative_charge += std::abs(neighbor_charge);
+            }
+        }
+        return adjacent_negative_charge >= formal_charge;
+    }
+
+    bool IsLocallyChargeCompensatedNonmetalCation(OpenBabel::OBAtom &atom)
+    {
+        if (atom.IsMetal() || static_cast<int>(atom.GetFormalCharge()) <= 0)
+        {
+            return false;
+        }
+        if (HasAdjacentFormalChargeCancellation(atom))
+        {
+            return true;
+        }
+        const auto element_info = molgr::kNonMetalDict.find(
+            static_cast<int>(atom.GetAtomicNum()));
+        if (element_info == molgr::kNonMetalDict.end() ||
+            static_cast<int>(atom.GetTotalValence()) <=
+                static_cast<int>(element_info->second.default_valence))
+        {
+            return false;
+        }
+
+        int adjacent_negative_charge = 0;
+        int adjacent_positive_charge = 0;
+        FOR_BONDS_OF_ATOM(bond_iter, &atom)
+        {
+            OpenBabel::OBBond &bond = *bond_iter;
+            OpenBabel::OBAtom *neighbor = OtherBondAtom(bond, atom);
+            if (neighbor == nullptr || neighbor->IsMetal())
+            {
+                continue;
+            }
+            const int neighbor_charge = static_cast<int>(neighbor->GetFormalCharge());
+            if (neighbor_charge < 0)
+            {
+                adjacent_negative_charge += std::abs(neighbor_charge);
+            }
+            else if (neighbor_charge > 0)
+            {
+                adjacent_positive_charge += neighbor_charge;
+            }
+        }
+        return adjacent_negative_charge > adjacent_positive_charge;
+    }
+
     int ZeroValentMetalsWithOrganicCationCount(
         OpenBabel::OBMol &mol,
-        const std::vector<molgr::MetalAtomPosition> &metal_states)
+        const std::vector<molgr::MetalAtomPosition> &metal_states,
+        int total_charge)
     {
+        if (total_charge > 0)
+        {
+            return 0;
+        }
         if (metal_states.empty())
         {
             return 0;
@@ -662,7 +1437,9 @@ namespace
         FOR_ATOMS_OF_MOL(atom_iter, mol)
         {
             OpenBabel::OBAtom &atom = *atom_iter;
-            if (!atom.IsMetal() && atom.GetFormalCharge() > 0)
+            if (!atom.IsMetal() &&
+                atom.GetFormalCharge() > 0 &&
+                !IsLocallyChargeCompensatedNonmetalCation(atom))
             {
                 return 1;
             }
@@ -670,7 +1447,22 @@ namespace
         return 0;
     }
 
-    int AnnotateCandidateDiscordanceFeatures(
+    int UnsaturatedOrganicCationDiscordanceCount(OpenBabel::OBMol &mol)
+    {
+        FOR_ATOMS_OF_MOL(atom_iter, mol)
+        {
+            OpenBabel::OBAtom &atom = *atom_iter;
+            if (IsUnsaturatedOrganicCation(atom) &&
+                !molgr::vendor::openbabel_threading::AtomIsAromatic(atom) &&
+                !IsLocallyChargeCompensatedNonmetalCation(atom))
+            {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    double AnnotateCandidateDiscordanceFeatures(
         molgr::state::MetalCandidateState *candidate,
         const molgr::config::MolGRConfig &config)
     {
@@ -690,10 +1482,12 @@ namespace
         int outer_or_invisible_adjacent_unknown_metal_sign_double_charge_count = 0;
         int inner_visible_adjacent_carbanion_pair_count = 0;
         std::set<int> visible_inner_atom_indices;
+        std::vector<std::vector<OpenBabel::OBAtom *>> visible_atoms_by_metal;
 
         for (const auto &metal_state : candidate->metal_states)
         {
             const int metal_charge_sign = ChargeSign(metal_state.valence);
+            std::vector<OpenBabel::OBAtom *> visible_atoms;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OpenBabel::OBAtom &atom = *atom_iter;
@@ -712,28 +1506,57 @@ namespace
 
                 const int atom_idx = static_cast<int>(atom.GetIdx());
                 visible_inner_atom_indices.insert(atom_idx);
-                if (static_cast<int>(atom.GetSpinMultiplicity()) >= 2)
+                visible_atoms.push_back(&atom);
+                if (IsInnerVisibleDiradicalDiscordanceAtom(atom))
                 {
                     ++inner_visible_diradical_count;
                 }
 
                 const int formal_charge = static_cast<int>(atom.GetFormalCharge());
                 const int atom_charge_sign = ChargeSign(formal_charge);
-                if ((metal_charge_sign == 0 && formal_charge > 0) ||
-                    (metal_charge_sign != 0 && atom_charge_sign == metal_charge_sign))
+                const bool has_inner_same_sign_charge =
+                    (metal_charge_sign == 0 && formal_charge > 0) ||
+                    (metal_charge_sign != 0 && atom_charge_sign == metal_charge_sign);
+                if (has_inner_same_sign_charge &&
+                    !(formal_charge > 0 &&
+                      molgr::vendor::openbabel_threading::AtomIsAromatic(atom)) &&
+                    !HasAdjacentAnionicPolarizationCancellation(atom))
                 {
                     ++inner_visible_same_sign_charge_count;
                 }
             }
+            visible_atoms_by_metal.push_back(std::move(visible_atoms));
         }
+
+        int visible_singlet_two_electron_center_count = 0;
+        for (const int atom_idx : visible_inner_atom_indices)
+        {
+            OpenBabel::OBAtom *atom = mol.GetAtom(atom_idx);
+            if (atom != nullptr && IsExplicitSingletTwoElectronCenter(*atom))
+            {
+                ++visible_singlet_two_electron_center_count;
+            }
+        }
+        const int excess_visible_singlet_two_electron_center_count = std::max(
+            0,
+            visible_singlet_two_electron_center_count -
+                static_cast<int>(candidate->metal_states.size()));
+        const int bent_cumulated_ring_allene_count = BentCumulatedRingAlleneCount(mol);
 
         int outer_or_invisible_adjacent_double_charge_count = 0;
         const int inner_visible_conjugated_carbanion_pair_count =
             InnerVisibleConjugatedChargedCarbonPairCount(mol, visible_inner_atom_indices);
         const auto negative_metal_discordance =
             NegativeMetalDiscordanceCount(mol, candidate->metal_states, config.metal_scoring);
+        int total_charge = candidate->no_metal_state->total_charge;
+        for (const auto &metal_state : candidate->metal_states)
+        {
+            total_charge += metal_state.valence;
+        }
         const int zero_valent_metals_with_organic_cation_count =
-            ZeroValentMetalsWithOrganicCationCount(mol, candidate->metal_states);
+            ZeroValentMetalsWithOrganicCationCount(mol, candidate->metal_states, total_charge);
+        const int unsaturated_organic_cation_discordance_count =
+            UnsaturatedOrganicCationDiscordanceCount(mol);
         FOR_BONDS_OF_MOL(bond_iter, mol)
         {
             OpenBabel::OBBond &bond = *bond_iter;
@@ -766,11 +1589,19 @@ namespace
                 begin_atom->GetAtomicNum() == 6 &&
                 end_atom->GetAtomicNum() == 6 &&
                 begin_charge_sign == end_charge_sign;
+            const bool is_resonance_mobile_outer_ring_carbanion_pair =
+                !pair_both_inner_visible &&
+                visible_inner_atom_indices.find(begin_idx) == visible_inner_atom_indices.end() &&
+                visible_inner_atom_indices.find(end_idx) == visible_inner_atom_indices.end() &&
+                begin_atom->GetAtomicNum() == 6 && end_atom->GetAtomicNum() == 6 &&
+                begin_charge < 0 && end_charge < 0 && begin_atom->IsInRing() &&
+                end_atom->IsInRing();
             if (is_inner_visible_adjacent_carbanion_pair)
             {
                 ++inner_visible_adjacent_carbanion_pair_count;
             }
-            else if (!pair_both_inner_visible)
+            else if (!pair_both_inner_visible &&
+                     !is_resonance_mobile_outer_ring_carbanion_pair)
             {
                 ++outer_or_invisible_adjacent_double_charge_count;
                 const int metal_charge_sign = NearestNonzeroMetalChargeSignToBond(
@@ -792,19 +1623,47 @@ namespace
             }
         }
 
-        const int discordance_count =
-            inner_visible_diradical_count +
-            outer_or_invisible_adjacent_double_charge_count +
-            inner_visible_adjacent_carbanion_pair_count +
-            inner_visible_conjugated_carbanion_pair_count +
-            inner_visible_same_sign_charge_count +
-            negative_metal_discordance.count +
-            zero_valent_metals_with_organic_cation_count;
-        candidate->metadata["metal_discordance_structural_count"] = discordance_count;
+        const int repeated_component_charge_asymmetry_count =
+            RepeatedComponentChargeAsymmetryCount(mol);
+        const int haptic_arene_reduction_count =
+            HapticAreneReductionCount(mol, visible_atoms_by_metal);
+        const int coordination_geometry_discordance_count =
+            CoordinationGeometryDiscordanceCount(
+                visible_atoms_by_metal,
+                candidate->metal_states,
+                config.metal_radical_inference);
+        const double negative_metal_penalty =
+            kNegativeMetalDiscordancePenalty * static_cast<double>(negative_metal_discordance.count);
+        const double structural_discordance_count =
+            static_cast<double>(
+                inner_visible_diradical_count +
+                outer_or_invisible_adjacent_double_charge_count +
+                inner_visible_adjacent_carbanion_pair_count +
+                inner_visible_conjugated_carbanion_pair_count +
+                inner_visible_same_sign_charge_count +
+                excess_visible_singlet_two_electron_center_count +
+                bent_cumulated_ring_allene_count +
+                zero_valent_metals_with_organic_cation_count +
+                unsaturated_organic_cation_discordance_count +
+                repeated_component_charge_asymmetry_count +
+                haptic_arene_reduction_count +
+                coordination_geometry_discordance_count) +
+            negative_metal_penalty;
+        const double discordance_count = structural_discordance_count;
+        candidate->metadata["metal_discordance_structural_count"] =
+            structural_discordance_count;
+        candidate->metadata["metal_discordance_conjugated_atom_deficit_count"] = 0;
+        candidate->metadata["metal_discordance_conjugated_bond_deficit_count"] = 0;
+        candidate->metadata["metal_discordance_aromatic_atom_deficit_count"] = 0;
         candidate->metadata["metal_discordance_aromatic_ring_deficit_count"] = 0;
         candidate->metadata["metal_discordance_count"] = discordance_count;
         candidate->metadata["metal_discordance_inner_visible_diradical_count"] =
             inner_visible_diradical_count;
+        candidate->metadata[
+            "metal_discordance_excess_visible_singlet_two_electron_center_count"] =
+            excess_visible_singlet_two_electron_center_count;
+        candidate->metadata["metal_discordance_bent_cumulated_ring_allene_count"] =
+            bent_cumulated_ring_allene_count;
         candidate->metadata["metal_discordance_outer_or_invisible_adjacent_double_charge_count"] =
             outer_or_invisible_adjacent_double_charge_count;
         candidate->metadata["metal_discordance_outer_or_invisible_adjacent_same_sign_double_charge_count"] =
@@ -821,16 +1680,28 @@ namespace
             inner_visible_same_sign_charge_count;
         candidate->metadata["metal_discordance_negative_metal_count"] =
             negative_metal_discordance.count;
+        candidate->metadata["metal_discordance_negative_metal_penalty"] =
+            negative_metal_penalty;
         candidate->metadata["metal_discordance_negative_metal_outer_sphere_cation_exception"] =
             negative_metal_discordance.has_outer_sphere_cation_exception;
         candidate->metadata["metal_discordance_negative_metal_positive_metal_counterion_exception"] =
             negative_metal_discordance.has_positive_metal_counterion_exception;
         candidate->metadata["metal_discordance_zero_valent_metals_with_organic_cation_count"] =
             zero_valent_metals_with_organic_cation_count;
+        candidate->metadata["metal_discordance_unsaturated_organic_cation_count"] =
+            unsaturated_organic_cation_discordance_count;
+        candidate->metadata["metal_discordance_repeated_component_charge_asymmetry_count"] =
+            repeated_component_charge_asymmetry_count;
+        candidate->metadata["metal_discordance_haptic_arene_reduction_count"] =
+            haptic_arene_reduction_count;
+        candidate->metadata["metal_discordance_coordination_geometry_count"] =
+            coordination_geometry_discordance_count;
         return discordance_count;
     }
 
-    void AnnotateOrganicElectronicStateConsistency(molgr::state::MetalCandidateState *candidate)
+    void AnnotateOrganicElectronicStateConsistency(
+        molgr::state::MetalCandidateState *candidate,
+        const molgr::config::MolGRConfig &config)
     {
         if (candidate == nullptr || !candidate->no_metal_state)
         {
@@ -838,17 +1709,29 @@ namespace
                 "MetalCandidateState requires no_metal_state before organic-state scoring");
         }
 
-        const auto metrics = ComputeOrganicElectronicStateMetrics(candidate->no_metal_state->Mol());
+        const auto metrics = ComputeOrganicElectronicStateMetrics(
+            candidate->no_metal_state->Mol(),
+            config);
         candidate->metadata["organic_aromatic_atom_count"] = metrics.aromatic_atom_count;
         candidate->metadata["organic_aromatic_ring_count"] = metrics.aromatic_ring_count;
+        candidate->metadata["organic_aromatic_stability_score"] =
+            metrics.aromatic_stability_score;
         candidate->metadata["organic_conjugated_atom_count"] = metrics.conjugated_atom_count;
         candidate->metadata["organic_conjugated_bond_count"] = metrics.conjugated_bond_count;
         candidate->metadata["organic_max_conjugated_component_size"] =
             metrics.max_conjugated_component_size;
+        candidate->metadata["organic_hyperconjugative_donor_count"] =
+            metrics.hyperconjugative_donor_count;
+        candidate->metadata["organic_hyperconjugation_score"] =
+            metrics.hyperconjugation_score;
         candidate->metadata["organic_radical_localization_penalty"] =
             metrics.radical_localization_penalty;
         candidate->metadata["organic_charge_localization_penalty"] =
             metrics.charge_localization_penalty;
+        candidate->metadata["organic_charge_localization_component_cancellation"] =
+            metrics.charge_localization_component_cancellation;
+        candidate->metadata["organic_charge_localization_polarity_inversion_penalty"] =
+            metrics.charge_localization_polarity_inversion_penalty;
     }
 
     void AnnotateSelectedCandidateMetrics(
@@ -867,7 +1750,7 @@ namespace
         }
         if (candidate->metadata.find("organic_aromatic_atom_count") == candidate->metadata.end())
         {
-            AnnotateOrganicElectronicStateConsistency(candidate);
+            AnnotateOrganicElectronicStateConsistency(candidate, config);
         }
     }
 
@@ -949,81 +1832,303 @@ namespace molgr
                 }
 
                 std::vector<molgr::state::MetalCandidateState> scored_candidates = candidates;
-                int max_aromatic_ring_count = 0;
-                for (auto &candidate : scored_candidates)
-                {
-                    if (candidate.metadata.find("organic_aromatic_ring_count") ==
-                        candidate.metadata.end())
-                    {
-                        AnnotateOrganicElectronicStateConsistency(&candidate);
-                    }
-                    max_aromatic_ring_count = std::max(
-                        max_aromatic_ring_count,
-                        MetadataInt(candidate, "organic_aromatic_ring_count", 0));
-                }
+                return SelectBestCandidateInPlace(&scored_candidates, config);
+            }
 
-                for (auto &candidate : scored_candidates)
-                {
-                    const int structural_discordance_count = MetadataInt(
-                        candidate,
-                        "metal_discordance_structural_count",
-                        MetadataInt(candidate, "metal_discordance_count", 0));
-                    const int aromatic_ring_deficit_count = std::max(
-                        0,
-                        max_aromatic_ring_count -
-                            MetadataInt(candidate, "organic_aromatic_ring_count", 0));
-                    candidate.metadata["metal_discordance_structural_count"] =
-                        structural_discordance_count;
-                    candidate.metadata["metal_discordance_max_aromatic_ring_count"] =
-                        max_aromatic_ring_count;
-                    candidate.metadata["metal_discordance_aromatic_ring_deficit_count"] =
-                        aromatic_ring_deficit_count;
-                    candidate.metadata["metal_discordance_count"] =
-                        structural_discordance_count + aromatic_ring_deficit_count;
-                }
-
-                int min_discordance_count = std::numeric_limits<int>::max();
-                for (const auto &candidate : scored_candidates)
-                {
-                    min_discordance_count = std::min(
-                        min_discordance_count,
-                        MetadataInt(candidate, "metal_discordance_count", 0));
-                }
-
-                std::vector<molgr::state::MetalCandidateState> discordance_filtered_candidates;
-                discordance_filtered_candidates.reserve(scored_candidates.size());
-                for (auto candidate : scored_candidates)
-                {
-                    const bool passes_discordance_filter =
-                        MetadataInt(candidate, "metal_discordance_count", 0) == min_discordance_count;
-                    candidate.metadata["passes_metal_discordance_filter"] = passes_discordance_filter;
-                    if (passes_discordance_filter)
-                    {
-                        discordance_filtered_candidates.push_back(std::move(candidate));
-                    }
-                }
-                if (discordance_filtered_candidates.empty())
+            std::optional<molgr::state::MetalCandidateState> SelectBestCandidateInPlace(
+                std::vector<molgr::state::MetalCandidateState> *candidates,
+                const molgr::config::MolGRConfig &config)
+            {
+                if (candidates == nullptr || candidates->empty())
                 {
                     return std::nullopt;
                 }
 
-                for (auto &candidate : discordance_filtered_candidates)
+                auto &scored_candidates = *candidates;
+                int max_aromatic_atom_count = 0;
+                int max_aromatic_ring_count = 0;
+                int max_conjugated_atom_count = 0;
+                int max_conjugated_bond_count = 0;
+                int max_hyperconjugation_score = 0;
+                for (auto &candidate : scored_candidates)
                 {
-                    AnnotateSelectedCandidateMetrics(&candidate, config);
+                    if (candidate.metadata.find("organic_aromatic_ring_count") ==
+                            candidate.metadata.end() ||
+                        candidate.metadata.find("organic_aromatic_stability_score") ==
+                            candidate.metadata.end())
+                    {
+                        AnnotateOrganicElectronicStateConsistency(&candidate, config);
+                    }
+                    if (candidate.metadata.find("organic_aromatic_stability_score") ==
+                        candidate.metadata.end())
+                    {
+                        candidate.metadata["organic_aromatic_stability_score"] =
+                            MetadataDouble(
+                                candidate,
+                                "organic_aromatic_ring_count",
+                                0.0);
+                    }
+                    max_aromatic_ring_count = std::max(
+                        max_aromatic_ring_count,
+                        MetadataInt(candidate, "organic_aromatic_ring_count", 0));
+                    max_aromatic_atom_count = std::max(
+                        max_aromatic_atom_count,
+                        MetadataInt(candidate, "organic_aromatic_atom_count", 0));
+                    max_conjugated_atom_count = std::max(
+                        max_conjugated_atom_count,
+                        MetadataInt(candidate, "organic_conjugated_atom_count", 0));
+                    max_conjugated_bond_count = std::max(
+                        max_conjugated_bond_count,
+                        MetadataInt(candidate, "organic_conjugated_bond_count", 0));
+                    max_hyperconjugation_score = std::max(
+                        max_hyperconjugation_score,
+                        MetadataInt(candidate, "organic_hyperconjugation_score", 0));
+                }
+                double max_aromatic_stability_score = 0.0;
+                for (const auto &candidate : scored_candidates)
+                {
+                    max_aromatic_stability_score = std::max(
+                        max_aromatic_stability_score,
+                        MetadataDouble(candidate, "organic_aromatic_stability_score", 0.0));
                 }
 
-                std::optional<std::tuple<double, int>> best_selection_key;
-                std::optional<molgr::state::MetalCandidateState> best_candidate;
-                for (auto &candidate : discordance_filtered_candidates)
+                for (auto &candidate : scored_candidates)
                 {
+                    const double structural_discordance_count = MetadataDouble(
+                        candidate,
+                        "metal_discordance_structural_count",
+                        MetadataDouble(candidate, "metal_discordance_count", 0.0));
+                    const int conjugated_atom_deficit_count = std::max(
+                        0,
+                        max_conjugated_atom_count -
+                            MetadataInt(candidate, "organic_conjugated_atom_count", 0));
+                    const int conjugated_bond_deficit_count = std::max(
+                        0,
+                        max_conjugated_bond_count -
+                            MetadataInt(candidate, "organic_conjugated_bond_count", 0));
+                    const int aromatic_atom_deficit_count = std::max(
+                        0,
+                        max_aromatic_atom_count -
+                            MetadataInt(candidate, "organic_aromatic_atom_count", 0));
+                    const int aromatic_ring_deficit_count = std::max(
+                        0,
+                        max_aromatic_ring_count -
+                            MetadataInt(candidate, "organic_aromatic_ring_count", 0));
+                    const double aromatic_stability_deficit = std::max(
+                        0.0,
+                        max_aromatic_stability_score -
+                            MetadataDouble(candidate, "organic_aromatic_stability_score", 0.0));
+                    const int hyperconjugation_deficit = std::max(
+                        0,
+                        max_hyperconjugation_score -
+                            MetadataInt(candidate, "organic_hyperconjugation_score", 0));
+                    candidate.metadata["metal_discordance_structural_count"] =
+                        structural_discordance_count;
+                    candidate.metadata["metal_discordance_max_conjugated_atom_count"] =
+                        max_conjugated_atom_count;
+                    candidate.metadata["metal_discordance_conjugated_atom_deficit_count"] =
+                        conjugated_atom_deficit_count;
+                    candidate.metadata["metal_discordance_max_conjugated_bond_count"] =
+                        max_conjugated_bond_count;
+                    candidate.metadata["metal_discordance_conjugated_bond_deficit_count"] =
+                        conjugated_bond_deficit_count;
+                    candidate.metadata["metal_discordance_max_aromatic_atom_count"] =
+                        max_aromatic_atom_count;
+                    candidate.metadata["metal_discordance_aromatic_atom_deficit_count"] =
+                        aromatic_atom_deficit_count;
+                    candidate.metadata["metal_discordance_max_aromatic_ring_count"] =
+                        max_aromatic_ring_count;
+                    candidate.metadata["metal_discordance_max_aromatic_stability_score"] =
+                        max_aromatic_stability_score;
+                    candidate.metadata["metal_discordance_aromatic_ring_deficit_count"] =
+                        aromatic_ring_deficit_count;
+                    candidate.metadata["metal_discordance_aromatic_stability_deficit"] =
+                        aromatic_stability_deficit;
+                    candidate.metadata["organic_hyperconjugation_max_score"] =
+                        max_hyperconjugation_score;
+                    candidate.metadata["organic_hyperconjugation_deficit"] =
+                        hyperconjugation_deficit;
+                    candidate.metadata["metal_discordance_count"] = structural_discordance_count;
+                }
+
+                double min_discordance_count = std::numeric_limits<double>::infinity();
+                for (const auto &candidate : scored_candidates)
+                {
+                    min_discordance_count = std::min(
+                        min_discordance_count,
+                        MetadataDouble(candidate, "metal_discordance_count", 0.0));
+                }
+
+                std::vector<std::size_t> discordance_filtered_candidate_indices;
+                discordance_filtered_candidate_indices.reserve(scored_candidates.size());
+                for (std::size_t candidate_index = 0; candidate_index < scored_candidates.size();
+                     ++candidate_index)
+                {
+                    auto &candidate = scored_candidates[candidate_index];
+                    const bool passes_discordance_filter =
+                        MetadataDouble(candidate, "metal_discordance_count", 0.0) ==
+                        min_discordance_count;
+                    candidate.metadata["passes_metal_discordance_filter"] = passes_discordance_filter;
+                    if (passes_discordance_filter)
+                    {
+                        discordance_filtered_candidate_indices.push_back(candidate_index);
+                    }
+                }
+                if (discordance_filtered_candidate_indices.empty())
+                {
+                    return std::nullopt;
+                }
+
+                for (const std::size_t candidate_index : discordance_filtered_candidate_indices)
+                {
+                    AnnotateSelectedCandidateMetrics(&scored_candidates[candidate_index], config);
+                }
+
+                std::size_t charge_localization_reference_candidate_index =
+                    discordance_filtered_candidate_indices.front();
+                double minimum_charge_localization_penalty =
+                    std::numeric_limits<double>::infinity();
+                for (const std::size_t candidate_index : discordance_filtered_candidate_indices)
+                {
+                    const auto &candidate = scored_candidates[candidate_index];
+                    const double penalty = MetadataDouble(
+                        candidate,
+                        "organic_charge_localization_penalty",
+                        0.0);
+                    const auto &reference_candidate =
+                        scored_candidates[charge_localization_reference_candidate_index];
+                    if (
+                        penalty < minimum_charge_localization_penalty ||
+                        (
+                            penalty == minimum_charge_localization_penalty &&
+                            CandidateCombinationIndex(candidate) <
+                                CandidateCombinationIndex(reference_candidate)))
+                    {
+                        minimum_charge_localization_penalty = penalty;
+                        charge_localization_reference_candidate_index = candidate_index;
+                    }
+                }
+                const auto &charge_localization_reference_candidate =
+                    scored_candidates[charge_localization_reference_candidate_index];
+                minimum_charge_localization_penalty = MetadataDouble(
+                    charge_localization_reference_candidate,
+                    "organic_charge_localization_penalty",
+                    0.0);
+                std::map<int, int> reference_valences;
+                for (const auto &metal_state : charge_localization_reference_candidate.metal_states)
+                {
+                    reference_valences[metal_state.idx] = metal_state.valence;
+                }
+                const double charge_localization_margin = std::max(
+                    0.0,
+                    config.metal_scoring.charge_localization_selection_margin);
+                std::optional<
+                    std::tuple<double, int, int, int, int, int, double, double, int, double, int>>
+                    best_selection_key;
+                std::optional<molgr::state::MetalCandidateState> best_candidate;
+                for (const std::size_t candidate_index : discordance_filtered_candidate_indices)
+                {
+                    auto &candidate = scored_candidates[candidate_index];
                     const double score_value =
                         candidate.score.has_value() ? *candidate.score : candidate.CombinedScore(config);
+                    const int aromatic_atom_deficit_count = static_cast<int>(MetadataInt(
+                        candidate,
+                        "metal_discordance_aromatic_atom_deficit_count",
+                        0));
+                    const int conjugated_atom_deficit_count = static_cast<int>(MetadataInt(
+                        candidate,
+                        "metal_discordance_conjugated_atom_deficit_count",
+                        0));
+                    const int conjugated_bond_deficit_count = static_cast<int>(MetadataInt(
+                        candidate,
+                        "metal_discordance_conjugated_bond_deficit_count",
+                        0));
+                    const double aromatic_stability_deficit = MetadataDouble(
+                        candidate,
+                        "metal_discordance_aromatic_stability_deficit",
+                        0.0);
+                    const int aromatic_ring_deficit_count = static_cast<int>(MetadataInt(
+                        candidate,
+                        "metal_discordance_aromatic_ring_deficit_count",
+                        0));
+                    const double radical_localization_penalty = MetadataDouble(
+                        candidate,
+                        "organic_radical_localization_penalty",
+                        0.0);
+                    const double charge_localization_penalty = MetadataDouble(
+                        candidate,
+                        "organic_charge_localization_penalty",
+                        0.0);
+                    const double charge_localization_difference = std::max(
+                        0.0,
+                        charge_localization_penalty - minimum_charge_localization_penalty);
+                    int reference_valence_max_delta = 0;
+                    for (const auto &metal_state : candidate.metal_states)
+                    {
+                        const auto reference_valence = reference_valences.find(metal_state.idx);
+                        if (reference_valence == reference_valences.end())
+                        {
+                            continue;
+                        }
+                        reference_valence_max_delta = std::max(
+                            reference_valence_max_delta,
+                            std::abs(metal_state.valence - reference_valence->second));
+                    }
+                    const bool oxidation_state_jump_exceeded =
+                        charge_localization_difference > 0.0 &&
+                        reference_valence_max_delta >
+                        kMaxChargeLocalizationReferenceOxidationStateDelta;
+                    const bool charge_localization_margin_exceeded =
+                        oxidation_state_jump_exceeded ||
+                        (
+                            charge_localization_difference > 0.0 &&
+                            (charge_localization_difference > charge_localization_margin ||
+                             std::abs(
+                                 charge_localization_difference - charge_localization_margin) <=
+                                 1e-12));
+                    candidate.metadata["organic_charge_localization_reference_penalty"] =
+                        minimum_charge_localization_penalty;
+                    candidate.metadata["organic_charge_localization_selection_margin"] =
+                        charge_localization_margin;
+                    candidate.metadata["organic_charge_localization_margin_difference"] =
+                        charge_localization_difference;
+                    candidate.metadata["organic_charge_localization_margin_exceeded"] =
+                        static_cast<int>(charge_localization_margin_exceeded);
+                    candidate.metadata[
+                        "organic_charge_localization_reference_metal_valence_max_delta"] =
+                        reference_valence_max_delta;
+                    candidate.metadata["organic_charge_localization_metal_valence_jump_exceeded"] =
+                        static_cast<int>(oxidation_state_jump_exceeded);
+                    const int hyperconjugation_deficit = MetadataInt(
+                        candidate,
+                        "organic_hyperconjugation_deficit",
+                        0);
                     const auto selection_key =
-                        std::make_tuple(score_value, CandidateCombinationIndex(candidate));
+                        std::make_tuple(
+                            min_discordance_count,
+                            static_cast<int>(charge_localization_margin_exceeded),
+                            conjugated_atom_deficit_count,
+                            conjugated_bond_deficit_count,
+                            aromatic_atom_deficit_count,
+                            aromatic_ring_deficit_count,
+                            aromatic_stability_deficit,
+                            radical_localization_penalty,
+                            hyperconjugation_deficit,
+                            score_value,
+                            CandidateCombinationIndex(candidate));
                     candidate.metadata["selection_key"] =
-                        std::to_string(min_discordance_count) + "," +
-                        std::to_string(score_value) + "," +
-                        std::to_string(CandidateCombinationIndex(candidate));
+                        SelectionKeyString(
+                            min_discordance_count,
+                            static_cast<int>(charge_localization_margin_exceeded),
+                            conjugated_atom_deficit_count,
+                            conjugated_bond_deficit_count,
+                            aromatic_atom_deficit_count,
+                            aromatic_ring_deficit_count,
+                            aromatic_stability_deficit,
+                            radical_localization_penalty,
+                            hyperconjugation_deficit,
+                            score_value,
+                            CandidateCombinationIndex(candidate));
                     if (best_selection_key.has_value() && selection_key >= *best_selection_key)
                     {
                         continue;
@@ -1040,7 +2145,9 @@ namespace molgr
                 const molgr::config::MolGRConfig &config)
             {
                 auto machine = molgr::state::MetalCandidateStateMachine::FromCandidateState(candidate);
-                machine.SetNoMetalState("reconstruct_no_metal", no_metal_state);
+                machine.SetNoMetalState(
+                    "reconstruct_no_metal",
+                    CloneNoMetalStateForCandidate(no_metal_state));
                 machine.Annotate("score_candidate");
                 auto prepared_candidate = machine.Freeze();
                 const double score = prepared_candidate.CombinedScore(config);

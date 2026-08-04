@@ -1,5 +1,7 @@
 #include "molgr/pipeline/resonance.h"
 
+#include "molgr/utils/conversions.h"
+
 #include <deque>
 #include <map>
 #include <memory>
@@ -46,7 +48,10 @@ namespace molgr
             const auto [root_key, bond_index_map] = BuildResonanceSearchContext(mol);
             std::set<ResonanceStateKey> seen{root_key};
             std::deque<std::tuple<std::shared_ptr<OpenBabel::OBMol>, ResonanceStateKey, int>> frontier{
-                {std::make_shared<OpenBabel::OBMol>(mol), root_key, 0}};
+                {std::make_shared<OpenBabel::OBMol>(
+                     molgr::utils::CloneMolTopologyOnly(mol)),
+                 root_key,
+                 0}};
 
             while (!frontier.empty())
             {
@@ -57,6 +62,8 @@ namespace molgr
                     *current,
                     current_key,
                     depth,
+                    0,
+                    current,
                 });
                 if (depth >= max_depth || !should_expand)
                 {
@@ -95,7 +102,13 @@ namespace molgr
             std::map<ResonanceStateKey, int> best_discrepancy_by_state{{root_key, 0}};
             std::set<ResonanceStateKey> emitted_states;
             std::priority_queue<QueueEntry, std::vector<QueueEntry>, QueueEntryGreater> frontier;
-            frontier.push(QueueEntry{0, 0, 0, std::make_shared<OpenBabel::OBMol>(mol), root_key});
+            frontier.push(QueueEntry{
+                0,
+                0,
+                0,
+                std::make_shared<OpenBabel::OBMol>(
+                    molgr::utils::CloneMolTopologyOnly(mol)),
+                root_key});
 
             int push_order = 0;
             while (!frontier.empty())
@@ -118,6 +131,8 @@ namespace molgr
                         *current_entry.omol,
                         current_entry.state_key,
                         current_entry.depth,
+                        current_entry.discrepancy,
+                        current_entry.omol,
                     });
                 }
 
@@ -126,10 +141,15 @@ namespace molgr
                     continue;
                 }
 
-                const auto moves =
-                    EnumerateOneStepResonanceMoves(*current_entry.omol, current_entry.state_key, bond_index_map);
-                const auto selected_moves =
-                    SelectLimitedDiscrepancyMoves(*current_entry.omol, moves, traversal_config, config);
+                const auto moves = EnumerateOneStepResonanceMoves(
+                    *current_entry.omol,
+                    current_entry.state_key,
+                    bond_index_map);
+                const auto selected_moves = SelectLimitedDiscrepancyMoves(
+                    *current_entry.omol,
+                    moves,
+                    traversal_config,
+                    config);
                 for (std::size_t move_rank = 0; move_rank < selected_moves.size(); ++move_rank)
                 {
                     const int next_discrepancy =

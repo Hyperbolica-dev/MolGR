@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Trace tmQMg reconstruction by dataset id.
 
 This is a tmQMg input adapter around scripts/reconstruction_trace.py. The
@@ -26,10 +27,15 @@ from rdkit import Chem, RDLogger
 
 from molgr.config import MolGRConfig
 from scripts.reconstruction_trace import (
+    DofRenderContext,
     TraceInputCase,
     _jsonable,
-    _render_markdown_report,
+    _make_dof_render_context,
+    _parse_size,
+    _render_html_browser_report,
     _resolve_output_format,
+    _with_inline_dof_svgs,
+    dof_rendering_summary,
     split_repeated_values,
     trace_reconstruction_case,
 )
@@ -82,11 +88,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--format",
-        choices=("auto", "markdown", "json"),
+        choices=("auto", "json", "html"),
         default="auto",
         help=(
             "Output format. In auto mode, .json writes JSON; every other output path and stdout "
-            "write a Markdown report."
+            "write an HTML report."
         ),
     )
     parser.add_argument(
@@ -103,9 +109,71 @@ def _parse_args() -> argparse.Namespace:
             "discordance. Production metadata is still reported."
         ),
     )
+    parser.add_argument(
+        "--render-dof-images",
+        action="store_true",
+        help=(
+            "Render reconstructed molecule graphs with rdkit-dof. SVG output is embedded in "
+            "the report data; non-SVG output is written as image files."
+        ),
+    )
+    parser.add_argument(
+        "--dof-image-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for rdkit-dof images. Defaults to <report>.dof-images for --out, or "
+            "molgr_trace_dof_images when writing to stdout."
+        ),
+    )
+    parser.add_argument(
+        "--dof-image-format",
+        choices=("svg", "png"),
+        default="svg",
+        help="rdkit-dof image format. Default: svg.",
+    )
+    parser.add_argument(
+        "--dof-max-images",
+        type=int,
+        default=1000,
+        help="Maximum number of individual rdkit-dof images to write. Default: 1000.",
+    )
+    parser.add_argument(
+        "--dof-image-size",
+        default="360x300",
+        help="Single-molecule rdkit-dof image size as WIDTHxHEIGHT. Default: 360x300.",
+    )
+    parser.add_argument(
+        "--dof-grid-max-mols",
+        type=int,
+        default=24,
+        help="Maximum molecules per comparison grid image. Default: 24.",
+    )
+    parser.add_argument(
+        "--dof-grid-mols-per-row",
+        type=int,
+        default=3,
+        help="Molecules per row for rdkit-dof comparison grids. Default: 3.",
+    )
+    parser.add_argument(
+        "--dof-grid-sub-img-size",
+        default="320x260",
+        help="Grid sub-image size as WIDTHxHEIGHT. Default: 320x260.",
+    )
     args = parser.parse_args()
     if args.total_radical_electrons is not None and args.total_radical_electrons < 0:
         parser.error("--total-radical-electrons must be >= 0")
+    if args.dof_max_images < 0:
+        parser.error("--dof-max-images must be >= 0")
+    if args.dof_grid_max_mols < 0:
+        parser.error("--dof-grid-max-mols must be >= 0")
+    if args.dof_grid_mols_per_row < 1:
+        parser.error("--dof-grid-mols-per-row must be >= 1")
+    try:
+        args.dof_image_size = _parse_size(args.dof_image_size)
+        args.dof_grid_sub_img_size = _parse_size(args.dof_grid_sub_img_size)
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 
@@ -170,6 +238,7 @@ def _trace_tmqmg_case(
     spin_source: str,
     explicit_total_radicals: Optional[int],
     score_all_candidates: bool,
+    render_context: DofRenderContext | None,
     config: MolGRConfig | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
@@ -192,6 +261,7 @@ def _trace_tmqmg_case(
     trace = trace_reconstruction_case(
         input_case,
         score_all_candidates=score_all_candidates,
+        render_context=render_context,
         config=config,
     )
     trace.update(
@@ -205,6 +275,75 @@ def _trace_tmqmg_case(
     return trace
 
 
+def _split_svg_fragment_lines(svg_fragment: str) -> list[str]:
+    """Split embedded SVG at tag boundaries so HTML source avoids huge lines."""
+
+    if not svg_fragment:
+        return []
+    return svg_fragment.replace("><", ">\n<").splitlines()
+
+
+def _split_embedded_svg_fragments(value: Any) -> Any:
+    if isinstance(value, dict):
+        copied = {key: _split_embedded_svg_fragments(item) for key, item in value.items()}
+        svg_fragment = copied.get("svg_fragment")
+        if isinstance(svg_fragment, str):
+            copied["svg_fragment"] = _split_svg_fragment_lines(svg_fragment)
+        return copied
+    if isinstance(value, list):
+        return [_split_embedded_svg_fragments(item) for item in value]
+    return value
+
+
+def _html_script_json_pretty(value: Any) -> str:
+    return (
+        json.dumps(
+            _jsonable(value),
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,
+        )
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+
+
+def _replace_trace_json_script(html_text: str, script_json: str) -> str:
+    open_tag = '<script id="trace-json" type="application/json">'
+    close_tag = "</script>"
+    open_index = html_text.find(open_tag)
+    if open_index < 0:
+        return html_text
+    content_start = open_index + len(open_tag)
+    close_index = html_text.find(close_tag, content_start)
+    if close_index < 0:
+        return html_text
+    return html_text[:content_start] + "\n" + script_json + "\n  " + html_text[close_index:]
+
+
+def _support_multiline_svg_fragment_arrays(html_text: str) -> str:
+    return html_text.replace(
+        '        return image.svg_fragment || "";',
+        "        if (Array.isArray(image.svg_fragment)) {\n"
+        '          return image.svg_fragment.join("\\n");\n'
+        "        }\n"
+        '        return image.svg_fragment || "";',
+        1,
+    )
+
+
+def _render_tmqmg_html_report(output: dict[str, Any]) -> str:
+    html_text = _render_html_browser_report(_jsonable(output))
+    inline_output = _with_inline_dof_svgs(_jsonable(output))
+    readable_output = _split_embedded_svg_fragments(inline_output)
+    html_text = _replace_trace_json_script(
+        html_text,
+        _html_script_json_pretty(readable_output),
+    )
+    return _support_multiline_svg_fragment_arrays(html_text)
+
+
 def _write_output(args: argparse.Namespace, output: dict[str, Any]) -> None:
     output_format = _resolve_output_format(args)
     if output_format == "json":
@@ -215,7 +354,7 @@ def _write_output(args: argparse.Namespace, output: dict[str, Any]) -> None:
             allow_nan=False,
         )
     else:
-        output_text = _render_markdown_report(_jsonable(output))
+        output_text = _render_tmqmg_html_report(output)
 
     if args.out is None:
         print(output_text, end="" if output_text.endswith("\n") else "\n")
@@ -232,6 +371,7 @@ def _trace_requested_rows(
     rows_by_id: dict[str, tuple[int, dict[str, str]]],
     *,
     args: argparse.Namespace,
+    render_context: DofRenderContext | None,
     config: MolGRConfig | None,
 ) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
@@ -259,6 +399,7 @@ def _trace_requested_rows(
                     spin_source=args.spin_source,
                     explicit_total_radicals=args.total_radical_electrons,
                     score_all_candidates=not args.no_score_all_candidates,
+                    render_context=render_context,
                     config=config,
                 )
             )
@@ -281,7 +422,14 @@ def main() -> int:
     case_ids = split_repeated_values(args.ids)
     rows_by_id = _load_rows_by_id(args.csv)
     config: MolGRConfig | None = None
-    cases = _trace_requested_rows(case_ids, rows_by_id, args=args, config=config)
+    render_context = _make_dof_render_context(args)
+    cases = _trace_requested_rows(
+        case_ids,
+        rows_by_id,
+        args=args,
+        render_context=render_context,
+        config=config,
+    )
 
     output = {
         "input": {
@@ -295,6 +443,8 @@ def main() -> int:
         "case_count": len(cases),
         "cases": cases,
     }
+    if render_context is not None:
+        output["dof_rendering"] = dof_rendering_summary(render_context)
     _write_output(args, output)
     return 0
 

@@ -10,9 +10,10 @@ import pytest
 
 pytest.importorskip("openbabel")
 
+from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import make_default_config
+from molgr.config import MolGRConfig
 from molgr.fallback.pipeline import resonance as resonance_module
 from molgr.fallback.pipeline.resonance import (
     ResonanceTraversalContext,
@@ -23,8 +24,19 @@ from molgr.fallback.pipeline.resonance import (
     process_resonance,
 )
 from molgr.fallback.stages import clean as clean_module
-from molgr.fallback.state import OmolStateMachine, ReconstructionState
+from molgr.fallback.state import (
+    OmolStateMachine,
+    OmolTraceRecorder,
+    ReconstructionState,
+    trace_omol_state_machine,
+)
 from molgr.fallback.utils import resonance as resonance_utils_module
+from molgr.fallback.utils.electrons import (
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+    set_unpaired_electron_count,
+    set_unresolved_two_electron_center,
+)
 from molgr.fallback.utils.force_field import selection_force_field_energy
 from molgr.fallback.utils.no_metals import resonance as no_metal_resonance_module
 
@@ -32,18 +44,66 @@ from molgr.fallback.utils.no_metals import resonance as no_metal_resonance_modul
 def _make_seed(smiles: str, radical_atom_indices: tuple[int, ...]) -> pybel.Molecule:
     mol = pybel.readstring("smi", smiles)
     for idx in radical_atom_indices:
-        mol.OBMol.GetAtom(idx).SetSpinMultiplicity(1)
+        set_unpaired_electron_count(mol.OBMol.GetAtom(idx), 1)
     return mol
 
 
+def _make_radical_carbonyl_resonance_seed(*, target_radical: bool) -> pybel.Molecule:
+    obmol = ob.OBMol()
+    for atomic_num in (8, 6, 6, 6):
+        atom = obmol.NewAtom()
+        atom.SetAtomicNum(atomic_num)
+    obmol.AddBond(1, 2, 1)
+    obmol.AddBond(2, 3, 2)
+    obmol.AddBond(3, 4, 1)
+    set_unpaired_electron_count(obmol.GetAtom(1), 1)
+    if target_radical:
+        set_unpaired_electron_count(obmol.GetAtom(3), 1)
+    return pybel.Molecule(obmol)
+
+
+@pytest.mark.parametrize("target_radical", [False, True])
+def test_radical_resonance_regenerates_deferred_two_electron_target_for_python_and_cpp(
+    target_radical: bool,
+) -> None:
+    seed = _make_radical_carbonyl_resonance_seed(target_radical=target_radical)
+    python_states = get_radical_resonances(seed, max_depth=1)
+
+    assert len(python_states) == 2
+    python_target = python_states[1].OBMol.GetAtom(3)
+    if target_radical:
+        assert get_unpaired_electron_count(python_target) == 0
+        assert has_unresolved_two_electron_center(python_target)
+    else:
+        assert get_unpaired_electron_count(python_target) == 1
+        assert not has_unresolved_two_electron_center(python_target)
+
+    from molgr import _core  # type: ignore
+
+    cpp_seed = _make_radical_carbonyl_resonance_seed(target_radical=target_radical)
+    cpp_ptrs = _core.dev.pipeline.resonance.get_radical_resonances_ptr(
+        int(getattr(cpp_seed.OBMol, "this", cpp_seed.OBMol))
+    )
+    try:
+        assert len(cpp_ptrs) == 2
+        cpp_target = _core.utils.extract_molecule_data(cpp_ptrs[1]).atoms[2]
+        assert cpp_target.radical_num == get_unpaired_electron_count(python_target)
+        assert cpp_target.unresolved_two_electron_center is has_unresolved_two_electron_center(
+            python_target
+        )
+    finally:
+        for ptr in cpp_ptrs:
+            _core.free_obmol_ptr(ptr)
+
+
 def test_default_resonance_traversal_score_names_uff_lite_gain() -> None:
-    config = make_default_config()
+    config = MolGRConfig()
 
     assert config.resonance.traversal_score == "uff_lite_gain"
 
 
 def test_no_metal_default_resonance_policy_accepts_uff_lite_gain() -> None:
-    base_config = make_default_config()
+    base_config = MolGRConfig()
     config = replace(
         base_config,
         resonance=replace(
@@ -98,6 +158,30 @@ def test_build_processed_resonance_key_matches_clone_and_changes_with_state() ->
 
     assert build_processed_resonance_key(seed) == build_processed_resonance_key(clone)
     assert build_processed_resonance_key(seed) != build_processed_resonance_key(moved)
+
+
+def test_resonance_keys_include_unresolved_two_electron_center_marker() -> None:
+    seed = pybel.readstring("smi", "CC")
+    marked = seed.clone
+    set_unresolved_two_electron_center(marked.OBMol.GetAtom(1), True)
+
+    assert build_resonance_state_key(seed) != build_resonance_state_key(marked)
+    assert build_processed_resonance_key(seed) != build_processed_resonance_key(marked)
+
+
+def test_build_processed_resonance_key_avoids_openbabel_format_serialization(
+    monkeypatch,
+) -> None:
+    def fail_write(self, format: str = "smi", filename=None, overwrite=False, opt=None):
+        raise AssertionError(f"processed resonance key should not call OpenBabel write({format!r})")
+
+    monkeypatch.setattr(pybel.Molecule, "write", fail_write)
+
+    seed = _make_seed("C=CC=C", (2,))
+    key = build_processed_resonance_key(seed)
+
+    assert key.startswith("A4:")
+    assert "|B3:" in key
 
 
 def test_get_radical_resonances_avoids_smiles_serialization_for_dedup(monkeypatch) -> None:
@@ -183,7 +267,7 @@ def test_get_radical_resonances_accepts_traversal_policy_to_prune_directions() -
 
 
 def test_clean_resonances_returns_false_when_no_rule_hits(monkeypatch) -> None:
-    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13)
+    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17)
     calls = []
 
     def make_stage(rule_id):
@@ -205,7 +289,7 @@ def test_clean_resonances_returns_false_when_no_rule_hits(monkeypatch) -> None:
 
 
 def test_clean_resonances_accumulates_stage_hits_without_global_signature(monkeypatch) -> None:
-    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13)
+    ordered_rules = (11, 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17)
     calls = []
 
     def make_stage(rule_id):
@@ -472,7 +556,52 @@ def test_omol_state_machine_caches_resonance_key_until_omol_changes(
     assert calls == 2
 
 
-def test_recover_resonance_candidates_returns_valid_candidates() -> None:
+def test_omol_trace_recorder_follows_state_machine_branches() -> None:
+    machine = OmolStateMachine(
+        _make_seed("CC", ()),
+        total_charge=-1,
+        total_radical_electrons=2,
+    )
+    recorder = OmolTraceRecorder()
+
+    with trace_omol_state_machine(recorder):
+        machine.annotate("root")
+        child = machine.branch("child")
+        child.run_omol_stage("child_stage", lambda omol: (omol, False))
+
+    assert [record["phase"] for record in recorder.records.values()] == [
+        "root",
+        "child",
+        "child_stage",
+    ]
+    assert recorder.records[1]["parent_id"] == 0
+    assert recorder.records[2]["parent_id"] == 1
+    assert recorder.records[2]["total_charge"] == -1
+    assert recorder.records[2]["total_radical_electrons"] == 2
+
+    machine.annotate("outside_trace")
+    assert len(recorder.records) == 3
+
+
+def test_omol_state_machine_preserves_global_targets_across_branches() -> None:
+    state = ReconstructionState(
+        _make_seed("CC", ()),
+        given_charge=1,
+        total_charge=-2,
+        total_radical_electrons=3,
+    )
+
+    machine = OmolStateMachine.from_reconstruction_state(state)
+    child = machine.branch("child")
+    frozen = child.freeze()
+
+    assert machine.total_charge == child.total_charge == -2
+    assert machine.total_radical_electrons == child.total_radical_electrons == 3
+    assert frozen.total_charge == -2
+    assert frozen.total_radical_electrons == 3
+
+
+def test_search_resonance_candidates_returns_valid_candidates() -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -480,13 +609,116 @@ def test_recover_resonance_candidates_returns_valid_candidates() -> None:
         total_charge=0,
         total_radical_electrons=1,
     )
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
     assert candidates
     scores = [selection_force_field_energy(candidate.omol) for candidate in candidates]
     assert min(scores) == sorted(scores)[0]
 
 
-def test_recover_resonance_candidates_returns_candidates_without_shared_region_scoring() -> None:
+def test_search_resonance_candidates_chains_full_normalization_and_validation() -> None:
+    seed = _make_seed("C", ())
+    state = ReconstructionState(
+        seed,
+        given_charge=0,
+        total_charge=-1,
+        total_radical_electrons=0,
+    )
+    calls: list[tuple[str, int]] = []
+
+    def walk_root(omol, *, visit, **kwargs):
+        del kwargs
+        visit(
+            resonance_utils_module.ResonanceSearchNode(
+                omol,
+                build_resonance_state_key(omol),
+                0,
+                0,
+            )
+        )
+
+    def full_normalization(omol, given_charge):
+        calls.append(("full", omol.OBMol.GetAtom(1).GetFormalCharge()))
+        return omol, given_charge + 1, True
+
+    def validate(omol, total_charge, total_radical_electrons):
+        del total_charge, total_radical_electrons
+        formal_charge = omol.OBMol.GetAtom(1).GetFormalCharge()
+        calls.append(("validate", formal_charge))
+        return formal_charge == 0
+
+    recorder = OmolTraceRecorder()
+    with trace_omol_state_machine(recorder):
+        candidates = no_metal_resonance_module.search_resonance_candidates(
+            [state],
+            walk_stage=walk_root,
+            full_normalization_stage=full_normalization,
+            validation_stage=validate,
+            score_stage=lambda candidate, **kwargs: 0.0,
+            topology_annotation_stage=lambda candidate, **kwargs: None,
+        )
+
+    assert len(candidates) == 1
+    assert calls == [("full", 0), ("validate", 0)]
+    assert candidates[0].given_charge == 1
+    assert candidates[0].metadata["resonance_normalization"] == "full_resonance_normalization"
+
+    phases = [record["phase"] for record in recorder.records.values()]
+    branch_id = phases.index("branch_resonance_candidate")
+    full_id = phases.index("full_resonance_normalization")
+    assert recorder.records[full_id]["parent_id"] == branch_id
+
+
+def test_search_resonance_candidates_traces_every_process_resonance_step() -> None:
+    seed = _make_seed("C", ())
+    state = ReconstructionState(seed, given_charge=0, total_charge=0, total_radical_electrons=0)
+
+    def walk_root(omol, *, visit, **kwargs):
+        del kwargs
+        visit(
+            resonance_utils_module.ResonanceSearchNode(
+                omol,
+                build_resonance_state_key(omol),
+                0,
+                0,
+            )
+        )
+
+    recorder = OmolTraceRecorder()
+    with trace_omol_state_machine(recorder):
+        no_metal_resonance_module.search_resonance_candidates(
+            [state],
+            walk_stage=walk_root,
+            validation_stage=lambda *args: True,
+            score_stage=lambda candidate, **kwargs: 0.0,
+            topology_annotation_stage=lambda candidate, **kwargs: None,
+        )
+
+    process_phases = [
+        "process_resonance_eliminate_1_3_dipole_postive",
+        "process_resonance_eliminate_possible_cp_like_radical_anion",
+        "process_resonance_clean_possible_1_3_dipole",
+        "process_resonance_clean_neighbor_radicals",
+        "process_resonance_clean_1_4_radicals",
+        "process_resonance_clean_1_6_radicals",
+        "process_resonance_eliminate_positive_charges_1",
+        "process_resonance_eliminate_negative_charges",
+        "process_resonance_eliminate_positive_charges_2",
+        "process_resonance_clean_resonances",
+    ]
+    phases = [record["phase"] for record in recorder.records.values()]
+    branch_id = phases.index("branch_resonance_candidate")
+    process_ids = [phases.index(phase) for phase in process_phases]
+    full_id = phases.index("full_resonance_normalization")
+
+    assert recorder.records[process_ids[0]]["parent_id"] == branch_id
+    assert all(
+        recorder.records[current]["parent_id"] == previous
+        for previous, current in zip(process_ids, process_ids[1:])
+    )
+    assert recorder.records[full_id]["parent_id"] == process_ids[-1]
+
+
+def test_search_resonance_candidates_without_shared_region_scoring() -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -494,12 +726,12 @@ def test_recover_resonance_candidates_returns_candidates_without_shared_region_s
         total_charge=0,
         total_radical_electrons=1,
     )
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
 
     assert candidates
 
 
-def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> None:
+def test_search_resonance_candidates_dedups_processed_states(monkeypatch) -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -508,22 +740,32 @@ def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> No
         total_radical_electrons=1,
     )
 
-    resonance_a = object()
-    resonance_b = object()
-    processed = object()
+    resonance_a = seed.clone
+    resonance_b = seed.clone
     validate_calls = 0
-    organic_score_calls = 0
     force_field_score_calls = 0
+
+    def walk_resonances(omol, *, visit, **kwargs):
+        del omol, kwargs
+        for resonance in (resonance_a, resonance_b):
+            visit(
+                resonance_utils_module.ResonanceSearchNode(
+                    resonance,
+                    (id(resonance),),
+                    0,
+                    0,
+                )
+            )
 
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "get_radical_resonances",
-        lambda omol: [resonance_a, resonance_b],
+        "walk_radical_resonances",
+        walk_resonances,
     )
     monkeypatch.setattr(
         resonance_utils_module,
-        "process_resonance",
-        lambda omol, given_charge: (processed, given_charge, True),
+        "build_resonance_state_key",
+        lambda omol: (id(omol),),
     )
     monkeypatch.setattr(
         resonance_utils_module,
@@ -536,29 +778,22 @@ def test_recover_resonance_candidates_dedups_processed_states(monkeypatch) -> No
         validate_calls += 1
         return True
 
-    def organic_core_score(self):
-        nonlocal organic_score_calls
-        organic_score_calls += 1
-        return 1.0
-
     def full_score(self):
         nonlocal force_field_score_calls
         force_field_score_calls += 1
         return 1.0
 
     monkeypatch.setattr(no_metal_resonance_module, "validate_omol", validate)
-    monkeypatch.setattr(ReconstructionState, "organic_core_score", organic_core_score)
     monkeypatch.setattr(ReconstructionState, "full_score", full_score)
 
-    candidates = no_metal_resonance_module._recover_resonance_candidates(state)
+    candidates = no_metal_resonance_module.search_resonance_candidates([state])
 
     assert len(candidates) == 1
     assert validate_calls == 1
-    assert organic_score_calls == 1
     assert force_field_score_calls == 1
 
 
-def test_recover_resonance_candidates_forwards_traversal_policy(monkeypatch) -> None:
+def test_search_resonance_candidates_forwards_traversal_policy(monkeypatch) -> None:
     seed = _make_seed("C=CC=C", (2,))
     state = ReconstructionState(
         seed,
@@ -569,19 +804,25 @@ def test_recover_resonance_candidates_forwards_traversal_policy(monkeypatch) -> 
     policy = object()
     recorded_policy = None
 
-    def fake_get_radical_resonances(omol, *, traversal_policy=None, max_depth=2):
+    def fake_walk_radical_resonances(
+        omol,
+        *,
+        traversal_policy=None,
+        max_depth=2,
+        visit=None,
+    ):
+        del omol, max_depth, visit
         nonlocal recorded_policy
         recorded_policy = traversal_policy
-        return []
 
     monkeypatch.setattr(
         no_metal_resonance_module,
-        "get_radical_resonances",
-        fake_get_radical_resonances,
+        "walk_radical_resonances",
+        fake_walk_radical_resonances,
     )
 
-    candidates = no_metal_resonance_module._recover_resonance_candidates(
-        state,
+    candidates = no_metal_resonance_module.search_resonance_candidates(
+        [state],
         resonance_traversal_policy=policy,
     )
 

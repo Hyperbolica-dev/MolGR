@@ -3,15 +3,18 @@
 #include "molgr/stages/internal_helpers.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/logger.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
+#include <set>
+#include <tuple>
 #include <vector>
 
 namespace molgr
@@ -20,14 +23,494 @@ namespace molgr
     {
         using namespace OpenBabel;
 
+        struct ChargeAssignmentAction
+        {
+            int atom_idx;
+            int formal_charge;
+            int spin_consumed;
+            bool consume_unresolved_center;
+            int charge_delta;
+            std::vector<int> score_key;
+            int bond_idx = -1;
+            int charge_atom_idx = -1;
+        };
+
+        struct NegativeChargeAssignmentPattern
+        {
+            molgr::smarts::PatternId pattern_id;
+            int tier;
+            int target_idx;
+            bool requires_negative_deficit;
+        };
+
+        const std::vector<NegativeChargeAssignmentPattern> &NegativeChargeAssignmentPatterns()
+        {
+            static const std::vector<NegativeChargeAssignmentPattern> patterns = {
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_F, 10, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_O, 20, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_O_1, 21, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_CL, 30, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N, 40, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N_1, 41, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_N_2, 42, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_BR, 50, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_I, 60, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_S, 70, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_S_1, 71, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_SE, 80, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_SE_1, 81, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P, 90, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P_1, 91, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_P_2, 92, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B, 95, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B_1, 96, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_B_2, 97, 0, false},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3, 100, 0, true},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW, 110, 0, true},
+                {molgr::smarts::PatternId::ELIM_NEGATIVE_H, 120, 0, true},
+            };
+            return patterns;
+        }
+
+        // Electron bookkeeping: choose how many real unpaired electrons to bundle
+        // into one multivalent anion action; never count lone-pair/marker state.
+        int NegativeChargeAssignmentAmount(OBAtom *atom, int charge)
+        {
+            if (atom == nullptr)
+            {
+                return 0;
+            }
+            return std::min(molgr::utils::GetUnpairedElectronCount(*atom), std::max(1, std::abs(charge)));
+        }
+
+        // Electron bookkeeping: radical actions consume real unpaired electrons.
+        // An unresolved action atomically consumes one pure deferred 2e marker as
+        // +/-2 without first creating a diradical. Active lone pairs are excluded.
+        bool ApplyChargeAssignmentAction(OBMol &mol, const ChargeAssignmentAction &action)
+        {
+            OBAtom *atom = mol.GetAtom(action.atom_idx);
+            if (atom == nullptr)
+            {
+                return false;
+            }
+            if (action.bond_idx >= 0 && action.charge_atom_idx >= 0)
+            {
+                OBAtom *charge_atom = mol.GetAtom(action.charge_atom_idx);
+                OBBond *bond = mol.GetBond(atom, charge_atom);
+                if (charge_atom == nullptr || bond == nullptr ||
+                    molgr::utils::HasUnresolvedTwoElectronCenter(*atom) ||
+                    molgr::utils::GetUnpairedElectronCount(*atom) < action.spin_consumed)
+                {
+                    return false;
+                }
+                molgr::utils::SetUnpairedElectronCount(
+                    *atom,
+                    molgr::utils::GetUnpairedElectronCount(*atom) - action.spin_consumed);
+                bond->SetBondOrder(bond->GetBondOrder() + 1);
+                charge_atom->SetFormalCharge(charge_atom->GetFormalCharge() + 1);
+                return true;
+            }
+            if (atom->GetFormalCharge() != 0)
+            {
+                return false;
+            }
+            if (action.consume_unresolved_center)
+            {
+                if (action.spin_consumed != 0 ||
+                    std::abs(action.formal_charge) != 2 ||
+                    !molgr::utils::HasUnresolvedTwoElectronCenter(*atom) ||
+                    molgr::utils::GetUnpairedElectronCount(*atom) != 0 ||
+                    molgr::utils::GetLonePairCount(*atom) != 0)
+                {
+                    return false;
+                }
+                molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
+            }
+            else
+            {
+                if (action.spin_consumed <= 0 ||
+                    molgr::utils::HasUnresolvedTwoElectronCenter(*atom) ||
+                    molgr::utils::GetUnpairedElectronCount(*atom) < action.spin_consumed)
+                {
+                    return false;
+                }
+                molgr::utils::SetUnpairedElectronCount(
+                    *atom,
+                    molgr::utils::GetUnpairedElectronCount(*atom) - action.spin_consumed);
+            }
+            atom->SetFormalCharge(action.formal_charge);
+            return true;
+        }
+
+        void AppendPositiveChargeAssignmentAction(
+            std::vector<ChargeAssignmentAction> &actions,
+            std::set<std::tuple<int, int, int>> &seen,
+            OBAtom *atom,
+            int charge,
+            int tier,
+            int match_order,
+            int amount)
+        {
+            if (atom == nullptr || amount <= 0 ||
+                molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+            {
+                return;
+            }
+            const int atom_idx = atom->GetIdx();
+            const auto seen_key = std::make_tuple(atom_idx, tier, amount);
+            if (seen.count(seen_key) != 0)
+            {
+                return;
+            }
+            seen.insert(seen_key);
+
+            const int charge_after = charge - amount;
+            const int atomic_num = atom->GetAtomicNum();
+            actions.push_back(ChargeAssignmentAction{
+                atom_idx,
+                amount,
+                amount,
+                false,
+                -amount,
+                {
+                    tier,
+                    std::abs(charge_after),
+                    std::max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                }});
+        }
+
+        void AppendNegativeChargeAssignmentAction(
+            std::vector<ChargeAssignmentAction> &actions,
+            std::set<std::tuple<int, int, int>> &seen,
+            OBAtom *atom,
+            int charge,
+            int tier,
+            int match_order,
+            int amount)
+        {
+            if (atom == nullptr || amount <= 0 ||
+                molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+            {
+                return;
+            }
+            const int atom_idx = atom->GetIdx();
+            const auto seen_key = std::make_tuple(atom_idx, tier, amount);
+            if (seen.count(seen_key) != 0)
+            {
+                return;
+            }
+            seen.insert(seen_key);
+
+            const int charge_after = charge + amount;
+            const int atomic_num = atom->GetAtomicNum();
+            actions.push_back(ChargeAssignmentAction{
+                atom_idx,
+                -amount,
+                amount,
+                false,
+                amount,
+                {
+                    tier,
+                    std::abs(charge_after),
+                    std::max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                }});
+        }
+
+        // Consume one pure unresolved center directly as a +/-2 formal-charge
+        // action. A deficit smaller than two is rejected by the caller.
+        void AppendUnresolvedChargeAssignmentAction(
+            std::vector<ChargeAssignmentAction> &actions,
+            OBAtom *atom,
+            int charge,
+            int formal_charge,
+            int tier,
+            int match_order)
+        {
+            if (atom == nullptr ||
+                std::abs(formal_charge) != 2 ||
+                atom->GetFormalCharge() != 0 ||
+                !molgr::utils::HasUnresolvedTwoElectronCenter(*atom) ||
+                molgr::utils::GetUnpairedElectronCount(*atom) != 0 ||
+                molgr::utils::GetLonePairCount(*atom) != 0)
+            {
+                return;
+            }
+            const int charge_after = charge - formal_charge;
+            const int atom_idx = static_cast<int>(atom->GetIdx());
+            const int atomic_num = static_cast<int>(atom->GetAtomicNum());
+            actions.push_back(ChargeAssignmentAction{
+                atom_idx,
+                formal_charge,
+                0,
+                true,
+                -formal_charge,
+                {
+                    tier,
+                    std::abs(charge_after),
+                    std::max(charge_after, 0),
+                    atomic_num,
+                    atom_idx,
+                    match_order,
+                }});
+        }
+
+        // Electron bookkeeping: rank cation actions from real radicals or, with a
+        // remaining deficit of at least two, one pure unresolved 2e center.
+        std::vector<ChargeAssignmentAction> PositiveChargeAssignmentActions(
+            OBMol &mol,
+            int charge,
+            int total_radical_electrons = 0)
+        {
+            std::vector<ChargeAssignmentAction> actions;
+            std::set<std::tuple<int, int, int>> seen;
+            int real_radicals = 0;
+            int unresolved_electrons = 0;
+            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            {
+                OBAtom *atom = &(*atom_iter);
+                real_radicals += molgr::utils::GetUnpairedElectronCount(*atom);
+                if (molgr::utils::HasUnresolvedTwoElectronCenter(*atom))
+                {
+                    unresolved_electrons += 1;
+                }
+            }
+            const bool tier5_allowed =
+                std::abs(charge - 1) <= real_radicals + unresolved_electrons * 2 - 1;
+            auto n_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
+            for (std::size_t match_order = 0; match_order < n_matches.size(); ++match_order)
+            {
+                const auto &idxs = n_matches[match_order];
+                if (idxs.size() < 2)
+                {
+                    continue;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[1]);
+                if (charge > 0 && atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        0,
+                        static_cast<int>(match_order),
+                        1);
+                }
+            }
+
+            auto c_h_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
+            for (std::size_t match_order = 0; match_order < c_h_matches.size(); ++match_order)
+            {
+                const auto &idxs = c_h_matches[match_order];
+                if (idxs.empty())
+                {
+                    continue;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[0]);
+                if (charge > 0 && atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        10,
+                        static_cast<int>(match_order),
+                        1);
+                }
+            }
+
+            auto dipole_matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_POSITIVE_DIPOLE);
+            for (std::size_t match_order = 0; match_order < dipole_matches.size(); ++match_order)
+            {
+                const auto &idxs = dipole_matches[match_order];
+                if (idxs.size() < 2)
+                {
+                    continue;
+                }
+                OBAtom *radical_atom = mol.GetAtom(idxs[0]);
+                OBAtom *charge_atom = mol.GetAtom(idxs[1]);
+                OBBond *bond = mol.GetBond(radical_atom, charge_atom);
+                if (tier5_allowed && radical_atom != nullptr && charge_atom != nullptr && bond != nullptr &&
+                    radical_atom->GetFormalCharge() == 0 &&
+                    molgr::utils::GetUnpairedElectronCount(*radical_atom) == 1 &&
+                    !molgr::utils::HasUnresolvedTwoElectronCenter(*radical_atom))
+                {
+                    const int charge_after = charge - 1;
+                    actions.push_back(ChargeAssignmentAction{
+                        radical_atom->GetIdx(),
+                        0,
+                        1,
+                        false,
+                        -1,
+                        {5, std::abs(charge_after), std::max(charge_after, 0), radical_atom->GetIdx(), static_cast<int>(match_order)},
+                        bond->GetIdx(),
+                        charge_atom->GetIdx(),
+                    });
+                }
+            }
+
+            int match_order = 0;
+            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            {
+                OBAtom *atom = &(*atom_iter);
+                if (charge > 0 && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                {
+                    AppendPositiveChargeAssignmentAction(
+                        actions,
+                        seen,
+                        atom,
+                        charge,
+                        100,
+                        match_order,
+                        std::min(molgr::utils::GetUnpairedElectronCount(*atom), charge));
+                }
+                if (charge >= 2)
+                {
+                    AppendUnresolvedChargeAssignmentAction(
+                        actions, atom, charge, 2, 100, match_order);
+                }
+                ++match_order;
+            }
+
+            std::sort(
+                actions.begin(),
+                actions.end(),
+                [](const auto &left, const auto &right)
+                {
+                    return left.score_key < right.score_key;
+                });
+            return actions;
+        }
+
+        // Electron bookkeeping: rank anion actions from real radicals or, with a
+        // remaining deficit of at least two, one pure unresolved 2e center.
+        std::vector<ChargeAssignmentAction> NegativeChargeAssignmentActions(
+            OBMol &mol,
+            int charge)
+        {
+            std::vector<ChargeAssignmentAction> actions;
+            if (charge > 0)
+            {
+                return actions;
+            }
+
+            std::set<std::tuple<int, int, int>> seen;
+
+            for (const auto &pattern : NegativeChargeAssignmentPatterns())
+            {
+                if (pattern.requires_negative_deficit && charge >= 0)
+                {
+                    continue;
+                }
+                auto matches = molgr::smarts::FindAll(mol, pattern.pattern_id);
+                for (std::size_t match_order = 0; match_order < matches.size(); ++match_order)
+                {
+                    const auto &idxs = matches[match_order];
+                    if (idxs.size() <= static_cast<std::size_t>(pattern.target_idx))
+                    {
+                        continue;
+                    }
+                    OBAtom *atom = mol.GetAtom(idxs[pattern.target_idx]);
+                    if (atom != nullptr && atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                    {
+                        AppendNegativeChargeAssignmentAction(
+                            actions,
+                            seen,
+                            atom,
+                            charge,
+                            pattern.tier,
+                            static_cast<int>(match_order),
+                            NegativeChargeAssignmentAmount(atom, charge));
+                    }
+                }
+            }
+
+            if (charge < 0)
+            {
+                int match_order = 0;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    OBAtom *atom = &(*atom_iter);
+                    if (atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
+                    {
+                        AppendNegativeChargeAssignmentAction(
+                            actions,
+                            seen,
+                            atom,
+                            charge,
+                            1000,
+                            match_order,
+                            NegativeChargeAssignmentAmount(atom, charge));
+                    }
+                    if (charge <= -2)
+                    {
+                        AppendUnresolvedChargeAssignmentAction(
+                            actions, atom, charge, -2, 1000, match_order);
+                    }
+                    ++match_order;
+                }
+            }
+
+            std::sort(
+                actions.begin(),
+                actions.end(),
+                [](const auto &left, const auto &right)
+                {
+                    return left.score_key < right.score_key;
+                });
+            return actions;
+        }
+
+        // Electron bookkeeping: the negative N-N-N closure consumes one classified
+        // two-electron state at each terminal N and one real unpaired electron at
+        // the middle N. The positive closure consumes one middle-N monoradical.
+        // All electronic preconditions are checked before bonds or charges change.
         bool EliminateNNN(OBMol &mol, int &charge, bool positive)
         {
+            // Accept exactly one pure unresolved, triplet, or active-singlet
+            // two-electron state. Mixed marker/occupancy states are invalid here.
+            const auto has_consumable_two_electron_center = [](const OBAtom &atom)
+            {
+                const bool unresolved =
+                    molgr::utils::HasUnresolvedTwoElectronCenter(atom);
+                const int unpaired = molgr::utils::GetUnpairedElectronCount(atom);
+                const int lone_pairs = molgr::utils::GetLonePairCount(atom);
+                return (unresolved && unpaired == 0 && lone_pairs == 0) ||
+                       (!unresolved && unpaired == 2 && lone_pairs == 0) ||
+                       (!unresolved && unpaired == 0 && lone_pairs >= 1);
+            };
+            // Consume the prevalidated state from its own field; do not infer a
+            // lone pair from unpaired-electron parity or vice versa.
+            const auto consume_two_electron_center = [](OBAtom &atom)
+            {
+                if (molgr::utils::HasUnresolvedTwoElectronCenter(atom))
+                {
+                    molgr::utils::SetUnresolvedTwoElectronCenter(atom, false);
+                }
+                else if (molgr::utils::GetUnpairedElectronCount(atom) == 2)
+                {
+                    molgr::utils::SetUnpairedElectronCount(atom, 0);
+                }
+                else if (molgr::utils::GetLonePairCount(atom) >= 1)
+                {
+                    molgr::utils::SetLonePairCount(
+                        atom,
+                        molgr::utils::GetLonePairCount(atom) - 1);
+                }
+            };
             bool hit = false;
             if (!positive)
             {
                 while (true)
                 {
-                    auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_NEGATIVE);
+                    auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NNN_NEGATIVE);
                     if (matches.empty())
                     {
                         break;
@@ -43,17 +526,23 @@ namespace molgr
                     {
                         break;
                     }
+                    if (!has_consumable_two_electron_center(*a1) ||
+                        molgr::utils::GetUnpairedElectronCount(*a2) != 1 ||
+                        !has_consumable_two_electron_center(*a3))
+                    {
+                        break;
+                    }
 
                     bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                     bond2->SetBondOrder(bond2->GetBondOrder() + 1);
 
-                    a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 2);
+                    consume_two_electron_center(*a1);
                     a1->SetFormalCharge(a1->GetFormalCharge() - 1);
 
-                    a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
+                    molgr::utils::SetUnpairedElectronCount(*a2, molgr::utils::GetUnpairedElectronCount(*a2) - 1);
                     a2->SetFormalCharge(a2->GetFormalCharge() + 1);
 
-                    a3->SetSpinMultiplicity(a3->GetSpinMultiplicity() - 2);
+                    consume_two_electron_center(*a3);
                     a3->SetFormalCharge(a3->GetFormalCharge() - 1);
 
                     charge += 1;
@@ -65,7 +554,7 @@ namespace molgr
 
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NNN_POSITIVE);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NNN_POSITIVE);
                 if (matches.empty())
                 {
                     break;
@@ -75,14 +564,18 @@ namespace molgr
                 OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
                 OBAtom *a1 = mol.GetAtom(idxs[0]);
                 OBAtom *a2 = mol.GetAtom(idxs[1]);
-                if (!bond1 || !a1 || !a2)
-                {
-                    break;
-                }
+                    if (!bond1 || !a1 || !a2)
+                    {
+                        break;
+                    }
+                    if (molgr::utils::GetUnpairedElectronCount(*a2) != 1)
+                    {
+                        break;
+                    }
 
                 bond1->SetBondOrder(bond1->GetBondOrder() + 1);
                 a1->SetFormalCharge(a1->GetFormalCharge() + 1);
-                a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
+                molgr::utils::SetUnpairedElectronCount(*a2, molgr::utils::GetUnpairedElectronCount(*a2) - 1);
                 charge -= 1;
                 hit = true;
                 LOG_DEBUG("[EliminateNNN] Applied positive branch");
@@ -90,27 +583,51 @@ namespace molgr
             return hit;
         }
 
+        // Electron bookkeeping: consume exactly one neighboring monoradical and
+        // replace it with a one-unit negative formal charge. Lone pairs and
+        // unresolved centers never satisfy this rule.
         bool EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
         {
             bool hit = false;
-            while (true)
+            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
+            while (!matches.empty())
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
-                if (matches.empty())
-                    break;
-
-                auto idxs = matches[0];
+                auto idxs = matches.front();
+                matches.erase(matches.begin());
                 OBAtom *a1 = mol.GetAtom(idxs[0]);
                 OBAtom *a2 = mol.GetAtom(idxs[1]);
+                if (!a1 || !a2)
+                {
+                    continue;
+                }
 
                 int sum_nbr_charge = 0;
                 FOR_NB_OF_ATOM(nbr, a1)
                 sum_nbr_charge += nbr->GetFormalCharge();
 
-                if (-sum_nbr_charge >= a1->GetFormalCharge())
-                    break;
+                bool a2_neighbor_has_pending_electrons = false;
+                FOR_NB_OF_ATOM(nbr, a2)
+                {
+                    if (nbr->GetIdx() == a1->GetIdx())
+                    {
+                        continue;
+                    }
+                    if (molgr::utils::GetUnpairedElectronCount(*nbr) > 0 ||
+                        molgr::utils::HasUnresolvedTwoElectronCenter(*nbr))
+                    {
+                        a2_neighbor_has_pending_electrons = true;
+                        break;
+                    }
+                }
 
-                a2->SetSpinMultiplicity(a2->GetSpinMultiplicity() - 1);
+                if (-sum_nbr_charge > a1->GetFormalCharge() ||
+                    molgr::utils::GetUnpairedElectronCount(*a2) != 1 ||
+                    a2_neighbor_has_pending_electrons)
+                {
+                    continue;
+                }
+
+                molgr::utils::SetUnpairedElectronCount(*a2, molgr::utils::GetUnpairedElectronCount(*a2) - 1);
                 a2->SetFormalCharge(a2->GetFormalCharge() - 1);
                 charge += 1;
                 hit = true;
@@ -119,53 +636,23 @@ namespace molgr
             return hit;
         }
 
-        bool EliminateCNInDoubt(OBMol &mol, int &charge)
-        {
-            bool hit = false;
-            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CN_IN_DOUBT);
-            size_t count = matches.size();
-            std::vector<int> atom_indices;
-            atom_indices.reserve(count * 2);
-            for (const auto &idxs : matches)
-            {
-                atom_indices.push_back(idxs[0]);
-                atom_indices.push_back(idxs[1]);
-            }
-            std::sort(atom_indices.begin(), atom_indices.end());
-            if (std::unique(atom_indices.begin(), atom_indices.end()) != atom_indices.end())
-            {
-                return false;
-            }
-            if (count > 0 && count % 2 == 0)
-            {
-                for (size_t i = 0; i < count / 2; ++i)
-                {
-                    auto idxs = matches[i];
-                    OBAtom *a1 = mol.GetAtom(idxs[0]);
-                    OBAtom *a2 = mol.GetAtom(idxs[1]);
-                    OBBond *bond = mol.GetBond(a1, a2);
-
-                    a1->SetFormalCharge(-1);
-                    bond->SetBondOrder(bond->GetBondOrder() - 1);
-                    a2->SetFormalCharge(0);
-                    charge += 2;
-                    hit = true;
-                }
-                LOG_DEBUG("[EliminateCN] Applied to " << count / 2 << " pairs");
-            }
-            return hit;
-        }
-
+        // Electron bookkeeping: localize exactly one oxygen monoradical as O-.
+        // A missing or multi-electron radical label rejects the transformation.
         bool EliminateCarboxyl(OBMol &mol, int &charge)
         {
             bool hit = false;
             while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_CARBOXYL);
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_CARBOXYL);
                 if (matches.empty())
                     break;
                 OBAtom *a1 = mol.GetAtom(matches[0][0]);
-                a1->SetSpinMultiplicity(a1->GetSpinMultiplicity() - 1);
+                if (a1 == nullptr ||
+                    molgr::utils::GetUnpairedElectronCount(*a1) != 1)
+                {
+                    break;
+                }
+                molgr::utils::SetUnpairedElectronCount(*a1, 0);
                 a1->SetFormalCharge(a1->GetFormalCharge() - 1);
                 charge += 1;
                 hit = true;
@@ -174,18 +661,27 @@ namespace molgr
             return hit;
         }
 
+        // Electron bookkeeping: close an unresolved two-electron center with a
+        // closed-shell heteroatom donor. The center marker becomes center-/donor+;
+        // consume one explicitly tracked active donor lone pair when present.
+        // Real unpaired electrons cannot act as the donor in this rule.
         bool EliminateCarbeneNeighborHeteroatom(OBMol &mol, int &charge)
         {
+            const auto possible_carbene_atom = [](const OBAtom &atom) -> bool
+            {
+                return molgr::utils::HasUnresolvedTwoElectronCenter(atom);
+            };
+
             bool hit = false;
             FOR_ATOMS_OF_MOL(atom_iter, mol)
             {
                 OBAtom *atom = &(*atom_iter);
-                if (atom->GetSpinMultiplicity() == 2)
+                if (possible_carbene_atom(*atom))
                 {
                     bool neighbor_radical = false;
                     FOR_NB_OF_ATOM(nbr, atom)
                     {
-                        if (nbr->GetSpinMultiplicity() > 0)
+                        if (molgr::utils::GetUnpairedElectronCount(*nbr) == 1)
                         {
                             neighbor_radical = true;
                             break;
@@ -193,19 +689,28 @@ namespace molgr
                     }
                     if (neighbor_radical)
                     {
-                        return hit;
+                        continue;
                     }
 
                     FOR_NB_OF_ATOM(nbr, atom)
                     {
                         if (kHeteroatoms.count(nbr->GetAtomicNum()) &&
                             nbr->GetFormalCharge() == 0 &&
-                            nbr->GetSpinMultiplicity() == 0)
+                            molgr::utils::GetUnpairedElectronCount(*nbr) == 0 &&
+                            !molgr::utils::HasUnresolvedTwoElectronCenter(*nbr))
                         {
                             OBBond *bond = mol.GetBond(atom, &*nbr);
                             bond->SetBondOrder(bond->GetBondOrder() + 1);
-                            atom->SetSpinMultiplicity(0);
+                            molgr::utils::SetLonePairCount(*atom, 0);
+                            molgr::utils::SetUnpairedElectronCount(*atom, 0);
+                            molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
                             atom->SetFormalCharge(atom->GetFormalCharge() - 1);
+                            if (molgr::utils::GetLonePairCount(*nbr) > 0)
+                            {
+                                molgr::utils::SetLonePairCount(
+                                    *nbr,
+                                    molgr::utils::GetLonePairCount(*nbr) - 1);
+                            }
                             nbr->SetFormalCharge(nbr->GetFormalCharge() + 1);
                             hit = true;
                             LOG_DEBUG("[EliminateCarbeneHetero] Applied");
@@ -217,78 +722,15 @@ namespace molgr
             return hit;
         }
 
-        bool EliminateChargeSpliting(OBMol &mol, int &charge)
+        // Electron bookkeeping: consume exactly one terminal unpaired electron
+        // to raise the adjacent bond order and shift one formal-charge unit.
+        bool Eliminate13DipolePostive(OBMol &mol, int &charge)
         {
             bool hit = false;
-            bool all_neutral = true;
-            int sum_radicals = 0;
-            std::vector<OBAtom *> radical_atoms;
-
-            FOR_ATOMS_OF_MOL(a, mol)
-            {
-                if (a->GetFormalCharge() != 0)
-                    all_neutral = false;
-                if (a->GetSpinMultiplicity() > 0)
-                {
-                    sum_radicals += (&*a)->GetSpinMultiplicity();
-                    radical_atoms.push_back(&(*a));
-                }
-            }
-
-            if (all_neutral && sum_radicals >= 2)
-            {
-                int total_radicals = sum_radicals;
-                auto process = [&](int atomic_num, bool check_hetero_neighbor)
-                {
-                    while (total_radicals > std::abs(charge))
-                    {
-                        bool found = false;
-                        for (auto it = radical_atoms.begin(); it != radical_atoms.end(); ++it)
-                        {
-                            OBAtom *atom = *it;
-                            if (atom->GetAtomicNum() != atomic_num)
-                                continue;
-
-                            if (check_hetero_neighbor)
-                            {
-                                bool has_hetero = false;
-                                FOR_NB_OF_ATOM(nbr, atom)
-                                if (kHeteroatoms.count(nbr->GetAtomicNum())) has_hetero = true;
-                                if (has_hetero)
-                                    continue;
-                            }
-
-                            const int charge_delta = atom->GetSpinMultiplicity();
-                            atom->SetFormalCharge(atom->GetFormalCharge() - charge_delta);
-                            atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - charge_delta);
-                            charge += charge_delta;
-                            total_radicals -= charge_delta;
-                            radical_atoms.erase(it);
-                            hit = true;
-                            found = true;
-                            break;
-                        }
-                        if (!found)
-                            break;
-                    }
-                };
-                for (const int atomic_num : {8, 9, 17, 35, 53})
-                {
-                    process(atomic_num, false);
-                }
-                process(16, false);
-                process(7, false);
-                process(6, true);
-                process(6, false);
-            }
-            return hit;
-        }
-
-        bool Eliminate13Dipole(OBMol &mol, int &charge)
-        {
-            bool hit = false;
-            auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_1_3_DIPOLE);
-            while (!matches.empty())
+            auto matches = molgr::smarts::FindAll(
+                mol,
+                molgr::smarts::PatternId::ELIM_1_3_DIPOLE_POSTIVE);
+            while (charge >= 0 && !matches.empty())
             {
                 auto idxs = matches.front();
                 matches.erase(matches.begin());
@@ -303,12 +745,12 @@ namespace molgr
 
                 const ElementInfo *info = GetElementInfo(atom2->GetAtomicNum());
                 if (info != nullptr &&
-                    atom3->GetSpinMultiplicity() > 0 &&
+                    molgr::utils::GetUnpairedElectronCount(*atom3) == 1 &&
                     (info->num_outer_electrons + atom2->GetTotalValence()) == 8)
                 {
                     atom2->SetFormalCharge(atom2->GetFormalCharge() + 1);
                     bond23->SetBondOrder(static_cast<int>(bond23->GetBondOrder() + 1));
-                    atom3->SetSpinMultiplicity(atom3->GetSpinMultiplicity() - 1);
+                    molgr::utils::SetUnpairedElectronCount(*atom3, molgr::utils::GetUnpairedElectronCount(*atom3) - 1);
                     charge -= 1;
                     hit = true;
                 }
@@ -316,216 +758,104 @@ namespace molgr
             return hit;
         }
 
-        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        // Electron bookkeeping: consume a CP-like monoradical only when it is
+        // not reserved for the target radical count or pending charge budget.
+        bool EliminatePossibleCPLikeRadicalAnion(
+            OBMol &mol,
+            int &charge,
+            int total_radical_electrons)
         {
+            const auto available_unpaired_electrons = [&]()
+            {
+                int count = 0;
+                FOR_ATOMS_OF_MOL(atom_iter, mol)
+                {
+                    count += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                }
+                return count - total_radical_electrons - std::abs(charge);
+            };
+
             bool hit = false;
-            while (charge > 0)
+            while (true)
             {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_N);
-                if (matches.empty())
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_CP);
+                if (matches.empty() || available_unpaired_electrons() < 1)
                 {
                     break;
                 }
 
                 auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[1]);
-                if (!atom)
+                if (idxs.size() < 5)
+                {
+                    break;
+                }
+                OBAtom *atom = mol.GetAtom(idxs[4]);
+                if (atom == nullptr || atom->GetFormalCharge() != 0)
                 {
                     break;
                 }
 
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
-                atom->SetFormalCharge(1);
-                charge -= 1;
+                if (molgr::utils::GetUnpairedElectronCount(*atom) != 1)
+                {
+                    break;
+                }
+                molgr::utils::SetUnpairedElectronCount(*atom, 0);
+                atom->SetFormalCharge(-1);
+                charge += 1;
                 hit = true;
-            }
-
-            while (charge > 0)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_POSITIVE_C_H);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - 1);
-                atom->SetFormalCharge(1);
-                charge -= 1;
-                hit = true;
-            }
-
-            FOR_ATOMS_OF_MOL(atom_iter, mol)
-            {
-                OBAtom *atom = &(*atom_iter);
-                if (charge <= 0)
-                {
-                    break;
-                }
-                if (atom->GetSpinMultiplicity() >= 1 && atom->GetFormalCharge() == 0)
-                {
-                    int to_add = std::min(atom->GetSpinMultiplicity(), charge);
-                    atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                    atom->SetFormalCharge(to_add);
-                    charge -= to_add;
-                    hit = true;
-                }
             }
             return hit;
         }
 
+        // Electron bookkeeping: encode real radical actions or a pure unresolved
+        // 2e center as positive charge. The latter requires at least two remaining
+        // charge units, becomes +2, and clears its marker atomically.
+        bool EliminatePositiveChargesWithTarget(OBMol &mol, int &charge, int total_radical_electrons)
+        {
+            bool hit = false;
+            while (true)
+            {
+                const auto actions = PositiveChargeAssignmentActions(mol, charge, total_radical_electrons);
+                if (actions.empty())
+                {
+                    break;
+                }
+                const auto &action = actions.front();
+                if (!ApplyChargeAssignmentAction(mol, action))
+                {
+                    break;
+                }
+                charge += action.charge_delta;
+                hit = true;
+            }
+            return hit;
+        }
+
+        bool EliminatePositiveCharges(OBMol &mol, int &charge)
+        {
+            return EliminatePositiveChargesWithTarget(mol, charge, 0);
+        }
+
+        // Electron bookkeeping: encode real radical actions or a pure unresolved
+        // 2e center as negative charge. The latter requires at least two remaining
+        // charge units and becomes -2; zero-budget separation remains radical-only.
         bool EliminateNegativeCharges(OBMol &mol, int &charge)
         {
             bool hit = false;
-            const std::vector<int> heteroatom_priority = {9, 8, 17, 7, 35, 53, 16, 34, 15};
-
-            std::vector<std::pair<OBAtom *, size_t>> possible_heteroatoms;
-            FOR_ATOMS_OF_MOL(atom_iter, mol)
+            while (charge <= 0)
             {
-                OBAtom *atom = &(*atom_iter);
-                if (atom->GetFormalCharge() != 0 || atom->GetSpinMultiplicity() < 1)
-                {
-                    continue;
-                }
-
-                auto pos = std::find(heteroatom_priority.begin(), heteroatom_priority.end(), atom->GetAtomicNum());
-                if (pos != heteroatom_priority.end())
-                {
-                    possible_heteroatoms.push_back({atom, static_cast<size_t>(pos - heteroatom_priority.begin())});
-                }
-            }
-
-            std::sort(possible_heteroatoms.begin(), possible_heteroatoms.end(),
-                      [](const auto &a, const auto &b)
-                      { return a.second < b.second; });
-
-            for (const auto &entry : possible_heteroatoms)
-            {
-                if (charge >= 0)
+                const auto actions = NegativeChargeAssignmentActions(mol, charge);
+                if (actions.empty())
                 {
                     break;
                 }
-                OBAtom *atom = entry.first;
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_V3);
-                if (matches.empty())
+                const auto &action = actions.front();
+                if (!ApplyChargeAssignmentAction(mol, action))
                 {
                     break;
                 }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_H);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                auto matches = molgr::smarts::Match(mol, molgr::smarts::PatternId::ELIM_NEGATIVE_C_LOW);
-                if (matches.empty())
-                {
-                    break;
-                }
-
-                auto idxs = matches.front();
-                OBAtom *atom = mol.GetAtom(idxs[0]);
-                if (!atom)
-                {
-                    break;
-                }
-
-                int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                atom->SetFormalCharge(-to_add);
-                charge += to_add;
-                if (to_add > 0)
-                {
-                    hit = true;
-                }
-            }
-
-            while (charge < 0)
-            {
-                bool updated = false;
-                FOR_ATOMS_OF_MOL(atom_iter, mol)
-                {
-                    OBAtom *atom = &(*atom_iter);
-                    if (atom->GetSpinMultiplicity() < 1 || atom->GetFormalCharge() != 0)
-                    {
-                        continue;
-                    }
-
-                    const int to_add = std::min(atom->GetSpinMultiplicity(), std::abs(charge));
-                    atom->SetSpinMultiplicity(atom->GetSpinMultiplicity() - to_add);
-                    atom->SetFormalCharge(-to_add);
-                    charge += to_add;
-                    if (to_add > 0)
-                    {
-                        hit = true;
-                        updated = true;
-                    }
-                    if (charge >= 0)
-                    {
-                        break;
-                    }
-                }
-                if (!updated)
-                {
-                    break;
-                }
+                charge += action.charge_delta;
+                hit = true;
             }
             return hit;
         }

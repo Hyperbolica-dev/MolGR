@@ -4,13 +4,10 @@ from typing import get_type_hints
 
 from molgr import config as root_config
 from molgr.fallback import utils as fallback_utils
-from molgr.fallback.utils import config as fallback_config
 
 
 def test_fallback_utils_reexports_config_from_single_module() -> None:
-    assert fallback_utils.config is fallback_config
-    assert fallback_utils.resolve_config is root_config.resolve_config
-    assert fallback_utils.DEFAULT_MOLGR_CONFIG is fallback_config.DEFAULT_MOLGR_CONFIG
+    assert fallback_utils.CONFIG is root_config.CONFIG
     assert fallback_utils.ResonanceTraversalScore is root_config.ResonanceTraversalScore
 
 
@@ -25,7 +22,7 @@ def test_config_string_options_use_literal_aliases() -> None:
 
 
 def test_config_no_longer_exposes_force_field_selection() -> None:
-    config = root_config.make_default_config()
+    config = root_config.MolGRConfig()
 
     assert all("force_field" not in name for name in root_config.__all__)
     assert not hasattr(config, "force_field")

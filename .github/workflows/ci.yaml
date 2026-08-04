@@ -24,6 +24,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
         uses: astral-sh/setup-uv@v5
@@ -32,10 +35,9 @@ jobs:
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
-        run: |
-          python3 -m pip install --user --break-system-packages uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        env:
+          PYPI_INDEX_URL: https://pypi.org/simple
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -56,6 +58,8 @@ jobs:
       pkg_name: ${{ steps.package_name.outputs.value }}
     steps:
       - uses: actions/checkout@v5
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
       - name: Extract package name
         id: package_name
         run: |
@@ -80,6 +84,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
         uses: astral-sh/setup-uv@v5
@@ -88,10 +95,9 @@ jobs:
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
-        run: |
-          python3 -m pip install --user --break-system-packages uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/uv" --version
+        env:
+          PYPI_INDEX_URL: https://pypi.org/simple
+        run: sh scripts/ci_install_uv.sh
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
@@ -99,13 +105,17 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://pypi.org/simple --default-index https://pypi.org/simple
-          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pybind11 scikit-build-core setuptools-scm typing-extensions --index https://pypi.org/simple --default-index https://pypi.org/simple
+<<<<<<< HEAD
+          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions 'rdkit-dof>=0.2.1' --index https://pypi.org/simple --default-index https://pypi.org/simple
+=======
+          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions --index https://pypi.org/simple --default-index https://pypi.org/simple
+>>>>>>> 26c7d1260c74ca773a06ff1e924d19bdab9438c1
 
       - name: Ensure CMake available
         run: uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://pypi.org/simple --default-index https://pypi.org/simple
 
       - name: Build extension (editable install)
-        run: uv pip install -e . -v --no-build-isolation --python ${{ matrix.python-version }} --index https://pypi.org/simple --default-index https://pypi.org/simple
+        run: uv pip install -e . -v --no-build-isolation --constraint ci/rdkit-constraints.txt --python ${{ matrix.python-version }} --index https://pypi.org/simple --default-index https://pypi.org/simple
 
       - name: Compile smoke check
         run: |
@@ -161,6 +171,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
+
       - name: Set up QEMU for Linux aarch64
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
@@ -192,12 +205,18 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_BEFORE_BUILD_MACOS: >
-            python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
+            python -m pip install -i "$PIP_INDEX_URL"
+            "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
             DYLD_LIBRARY_PATH="$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), 'lib'))")"
-            delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+            delocate-wheel
+            --exclude libopenbabel.
+            --require-archs {delocate_archs}
+            -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
 
       - name: Build wheels via cibuildwheel (act)
@@ -212,27 +231,30 @@ jobs:
           CIBW_ENVIRONMENT: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_ENVIRONMENT_MACOS: >
             PIP_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
-            HTTP_PROXY=http://10.72.200.48:7890
-            HTTPS_PROXY=http://10.72.200.48:7890
           CIBW_BUILD_VERBOSITY: "1"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
-            auditwheel repair --exclude libopenbabel.so.7 -w {dest_dir} {wheel}
+            sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
+            case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
+            LD_LIBRARY_PATH="$libdir:${LD_LIBRARY_PATH:-}" auditwheel repair --exclude "$soname" -w {dest_dir} {wheel}'
           CIBW_BEFORE_BUILD_MACOS: >
-            python -m pip install -i "$PIP_INDEX_URL" "openbabel-wheel>=3.1.1.22"
+            python -m pip install -i "$PIP_INDEX_URL"
+            "$(python -c 'import sys; print("openbabel-wheel>=3.1.1.22" if sys.version_info < (3, 10) else "openbabel>=3.2.0")')"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
             DYLD_LIBRARY_PATH="$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), 'lib'))")"
-            delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+            delocate-wheel
+            --exclude libopenbabel.
+            --require-archs {delocate_archs}
+            -w {dest_dir} -v {wheel}
           CIBW_TEST_COMMAND: python -c "import molgr; import molgr._core; from molgr.interface import xyz_to_rdmol"
         run: |
-          python3 -m pip install --user --break-system-packages -i https://mirrors.zju.edu.cn/pypi/web/simple cibuildwheel==3.4.1
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/cibuildwheel"
+          trap 'sh scripts/ci_cleanup_cibuildwheel.sh' EXIT
+          PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple sh scripts/ci_install_uv.sh
+          PYPI_INDEX_URL=https://mirrors.zju.edu.cn/pypi/web/simple . scripts/ci_install_cibuildwheel.sh
+          "$CIBUILDWHEEL"
 
       - name: Upload release wheel artifacts
         uses: actions/upload-artifact@v4
@@ -262,6 +284,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Disable proxy for package installs
+        run: sh scripts/ci_disable_proxy.sh
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

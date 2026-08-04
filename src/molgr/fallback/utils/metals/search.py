@@ -10,7 +10,7 @@ from typing import DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from typing_extensions import TypeAlias
 
-from molgr.config import MolGRConfig, resolve_config
+from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.state import MetalCandidateState, MetalCandidateStateMachine
 from molgr.fallback.utils import consts, dataclasses
 
@@ -106,7 +106,8 @@ def _build_metal_state_search_groups(
     *,
     config: MolGRConfig | None = None,
 ) -> Tuple[_MetalStateChoiceGroup, ...]:
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     unify_threshold = int(metal_scoring_config.same_element_multimetal_unify_threshold)
 
     grouped_indices_by_symbol: DefaultDict[str, list[int]] = defaultdict(list)
@@ -152,11 +153,20 @@ def _build_layered_metal_state_search_groups(
     *,
     config: MolGRConfig | None = None,
 ) -> _MetalStateSearchLayers:
-    normalized_groups = tuple(tuple(group) for group in available_state_search_groups)
+    radical_budget = max(0, total_radical_electrons)
+    normalized_groups = tuple(
+        tuple(
+            state_choice
+            for state_choice in group
+            if sum(int(state.radical_num) for state in state_choice) <= radical_budget
+        )
+        for group in available_state_search_groups
+    )
     if total_radical_electrons <= 0 or len(normalized_groups) < 2:
         return (normalized_groups,)
 
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     penalty_window = float(metal_scoring_config.open_shell_multimetal_state_penalty_window)
     min_state_options = max(1, int(metal_scoring_config.open_shell_multimetal_min_state_options))
 
@@ -164,15 +174,7 @@ def _build_layered_metal_state_search_groups(
     group_thresholds: list[tuple[float, ...]] = []
     layer_count = 1
     for state_search_group in normalized_groups:
-        reachable_state_options = tuple(
-            state_choice
-            for state_choice in state_search_group
-            if sum(int(metal_state.radical_num) for metal_state in state_choice)
-            <= total_radical_electrons
-        )
-        candidate_state_options = (
-            reachable_state_options if reachable_state_options else tuple(state_search_group)
-        )
+        candidate_state_options = tuple(state_search_group)
         ranked_state_entries = tuple(
             (
                 state_choice,
@@ -278,10 +280,11 @@ def _resolve_search_limits(
     *,
     config: MolGRConfig | None = None,
 ) -> tuple[Optional[int], int, int]:
-    metal_scoring_config = resolve_config(config).metal_scoring
+    resolved_config = CONFIG if config is None else config
+    metal_scoring_config = resolved_config.metal_scoring
     return (
         metal_scoring_config.max_mixed_valence_spread,
-        total_radical_electrons,
+        max(0, total_radical_electrons),
         metal_scoring_config.max_assignments_per_target,
     )
 
@@ -441,25 +444,30 @@ def _combine_partial_assignment_frontiers(
         _resolve_search_limits(total_radical_electrons, config=config)
     )
     grouped_entries: Dict[Tuple[int, int], List[_PartialMetalAssignment]] = defaultdict(list)
-    next_order = 0
     trim_trigger = max(1, max_assignments_per_target) * 4
     left_bucket_index = _bucket_partial_assignments_by_charge_radicals(left_frontier)
     right_bucket_index = _bucket_partial_assignments_by_charge_radicals(right_frontier)
     right_prefix_reachability = _build_radical_prefix_reachability(right_bucket_index)
-    max_combined_metal_radicals = total_radical_electrons
-    if max_total_metal_radicals is not None:
-        max_combined_metal_radicals = min(max_combined_metal_radicals, max_total_metal_radicals)
+    right_order_stride = (
+        max(
+            (entry.order for entries in right_frontier.values() for entry in entries),
+            default=0,
+        )
+        + 1
+    )
+    max_combined_metal_radicals = max_total_metal_radicals
 
     for left_radicals, left_charge_groups in left_bucket_index.items():
         max_right_radicals = max_combined_metal_radicals - left_radicals
         if max_right_radicals < 0:
             continue
 
-        for right_radicals, right_charge_groups in _iter_reachable_radical_buckets(
+        for _right_radicals, right_charge_groups in _iter_reachable_radical_buckets(
             right_prefix_reachability,
             max_right_radicals,
         ):
-            target_radicals = total_radical_electrons - (left_radicals + right_radicals)
+            total_metal_radicals = left_radicals + _right_radicals
+            target_radicals = total_radical_electrons - total_metal_radicals
             for left_charge, left_valence_groups in left_charge_groups.items():
                 for right_charge, right_valence_groups in right_charge_groups.items():
                     target = (total_charge - (left_charge + right_charge), target_radicals)
@@ -488,10 +496,12 @@ def _combine_partial_assignment_frontiers(
                                             metal_assignment_rank=left_entry.metal_assignment_rank
                                             + right_entry.metal_assignment_rank,
                                             valence_bounds=merged_bounds,
-                                            order=next_order,
+                                            order=(
+                                                left_entry.order * right_order_stride
+                                                + right_entry.order
+                                            ),
                                         )
                                     )
-                                    next_order += 1
 
                     if len(bucket) == initial_bucket_size:
                         if initial_bucket_size == 0:

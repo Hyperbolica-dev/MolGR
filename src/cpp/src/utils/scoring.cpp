@@ -1,15 +1,17 @@
 #include "molgr/utils/scoring.h"
 
 #include "molgr/utils/consts.h"
+#include "molgr/utils/electrons.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
 #include <openbabel/graphsym.h>
-#include <openbabel/obiter.h>
+#include "molgr/compat/openbabel_iter.h"
 
 #include <cmath>
 #include <algorithm>
@@ -206,10 +208,10 @@ namespace molgr
                     atom.GetAtomicNum(),
                     atom.GetFormalCharge(),
                     atom.GetTotalValence(),
-                    atom.GetSpinMultiplicity());
+                    molgr::utils::GetUnpairedElectronCount(atom));
                 total_penalty += CalculateRadicalPenaltyFromData(
                     atom.GetAtomicNum(),
-                    atom.GetSpinMultiplicity(),
+                    molgr::utils::GetUnpairedElectronCount(atom),
                     atom.GetHvyDegree());
             }
 
@@ -384,7 +386,7 @@ namespace molgr
 
         static double CalculateConjugationReward(const OpenBabel::OBMol &mol)
         {
-            auto matches = molgr::smarts::Match(
+            auto matches = molgr::smarts::FindAll(
                 MutableMol(mol),
                 molgr::smarts::PatternId::SCORING_CONJUGATION);
             return static_cast<double>(matches.size()) * 2.0;
@@ -403,16 +405,16 @@ namespace molgr
                     continue;
                 }
 
-                if (atom.IsAromatic())
+                if (molgr::vendor::openbabel_threading::AtomIsAromatic(atom))
                 {
                     score -= 5.0 - std::abs(atom.GetFormalCharge()) * 3.0;
                 }
 
-                const bool needs_deviation = atom.GetSpinMultiplicity() > 0 || atom.GetFormalCharge() != 0;
+                const bool needs_deviation = molgr::utils::GetUnpairedElectronCount(atom) > 0 || atom.GetFormalCharge() != 0;
                 if (needs_deviation)
                 {
                     const double deviation = GetDeviationScore(mol, &atom);
-                    if (atom.GetSpinMultiplicity() > 0)
+                    if (molgr::utils::GetUnpairedElectronCount(atom) > 0)
                     {
                         score += deviation * 10.0;
                     }
@@ -508,7 +510,7 @@ namespace molgr
 
         double OmolScore(const OpenBabel::OBMol &mol)
         {
-            MutableMol(mol).SetAromaticPerceived(false);
+            molgr::vendor::openbabel_threading::SetAromaticPerceived(MutableMol(mol), false);
             return OrganicCoreScore(mol) + PostReinsertionScore(mol);
         }
 

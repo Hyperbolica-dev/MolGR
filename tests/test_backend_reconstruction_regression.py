@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import csv
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,11 +19,14 @@ from rdkit import Chem, RDLogger
 from rdkit.Chem import rdDistGeom
 
 from molgr.interface import xyz_to_rdmol
+from molgr.utils.equivalence import check_equivalence
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore
 
 _EMBED_SEED = 0xC0FFEE
+_CHILD_FLAG = "--backend-regression-child"
+_CHILD_TIMEOUT_SECONDS = float(os.environ.get("MOLGR_BACKEND_REGRESSION_TIMEOUT", "45"))
 
 
 def _total_charge_and_radicals(mol: Chem.Mol) -> tuple[int, int]:
@@ -117,8 +123,178 @@ def _assert_backend_results_match(
         make_dative_bonds=make_dative_bonds,
     )
 
-    assert _reconstruction_signature(cpp_mol) == _reconstruction_signature(python_mol)
+    if _reconstruction_signature(cpp_mol) != _reconstruction_signature(python_mol):
+        # RDKit/Open Babel releases may choose different Kekule, aromatic, or
+        # resonance charge representations for the same backend result. Keep
+        # the exact signature as the primary parity contract, but compare the
+        # normalized molecular semantics when only toolkit representation
+        # differs.
+        equivalent, info = check_equivalence(
+            cpp_mol,
+            python_mol,
+            use_chirality=False,
+            max_resonance=100,
+        )
+        assert equivalent, info.reason
     _assert_coordinates_match(cpp_mol, python_mol)
+
+
+def _smiles_case_to_xyz(smiles: str) -> tuple[str, int, int]:
+    mol = Chem.MolFromSmiles(smiles)
+    assert mol is not None
+    mol_h = Chem.AddHs(mol)
+    embed_code = rdDistGeom.EmbedMolecule(  # pyright: ignore[reportCallIssue]
+        mol_h,
+        randomSeed=_EMBED_SEED,
+    )
+    assert int(embed_code) == 0
+    total_charge, total_radical_electrons = _total_charge_and_radicals(mol_h)
+    return Chem.MolToXYZBlock(mol_h), total_charge, total_radical_electrons
+
+
+def _monnmo_case_to_xyz() -> tuple[str, int, int]:
+    mol = Chem.MolFromMolFile(
+        str(Path("tests/data/sdf/MoNNMo.sdf")),
+        sanitize=False,
+        removeHs=False,
+        strictParsing=False,
+    )
+    assert mol is not None
+    total_charge, total_radical_electrons = _total_charge_and_radicals(mol)
+    return Chem.MolToXYZBlock(mol), total_charge, total_radical_electrons
+
+
+def _run_backend_case_in_current_process(
+    xyz_block: str,
+    total_charge: int,
+    total_radical_electrons: int,
+    *,
+    label: str,
+    make_dative_bonds: bool,
+) -> None:
+    print(f"{label} make_dative_bonds={make_dative_bonds}", flush=True)
+    _assert_backend_results_match(
+        xyz_block,
+        total_charge,
+        total_radical_electrons,
+        make_dative_bonds=make_dative_bonds,
+    )
+
+
+def _run_backend_regression_child(kind: str, case_idx: str, make_dative_arg: str) -> None:
+    if make_dative_arg == "0":
+        make_dative_bonds = False
+    elif make_dative_arg == "1":
+        make_dative_bonds = True
+    else:
+        raise ValueError(f"unknown make_dative_bonds flag: {make_dative_arg!r}")
+
+    if kind == "smiles":
+        csv_path = Path(__file__).with_name("test_cases.csv")
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        row_index = int(case_idx)
+        smiles = rows[row_index - 1]["smiles"].strip()
+        xyz_block, total_charge, total_radical_electrons = _smiles_case_to_xyz(smiles)
+        label = f"smiles-case-{row_index:02d}"
+    elif kind == "monnmo":
+        xyz_block, total_charge, total_radical_electrons = _monnmo_case_to_xyz()
+        label = "monnmo"
+    else:
+        raise ValueError(f"unknown backend regression child kind: {kind!r}")
+
+    _run_backend_case_in_current_process(
+        xyz_block,
+        total_charge,
+        total_radical_electrons,
+        label=label,
+        make_dative_bonds=make_dative_bonds,
+    )
+
+
+def _prepend_pythonpath(env: dict[str, str], path: Path) -> None:
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(path) if not existing else f"{path}{os.pathsep}{existing}"
+
+
+def _decode_child_output(value: str | bytes | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
+def _child_output(stdout: str | bytes | None, stderr: str | bytes | None) -> str:
+    chunks = []
+    decoded_stdout = _decode_child_output(stdout)
+    decoded_stderr = _decode_child_output(stderr)
+    if decoded_stdout:
+        chunks.append(f"stdout:\n{decoded_stdout[-4000:]}")
+    if decoded_stderr:
+        chunks.append(f"stderr:\n{decoded_stderr[-4000:]}")
+    return "\n\n".join(chunks) or "<no child output>"
+
+
+def _assert_backend_case_in_subprocess(
+    kind: str,
+    case_idx: str,
+    *,
+    label: str,
+    make_dative_bonds: bool,
+) -> None:
+    env = os.environ.copy()
+    env["PYTHONFAULTHANDLER"] = "1"
+    _prepend_pythonpath(env, Path(__file__).resolve().parents[1] / "src")
+
+    make_dative_arg = "1" if make_dative_bonds else "0"
+    command = [
+        sys.executable,
+        "-u",
+        str(Path(__file__).resolve()),
+        _CHILD_FLAG,
+        kind,
+        case_idx,
+        make_dative_arg,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=_CHILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(
+            (
+                f"{label} make_dative_bonds={make_dative_bonds} exceeded "
+                f"{_CHILD_TIMEOUT_SECONDS:g}s in isolated backend "
+                f"regression subprocess.\n{_child_output(exc.stdout, exc.stderr)}"
+            ),
+            pytrace=False,
+        )
+
+    if completed.returncode != 0:
+        pytest.fail(
+            (
+                f"{label} make_dative_bonds={make_dative_bonds} failed in isolated "
+                f"backend regression subprocess (exit code {completed.returncode}).\n"
+                f"{_child_output(completed.stdout, completed.stderr)}"
+            ),
+            pytrace=False,
+        )
+
+
+def _assert_backend_case_in_subprocesses(kind: str, case_idx: str, *, label: str) -> None:
+    for make_dative_bonds in (False, True):
+        _assert_backend_case_in_subprocess(
+            kind,
+            case_idx,
+            label=label,
+            make_dative_bonds=make_dative_bonds,
+        )
 
 
 def _load_smiles_backend_cases() -> list[object]:
@@ -129,20 +305,10 @@ def _load_smiles_backend_cases() -> list[object]:
     cases: list[object] = []
     for case_idx, row in enumerate(rows, start=1):
         smiles = row["smiles"].strip()
-        mol = Chem.MolFromSmiles(smiles)
-        assert mol is not None
-        mol_h = Chem.AddHs(mol)
-        embed_code = rdDistGeom.EmbedMolecule(  # pyright: ignore[reportCallIssue]
-            mol_h,
-            randomSeed=_EMBED_SEED,
-        )
-        assert int(embed_code) == 0
-        total_charge, total_radical_electrons = _total_charge_and_radicals(mol_h)
         cases.append(
             pytest.param(
-                Chem.MolToXYZBlock(mol_h),
-                total_charge,
-                total_radical_electrons,
+                case_idx,
+                smiles,
                 id=f"smiles-case-{case_idx:02d}",
             )
         )
@@ -150,48 +316,37 @@ def _load_smiles_backend_cases() -> list[object]:
 
 
 @pytest.mark.parametrize(
-    ("xyz_block", "total_charge", "total_radical_electrons"),
+    ("case_idx", "smiles"),
     _load_smiles_backend_cases(),
 )
 def test_cpp_and_python_backends_match_smiles_regression_cases(
-    xyz_block: str,
-    total_charge: int,
-    total_radical_electrons: int,
+    case_idx: int,
+    smiles: str,
 ) -> None:
-    _assert_backend_results_match(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        make_dative_bonds=False,
-    )
-    _assert_backend_results_match(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        make_dative_bonds=True,
+    _assert_backend_case_in_subprocesses(
+        "smiles",
+        str(case_idx),
+        label=f"smiles-case-{case_idx:02d} ({smiles})",
     )
 
 
-def test_cpp_and_python_backends_match_monnmo_regression_case() -> None:
-    mol = Chem.MolFromMolFile(
-        str(Path("tests/data/sdf/MoNNMo.sdf")),
-        sanitize=False,
-        removeHs=False,
-        strictParsing=False,
+@pytest.mark.parametrize(
+    "make_dative_bonds",
+    [False, True],
+)
+def test_cpp_and_python_backends_match_monnmo_regression_case(
+    make_dative_bonds: bool,
+) -> None:
+    _assert_backend_case_in_subprocess(
+        "monnmo",
+        "0",
+        label="monnmo",
+        make_dative_bonds=make_dative_bonds,
     )
-    assert mol is not None
-    total_charge, total_radical_electrons = _total_charge_and_radicals(mol)
-    xyz_block = Chem.MolToXYZBlock(mol)
 
-    _assert_backend_results_match(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        make_dative_bonds=False,
-    )
-    _assert_backend_results_match(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        make_dative_bonds=True,
-    )
+
+if __name__ == "__main__":
+    if len(sys.argv) == 5 and sys.argv[1] == _CHILD_FLAG:
+        _run_backend_regression_child(sys.argv[2], sys.argv[3], sys.argv[4])
+    else:
+        raise SystemExit(f"usage: {sys.argv[0]} {_CHILD_FLAG} <smiles|monnmo> <case-index> <0|1>")

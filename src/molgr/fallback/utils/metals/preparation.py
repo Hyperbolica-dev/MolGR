@@ -11,6 +11,7 @@ from openbabel import pybel
 from molgr.config import MolGRConfig
 from molgr.fallback.state import MetalPreparationState
 from molgr.fallback.utils import consts, dataclasses
+from molgr.fallback.utils.electrons import set_unpaired_electron_count
 from molgr.fallback.utils.metal_radical_inference import infer_metal_radical_counts
 
 
@@ -74,7 +75,13 @@ def combine_metal_with_omol(
     omol: pybel.Molecule,
     metal_list: Sequence[dataclasses.MetalAtomPosition],
 ) -> pybel.Molecule:
-    """Insert the selected metal states back into the no-metal winner."""
+    """Insert selected metal charge/spin states into the no-metal winner.
+
+    ``metal.radical_num`` is copied only to the real unpaired-electron field.
+    Metals receive no active-lone-pair or unresolved-center label; those concepts
+    are not inferred during metal-state reinsertion. Organic electron fields are
+    preserved by cloning the no-metal molecule.
+    """
 
     obmol = cast(ob.OBMol, omol.clone.OBMol)
     obmol.BeginModify()
@@ -87,7 +94,7 @@ def combine_metal_with_omol(
             atom = cast(ob.OBAtom, obmol.NewAtom())
             atom.SetAtomicNum(metal.element_idx)
             atom.SetFormalCharge(metal.valence)
-            atom.SetSpinMultiplicity(metal.radical_num)
+            set_unpaired_electron_count(atom, metal.radical_num)
             atom.SetVector(metal.position_x, metal.position_y, metal.position_z)
 
         new_order = [0] * total_atoms
@@ -137,6 +144,19 @@ def prepare_metal_state(
     available_valence_radical_states = tuple(
         tuple(_build_metal_states(obatom, config=config)) for obatom in removable_metal_atoms
     )
+    if not removable_metal_atoms:
+        return MetalPreparationState(
+            no_metal_xyz_block=xyz_block,
+            available_valence_radical_states=available_valence_radical_states,
+            total_charge=total_charge,
+            total_radical_electrons=total_radical_electrons,
+            phase_history=(
+                "read_xyz",
+                "build_metal_state_options",
+                "preserve_no_metal_xyz",
+            ),
+            metadata={"metal_atom_count": 0},
+        )
     for obatom in removable_metal_atoms:
         omol.OBMol.DeleteAtom(obatom)
     return MetalPreparationState(

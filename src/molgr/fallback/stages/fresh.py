@@ -2,71 +2,155 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.utils import consts
+from molgr.fallback.utils.electrons import (
+    get_lone_pair_count,
+    get_unpaired_electron_count,
+    has_unresolved_two_electron_center,
+    set_lone_pair_count,
+    set_unpaired_electron_count,
+    set_unresolved_two_electron_center,
+)
 
 
 def assign_radical_dots(atom: ob.OBAtom) -> int:
-    """Estimate how many radical electrons are needed to satisfy the atom valence."""
+    """Return the local bond-valence deficit, before classifying its electrons.
 
-    return max(
-        0,
-        cast(
-            int,
-            ob.GetTypicalValence(
-                atom.GetAtomicNum(), atom.GetTotalValence(), atom.GetFormalCharge()
-            ),
-        )
-        - cast(int, atom.GetTotalValence()),
+    The result is not yet an unpaired-electron count. In particular, two missing
+    bond-valence units may later become one active lone pair, two real unpaired
+    electrons, or an unresolved C/N/P two-electron center. The low-coordinate
+    ``B-`` correction prevents Open Babel's tetravalent-boron prior from creating
+    a spurious extra deficit.
+    """
+    atomic_num = int(atom.GetAtomicNum())
+    total_valence = int(atom.GetTotalValence())
+    typical_valence = int(ob.GetTypicalValence(atomic_num, total_valence, atom.GetFormalCharge()))
+    if atomic_num == 5 and total_valence <= 3:
+        typical_valence = 3 + atom.GetFormalCharge()
+    return max(0, typical_valence - total_valence)
+
+
+def _infer_active_electron_occupancy(atom: ob.OBAtom, electron_count: int) -> tuple[int, int]:
+    """Classify active electrons into unpaired electrons and active lone pairs.
+
+    Occupancy is derived from sigma degree, pi bond-order increments, and the
+    remaining main-group valence-orbital slots. It does not read Open Babel
+    hybridization and does not apply atom-wide parity as an orbital rule. The
+    returned lone-pair count contains only reconstruction-active pairs, not every
+    conventional Lewis lone pair on the atom.
+    """
+
+    if electron_count <= 0:
+        return 0, 0
+    total_valence = int(atom.GetTotalValence())
+    sigma_bond_count = int(atom.GetTotalDegree())
+    pi_bond_count = max(0, total_valence - sigma_bond_count)
+    available_valence_orbitals = max(0, 4 - sigma_bond_count - pi_bond_count)
+
+    lone_pair_count = 0
+    unpaired_electron_count = 0
+
+    valence_electrons = min(electron_count, 2 * available_valence_orbitals)
+    if valence_electrons <= available_valence_orbitals:
+        unpaired_electron_count += valence_electrons
+    else:
+        lone_pair_count += valence_electrons - available_valence_orbitals
+        unpaired_electron_count += 2 * available_valence_orbitals - valence_electrons
+    electron_count -= valence_electrons
+
+    # Electrons beyond the four main-group valence slots are reconstruction
+    # deficits rather than a basis for guessing Open Babel hybridization.
+    if electron_count:
+        lone_pair_count += electron_count // 2
+        unpaired_electron_count += electron_count % 2
+    return unpaired_electron_count, lone_pair_count
+
+
+def _assign_active_electron_occupancy(atom: ob.OBAtom, electron_count: int) -> None:
+    """Replace both explicit occupancy fields from one local electron deficit.
+
+    This is a complete overwrite of ``unpaired`` and active ``lone_pair`` counts;
+    callers must separately manage the unresolved-center marker.
+    """
+
+    unpaired_electron_count, lone_pair_count = _infer_active_electron_occupancy(
+        atom, electron_count
     )
+    set_unpaired_electron_count(atom, unpaired_electron_count)
+    set_lone_pair_count(atom, lone_pair_count)
 
 
 def assign_charge_radical_for_atom(atom: ob.OBAtom) -> bool:
-    """Refresh one atom's formal charge / radical count from its local valence state."""
+    """Rebuild one atom's charge and explicit electron classification.
+
+    Neutral C/N/P atoms with a two-unit deficit are marked unresolved instead of
+    being forced to singlet or triplet occupancy. Explicitly resolved ``(0, 1)``
+    and ``(2, 0)`` states are preserved while the same two-electron topology
+    remains. Other atoms overwrite unpaired/active-lone-pair counts from the local
+    deficit and may also normalize formal charge. This is therefore a chemical
+    state transformation, not a read-only label refresh.
+    """
 
     old_charge = atom.GetFormalCharge()
-    old_spin = atom.GetSpinMultiplicity()
-    if assign_radical_dots(atom):
-        atom.SetSpinMultiplicity(assign_radical_dots(atom))
+    old_unpaired_electron_count = get_unpaired_electron_count(atom)
+    old_lone_pair_count = get_lone_pair_count(atom)
+    old_unresolved_center = has_unresolved_two_electron_center(atom)
+
+    if consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons < atom.GetTotalValence():
+        atom.SetFormalCharge(
+            consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons - atom.GetTotalValence()
+        )
     else:
-        if (
-            consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons == 3
-            and atom.GetTotalValence() == 4
+        total_elec = (
+            consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons + atom.GetTotalValence()
+        )
+        if total_elec > 8 and total_elec % 8 <= (
+            consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons - atom.GetTotalValence()
         ):
-            atom.SetFormalCharge(-1)
-        else:
-            low_valence_total_elec = (
-                consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons
-                + atom.GetTotalValence()
-                + atom.GetSpinMultiplicity()
-                - atom.GetFormalCharge()
-            ) % 8
-            high_valence_total_elec = (
-                consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons
-                - atom.GetTotalValence()
-                + atom.GetSpinMultiplicity()
-                - atom.GetFormalCharge()
-            ) % 2
-            if low_valence_total_elec == 0:
-                return False
-            if low_valence_total_elec <= high_valence_total_elec:
-                atom.SetFormalCharge(low_valence_total_elec)
-            else:
-                atom.SetSpinMultiplicity(
-                    consts.NON_METAL_DICT[atom.GetAtomicNum()].num_outer_electrons
-                    - atom.GetTotalValence()
-                    + atom.GetSpinMultiplicity()
-                    - atom.GetFormalCharge()
-                )
-    return old_charge != atom.GetFormalCharge() or old_spin != atom.GetSpinMultiplicity()
+            atom.SetFormalCharge(total_elec % 8)
+
+    radical_dots = assign_radical_dots(atom)
+    is_two_electron_center = (
+        atom.GetAtomicNum() in (6, 7, 15) and atom.GetFormalCharge() == 0 and radical_dots == 2
+    )
+    if is_two_electron_center:
+        explicit_occupancy = (
+            get_unpaired_electron_count(atom),
+            get_lone_pair_count(atom),
+        ) in {(0, 1), (2, 0)}
+        if old_unresolved_center or not explicit_occupancy:
+            set_unpaired_electron_count(atom, 0)
+            set_lone_pair_count(atom, 0)
+            set_unresolved_two_electron_center(atom, True)
+        return (
+            old_unpaired_electron_count != get_unpaired_electron_count(atom)
+            or old_lone_pair_count != get_lone_pair_count(atom)
+            or old_unresolved_center != has_unresolved_two_electron_center(atom)
+        )
+
+    set_unresolved_two_electron_center(atom, False)
+    if atom.GetAtomicNum() == 5 and atom.GetFormalCharge() == -1 and atom.GetTotalValence() < 3:
+        _assign_active_electron_occupancy(atom, 0)
+    _assign_active_electron_occupancy(atom, radical_dots)
+    return (
+        old_charge != atom.GetFormalCharge()
+        or old_unpaired_electron_count != get_unpaired_electron_count(atom)
+        or old_lone_pair_count != get_lone_pair_count(atom)
+        or old_unresolved_center != has_unresolved_two_electron_center(atom)
+    )
 
 
 def fresh_omol_charge_radical(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
-    """Refresh formal charges and radical counts for the whole molecule."""
+    """Apply local charge/electron rebuilding independently to every atom.
+
+    All explicit unpaired, active-lone-pair, and unresolved-center fields may be
+    replaced, and formal charges may change. Use this for initial/recovery states;
+    local resonance rules should prefer refreshing only atoms whose topology or
+    charge they changed.
+    """
 
     hit = False
     for atom in omol.atoms:

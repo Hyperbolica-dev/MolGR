@@ -8,6 +8,7 @@
 #include "molgr/utils/metals/preparation.h"
 #include "molgr/utils/metals/scoring.h"
 #include "molgr/utils/metals/search.h"
+#include "molgr/utils/no_metals/preparation.h"
 #include "molgr/utils/parallel.h"
 #include "molgr/utils/utils.h"
 
@@ -222,6 +223,7 @@ namespace molgr
                     std::chrono::duration<double, std::milli>(metal_enum_now - metal_enum_started).count();
                 timing_reducer.AddMetalEnumerationCombinationMs(metal_enum_ms);
 
+                std::shared_ptr<OpenBabel::OBMol> no_metal_seed_omol;
                 std::vector<molgr::state::MetalCandidateState> possible_candidates;
                 int winning_layer_index = 0;
                 for (std::size_t layer_index = 0; layer_index < layered_state_search_groups.size();
@@ -240,32 +242,67 @@ namespace molgr
                         continue;
                     }
 
+                    if (!no_metal_seed_omol)
+                    {
+                        no_metal_seed_omol =
+                            molgr::no_metals::preparation::SeedOmolFromXyzBlock(
+                                base_state.no_metal_xyz_block);
+                        if (!no_metal_seed_omol)
+                        {
+                            return nullptr;
+                        }
+                    }
+
                     std::vector<std::optional<molgr::metal::search::PreparedTargetBucket>> prepared_buckets(
                         target_bucket_tasks.size());
-                    const std::size_t bucket_parallelism =
-                        run_config.cpp_backend.enable_target_bucket_parallelism
-                            ? molgr::utils::parallel::ConfiguredParallelism(
-                                  run_config,
-                                  target_bucket_tasks.size())
-                            : 1;
+                    std::vector<std::shared_ptr<OpenBabel::OBMol>> bucket_seed_omols;
+                    bucket_seed_omols.reserve(target_bucket_tasks.size());
+                    for (std::size_t bucket_index = 0; bucket_index < target_bucket_tasks.size(); ++bucket_index)
+                    {
+                        bucket_seed_omols.push_back(
+                            molgr::no_metals::preparation::NormalizeSeedOmolCopy(*no_metal_seed_omol));
+                    }
+                    const std::size_t target_bucket_parallel_threshold =
+                        static_cast<std::size_t>(std::max(
+                            1,
+                            run_config.cpp_backend.target_bucket_parallel_threshold));
+                    std::size_t bucket_parallelism = 1;
+                    if (run_config.cpp_backend.enable_target_bucket_parallelism &&
+                        target_bucket_tasks.size() >= target_bucket_parallel_threshold)
+                    {
+                        bucket_parallelism =
+                            molgr::utils::parallel::ConfiguredParallelism(
+                                run_config,
+                                target_bucket_tasks.size());
+                        if (run_config.cpp_backend.target_bucket_parallel_max_threads.has_value())
+                        {
+                            bucket_parallelism = std::min<std::size_t>(
+                                bucket_parallelism,
+                                static_cast<std::size_t>(std::max(
+                                    1,
+                                    *run_config.cpp_backend.target_bucket_parallel_max_threads)));
+                        }
+                    }
                     molgr::utils::parallel::ParallelForIndices(
                         target_bucket_tasks.size(),
                         bucket_parallelism,
                         [&](std::size_t bucket_index)
                         {
+                            molgr::pipeline::perf::ActiveRunTimingReducerScope active_timing(
+                                &timing_reducer);
                             const auto &task = target_bucket_tasks[bucket_index];
                             auto no_metal_state =
-                                molgr::pipeline::reconstruct_without_metals::XyzToOmolNoMetalState(
-                                    base_state.no_metal_xyz_block,
+                                molgr::pipeline::reconstruct_without_metals::SeedOmolCopyToOmolNoMetalState(
+                                    std::move(bucket_seed_omols[bucket_index]),
                                     task.target.no_metal_charge,
                                     task.target.no_metal_radicals,
                                     run_config,
-                                    &timing_reducer);
+                                    &timing_reducer,
+                                    false);
                             if (!no_metal_state.has_value())
                             {
                                 return;
                             }
-                            no_metal_state->PreheatScoreBundle(run_config);
 
                             prepared_buckets[bucket_index] = molgr::metal::search::PreparedTargetBucket{
                                 task.target,
@@ -312,6 +349,8 @@ namespace molgr
                         score_parallelism,
                         [&](std::size_t job_index)
                         {
+                            molgr::pipeline::perf::ActiveRunTimingReducerScope active_timing(
+                                &timing_reducer);
                             const auto &job = score_jobs[job_index];
                             const auto &prepared_bucket = *prepared_buckets[job.bucket_index];
                             scored_buckets[job.bucket_index][job.candidate_index] =
@@ -358,13 +397,26 @@ namespace molgr
                 }
 
                 auto best_candidate = *selected_candidate;
+                int candidate_total_charge = best_candidate.no_metal_charge_target;
+                int candidate_total_radicals = best_candidate.no_metal_radical_target;
+                for (const auto &metal_state : best_candidate.metal_states)
+                {
+                    candidate_total_charge += metal_state.valence;
+                    candidate_total_radicals += metal_state.radical_num;
+                }
+                if (candidate_total_charge != run_context.total_charge ||
+                    candidate_total_radicals != run_context.total_radical_electrons)
+                {
+                    return nullptr;
+                }
                 if (!best_candidate.combined_omol)
                 {
                     best_candidate.MaterializeCombinedOmol(
                         [](const OpenBabel::OBMol &no_metal_omol,
                            const std::vector<molgr::metal::MetalAtomPosition> &metal_states)
                         {
-                            auto combined_omol = std::make_shared<OpenBabel::OBMol>(no_metal_omol);
+                            auto combined_omol = std::make_shared<OpenBabel::OBMol>(
+                                molgr::utils::CloneMolTopologyOnly(no_metal_omol));
                             molgr::metal::preparation::CombineMetalWithOmol(
                                 *combined_omol,
                                 metal_states);

@@ -4,17 +4,22 @@ requires-python = ">=3.8"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
     "python_full_version < '3.9'",
 ]
@@ -133,17 +138,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
@@ -468,17 +478,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/24/56/95b7e30fa389756cb56630faa728da46a27b8c6eb46f9d557c68fff12b65/coverage-7.13.4.tar.gz", hash = "sha256:e5c8f6ed1e61a8b2dcdf31eb0b9bbf0130750ca79c1c49eb898e2ad86f5ccc91" }
 wheels = [
@@ -724,17 +739,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730" }
 wheels = [
@@ -802,17 +822,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "appnope", marker = "python_full_version >= '3.10' and sys_platform == 'darwin'" },
@@ -892,7 +917,8 @@ name = "ipython"
 version = "8.38.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "colorama", marker = "python_full_version == '3.10.*' and sys_platform == 'win32'" },
@@ -919,16 +945,20 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
 ]
 dependencies = [
     { name = "colorama", marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
@@ -1034,17 +1064,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "jupyter-core", version = "5.9.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
@@ -1084,17 +1119,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "platformdirs", version = "4.9.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
@@ -1234,17 +1274,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "mdurl", marker = "python_full_version >= '3.10'" },
@@ -1322,17 +1367,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7e/99/7690b6d4034fffd95959cbe0c02de8deb3098cc577c67bb6a24fe5d7caa7/markupsafe-3.0.3.tar.gz", hash = "sha256:722695808f4b6457b320fdc131280796bdceb04ab50fe1795cd540799ebe1698" }
@@ -1449,17 +1499,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
@@ -1485,9 +1540,12 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
-    { name = "openbabel-wheel" },
-    { name = "rdkit", version = "2023.9.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.13'" },
-    { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "openbabel", marker = "python_full_version >= '3.10'" },
+    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
+    { name = "rdkit", version = "2024.3.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "rdkit", version = "2025.9.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "rdkit", version = "2025.9.3", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "(python_full_version >= '3.10' and platform_machine != 'x86_64') or (python_full_version >= '3.10' and sys_platform != 'darwin')" },
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
 ]
@@ -1506,11 +1564,13 @@ dev = [
     { name = "py-spy" },
     { name = "pybind11" },
     { name = "pybind11-stubgen" },
+    { name = "pyright" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-cov", version = "5.0.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest-cov", version = "7.0.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "rdkit-dof" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scikit-build-core" },
@@ -1526,7 +1586,8 @@ requires-dist = [
     { name = "numpy", marker = "python_full_version == '3.9.*'", specifier = ">=1.26,<2" },
     { name = "numpy", marker = "python_full_version >= '3.10' and python_full_version < '3.13'", specifier = ">=1.26,<2.3" },
     { name = "numpy", marker = "python_full_version >= '3.13'", specifier = ">=1.26" },
-    { name = "openbabel-wheel", specifier = ">=3.1.1.22" },
+    { name = "openbabel", marker = "python_full_version >= '3.10'", specifier = ">=3.2.0" },
+    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
     { name = "rdkit", specifier = ">=2023.9.6" },
     { name = "typing-extensions", specifier = ">=4.13.2" },
 ]
@@ -1542,8 +1603,10 @@ dev = [
     { name = "py-spy", specifier = ">=0.3.14" },
     { name = "pybind11", specifier = ">=3.0.1" },
     { name = "pybind11-stubgen", specifier = ">=2.5.5" },
+    { name = "pyright", specifier = ">=1.1.408" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "rdkit-dof", specifier = ">=0.2.1" },
     { name = "rich" },
     { name = "ruff" },
     { name = "scikit-build-core", specifier = ">=0.11.6" },
@@ -1611,17 +1674,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
@@ -1691,6 +1759,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nodeenv"
+version = "1.10.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827" },
+]
+
+[[package]]
 name = "numpy"
 version = "1.24.4"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
@@ -1735,17 +1812,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/65/6e/09db70a523a96d25e115e71cc56a6f9031e7b8cd166c1ac8438307c14058/numpy-1.26.4.tar.gz", hash = "sha256:2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010" }
@@ -1785,6 +1867,39 @@ wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/72/3df6c1c06fc83d9cfe381cccb4be2532bbd38bf93fbc9fad087b6687f1c0/numpy-1.26.4-pp39-pypy39_pp73-macosx_10_9_x86_64.whl", hash = "sha256:afedb719a9dcfc7eaf2287b839d8198e06dcd4cb5d276a3df279231138e83d30" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/02/570545bac308b58ffb21adda0f4e220ba716fb658a63c151daecc3293350/numpy-1.26.4-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:95a7476c59002f2f6c590b9b7b998306fba6a5aa646b1e22ddfeaf8f78c3a29c" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f4/5f/fafd8c51235f60d49f7a88e2275e13971e90555b67da52dd6416caec32fe/numpy-1.26.4-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:7e50d0a0cc3189f9cb0aeb3a6a6af18c16f59f004b866cd2be1c14b36134a4a0" },
+]
+
+[[package]]
+name = "openbabel"
+version = "3.2.0"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/29/67/7e1c86fa3a932bba8d8c9dcef040687f1bce1f2903a29acd4fb5337bbea8/openbabel-3.2.0.tar.gz", hash = "sha256:332e6038146e0b69f9c32b8d71d6de153a095d98dce4663972c4a45e55449d01" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/b3/e9dc0030d2a2a94fdb25431dd5c41ae30e03dd87c1ca58560355f6ce470b/openbabel-3.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:e3a0a41121cab6d5046bbc6110b41b3143b49fb266287174b1d7c0f4806f3c9b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e2/8f/a911c328730031b24a12cbc77287f7585dc9d06488d42be39510fe6a2836/openbabel-3.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8569419eb98eb27064d97f683c7329a67e3f377b98e8b39c2fce075cdf402106" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3a/0a/ab1e985a6ea0a977c347d7db20ced293f1fc30dcfa250e6ceb66997bbef5/openbabel-3.2.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2ee0f76f08de25dc6cbb4002245f60a41d83e15d6c167273935f5a51adbb26d3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/3d/859beb1f4ce3529f90cc1864710c30602fd9c1ea6c57684671f9ee34c076/openbabel-3.2.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c9bb90387baec8ee53cb58f2862bcdb380376a10e00bc165d089ab7131de08ab" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d9/05/3c1bbcf2045d57b360fc3cf56fb7425c69db6a8d6a444ca40435354e2b5b/openbabel-3.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:88c93643016bbc35a19280b4cfe898d537393e135eac4e33551a8244fdaa99dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d2/8b/f408f4aef903125216f79ac9fd2a785d3bd6385c7749612cdb144ff1ee02/openbabel-3.2.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:955eb6a3b2eb9d8a8333addfe9f1ca23bad6b9583ec299a7cdd7b82c9520aaf1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/78/08/87ab319cc3a0cdc7538c52e3185704c0632f179f6b2b44c01a4d91e0cda4/openbabel-3.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:debaf9b2d215b63ae1202294ce79247f078de0ca6855b73fc5d620e477af8952" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b1/5c/9cc27ba0090bb9581af40791cc9a06d9c75c5b432f48d21afc9452b6d8d4/openbabel-3.2.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:53081f3a34041862c0b87f2f948df86bddfe62b6ead26e7e4503dfdbebe971fc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/15/fe/3fc0c09a21d5cb8f79aab5fa96e08d95b1ba19d98bb0a9be57494ad6f718/openbabel-3.2.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b15890008b8de80b89ddc61f3a81d6f5d6752ef7a2e98c34774be9fedef165a3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fc/a3/8cb1685d607bd3d50175cc7378f128da1f4ca7dfa560499e68fbd69b5458/openbabel-3.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:c9a89a4c31ba4956ad04943951c16c5075ac1a10083f0bbfb02184ff36056094" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/86/d4/9b17a1d582ef34af16cc72ce1dc7cf0ab91cce23a842c73f8fd47053e0ab/openbabel-3.2.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:2be89c56d1597e7e8e30e321dc7a885db76a6f42483dc4395f6a4e6aa87f49e7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/ab/7514a0bd68c7dbbc61213be057b788a416f63f3c2c121eace1a181095fac/openbabel-3.2.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:df254b4c0c7ac6477e63710279726ea0b7f8bd55615c4b473a8524a4e943509b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8a/1b/e61fce03382321dbbf58009ec95e324ff972b4c1e86d2d4d2882b9f64048/openbabel-3.2.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:832874d7d51ef33ee7fec7a4fd0a6cba9276d8485150a833d63e545aadece679" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/7d/da11e42f9c2c4f348054cf4bf48e6bb4b405aecf15b924e67449707fd788/openbabel-3.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2de3626cce6e2b6ea6e94f03e34827247fc09c4e2c80f58c6c3a1f7e7acafa9c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1d/f5/3a989d3f00b23cbd9886e92964570434876dabe69392402ecc64a4e65dfd/openbabel-3.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:32971502bed2defb9fcc208fed0b25aa44d6bd39fb864cc0762a2ff0c2f085b9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/45/7d/48eac4f07be0b8a651ad27cd2f0a679715e1c00aa28c54046f6e6801e74a/openbabel-3.2.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:3f33cccedc860aefdf04711658a8ee88a3eec8e1948d443942c8e4c0cd130c31" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/70/33/926f796c71055c58d53cb4d082c5ef2c3e66205e660143ce00ad4aae7c0e/openbabel-3.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f3e30937e1e0db15eaa4193449948601a646d736ff224c90f161bdcf153d9e20" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c5/6f/155644a53a24d9b1ecc7596b042dd42f01fb03a4182ed38a0924c2692ea4/openbabel-3.2.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:01011b444e2c2f34dddea2720608529b28c18b48e47da79bdd1f6f270d1664de" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f6/a2/9ca362d4e6749c088acf7c6f6d537851be181cd0bd303b67a6365a9de1e2/openbabel-3.2.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7049c5d90b8941b75bf91d177d9b16cf19a52e72c75550184a7fbd5e5ea45660" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4c/ce/7a4651eb32860bb3d47b056e508d69df600724899e79b0d57063aa14937c/openbabel-3.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:c147a52d35aa566fe0c4f3481776678758028cd19a900250710f1d2eb6ae11b0" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e5/bd/dc1484917ded358ca2be66972de9c010dbad02df6bbfc1f47e99404a5d08/openbabel-3.2.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:bb4b7d1d5244cce2fa3fce9bfcf5afafd960494b69d3b7417a3fb0988f1213d3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ac/5f/4322533ef75c841f03bf8a2f333a3c40d2340133b6e7f55ca0cd59a7f634/openbabel-3.2.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:278e3c6ae79e8b2752a540cdc52a36b9dd956fcf811d18df5a663085ce77daff" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/87/3cf7258f9af22f5d0985fbe63b1ce4b3635699b338e847f724c1d2127e5c/openbabel-3.2.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:97b838e89ca6b2f563d6bcdf5d8a08974915e1006ad4aa5813262e35635b6c6f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/07/40/fd97ad24f77b9c7bef6ba5d127f17d30008ea30ac494aa639b8aedfc6632/openbabel-3.2.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ac9a735958d27cfa5811bd7b95a074d3f1b776afdff77e50b0cc7b531858a15" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cf/16/27e8b0304948f9cbece9e0ec2c14326d6864127f411525112025d96fdc8c/openbabel-3.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:73d016280ad3bc28b2b61df88c43a3a1bac69c8613429d23daee6d2b769312bc" },
 ]
 
 [[package]]
@@ -1895,17 +2010,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
@@ -2000,17 +2120,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/36/e27608899f9b8d4dff0617b2d9ab17ca5608956ca44461ac14ac48b44015/pathspec-1.0.4.tar.gz", hash = "sha256:0210e2ae8a21a9137c0d470578cb0e595af87edaa6ebf12ff176f14a02e0e645" }
@@ -2252,17 +2377,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1f/42/5c74462b4fd957fcd7b13b04fb3205ff8349236ea74c7c375766d6c82288/pillow-12.1.1.tar.gz", hash = "sha256:9ad8fa5937ab05218e2b6a4cff30295ad35afd2f83ac592e68c0d871bb0fdbc4" }
 wheels = [
@@ -2389,17 +2519,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1b/04/fea538adf7dbbd6d186f551d595961e564a3b6715bdf276b477460858672/platformdirs-4.9.2.tar.gz", hash = "sha256:9a33809944b9db043ad67ca0db94b14bf452cc6aeaac46a88ea55b26e2e9d291" }
 wheels = [
@@ -2425,17 +2560,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3" }
@@ -2554,17 +2694,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz", hash = "sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29" }
 wheels = [
@@ -2578,6 +2723,20 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887" }
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b" },
+]
+
+[[package]]
+name = "pyright"
+version = "1.1.411"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "nodeenv" },
+    { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7e/ab/265f7dc69d28113ebba19092e57b075f41543b2ed048429c5f56e2b88eac/pyright-1.1.411.tar.gz", hash = "sha256:d885a0551f2e763b089a02702174e7f4ba77548cddabc972ab86d1f7f1b0f998" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0a/49/385be530a6a5b78d1cbcd5c2e38debc8959a2fc6bdb716f4e581002979fc/pyright-1.1.411-py3-none-any.whl", hash = "sha256:dc7c72a8e2700c55baa127554040e067041ea53ccfd50bf96308cc4291c7d5d9" },
 ]
 
 [[package]]
@@ -2628,17 +2787,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "colorama", marker = "python_full_version >= '3.10' and sys_platform == 'win32'" },
@@ -2677,17 +2841,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
@@ -2855,52 +3024,108 @@ wheels = [
 
 [[package]]
 name = "rdkit"
-version = "2023.9.6"
+version = "2024.3.5"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
-    "python_full_version == '3.9.*'",
     "python_full_version < '3.9'",
 ]
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.13'" },
     { name = "pillow", version = "10.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "pillow", version = "11.3.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
-    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and python_full_version < '3.13'" },
 ]
 wheels = [
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/15/15c991ceccdeed152e617a6261b2f31de83458bf3442c13c21114f25206e/rdkit-2023.9.6-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:a2b47368c0eb12d8ecbccbb8afb752f149fdc182a9841a192cdb1dc4ea141741" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f5/00/7425a367c2624526ebf52a9cbfcdab8510b0024f4e3f29b2d76dc8c1744b/rdkit-2023.9.6-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:780035c7bc024fa093fa05794b507316068e383f063c16b1a1239243a70ba010" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/56/955fb94c25f4d975e7f730db48f4d7a89f9f8f4e78bb48d44175152e9aec/rdkit-2023.9.6-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:209c2b0049c019bd3b9f17e5d947cf94a221ce61222016528dad6deed4da2de9" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/5a/f18e7af8f7f332af02176add4ff78cd6bc1cc96ea6a11c4f6d364f4796f2/rdkit-2023.9.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9b6dbed06f61efd5d293b8397d5719944dc8fa3f2b6704c43d9f50d851a0f2db" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/ef/f75f9e0d5f866733ee1fa6dfb18d337301096fe5f0a1a21b9d1999ec3162/rdkit-2023.9.6-cp310-cp310-win_amd64.whl", hash = "sha256:2a0aed7070c725e660f9bfbbd77678b3dda7b4a975342371559b98fb0179967e" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7a/8a/73957722ece84d4a294a58261abf8f888980890ea27d39b9d2b5abd6395e/rdkit-2023.9.6-cp311-cp311-macosx_10_13_x86_64.whl", hash = "sha256:07b49918d5ab68ea12c91fccc0bc5733f191cc4937775c72e7dd46c136610d51" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bb/d0/2fba772df6120156ee687a9cbc7a276a2c7ab2c777395324e1f16bb2a4fe/rdkit-2023.9.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9c0eb1bbfe19a2441b24bfa8bde1dff405e8394691fd27f8e6310db8db42e96d" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/f0/8931bb78ca1dc606c517bbb40d48b36624a9cbd70f3d7623e504409dd5b2/rdkit-2023.9.6-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:07a9e45b88a08cfb857afa523c23ddcaf79a1b783e5ab40ecd28050addaaa3e4" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ca/f4/175c81046af3e958e57cabd87d594878501dc7dde0ab0f5e4014c5f4a302/rdkit-2023.9.6-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3d674a280fe84b9048c07cfa0aee546c5b21394ea38a689d37481790fc0d996b" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/28/e7/ae3e52603abe2a979b7b60bde78dc909e71c027cd896861e756cdf8357af/rdkit-2023.9.6-cp311-cp311-win_amd64.whl", hash = "sha256:33db7a021ce3406386a6bc9fd5bd25f387e6bef63239cd00a534cad250dba9ab" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c0/f0/a70e65fd68dedf505ef3b2dbf5084e899d6efdcddccd61bcc08d387f10da/rdkit-2023.9.6-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:8dc279618e32a33164b9ceef13f2094d4cf6bf4d55c63b70ae669181538c9f79" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f0/57/d30e0e8668b4193cce751bf578ec06f76ebd2c3ab2add84485fb535cfdd5/rdkit-2023.9.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:155f83476846a88b5c31efe6369ce16477b093a0c8f525d20107c1442cfd0d88" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/c2/5f5f1bb4f9080c6ffb110bfa6454d898ac8a96b3a09cdf7a24f6194da16f/rdkit-2023.9.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bb5ec50177537382d9273bbce04f259b504931d7a6f33ebee0cfe3921b094951" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/05/f6/3a0063ef9e868cf5fbc6308edc80e2a04d3627088a0eb801d744acdcfaa7/rdkit-2023.9.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dc43b8af98866d851467cb9eea8e636c9c192c589476ed0e4930db204e9e8b98" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/46/46/85acf7041c6295b0c8a15c23e36604ea48dc78f3691bbc984a60c8ebf1c5/rdkit-2023.9.6-cp312-cp312-win_amd64.whl", hash = "sha256:e6e09f47df092511d756b3b1a38a98e66e9a6944e0ed09b8d989381148fa4b7f" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/94/f6/6266ccbcab06735c0b19ab51738ca1e7c8358c40897ce77bbf2a096f9e3b/rdkit-2023.9.6-cp38-cp38-macosx_10_13_x86_64.whl", hash = "sha256:797a1cba4ccfe518ead7271080fc40aeb1798949898825ae3a10869c22acc1a1" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a8/b4/93d2089e53d109872197a540f341e02bd50477a09364041cce452f287b2a/rdkit-2023.9.6-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:022b46d1f6f2b7fb4a30fd97bf1fd5d9f1bceabfd7ae297e0988db7b9fe5dbdb" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/aa/19/8e50803c5586d20dfa2cebb7b72194dfa8632e776eb7e6d300064d322b34/rdkit-2023.9.6-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:59ee17711909f62ed888febf68fba9a67920bca1f2040a4ccc0676f2f59467dd" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8e/53/1b2e98b77a9449efff5fca5b6d8192583252f4c28d2d256789ea1eea54c8/rdkit-2023.9.6-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:413e88dcab175b65fa122df38b2a9c8de162d87e68bc82d8c9f09c3f8cb6eb9e" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/56/db/59c4ba90e1db6a6356341fc389d73c423f884282424fcca6f1771f0f4b99/rdkit-2023.9.6-cp38-cp38-win_amd64.whl", hash = "sha256:09407635736b8b84bbf4791a8024b8fe36bd64dcefe230dd868371a27c2b65ee" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/44/38/14b311e2ff52e77466eecff0ba422e80812b239d69f60c015db3a8c940b1/rdkit-2023.9.6-cp39-cp39-macosx_10_13_x86_64.whl", hash = "sha256:9cc210e3cdad79ce13e571a532d0cdf07b11ccfd231f160eb54065f5a01dfb46" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1e/7f/00b5d8332d9c93379a5b9d58618dd1ebb54c566c5e46f7e31219def8c9ec/rdkit-2023.9.6-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:8876e33e393f500f9593f560b1df8cd67c7108615767eb5565678a17b8bdfe33" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6a/2b/226808ed74f10f79793341e70ff8a225c60a775c6d30e8555dbb4e91746f/rdkit-2023.9.6-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5091976a6c631fa8d563bbf48480b01917b0ff94a1ffce7d586131cf848d41d8" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a3/3f/b8e2c9ed148172f7201c64980c1a4eb1b70a10ac6e86d740a9ced27318d1/rdkit-2023.9.6-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0d95242699ac52ddc2806fced1273dd0f87b35ca0c2afe11cdbd7a771e1f708f" },
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bf/be/4bb11f4149c939c8d46b013bb889cde5cd285fa4b2fdcccf7c1c41e76f3f/rdkit-2023.9.6-cp39-cp39-win_amd64.whl", hash = "sha256:9ceff79c372c017857d154c7f433b8588f004f910e6d9dead0f00da62092dfa7" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/10/54/acd8657fbf77af4ed1f773e6eb14b75b3840e8e9a665439101c0491fa9ed/rdkit-2024.3.5-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:1cb7cdb29956649d4c875790b94142868c08c0735dee4d90b2d70dfd378e9d2e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/08/79/ac7e30471b4cbe465aa9b9bcb5a64018df55464e37777f696682199bc65b/rdkit-2024.3.5-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e5b0dfb28aa0949152ff816fba0a2f6267154f5c25159a9ec84c27cf18f72322" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/52/71b8946c1cf3d1bea6a09d7e2ea7acb783d34886af4666cb10bd791cdb4d/rdkit-2024.3.5-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:7d5576bad6672959d0c1939e8d7e2fcd8656f8daf9788ce58e5c313db719b5ec" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f6/39/e625b5c132f174a5c1446b1373235bfc290224baedfed28b4d515fbdfdb5/rdkit-2024.3.5-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:455d510beff8806e62e48b977d7acbfbc351474fa132124738a07223440c1b9a" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/ea/5d988d278405cfa44e4ccd32a252b880e9ce36e25707d5715e7e02d7b4de/rdkit-2024.3.5-cp310-cp310-win_amd64.whl", hash = "sha256:01fd323f5902a720925293c0ce08a33e630422374cf263d04ef173c106c63c36" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/69/27/45fd87a69c09d0075b933f9795ed0b532267973162db638119f38fe65527/rdkit-2024.3.5-cp311-cp311-macosx_10_13_x86_64.whl", hash = "sha256:04079aef5f91965bd2a48bf432b32c36ea1bf088e26efb2c9a43b625b6a75d15" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/51/80/b6f33520553055828e35ca862075ab15f22db94b70fac2fe24a6a24abd35/rdkit-2024.3.5-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:98dac94a5e414ed1880b215eacec63e5fd77b0ea351e0a18fc5229acb8e886f5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/94/ef/582c88b55b4ede7536c9a1c8ea58e766b6d8ea65d692779e2fe3e8498b73/rdkit-2024.3.5-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:8d4ebafb7e845bdc55eb6e2e188123ec84fb2bf724d3a7eb2da9bcfade7acc65" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b5/af/b11467265f41f2de3101e12a6cbc407cf754bac875bb64b942d861612f40/rdkit-2024.3.5-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:a51cc403792ba37d1ee8ad84ad829177a4453547a4e085e1115ae2b237084ddb" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c8/78/a6917d907564ea288ceb122348263164f99365779167d3fe74b5e0531635/rdkit-2024.3.5-cp311-cp311-win_amd64.whl", hash = "sha256:292141f0ba2359be07d8566d9a39ce697c1d6e7eb406031a2bf0387026503a47" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/27/23589039f883abda0148909bdbd5365bf8180ba2db713b5800f480738b5c/rdkit-2024.3.5-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:d8714c03558086d022649617197c0c45c75c301f6a9fb67205695493a7e5b826" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/22/f4/3e32f2237039a7a4896630db783fefca68a7974ee0d272975de0eeb64f31/rdkit-2024.3.5-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:a98099cef42c1eb52512b343beb68a8b7cc4da79924a67181f58692a6376d91b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/81/8e/ff92d82911ea8c9c0e3942789cc13f1bbed51427ce69719e1b97a6f305e0/rdkit-2024.3.5-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:89f7a72466ffbd45320d845ee1bcde1bddb1a322352836835d26ebb712228a41" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/03/94388eda859d357612553c3bfbaa04d699b7cbcb373f52ac090b1f62fc39/rdkit-2024.3.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:913494a03fcf6121c103e5db43fa33bca0fcc65ebd5a6c46661baa6851f79d91" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/03/ac/8753124d315a4565e533b91d4b0e9e90205a91490051b5918e574b4abcd5/rdkit-2024.3.5-cp312-cp312-win_amd64.whl", hash = "sha256:6af38c62d4af9d669f8996551d3ae809de9ab245570b861be3f7a2b1a536f79f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/5c/b8/acebdf640d693a21219da8f2089f49bae624b4804ee81f624c4df0530a4f/rdkit-2024.3.5-cp38-cp38-macosx_10_13_x86_64.whl", hash = "sha256:c971eba2a67f8ae301b9b8c66b3431cd62472f648cdec9694e5413d8ebc59720" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bf/cb/c709b60f4815e18c00e1e8639204bdba04cb158e6278791d82f94f51a988/rdkit-2024.3.5-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:53638d0d94f7c511273ff5765abc6a1fe60fe6c8633db13cad03bc527550a7a9" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/10/64ea11b0e4b5d3c56c19f248bc22688266a45ea271fd9113d940c4e05b7f/rdkit-2024.3.5-cp38-cp38-manylinux_2_28_aarch64.whl", hash = "sha256:2affa1b4cf601d27b157bbc44255c640baac9bc04cfdf5fa88f43c34c3f360d5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3d/84/63b2e66f5c7cb97ce994769afbbef85a1ac364fedbcb7d4a3c0f15d318a5/rdkit-2024.3.5-cp38-cp38-manylinux_2_28_x86_64.whl", hash = "sha256:f662ed10e14c7874d0e011c1f8260a6cf4a5547100806f9f4540f8550a3f1d36" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c9/4c/ec495b14092c8a26eadffbcf1f0874dfb6660b78fbf244925c2b3d23c57c/rdkit-2024.3.5-cp38-cp38-win_amd64.whl", hash = "sha256:73fa2fe3a9a2334edf8448a5a3093a6f949ee715de77d3baa685751e2cf9317b" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f8/97/0fea2765e78dd8bbe51e177e05e3625754eda2d3dd22e2ca48f29e94809b/rdkit-2024.3.5-cp39-cp39-macosx_10_13_x86_64.whl", hash = "sha256:cf2747e7c82d6c90a8a631fe063d24d77b31f535e0f8a17ac9dbfbe4ab456886" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ad/d6/2347481f4e2bdfd24834b08df4dfc662bbc3f1d574cbf5dd32fe05da8c27/rdkit-2024.3.5-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:e69cec14cbb42c5ca912346b594d3f6a7aac572463949c55c7749da257e68123" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/90/f0/09bd9c5e26b43d0ce30f07bbfd654fd2d129251a11de11c7fb08c48042b0/rdkit-2024.3.5-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:7c91c5ccbf8d51cd3dd894bf770ca99da5fe37714f6e2a66016e8af4f57d2b56" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/19/2d/520ddc62d6fe2b56a87dd33edddd65a1bbc4274e3b9703ad448faa0d498e/rdkit-2024.3.5-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:316bb5273bff5be76d4e5b0def998455e9b1a20898df44548b0e299f90786cb2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/55/10abd7a3b2e53c12b6fdc45f384b7a2311b79eb7b8ff1aa9a904e2f734c8/rdkit-2024.3.5-cp39-cp39-win_amd64.whl", hash = "sha256:90376467f4988ee44f3f47d1e558ffc27646254a99fe65d19a7d9a123e832ef2" },
+]
+
+[[package]]
+name = "rdkit"
+version = "2025.9.2"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+]
+dependencies = [
+    { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+]
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7f/92/ff0cd91d82d604acbc0f2e5e1c40e37ac9737a1ffbd589eb0651cecf3aec/rdkit-2025.9.2-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:20f2e3cdbfbb4833b46d0b593d25dc82c5447fc6b2942182e8e30658bf752fa8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b8/16/64d91aa49b230c078c9cfa468d8958aefb56879c7329a18253dbe0ce78b2/rdkit-2025.9.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:202eb1ec094b08c5b2f822c167f539b4fbe496f3bc3321e18d042e5fc1828a89" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/de/2a/1382775555a30e521c5d065ccac67f2da7e10790173f5b11a1974c232fc6/rdkit-2025.9.2-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:60f183b06e63fb973fec9b92171b6668c093f67cf07598d7d4dd0adf7a50704c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/32/7ceca6962dc9440ccddd1dabc1928cc4c615f2c63a4763bcc0e134b761fd/rdkit-2025.9.2-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:9f7c38c54ad533638494f585746534dda953e8bb8873b237c5f5cc0738f3fb3c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/b5/a6bb74bbf2d3cb6547c888f4bb9e5e60825604c802f2a53b2e7ba982b01a/rdkit-2025.9.2-cp310-cp310-win_amd64.whl", hash = "sha256:5a68330d21de03947585aa06558a43ce14093513e6034b618a07b96c7c15de95" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a8/6b/4b4c630e9c15b514b5fff719bff6d8590d4e6ce9fb28d77cf04703dd4d8c/rdkit-2025.9.2-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:5001036986440dfdccb62580a60a79664bda86c4bc56e1c903af8816dba7aef5" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/04/e5/942cc13084294f02280267bc233b0f48d00fb5bfcf50d3704c8f676672dd/rdkit-2025.9.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:d8e17f9b0033c87620345734bca393e5d72930642c7b9cfdc0ba9707b034754f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/80/a693960f0773bd07b9795f21a55e354e652f79089f629ff7082ecab07b28/rdkit-2025.9.2-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:c2b5066b91127d33eb2654cd3a331aeb6e53f3ff1a1b8e14d59c170852e25845" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/31/41/a51e88b7a2130ae56493d27bbd8bc1800fd1f1292af29d35f8438b5fcac5/rdkit-2025.9.2-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:0acd046784a4e14bef64d3c9c1e9f2fb592e24f7a094090a6b8b0d702da5f6dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/36/66/9db0825bfd661c9e13517cdbd95812a024e75fa4d0209ef2b0297051a652/rdkit-2025.9.2-cp311-cp311-win_amd64.whl", hash = "sha256:0af5d959c1d1d9d5e8c3f1a84a08599d89328c6ebc5fd6cb35005b94d0cef4ee" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/c6/c2/283b1bf04a17f6b9eb39d03fbacf7900c83886267a262cb8bf1ccc632b14/rdkit-2025.9.2-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:5d54b99e58badd15894fd5a85dc6ca6a5057dfa796f50b07716f12b8cebd20e3" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3b/09/da9ba311dc576365f370f568b3a386bd66e6d675a93608e764e03e729a79/rdkit-2025.9.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:daa21f26d13349e2e9aa89678cdf7f0ac889632a7ee6ced3bf247fa6bfc65dec" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/af/60/e608881b60269a96fbb5be9afe9c8d1b508b265013889538475fa48a1f2c/rdkit-2025.9.2-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:753e842850a4c585f45ad540fe64cf5b5b76833e2321fa0de7133720b1e92423" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e6/39/adf4e39713e0b0ec9ebdbed119e757bebbd923ea87e8d2a75caedbe248c2/rdkit-2025.9.2-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:8b38d15cf7d666e03d28987d6621116f80653ec1e4a46386c1f3d6041d2d7f72" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/27/a0/26c4b9f82681118467bbca5d73295be6b9b06dbf35448d9b8548f9c5d2ae/rdkit-2025.9.2-cp312-cp312-win_amd64.whl", hash = "sha256:9b2047228dc28104b8a840ba7481aa4f2af9df7b98f564ca5cbb942cb5d12795" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fa/3b/f75547403f4b04ce0e72d68ff438c5daf0517614b294007a03e9cc84b8a7/rdkit-2025.9.2-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:fda996e16240f14e3d4047061e6cd4108eb71c31a3cb1ca4bcf2b9fa44e6a630" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/19/69/642ce8fb13380e9989fab22003c91111e1cd0e43cd5119276a8d806ab88c/rdkit-2025.9.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:e7c6cf0fd196a2a7d76934c16f3f2c97f1ac0a962f4b797f8d0cef2ce4194b3d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/40/d9/240a50558872e074edb8703b24b5b910961af309f8c3af6d7a1315c54b5f/rdkit-2025.9.2-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:c9413fce45adb8d3aa28800856eed8d36d2fd60cb463fd5701b201f54e727b6d" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/57/95/8e93526142903058ff79b91f35da3bb58269bdae76cb5910507896b0897d/rdkit-2025.9.2-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:a6423dd32a3f922e7fbd68ff2c4c0132ba6c2afcc24342bf7655e6c697f8a642" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/bb/6e/3dcdcb069f4a90ee40aab1904a253baa4d8a40050e6ca15654058e40ae75/rdkit-2025.9.2-cp313-cp313-win_amd64.whl", hash = "sha256:90a8099816f0b2b64878aee354cc7c3adb63bc9209df54423c73dfd22b14295f" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e9/f1/0f9fce84699f88b62fe646e9ea255b2927aada8419848c26c05fb7424119/rdkit-2025.9.2-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:8f1c965f8d5cd03ef0f5a71f3b43186319ee58faf7e70ea12285880d385408a8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b0/75/bff7fdc812b57c163c19464e5a0539f7cc055db171871566d90e4791067a/rdkit-2025.9.2-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:4722206dd117f6dbe98f33f4891d46d8648a909b5ce9cbb0634c1deb7ad8729c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1f/21/1c830bf8bc484e601a97e8287b6849359e2ecb4ed5ee89bd1cb2f643c8aa/rdkit-2025.9.2-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:e6923ec79fb016b345b68b03b05873e95658cd180270523e42027a169138f121" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/88/85/106e3e550bfd531406b20589827147b61207b6196b5d9c9eadbaaa29f2ac/rdkit-2025.9.2-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:bf6b1250a5dc8f7775008aaad9173685733205af4b30de7368d366062a5193de" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d4/27/375d2d443817b7781057daa7072beaccc695f73135c11332e549900d0dba/rdkit-2025.9.2-cp314-cp314-win_amd64.whl", hash = "sha256:64cc63596ca1e3e8539699a5ee32c92c91f8034f987786ed08ef30bc72b63e05" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/7f/c7/438a2c4b0467cf59a9da3143e9aadbab419ae0842cacef8cc9122fab7930/rdkit-2025.9.2-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:c47f2d8fe6b2a12ee15e7141731ada00e1688dee36957adf58d9aed01f2b65f2" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f3/cc/70f29868d2c688ea26d28ee0ef43cac965d7b2a4f2bc25ac176575810c21/rdkit-2025.9.2-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:b1645102c8af4e7167bbfe1e3c12e46cbc082a1b55f189465afcb74eaaf36028" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/6f/e8/16a427a4d60de858c60158b17f128dd160df5ce81a166d4315babee382a8/rdkit-2025.9.2-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:52b8359baae4b3aa81bb680f632f91efc7b4608fc5fe788aa20784a579afedd8" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/2b/5e77f866cba143c52b45bd6ea508b59876cf823279b224ebafc82f5d8dd1/rdkit-2025.9.2-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:696d1fe711cd7fa17bdc69cec4dafb2003e3fc3f643fb392a18f6e094a668f6c" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/85/c1/15b0878996cda7307843b562c9295301351c92a8d2c997f3d56f9bc79b11/rdkit-2025.9.2-cp39-cp39-win_amd64.whl", hash = "sha256:5bec6cf2f45b2b7c3250012d74931ee3c8f257ca5baf88d6bc21ca4ceaf8fecd" },
+]
+
+[[package]]
+name = "rdkit"
+version = "2025.9.3"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+]
+dependencies = [
+    { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+]
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/4f/23/eae4d29ed23992ac9c5b8985a77a76e85b10175941c5f576d4ab736132c3/rdkit-2025.9.3-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:41a648dfa63d43420918272520d5b49b288f251a1e1a987af81f1a9eacecf94e" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b1/19/4a606ef1c090b0abc54627a4aa5313c8bbef50da888841101bf1aa89ff70/rdkit-2025.9.3-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:520e572f70ac81a75091f953d4d9805bc1455879ad85724591c2b4b03bf1faf1" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/08/6d/678f4cba4e0822b1a246e1e35b8092c8668ace259f8d23c05add87c90396/rdkit-2025.9.3-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:946f41f0d35193961e9b54731fc38f0c637608a1b5ced7a72c909af4e5c836dc" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/3f/8b/4b55e528f1b3628be857d99f4f6cc2dd8d1e12006cbd23ec7d3cb31b8352/rdkit-2025.9.3-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:37cd7f85f3604a895c7072b8ba5ea30dac0749a8cea75ea470309fd79bcfe518" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/e8/bf/dbc5759b5514866cde4fd8b559c32af540c4b850289cbecd088e97c1e7c8/rdkit-2025.9.3-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:067f5cc721086a78bb756c737357ce50cfab5fc78d8e10902ba00d4c87cace68" },
 ]
 
 [[package]]
@@ -2910,14 +3135,21 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
-    { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "(python_full_version >= '3.10' and platform_machine != 'x86_64') or (python_full_version >= '3.10' and sys_platform != 'darwin')" },
+    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "(python_full_version >= '3.10' and platform_machine != 'x86_64') or (python_full_version >= '3.10' and sys_platform != 'darwin')" },
 ]
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d0/f0/4637604614dc11abe1a57c4491033e57e96a09400f6b60b64dccd055bc78/rdkit-2025.9.5-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:129ab527eb4a12d7cc82707a78b5558ba33074894ee86138ad382d486bf3cd72" },
@@ -2940,6 +3172,24 @@ wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/53/47/0c0395cae6789c90bb781b92f08f4cbc857adf767f27cb935397bd892779/rdkit-2025.9.5-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:53325659acca69827f42f93cfdb056286cafb824fa6f7a94ea07628f35777c98" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/65/c6/c1a4796ac4b428829c8a388f8e4096adfb0963226b2b45eeb2676b92b7e5/rdkit-2025.9.5-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:94b6173fb9c7701d2479018a69c057429f2507a4cfe5ee1f2e430b0f8b0d7afc" },
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d1/02/22537010d4959a3706ccf2ea8413be6b45fca684b3c3628924b05dc46e8f/rdkit-2025.9.5-cp314-cp314-win_amd64.whl", hash = "sha256:945d2bc7b1677d2a138a4c65eb42370ab20ac4db0f969d64c0176683371251e9" },
+]
+
+[[package]]
+name = "rdkit-dof"
+version = "0.2.1"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+dependencies = [
+    { name = "pillow", version = "10.4.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "pillow", version = "12.1.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "rdkit", version = "2024.3.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "rdkit", version = "2025.9.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "rdkit", version = "2025.9.3", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "rdkit", version = "2025.9.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "(python_full_version >= '3.10' and platform_machine != 'x86_64') or (python_full_version >= '3.10' and sys_platform != 'darwin')" },
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/3b/7518ceb0eb85f11d98f2aef9c2a78a3ee035bb6e229403817a01a476076a/rdkit_dof-0.2.1.tar.gz", hash = "sha256:40b95169c884fa45e84944850ff05d9fd7185e8c66f4cad2c88b0503d57cfcee" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/77/5e/15db60cede0bdfc62dc7b1282f710a1ced5bbab1db3dc17021da95f74e7b/rdkit_dof-0.2.1-py3-none-any.whl", hash = "sha256:4ea2d4de899b5288e9d7413c52ff2d5452395066b19c1877ca4f2ba3e23da092" },
 ]
 
 [[package]]
@@ -3079,17 +3329,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
 ]
 dependencies = [
     { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
@@ -3162,17 +3417,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/82/f3/748f4d6f65d1756b9ae577f329c951cda23fb900e4de9f70900ced962085/setuptools-82.0.0.tar.gz", hash = "sha256:22e0a2d69474c6ae4feb01951cb69d515ed23728cf96d05513d36e42b62b37cb" }
@@ -3302,17 +3562,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/37/1d/0a336abf618272d53f62ebe274f712e213f5a03c0b2339575430b8362ef2/tornado-6.5.4.tar.gz", hash = "sha256:a22fa9047405d03260b483980635f0b041989d8bcc9a313f8fe18b411d84b1d7" }
@@ -3358,17 +3623,22 @@ source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version >= '3.14' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
+    "python_full_version == '3.13.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.13.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.12.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.11.*' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')",
+    "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/72/94/1a15dd82efb362ac84269196e94cf00f187f7ed21c242792a923cdb1c61f/typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466" }

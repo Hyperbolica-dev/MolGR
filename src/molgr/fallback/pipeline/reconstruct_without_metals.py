@@ -1,23 +1,40 @@
-"""No-metal reconstruction pipeline for fallback.
+"""Orchestrate no-metal reconstruction from XYZ input to one selected graph.
 
-The flow is intentionally linear until validation fails:
-1. Apply deterministic preprocess / eliminate / clean / bond-breaking stages.
-2. If the structure is already valid, score it directly.
-3. Otherwise enumerate resonance candidates, normalize them, and choose the winner.
+The pipeline has four phases:
+
+1. Parse and deterministically prepare one seed graph.
+2. Widen neighbor-radical hypotheses by discrepancy and search their resonances.
+3. If no valid candidate exists, try deformed-pi and then bond-break recovery.
+4. Select the best validated candidate by chemical topology, then force field,
+   with a graph-only deterministic tie break.
+
+Chemical transformations live in ``utils.no_metals`` modules. This module only
+controls phase ordering, fallback policy, caching, and result materialization.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import astuple, dataclass, field
+from typing import Optional, cast
 
+from openbabel import openbabel as ob
 from openbabel import pybel
 
-from molgr.config import MolGRConfig, resolve_config
-from molgr.fallback.state import OmolStateMachine, ReconstructionState
-from molgr.fallback.utils.no_metals import (
-    preparation,
-    selection,
+from molgr.config import CONFIG, MolGRConfig
+from molgr.fallback.pipeline.resonance import walk_radical_resonances
+from molgr.fallback.stages.break_bond import break_deformed_ene, break_one_bond
+from molgr.fallback.stages.clean import clean_carbene_neighbor_unsaturated
+from molgr.fallback.stages.eliminate import (
+    eliminate_carbene_neighbor_heteroatom,
+    eliminate_carboxyl,
+    eliminate_high_positive_charge_atoms,
+    eliminate_NNN,
 )
+from molgr.fallback.stages.fresh import fresh_omol_charge_radical
+from molgr.fallback.stages.preprocess import make_connections, pre_clean, validate_omol
+from molgr.fallback.state import OmolStateMachine, ReconstructionState
+from molgr.fallback.utils import resonance as resonance_utils
+from molgr.fallback.utils.no_metals import neighbor_radicals, preparation, recovery, selection
 from molgr.fallback.utils.no_metals import (
     resonance as no_metal_resonance,
 )
@@ -25,6 +42,225 @@ from molgr.fallback.utils.tools import typed_lru_cache
 
 
 _DEFAULT_NO_METAL_STATE_CACHE_MAXSIZE = 1024
+
+
+@dataclass(frozen=True)
+class _ConfigCacheToken:
+    key: tuple[object, ...]
+    config: MolGRConfig = field(compare=False, hash=False)
+
+
+def _config_cache_token(config: MolGRConfig) -> _ConfigCacheToken:
+    return _ConfigCacheToken(astuple(config), config)
+
+
+@dataclass(frozen=True)
+class _ResonanceLayerResult:
+    """States produced at the two boundaries of one resonance search layer."""
+
+    resonance_seeds: list[ReconstructionState]
+    validated_candidates: list[ReconstructionState]
+
+
+@dataclass(frozen=True)
+class _PrimarySearchResult:
+    """Primary candidates plus every seed retained as a possible recovery source."""
+
+    attempted_resonance_seeds: list[ReconstructionState]
+    validated_candidates: list[ReconstructionState]
+
+
+def _run_linear_preparation(seed_state: ReconstructionState) -> ReconstructionState:
+    """Run the non-branching front of the algorithm in its chemical order."""
+
+    machine = OmolStateMachine.from_reconstruction_state(seed_state)
+
+    # Establish topology and explicit electronic labels before consuming charge.
+    machine.run_omol_stage("make_connections", make_connections)
+    machine.run_omol_stage("pre_clean", pre_clean)
+    machine.run_omol_stage(
+        "fresh_omol_charge_radical_initial",
+        fresh_omol_charge_radical,
+    )
+    machine.set_given_charge(
+        "initialize_charge_budget",
+        seed_state.total_charge
+        - sum(cast(ob.OBAtom, atom.OBAtom).GetFormalCharge() for atom in machine.omol.atoms),
+    )
+
+    # Deterministic local charge reconstruction; order is chemically significant.
+    machine.run_omol_charge_stage("eliminate_NNN_negative", eliminate_NNN, False)
+    machine.run_omol_charge_stage(
+        "eliminate_high_positive_charge_atoms",
+        eliminate_high_positive_charge_atoms,
+    )
+    machine.run_omol_charge_stage("eliminate_NNN_positive", eliminate_NNN, True)
+    machine.run_omol_charge_stage("eliminate_carboxyl", eliminate_carboxyl)
+
+    # Resolve deterministic carbene patterns before any candidate branching.
+    machine.run_omol_stage(
+        "clean_carbene_neighbor_unsaturated_first",
+        clean_carbene_neighbor_unsaturated,
+    )
+    machine.run_omol_charge_stage(
+        "eliminate_carbene_neighbor_heteroatom",
+        eliminate_carbene_neighbor_heteroatom,
+    )
+    machine.annotate("prepare_no_metal_seed")
+    return machine.freeze_like(seed_state)
+
+
+def _expand_resonance_layer(
+    source_seeds: list[ReconstructionState],
+    *,
+    traversal_policy: no_metal_resonance.ResonanceTraversalPolicy,
+    config: MolGRConfig | None,
+    session: no_metal_resonance._ResonanceSearchSession | None = None,
+) -> _ResonanceLayerResult:
+    """Expand optional seed normalizations, then traverse and validate resonances."""
+
+    # Each normalization is optional: retain the incoming seeds and add changed
+    # variants before continuing to the next normalization.
+    resonance_seeds = no_metal_resonance.expand_resonance_seed_pool_stage(
+        source_seeds,
+        phase="relocate_carbene_radical_for_resonance",
+        stage=clean_carbene_neighbor_unsaturated,
+        uses_charge_budget=False,
+    )
+    # The helper owns graph traversal and deduplication; every chemical operation
+    # applied to the traversed states remains declared here in execution order.
+    candidates = no_metal_resonance.search_resonance_candidates(
+        resonance_seeds,
+        resonance_traversal_policy=traversal_policy,
+        config=config,
+        session=session,
+        walk_stage=walk_radical_resonances,
+        full_normalization_stage=resonance_utils.process_resonance,
+        validation_stage=validate_omol,
+        score_stage=selection._score_reconstruction_candidate,
+        topology_annotation_stage=selection._annotate_no_metal_candidate_topology,
+    )
+    return _ResonanceLayerResult(resonance_seeds, candidates)
+
+
+def _search_discrepancy_layers(
+    prepared_seed: ReconstructionState,
+    *,
+    max_discrepancy: int,
+    traversal_policy: no_metal_resonance.ResonanceTraversalPolicy,
+    config: MolGRConfig | None,
+) -> _PrimarySearchResult:
+    """Search primary neighbor-radical layers from least to most discrepant.
+
+    The shared session deduplicates resonance states across widening layers. The
+    accumulated seeds are retained as inputs for recovery if every layer fails.
+    """
+
+    all_resonance_seeds: list[ReconstructionState] = []
+    search_session = no_metal_resonance._ResonanceSearchSession()
+
+    for discrepancy in range(max_discrepancy + 1):
+        neighbor_seeds = neighbor_radicals.enumerate_neighbor_radical_seeds(
+            prepared_seed,
+            exact_discrepancy=discrepancy,
+        )
+        layer = _expand_resonance_layer(
+            neighbor_seeds,
+            traversal_policy=traversal_policy,
+            config=config,
+            session=search_session,
+        )
+        all_resonance_seeds.extend(layer.resonance_seeds)
+        if layer.validated_candidates:
+            return _PrimarySearchResult(
+                all_resonance_seeds,
+                layer.validated_candidates,
+            )
+
+    return _PrimarySearchResult(all_resonance_seeds, [])
+
+
+def _search_recovery_seed_pool(
+    recovery_seeds: list[ReconstructionState],
+    *,
+    traversal_policy: no_metal_resonance.ResonanceTraversalPolicy,
+    config: MolGRConfig | None,
+) -> _ResonanceLayerResult:
+    """Expand and search one recovery seed pool, or return an empty layer."""
+
+    if not recovery_seeds:
+        return _ResonanceLayerResult([], [])
+    return _expand_resonance_layer(
+        recovery_seeds,
+        traversal_policy=traversal_policy,
+        config=config,
+    )
+
+
+def _search_recovery_tiers(
+    resonance_seeds: list[ReconstructionState],
+    *,
+    traversal_policy: no_metal_resonance.ResonanceTraversalPolicy,
+    config: MolGRConfig | None,
+) -> list[ReconstructionState]:
+    """Try recovery in increasing order of structural destructiveness."""
+
+    deformed_pi_seeds = recovery.enumerate_deformed_pi_recovery_seeds(
+        resonance_seeds,
+        break_stage=break_deformed_ene,
+    )
+    deformed_pi_layer = _search_recovery_seed_pool(
+        deformed_pi_seeds,
+        traversal_policy=traversal_policy,
+        config=config,
+    )
+    if deformed_pi_layer.validated_candidates:
+        return deformed_pi_layer.validated_candidates
+
+    bond_break_seeds = recovery.enumerate_bond_break_recovery_seeds(
+        (*resonance_seeds, *deformed_pi_seeds),
+        break_stage=break_one_bond,
+    )
+    bond_break_layer = _search_recovery_seed_pool(
+        bond_break_seeds,
+        traversal_policy=traversal_policy,
+        config=config,
+    )
+    return bond_break_layer.validated_candidates
+
+
+def _find_no_metal_candidates(
+    prepared_seed: ReconstructionState,
+    *,
+    config: MolGRConfig | None,
+) -> list[ReconstructionState]:
+    """Run primary resonance search, escalating to recovery only if necessary."""
+
+    resolved_config = CONFIG if config is None else config
+    traversal_policy = no_metal_resonance._default_resonance_traversal_policy(config)
+    max_discrepancy = max(
+        0,
+        int(resolved_config.resonance.limited_discrepancy_max_discrepancy),
+    )
+    primary = _search_discrepancy_layers(
+        prepared_seed,
+        max_discrepancy=max_discrepancy,
+        traversal_policy=traversal_policy,
+        config=config,
+    )
+    if primary.validated_candidates:
+        return primary.validated_candidates
+    return _search_recovery_tiers(
+        primary.attempted_resonance_seeds,
+        traversal_policy=traversal_policy,
+        config=config,
+    )
+
+
+def _mark_selected_candidate(candidate: ReconstructionState) -> ReconstructionState:
+    result_machine = OmolStateMachine.from_reconstruction_state(candidate)
+    result_machine.annotate("select_best_no_metal_candidate")
+    return result_machine.freeze_like(candidate)
 
 
 def _run_no_metal_pipeline_from_state(
@@ -35,56 +271,23 @@ def _run_no_metal_pipeline_from_state(
     if seed_state.total_radical_electrons < 0:
         return None
 
-    state = preparation._run_linear_pipeline(seed_state)
-
-    if preparation.validate_omol(
-        state.omol,
-        seed_state.total_charge,
-        seed_state.total_radical_electrons,
-    ):
-        result_machine = OmolStateMachine.from_reconstruction_state(state)
-        result_machine.annotate("validate_direct_candidate")
-        result_machine.run_omol_stage("clean_resonances", preparation.clean_resonances)
-        result = result_machine.freeze_like(state)
-        try:
-            selection._score_reconstruction_candidate(result, config=config)
-        except ValueError:
-            return None
-        selection._annotate_no_metal_candidate_topology(result)
-        return result
-
-    resonance_candidates = no_metal_resonance._recover_resonance_candidates(
-        state,
-        resonance_traversal_policy=no_metal_resonance._default_resonance_traversal_policy(config),
-        config=config,
-    )
-    if not resonance_candidates:
+    prepared_seed = _run_linear_preparation(seed_state)
+    candidates = _find_no_metal_candidates(prepared_seed, config=config)
+    if not candidates:
         return None
 
-    best_candidate: Optional[ReconstructionState] = None
-    best_selection_key: Optional[tuple[int, int, int, int, float]] = None
-    for candidate in resonance_candidates:
-        selection._score_reconstruction_candidate(candidate, config=config)
-        selection_key = selection._no_metal_candidate_selection_key(candidate)
-        if best_selection_key is not None and selection_key >= best_selection_key:
-            continue
-        best_selection_key = selection_key
-        best_candidate = candidate
-
+    best_candidate = selection.select_best_no_metal_candidate(candidates, config=config)
     if best_candidate is None:
         return None
-
-    result_machine = OmolStateMachine.from_reconstruction_state(best_candidate)
-    result_machine.annotate("select_best_resonance_candidate")
-    return result_machine.freeze_like(best_candidate)
+    return _mark_selected_candidate(best_candidate)
 
 
 @typed_lru_cache(maxsize=_DEFAULT_NO_METAL_STATE_CACHE_MAXSIZE, typed=True)
 def _run_no_metal_pipeline_cached(
     seed_state: ReconstructionState,
-    config: MolGRConfig,
+    config_token: _ConfigCacheToken,
 ) -> Optional[ReconstructionState]:
-    return _run_no_metal_pipeline_from_state(seed_state, config=config)
+    return _run_no_metal_pipeline_from_state(seed_state, config=config_token.config)
 
 
 def xyz_to_omol_no_metal_state(
@@ -101,8 +304,26 @@ def xyz_to_omol_no_metal_state(
         total_charge,
         total_radical_electrons,
     )
-    resolved_config = resolve_config(config)
-    return _run_no_metal_pipeline_cached(seed_state, resolved_config)
+    resolved_config = CONFIG if config is None else config
+    return _run_no_metal_pipeline_cached(seed_state, _config_cache_token(resolved_config))
+
+
+def _seed_omol_to_omol_no_metal_state(
+    seed_omol: pybel.Molecule,
+    total_charge: int = 0,
+    total_radical_electrons: int = 0,
+    *,
+    config: MolGRConfig | None = None,
+) -> Optional[ReconstructionState]:
+    """Return the best no-metal state from a shared parsed seed molecule."""
+
+    seed_state = preparation._seed_state_from_omol(
+        seed_omol,
+        total_charge,
+        total_radical_electrons,
+    )
+    resolved_config = CONFIG if config is None else config
+    return _run_no_metal_pipeline_cached(seed_state, _config_cache_token(resolved_config))
 
 
 def xyz_to_omol_no_metal(
@@ -125,4 +346,7 @@ def xyz_to_omol_no_metal(
     return state.omol
 
 
-__all__ = ["xyz_to_omol_no_metal", "xyz_to_omol_no_metal_state"]
+__all__ = [
+    "xyz_to_omol_no_metal",
+    "xyz_to_omol_no_metal_state",
+]

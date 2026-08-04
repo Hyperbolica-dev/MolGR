@@ -36,14 +36,17 @@ def test_organic_force_field_evaluation_uses_fixed_uff_request(monkeypatch) -> N
 
 
 def test_force_field_evaluation_uses_fixed_uff_for_organic_input(monkeypatch) -> None:
+    force_field_module.force_field_evaluation_cache_clear()
     setup_attempts: list[str] = []
+    setup_atom_counts: list[int] = []
 
     class FakeForceField:
         def __init__(self, name: str) -> None:
             self.name = name
 
-        def Setup(self, _obmol) -> bool:
+        def Setup(self, obmol) -> bool:
             setup_attempts.append(self.name)
+            setup_atom_counts.append(int(obmol.NumAtoms()))
             return self.name == "uff"
 
         def Energy(self) -> float:
@@ -61,7 +64,9 @@ def test_force_field_evaluation_uses_fixed_uff_for_organic_input(monkeypatch) ->
 
     evaluation = force_field_module.force_field_evaluation(pybel.readstring("smi", "CO"))
 
-    assert setup_attempts == ["uff"]
+    assert setup_attempts == ["uff", "uff"]
+    assert setup_atom_counts[0] == 0
+    assert setup_atom_counts[1] > 0
     assert evaluation.energy_kj_mol == pytest.approx(2.0)
 
 
@@ -166,11 +171,13 @@ def test_selection_force_field_evaluation_uses_fixed_uff_on_stripped_organic_par
 def test_force_field_evaluation_cache_is_independent_of_config(monkeypatch) -> None:
     force_field_module.force_field_evaluation_cache_clear()
     setup_attempts = 0
+    setup_atom_counts: list[int] = []
 
     class FakeForceField:
-        def Setup(self, _obmol) -> bool:
+        def Setup(self, obmol) -> bool:
             nonlocal setup_attempts
             setup_attempts += 1
+            setup_atom_counts.append(int(obmol.NumAtoms()))
             return True
 
         def Energy(self) -> float:
@@ -191,4 +198,29 @@ def test_force_field_evaluation_cache_is_independent_of_config(monkeypatch) -> N
     second = force_field_module.selection_force_field_energy(omol)
 
     assert first == second == pytest.approx(2.0)
-    assert setup_attempts == 1
+    assert setup_attempts == 2
+    assert setup_atom_counts[0] == 0
+    assert setup_atom_counts[1] > 0
+
+
+def test_force_field_resets_shared_uff_when_exact_setup_key_changes() -> None:
+    force_field_module.force_field_evaluation_cache_clear()
+    neutral = pybel.readstring("smi", "CS(C)=O")
+    neutral.addh()
+    force_field_module.ob.OBBuilder().Build(neutral.OBMol)
+
+    charged = pybel.Molecule(force_field_module.ob.OBMol(neutral.OBMol))
+    charged.OBMol.GetAtom(2).SetFormalCharge(-2)
+
+    assert force_field_module._build_openbabel_setup_key(
+        neutral.OBMol
+    ) == force_field_module._build_openbabel_setup_key(charged.OBMol)
+    assert force_field_module._build_force_field_setup_key(
+        neutral.OBMol
+    ) != force_field_module._build_force_field_setup_key(charged.OBMol)
+
+    neutral_energy = force_field_module.selection_force_field_energy(neutral)
+    charged_energy = force_field_module.selection_force_field_energy(charged)
+
+    assert neutral_energy != pytest.approx(charged_energy)
+    assert charged_energy == pytest.approx(380.44249055506697)

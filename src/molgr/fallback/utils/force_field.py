@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, Union, cast
 
@@ -7,6 +8,7 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 
 from molgr.fallback.utils.dataclasses import MetalAtomPosition
+from molgr.fallback.utils.electrons import get_unpaired_electron_count
 from molgr.fallback.utils.tools import typed_lru_cache
 
 
@@ -14,9 +16,14 @@ if TYPE_CHECKING:
     from molgr.fallback.state import ReconstructionState
 
 
-ForceFieldAtomKey = Tuple[int, int, int, int, int, int, bool]
+ForceFieldAtomKey = Tuple[int, int, int, int, int, int, int, bool]
 ForceFieldBondKey = Tuple[int, int, int, bool]
 ForceFieldScoreKey = Tuple[Tuple[ForceFieldAtomKey, ...], Tuple[ForceFieldBondKey, ...]]
+ForceFieldSetupAtomKey = Tuple[int, int, int, int, int, bool]
+ForceFieldSetupKey = Tuple[Tuple[ForceFieldSetupAtomKey, ...], Tuple[ForceFieldBondKey, ...]]
+OpenBabelSetupAtomKey = Tuple[int, int]
+OpenBabelSetupBondKey = Tuple[int, int, int, int]
+OpenBabelSetupKey = Tuple[Tuple[OpenBabelSetupAtomKey, ...], Tuple[OpenBabelSetupBondKey, ...]]
 MetalStateKey = Tuple[Tuple[int, int, int, int, int, int, int], ...]
 BondOrderOverrides = Mapping[Tuple[int, int], int]
 ForceFieldInput = Union[pybel.Molecule, "ReconstructionState", "OmolForceFieldContext"]
@@ -27,6 +34,8 @@ _FORCE_FIELD_UNIT_TO_KJ_MOL = {
     "kj/mol": 1.0,
     "kcal/mol": 4.184,
 }
+_force_field_setup_lock = threading.RLock()
+_force_field_setup_state: dict[str, tuple[ForceFieldSetupKey, OpenBabelSetupKey]] = {}
 
 
 def _quantized_coordinate(value: float) -> int:
@@ -42,7 +51,8 @@ def _build_score_key(omol: pybel.Molecule) -> ForceFieldScoreKey:
             (
                 int(obatom.GetAtomicNum()),
                 int(obatom.GetFormalCharge()),
-                int(obatom.GetSpinMultiplicity()),
+                int(get_unpaired_electron_count(obatom)),
+                int(obatom.GetHyb()),
                 _quantized_coordinate(obatom.GetX()),
                 _quantized_coordinate(obatom.GetY()),
                 _quantized_coordinate(obatom.GetZ()),
@@ -59,6 +69,56 @@ def _build_score_key(omol: pybel.Molecule) -> ForceFieldScoreKey:
             begin_idx, end_idx = end_idx, begin_idx
         bond_keys.append(
             (begin_idx, end_idx, int(obbond.GetBondOrder()), bool(obbond.IsAromatic()))
+        )
+    return tuple(atom_keys), tuple(sorted(bond_keys))
+
+
+def _build_force_field_setup_key(obmol: ob.OBMol) -> ForceFieldSetupKey:
+    atom_keys: list[ForceFieldSetupAtomKey] = []
+    for atom in ob.OBMolAtomIter(obmol):
+        obatom = cast(ob.OBAtom, atom)
+        atom_keys.append(
+            (
+                int(obatom.GetAtomicNum()),
+                int(obatom.GetFormalCharge()),
+                int(get_unpaired_electron_count(obatom)),
+                int(obatom.GetHyb()),
+                int(obatom.GetExplicitDegree()),
+                bool(obatom.IsAromatic()),
+            )
+        )
+
+    bond_keys: list[ForceFieldBondKey] = []
+    for bond in ob.OBMolBondIter(obmol):
+        obbond = cast(ob.OBBond, bond)
+        begin_idx = int(cast(ob.OBAtom, obbond.GetBeginAtom()).GetIdx())
+        end_idx = int(cast(ob.OBAtom, obbond.GetEndAtom()).GetIdx())
+        if begin_idx > end_idx:
+            begin_idx, end_idx = end_idx, begin_idx
+        bond_keys.append(
+            (begin_idx, end_idx, int(obbond.GetBondOrder()), bool(obbond.IsAromatic()))
+        )
+    return tuple(atom_keys), tuple(sorted(bond_keys))
+
+
+def _build_openbabel_setup_key(obmol: ob.OBMol) -> OpenBabelSetupKey:
+    atom_keys: list[OpenBabelSetupAtomKey] = []
+    for atom in ob.OBMolAtomIter(obmol):
+        obatom = cast(ob.OBAtom, atom)
+        atom_keys.append((int(obatom.GetAtomicNum()), int(obatom.GetExplicitDegree())))
+
+    bond_keys: list[OpenBabelSetupBondKey] = []
+    for bond in ob.OBMolBondIter(obmol):
+        obbond = cast(ob.OBBond, bond)
+        begin_atom = cast(ob.OBAtom, obbond.GetBeginAtom())
+        end_atom = cast(ob.OBAtom, obbond.GetEndAtom())
+        bond_keys.append(
+            (
+                int(obbond.GetIdx()),
+                int(obbond.GetBondOrder()),
+                int(begin_atom.GetAtomicNum()),
+                int(end_atom.GetAtomicNum()),
+            )
         )
     return tuple(atom_keys), tuple(bond_keys)
 
@@ -185,6 +245,30 @@ def _force_field_energy_to_kj_mol(raw_energy: float, raw_unit: str) -> float:
     return raw_energy * factor
 
 
+def _reset_force_field_setup(force_field: ob.OBForceField) -> None:
+    force_field.Setup(ob.OBMol())
+
+
+def _prepare_force_field_for_setup(
+    force_field_name: str,
+    force_field: ob.OBForceField,
+    exact_setup_key: ForceFieldSetupKey,
+    openbabel_setup_key: OpenBabelSetupKey,
+) -> None:
+    previous_keys = _force_field_setup_state.get(force_field_name)
+    if previous_keys is None:
+        # FindForceField returns a process-global plugin instance. Clear any
+        # setup left by OpenBabel callers outside this cache before first use.
+        _reset_force_field_setup(force_field)
+        return
+
+    previous_exact_key, previous_openbabel_key = previous_keys
+    if previous_exact_key != exact_setup_key and previous_openbabel_key == openbabel_setup_key:
+        # OpenBabel's IsSetupNeeded ignores details such as charge/aromaticity.
+        # Force a rebuild when MolGR's exact setup key changed but OB would skip.
+        _reset_force_field_setup(force_field)
+
+
 def _build_force_field_evaluation(context: OmolForceFieldContext) -> ForceFieldEvaluation:
     contains_metals = context.contains_metals
     working_obmol = ob.OBMol(cast(ob.OBMol, context.omol.OBMol))
@@ -196,10 +280,24 @@ def _build_force_field_evaluation(context: OmolForceFieldContext) -> ForceFieldE
     if not force_field:
         raise ValueError("Could not evaluate force-field energy with fixed 'uff': unavailable")
     candidate_obmol = ob.OBMol(working_obmol)
-    if not bool(force_field.Setup(candidate_obmol)):
-        raise ValueError("Could not evaluate force-field energy with fixed 'uff': setup_failed")
-    raw_energy = float(force_field.Energy())
-    raw_unit = str(force_field.GetUnit())
+    exact_setup_key = _build_force_field_setup_key(candidate_obmol)
+    openbabel_setup_key = _build_openbabel_setup_key(candidate_obmol)
+    with _force_field_setup_lock:
+        _prepare_force_field_for_setup(
+            _FIXED_FORCE_FIELD,
+            force_field,
+            exact_setup_key,
+            openbabel_setup_key,
+        )
+        if not bool(force_field.Setup(candidate_obmol)):
+            _force_field_setup_state.pop(_FIXED_FORCE_FIELD, None)
+            raise ValueError("Could not evaluate force-field energy with fixed 'uff': setup_failed")
+        _force_field_setup_state[_FIXED_FORCE_FIELD] = (
+            exact_setup_key,
+            openbabel_setup_key,
+        )
+        raw_energy = float(force_field.Energy())
+        raw_unit = str(force_field.GetUnit())
     energy_kj_mol = _force_field_energy_to_kj_mol(raw_energy, raw_unit)
     return ForceFieldEvaluation(
         raw_energy=raw_energy,
@@ -230,6 +328,8 @@ def force_field_evaluation_cache_info() -> Tuple[int, int, int]:
 
 def force_field_evaluation_cache_clear() -> None:
     _force_field_evaluation_cached.cache_clear()
+    with _force_field_setup_lock:
+        _force_field_setup_state.clear()
 
 
 def _force_field_evaluation_from_context(

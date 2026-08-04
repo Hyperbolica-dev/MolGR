@@ -6,7 +6,7 @@ namespace molgr
 {
     namespace reconstruct
     {
-        bool MakeConnections(OpenBabel::OBMol &mol, double factor = 1.4);
+        bool MakeConnections(OpenBabel::OBMol &mol, double extra_tolerance_angstrom = 0.15);
         bool PreClean(OpenBabel::OBMol &mol);
         bool ValidateOmol(
             OpenBabel::OBMol &mol,

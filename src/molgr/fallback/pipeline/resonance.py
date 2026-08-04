@@ -94,6 +94,7 @@ def _walk_radical_resonances_bfs(
                 omol=current,
                 state_key=current_key,
                 depth=depth,
+                discrepancy=0,
             )
         )
         if depth >= max_depth or not should_expand:
@@ -157,6 +158,7 @@ def _walk_radical_resonances_limited_discrepancy(
                     omol=current,
                     state_key=current_key,
                     depth=depth,
+                    discrepancy=discrepancy,
                 )
             )
         if depth >= max_depth or not should_expand:
