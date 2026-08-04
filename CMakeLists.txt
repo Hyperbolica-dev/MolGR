@@ -108,8 +108,10 @@ add_library(molgr STATIC
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(MSVC)
-    target_compile_definitions(molgr PUBLIC _HAS_AUTO_PTR_ETC=1)
+if(MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
+    target_compile_options(molgr PUBLIC
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/include/molgr/compat/msvc_openbabel_stl.h"
+    )
 endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
