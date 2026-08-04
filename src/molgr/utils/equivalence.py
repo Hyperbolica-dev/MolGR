@@ -691,12 +691,10 @@ def _check_equivalence_impl(
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
 
-    organic_1 = _normalize_nonmetal_octet(
-        _prepare_organic_mol(standardized_1, already_standardized=True)
-    )
-    organic_2 = _normalize_nonmetal_octet(
-        _prepare_organic_mol(standardized_2, already_standardized=True)
-    )
+    prepared_organic_1 = _prepare_organic_mol(standardized_1, already_standardized=True)
+    prepared_organic_2 = _prepare_organic_mol(standardized_2, already_standardized=True)
+    organic_1 = _normalize_nonmetal_octet(prepared_organic_1)
+    organic_2 = _normalize_nonmetal_octet(prepared_organic_2)
 
     formal_charge_1 = _total_formal_charge(organic_1)
     formal_charge_2 = _total_formal_charge(organic_2)
@@ -765,6 +763,33 @@ def _check_equivalence_impl(
             info.method = EquivalenceMethod.IDEAL
             info.reason = "Equivalent: canonical SMILES are identical after standardization."
             return True, info
+
+        # RDKit releases can switch between aromatic, kekulized, and explicit-
+        # hydrogen forms while preserving the same stereochemical structure.
+        # Compare the pre-octet-normalization organic graphs through InChI in
+        # that case.  This is deliberately after the charge, radical, formula,
+        # and atom-count checks above, and InChI still distinguishes E/Z and
+        # enantiomeric stereochemistry.
+        prepared_inchi_key_1 = _inchi_key(prepared_organic_1)
+        prepared_inchi_key_2 = _inchi_key(prepared_organic_2)
+        if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
+            _is_metal_atom(atom) for atom in mol2.GetAtoms()
+        ):
+            # Standardization itself may materialize hydrogens differently on
+            # the two RDKit versions.  For metal-free inputs the original
+            # graphs are already the correct coordination-free source.
+            prepared_inchi_key_1 = _inchi_key(mol1)
+            prepared_inchi_key_2 = _inchi_key(mol2)
+        if (
+            use_chirality
+            and prepared_inchi_key_1 is not None
+            and prepared_inchi_key_1 == prepared_inchi_key_2
+        ):
+            info.equivalent = True
+            info.method = EquivalenceMethod.INCHI_KEY
+            info.reason = "Equivalent: prepared organic InChIKey matches after standardization."
+            return True, info
+
         if use_chirality and _canon_smiles(organic_1, False) == _canon_smiles(organic_2, False):
             info.reason = "Not equivalent: stereochemistry differs."
             return False, info
