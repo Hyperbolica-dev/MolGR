@@ -55,6 +55,27 @@ namespace
 {
   constexpr std::size_t kMolgrUffAtomTypeAssignmentCacheMaxSize = 4096;
 
+#if defined(_WIN32)
+  // Open Babel's Windows import library exports these classes' methods, but
+  // not the global objects declared in locale.h and oberror.h.
+  OpenBabel::OBLocale &MolgrObLocale()
+  {
+    static OpenBabel::OBLocale locale;
+    return locale;
+  }
+
+  OpenBabel::OBMessageHandler &MolgrObErrorLog()
+  {
+    static OpenBabel::OBMessageHandler error_log;
+    return error_log;
+  }
+#define MOLGR_OB_LOCALE ::MolgrObLocale()
+#define MOLGR_OB_ERROR_LOG ::MolgrObErrorLog()
+#else
+#define MOLGR_OB_LOCALE OpenBabel::obLocale
+#define MOLGR_OB_ERROR_LOG OpenBabel::obErrorLog
+#endif
+
   struct MolgrUffAtomTypeRule
   {
     std::string smarts;
@@ -687,7 +708,7 @@ namespace
       return data;
     }
 
-    OpenBabel::obLocale.SetLocale();
+    MOLGR_OB_LOCALE.SetLocale();
     while (ifs.getline(buffer, BUFF_SIZE)) {
       OpenBabel::tokenize(vs, buffer);
       if (EQn(buffer, "atom", 4) && vs.size() >= 3) {
@@ -754,7 +775,7 @@ namespace
       data.ffparam_index[parameter._a] = data.ffparams.size();
       data.ffparams.push_back(parameter);
     }
-    OpenBabel::obLocale.RestoreLocale();
+    MOLGR_OB_LOCALE.RestoreLocale();
     data.loaded = !data.ffparams.empty() && !data.atom_type_rules.empty();
     return data;
   }
@@ -1832,7 +1853,7 @@ namespace OpenBabel {
       if (parameterB == NULL) {
         snprintf(_logbuf, BUFF_SIZE, "    COULD NOT FIND PARAMETERS FOR ATOM %d (IDX)...\n",
                  atom->GetIdx());
-        obErrorLog.ThrowError(__FUNCTION__, _logbuf, obWarning);
+        MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, _logbuf, obWarning);
         IF_OBFF_LOGLVL_LOW
           OBFFLog(_logbuf);
         return false;
@@ -2687,7 +2708,7 @@ namespace OpenBabel {
   {
     const auto &shared = GetMolgrUffSharedData();
     if (!shared.loaded) {
-      obErrorLog.ThrowError(__FUNCTION__, "Cannot open UFF.prm", obError);
+      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Cannot open UFF.prm", obError);
       return false;
     }
     _ffparams = shared.ffparams;
@@ -2709,7 +2730,7 @@ namespace OpenBabel {
 
     const std::vector<MolgrCompiledUffAtomTypeRule> *compiled_rules = nullptr;
     if (!GetMolgrCompiledUffAtomTypeRules(compiled_rules) || compiled_rules == nullptr) {
-      obErrorLog.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
+      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
       return false;
     }
 
