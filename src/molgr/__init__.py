@@ -34,7 +34,7 @@ except importlib.metadata.PackageNotFoundError:
 pybel.ob.obErrorLog.StopLogging()
 
 
-def set_log_level(level: core.LogLevel):
+def set_log_level(level: core.LogLevel) -> None:
     """
     Set C++ backend logging level.
 
@@ -61,6 +61,4 @@ __all__ = [
     "pipeline",
 ]
 
-_log_level = getattr(core, "LogLevel", None)
-if _log_level is not None:
-    set_log_level(_log_level.WARN)
+set_log_level(core.LogLevel.WARN)

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import typing
 
+import molgr.config
+
 __all__: list[str] = [
     "debug_neighbor_radical_seeds",
     "debug_prepared_no_metal_seed",
@@ -36,7 +38,7 @@ def debug_resonance_candidate_summaries(
     total_charge: typing.SupportsInt | typing.SupportsIndex = 0,
     total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = 0,
     *,
-    config: typing.Any = None,
+    config: molgr.config.MolGRConfig | None = None,
 ) -> list:
     """
     Return production C++ no-metal resonance candidate summaries.
