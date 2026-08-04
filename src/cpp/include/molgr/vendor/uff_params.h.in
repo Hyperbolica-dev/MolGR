@@ -1,8 +1,0 @@
-#pragma once
-
-namespace molgr::vendor
-{
-inline constexpr char kUffParamFile[] = R"molgr_uff(
-@MOLGR_UFF_PARAM_CONTENT@
-)molgr_uff";
-}

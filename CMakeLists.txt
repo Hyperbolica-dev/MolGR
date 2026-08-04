@@ -6,15 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(MOLGR_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-file(MAKE_DIRECTORY "${MOLGR_GENERATED_INCLUDE_DIR}/molgr/vendor")
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/molgr/data/UFF.prm" MOLGR_UFF_PARAM_CONTENT)
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/include/molgr/vendor/uff_params.h.in"
-    "${MOLGR_GENERATED_INCLUDE_DIR}/molgr/vendor/uff_params.h"
-    @ONLY
-)
-
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -131,7 +122,6 @@ target_include_directories(molgr PUBLIC
     src/cpp/include
     ${OB_INCLUDE_DIR}
 )
-target_include_directories(molgr PRIVATE "${MOLGR_GENERATED_INCLUDE_DIR}")
 
 target_link_libraries(molgr PUBLIC ${OB_LIBRARY})
 
