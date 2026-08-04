@@ -2,6 +2,19 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml/badge.svg)](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml)
+[![PyPI](https://img.shields.io/pypi/v/molgr.svg)](https://pypi.org/project/molgr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/molgr.svg)](https://pypi.org/project/molgr/)
+[![Wheel](https://img.shields.io/pypi/wheel/molgr.svg)](https://pypi.org/project/molgr/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-4C8BF5)
+![Python](https://img.shields.io/badge/python-3.8--3.14-3776AB?logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Development status](https://img.shields.io/badge/status-active%20development-F59E0B)
+![Typing](https://img.shields.io/badge/typing-PEP%20561%20typed-2F74C0)
+![Languages](https://img.shields.io/badge/languages-Python%20%7C%20C%2B%2B-00599C)
+![Ruff](https://img.shields.io/badge/lint%20%26%20format-Ruff-D7FF64?logo=ruff&logoColor=261230)
+[![License](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+
 MolGR stands for Moleculer Graph Reconstructor.
 
 MolGR is a Python package for reconstructing molecular graphs from XYZ coordinates.
@@ -62,6 +75,12 @@ CONFIG.cpp_backend.enable_target_bucket_parallelism = True
 CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
 CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
 ```
+
+On Windows, `CONFIG.cpp_backend.max_threads` defaults to `1`. Enabling C++
+backend thread parallelism on Windows is not recommended: concurrent Open Babel
+reconstruction can cause native access violations that Python cannot catch. Keep
+`max_threads=1` unless the complete workload has been validated locally. Linux
+and macOS keep the automatic `None` default.
 
 The C++ backend is the default accelerated implementation of the Python fallback
 semantics. C++-only switches may change scheduling, caching, or thread-safe vendor

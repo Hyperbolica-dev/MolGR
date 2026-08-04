@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -116,7 +117,7 @@ def test_cpp_resonance_traversal_score_accepts_input_order() -> None:
 def test_cpp_default_config_enables_target_bucket_thread_parallelism() -> None:
     config = MolGRConfig()
 
-    assert config.cpp_backend.max_threads is None
+    assert config.cpp_backend.max_threads == (1 if sys.platform == "win32" else None)
     assert config.cpp_backend.enable_target_bucket_parallelism is True
     assert config.cpp_backend.enable_candidate_scoring_parallelism is False
     assert config.cpp_backend.target_bucket_parallel_threshold == 1
