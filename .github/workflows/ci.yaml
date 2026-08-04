@@ -17,12 +17,14 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint (ubuntu-latest, Py 3.11)
     runs-on: ubuntu-latest
     env:
-      UV_INDEX: https://pypi.org/simple
       UV_DEFAULT_INDEX: https://pypi.org/simple
     steps:
       - name: Checkout code
@@ -33,30 +35,34 @@ jobs:
       - name: Disable proxy for package installs
         run: sh scripts/ci_disable_proxy.sh
 
+      - name: Set up Python 3.11 (GitHub)
+        if: ${{ env.ACT != 'true' }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v9.0.0
         with:
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: lint
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
         env:
-          PYPI_INDEX_URL: https://pypi.org/simple
+          PYPI_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
         run: sh scripts/ci_install_uv.sh
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11 (act)
+        if: ${{ env.ACT == 'true' }}
         run: uv python install 3.11
-
-      - name: Install dependencies
-        run: |
-          uv sync --python 3.11 --no-dev --no-install-project --index https://pypi.org/simple --default-index https://pypi.org/simple
-          uv pip install --python 3.11 ruff --index https://pypi.org/simple --default-index https://pypi.org/simple
 
       - name: Lint and format check
         run: |
-          uv run --no-sync --python 3.11 ruff check src
-          uv run --no-sync --python 3.11 ruff format --check src
+          uvx --from ruff==0.15.2 ruff check src
+          uvx --from ruff==0.15.2 ruff format --check src
 
   get-metadata:
     runs-on: ubuntu-latest
@@ -76,7 +82,6 @@ jobs:
     name: Build and test on ${{ matrix.os }} (Py ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     env:
-      UV_INDEX: https://pypi.org/simple
       UV_DEFAULT_INDEX: https://pypi.org/simple
     strategy:
       fail-fast: false
@@ -93,38 +98,52 @@ jobs:
       - name: Disable proxy for package installs
         run: sh scripts/ci_disable_proxy.sh
 
+      - name: Set up Python ${{ matrix.python-version }} (GitHub)
+        if: ${{ env.ACT != 'true' }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
       - name: Install uv (GitHub)
         if: ${{ env.ACT != 'true' }}
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v9.0.0
         with:
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            ci/rdkit-constraints.txt
+          cache-suffix: py${{ matrix.python-version }}
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
         env:
-          PYPI_INDEX_URL: https://pypi.org/simple
+          PYPI_INDEX_URL: https://mirrors.zju.edu.cn/pypi/web/simple
         run: sh scripts/ci_install_uv.sh
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }} (act)
+        if: ${{ env.ACT == 'true' }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          uv sync --python ${{ matrix.python-version }} --no-dev --no-install-project --index https://pypi.org/simple --default-index https://pypi.org/simple
-          uv pip install --python ${{ matrix.python-version }} pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm typing-extensions 'rdkit-dof>=0.2.1' --index https://pypi.org/simple --default-index https://pypi.org/simple
+      - name: Create virtual environment
+        run: uv venv --python ${{ matrix.python-version }} .venv
 
-      - name: Ensure CMake available
-        run: uv pip install --python ${{ matrix.python-version }} "cmake>=3.15" --index https://pypi.org/simple --default-index https://pypi.org/simple
+      - name: Install dependencies
+        run: >
+          uv pip install --python .venv
+          --requirements pyproject.toml
+          --constraint ci/rdkit-constraints.txt
+          pytest pytest-cov pandas pybind11 scikit-build-core setuptools-scm
+          typing-extensions 'rdkit-dof>=0.2.1' 'cmake>=3.15'
 
       - name: Build extension (editable install)
-        run: uv pip install -e . -v --no-build-isolation --constraint ci/rdkit-constraints.txt --python ${{ matrix.python-version }} --index https://pypi.org/simple --default-index https://pypi.org/simple
+        run: uv pip install -e . -v --no-build-isolation --constraint ci/rdkit-constraints.txt --python .venv
 
       - name: Compile smoke check
         run: |
-          uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
+          uv run --no-sync python -c "import molgr; import molgr._core"
 
       - name: Run tests
-        run: uv run --no-sync --python ${{ matrix.python-version }} pytest
+        run: uv run --no-sync pytest
 
   build-release-wheels:
     name: Build release wheels (${{ matrix.target }})
@@ -191,7 +210,7 @@ jobs:
 
       - name: Set up Python 3.11 (GitHub)
         if: ${{ env.ACT != 'true' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -217,7 +236,10 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
-          CIBW_BEFORE_BUILD_WINDOWS: python -m pip install delvewheel==1.13.0
+          CIBW_BEFORE_BUILD_WINDOWS: >
+            python -m pip install
+            "delvewheel==1.10.0; python_version < '3.9'"
+            "delvewheel==1.13.0; python_version >= '3.9'"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
             case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
@@ -258,7 +280,10 @@ jobs:
             PIP_DEFAULT_TIMEOUT=120
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BUILD_VERBOSITY: "1"
-          CIBW_BEFORE_BUILD_WINDOWS: python -m pip install delvewheel==1.13.0
+          CIBW_BEFORE_BUILD_WINDOWS: >
+            python -m pip install
+            "delvewheel==1.10.0; python_version < '3.9'"
+            "delvewheel==1.13.0; python_version >= '3.9'"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             sh -c 'libdir=$(python -c "import openbabel, os; print(os.path.join(os.path.dirname(openbabel.__file__), \"lib\"))");
             case "{wheel}" in *cp38*|*cp39*) soname=libopenbabel.so.7 ;; *) soname=libopenbabel.so.8 ;; esac;
@@ -293,7 +318,6 @@ jobs:
     name: Deploy to PyPI
     runs-on: ubuntu-latest
     env:
-      UV_INDEX: https://pypi.org/simple
       UV_DEFAULT_INDEX: https://pypi.org/simple
     needs: [build-and-test, build-release-wheels, get-metadata]
     if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease == false && github.event.release.target_commitish == 'main' && startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, 'rc') && !contains(github.event.release.tag_name, '.dev')
@@ -316,7 +340,11 @@ jobs:
         run: sh scripts/ci_disable_proxy.sh
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: deploy
 
       - name: Download release wheel artifacts
         uses: actions/download-artifact@v4

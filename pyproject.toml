@@ -136,8 +136,3 @@ pythonVersion = "3.8"
 typeCheckingMode = "basic"
 venvPath = "."
 venv = ".venv"
-
-
-[[tool.uv.index]]
-name = "pypi"
-url = "https://mirrors.zju.edu.cn/pypi/web/simple"

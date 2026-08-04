@@ -62,12 +62,20 @@ File: [`.gitea/workflows/ci.yaml`](../../.gitea/workflows/ci.yaml)
 File: [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
 
 - Cross-platform verification job (`build-and-test`) for `3.8` to `3.14`.
+- GitHub-hosted test jobs use the `setup-python` tool cache and the `setup-uv`
+  package cache, split by operating system and Python version.
+- Lint runs a pinned Ruff through `uvx` without installing MolGR's RDKit/Open Babel
+  runtime stack. Test jobs install runtime requirements directly from `pyproject.toml`
+  instead of resolving through the locally mirrored `uv.lock`.
 - Benchmark dependencies live in [`benchmarks/pyproject.toml`](../../benchmarks/pyproject.toml) and are intentionally excluded from root package metadata and release dependency resolution.
 - Formal release wheel job uses `cibuildwheel` with platform-specific wheel groups:
   - Linux `cp38`-`cp312`: `manylinux2014` / glibc `>=2.17` for `x86_64` and `aarch64`.
   - Linux `cp313`-`cp314`: `manylinux_2_28` / glibc `>=2.28` for `x86_64` and `aarch64`.
   - Windows: AMD64; `delvewheel` repairs native dependencies while leaving
-    `openbabel-3.dll` to the declared Open Babel package.
+    `openbabel-3.dll` to the declared Open Babel package. CPython 3.8 uses
+    `delvewheel 1.10.0`; newer Python versions use `delvewheel 1.13.0` because
+    `delvewheel 1.11+` requires Python 3.9 or newer. CMake links the matching
+    `openbabel/bin/openbabel-3.lib` import library supplied by both package families.
   - macOS: native `x86_64` on `macos-13` and native `arm64` on `macos-14`.
 - Runtime dependency metadata keeps `rdkit>=2023.9.6` unpinned so modern systems can install newer RDKit wheels, while older glibc systems can fall back to the newest compatible RDKit wheel available for their Python and platform. The root [`uv.lock`](../../uv.lock) is only the local development resolution and may choose older RDKit for some Python splits; it is not the published wheel's version cap.
 - Deploy publishes to PyPI only when all are true:
@@ -77,7 +85,8 @@ File: [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
   - tag starts with `v`
   - tag does not contain `rc` / `.dev`
 - A manual `workflow_dispatch` run with `build_release_wheels=true` builds and
-  tests the complete release wheel matrix without running the PyPI deploy job.
+  tests the complete release wheel matrix and uploads workflow artifacts for
+  inspection, without publishing to PyPI or attaching files to a GitHub Release.
 
 ## Tag Synchronization Policy
 
