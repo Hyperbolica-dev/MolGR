@@ -21,7 +21,8 @@ resolution-markers = [
     "python_full_version == '3.10.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
     "(python_full_version == '3.10.*' and platform_machine != 'x86_64') or (python_full_version == '3.10.*' and sys_platform != 'darwin')",
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 
 [[package]]
@@ -56,7 +57,8 @@ name = "cffi"
 version = "1.17.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "pycparser", version = "2.23", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -270,7 +272,8 @@ name = "coverage"
 version = "7.6.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f7/08/7e37f82e4d1aead42a7443ff06a1e406aabf7302c4f00a546e4b320b994c/coverage-7.6.1.tar.gz", hash = "sha256:953510dfb7b12ab69d20135a0662397f077c59b1e6379a768e97c59d852ee51d" }
 wheels = [
@@ -682,7 +685,8 @@ name = "importlib-metadata"
 version = "8.5.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "zipp", version = "3.20.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -725,7 +729,8 @@ version = "2.1.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f2/97/ebf4da567aa6827c909642694d71c9fcf53e5b504f2d96afea02718862f3/iniconfig-2.1.0.tar.gz", hash = "sha256:3abbd2e30b36733fee78f9c7f7308f2d0050e88f0087fd25c2645f63c773e1c7" }
 wheels = [
@@ -766,7 +771,8 @@ name = "ipykernel"
 version = "6.29.5"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "appnope", marker = "python_full_version < '3.9' and sys_platform == 'darwin'" },
@@ -865,7 +871,8 @@ name = "ipython"
 version = "8.12.3"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "appnope", marker = "python_full_version < '3.9' and sys_platform == 'darwin'" },
@@ -1040,7 +1047,8 @@ version = "8.6.3"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "importlib-metadata", version = "8.5.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -1099,7 +1107,8 @@ version = "5.8.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "platformdirs", version = "4.3.6", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -1257,7 +1266,8 @@ version = "3.0.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "mdurl", marker = "python_full_version < '3.10'" },
@@ -1304,7 +1314,8 @@ name = "markupsafe"
 version = "2.1.5"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/87/5b/aae44c6655f3801e81aa3eef09dbbf012431987ba564d7231722f68df02d/MarkupSafe-2.1.5.tar.gz", hash = "sha256:d283d37a890ba4c1ae73ffadf8046435c76e7bc2247bbb63c00bd1a709c6544b" }
 wheels = [
@@ -1482,7 +1493,8 @@ name = "matplotlib-inline"
 version = "0.1.7"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "traitlets", marker = "python_full_version < '3.9'" },
@@ -1541,7 +1553,8 @@ dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "openbabel", marker = "python_full_version >= '3.10'" },
-    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
+    { name = "openbabel-wheel", version = "3.1.1.22", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9' and sys_platform == 'win32'" },
+    { name = "openbabel-wheel", version = "3.1.1.23", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "(python_full_version < '3.10' and sys_platform != 'win32') or (python_full_version == '3.9.*' and sys_platform == 'win32')" },
     { name = "rdkit", version = "2024.3.5", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "rdkit", version = "2025.9.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "rdkit", version = "2025.9.3", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10' and platform_machine == 'x86_64' and sys_platform == 'darwin'" },
@@ -1587,7 +1600,8 @@ requires-dist = [
     { name = "numpy", marker = "python_full_version >= '3.10' and python_full_version < '3.13'", specifier = ">=1.26,<2.3" },
     { name = "numpy", marker = "python_full_version >= '3.13'", specifier = ">=1.26" },
     { name = "openbabel", marker = "python_full_version >= '3.10'", specifier = ">=3.2.0" },
-    { name = "openbabel-wheel", marker = "python_full_version < '3.10'" },
+    { name = "openbabel-wheel", marker = "python_full_version < '3.9' and sys_platform == 'win32'", specifier = "==3.1.1.22" },
+    { name = "openbabel-wheel", marker = "(python_full_version < '3.10' and sys_platform != 'win32') or (python_full_version == '3.9.*' and sys_platform == 'win32')" },
     { name = "rdkit", specifier = ">=2023.9.6" },
     { name = "typing-extensions", specifier = ">=4.13.2" },
 ]
@@ -1619,7 +1633,8 @@ name = "mypy"
 version = "1.14.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "mypy-extensions", marker = "python_full_version < '3.9'" },
@@ -1772,7 +1787,8 @@ name = "numpy"
 version = "1.24.4"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/a4/9b/027bec52c633f6556dba6b722d9a0befb40498b9ceddd29cbe67a45a127c/numpy-1.24.4.tar.gz", hash = "sha256:80f5e3a4e498641401868df4208b74581206afbee7cf7b8329daae82676d9463" }
 wheels = [
@@ -1904,8 +1920,30 @@ wheels = [
 
 [[package]]
 name = "openbabel-wheel"
+version = "3.1.1.22"
+source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/75/55/c916675c49beb64256bd108f4a797111cedca592c9be0c931014b8654806/openbabel-wheel-3.1.1.22.tar.gz", hash = "sha256:d12e07f8e2b2a8a9007b486087fdeb731cedb5b14129bf93ad3d2c5a72e54d08" }
+wheels = [
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/df/99/0c6bc7a70fc5f17631b31b71a25bbb3d9ab2b71997545e6349ba3c3534f2/openbabel_wheel-3.1.1.22-cp310-cp310-win_amd64.whl", hash = "sha256:d8d4c920a9c3481379e2cb64ed7fa3cb0c4f91ff1c6b9f7cd559138c87efb889" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/d5/27/c219228b4eb582ab11ac0ae2a8acd895e880a4f427e9bdf17d0e41783d91/openbabel_wheel-3.1.1.22-cp311-cp311-win_amd64.whl", hash = "sha256:1303272ecdcfcdfbe7648f2761aa6639c5a4ec3073b472f766d3d2567a44b523" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/f3/12a0e194e735cb0f3fc6122cfd39d63f05ab2426ee4083b7de1bc4ea1242/openbabel_wheel-3.1.1.22-cp312-cp312-win_amd64.whl", hash = "sha256:e369179c9edfd35b79faa252be0b28b7b8932aee80acfced1922595b67594dbd" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/80/1d/8e88918fe6047d8eee9a53aa9b153bf9e098fc871cfd5c86a2a5b16e38a1/openbabel_wheel-3.1.1.22-cp313-cp313-win_amd64.whl", hash = "sha256:e98ccbc75c3fcfa225554e6def913e949aff1c6ac9bad178e47bc313ce16d596" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/de/35/3c9a03a69211d71e8a1be693a498553a9bc70f0c8eebd7cbbe7d5ae5c0f3/openbabel_wheel-3.1.1.22-cp313-cp313t-win_amd64.whl", hash = "sha256:28863c6b7e169f26d6d2d58c46ec6e51492f7a82712e22a2262b6255c0935417" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/1a/b4/2ee8c41b61212c061b0609650e5201f30bb5b363c15b279ad86f43f8d826/openbabel_wheel-3.1.1.22-cp38-cp38-win_amd64.whl", hash = "sha256:3189e21ecd82eb9227b853cef03d282f16b9be2699986b7411365cbfb75a1215" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/eb/b5/87134222b3ffdcf1e05a0f556100fe65f3e02a31d565ccd12f0f3de49d39/openbabel_wheel-3.1.1.22-cp39-cp39-win_amd64.whl", hash = "sha256:87176003d5b24972d3a6c7fe4f536320f0669bc74c1117a6b8d3db6f01c453b4" },
+]
+
+[[package]]
+name = "openbabel-wheel"
 version = "3.1.1.23"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
+]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/63/2d/720579ccff6247aa8fd2d397a7bd592dae72ef0f0133fe6cce2323ea13a2/openbabel_wheel-3.1.1.23.tar.gz", hash = "sha256:68fd86540ff0895d36b26f25721187399fb6073f874f6ae474a574e6acf8759d" }
 wheels = [
     { url = "https://mirrors.zju.edu.cn/pypi/web/packages/21/8f/30b189f0dcb03855965ea0f9a47915d8c6a6d8c09885e800fb5dda979032/openbabel_wheel-3.1.1.23-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:6847e80ea0a9a23b09d6127f8c9dd71f48e9b930914bec9a6966c69e723bb706" },
@@ -1967,7 +2005,8 @@ name = "pandas"
 version = "2.0.3"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -2106,7 +2145,8 @@ name = "pathspec"
 version = "0.12.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/ca/bc/f35b8446f4531a7cb215605d100cd88b7ac6f44ab3fc94870c120ab3adbf/pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712" }
 wheels = [
@@ -2148,7 +2188,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "(python_full_version < '3.11' and sys_platform == 'emscripten') or (python_full_version < '3.11' and sys_platform == 'win32') or (sys_platform != 'emscripten' and sys_platform != 'win32')" },
+    { name = "ptyprocess", marker = "(python_full_version >= '3.9' and python_full_version < '3.11' and sys_platform == 'win32') or (python_full_version < '3.11' and sys_platform == 'emscripten') or (sys_platform != 'emscripten' and sys_platform != 'win32')" },
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f" }
 wheels = [
@@ -2169,7 +2209,8 @@ name = "pillow"
 version = "10.4.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz", hash = "sha256:166c1cd4d24309b30d61f79f4a9114b7b2313d7450912277855ff5dfd7cd4a06" }
 wheels = [
@@ -2493,7 +2534,8 @@ name = "platformdirs"
 version = "4.3.6"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/13/fc/128cc9cb8f03208bdbf93d3aa862e16d376844a14f9a0ce5cf4507372de4/platformdirs-4.3.6.tar.gz", hash = "sha256:357fb2acbc885b0419afd3ce3ed34564c13c9b95c89360cd9563f73aa5e2b907" }
 wheels = [
@@ -2546,7 +2588,8 @@ name = "pluggy"
 version = "1.5.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/96/2d/02d4312c973c6050a18b314a5ad0b3210edb65a906f868e31c111dede4a6/pluggy-1.5.0.tar.gz", hash = "sha256:2cffa88e94fdc978c4c574f15f9e59b7f4201d439195c3715ca9e2486f1d0cf1" }
 wheels = [
@@ -2680,7 +2723,8 @@ version = "2.23"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
     "python_full_version == '3.9.*'",
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/fe/cf/d2d3b9f5699fb1e4615c8e32ff220203e43b248e1dfcc6736ad9057731ca/pycparser-2.23.tar.gz", hash = "sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2" }
 wheels = [
@@ -2744,7 +2788,8 @@ name = "pytest"
 version = "8.3.5"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "colorama", marker = "python_full_version < '3.9' and sys_platform == 'win32'" },
@@ -2823,7 +2868,8 @@ name = "pytest-cov"
 version = "5.0.0"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "coverage", version = "7.6.1", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, extra = ["toml"], marker = "python_full_version < '3.9'" },
@@ -3027,7 +3073,8 @@ name = "rdkit"
 version = "2024.3.5"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -3255,7 +3302,8 @@ name = "scipy"
 version = "1.10.1"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
@@ -3403,7 +3451,8 @@ name = "setuptools"
 version = "75.3.4"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/0e/93/d2622cbf262418995140dfc1ddb890badd6322893fa122302577c82b9617/setuptools-75.3.4.tar.gz", hash = "sha256:b4ea3f76e1633c4d2d422a5d68ab35fd35402ad71e6acaa5d7e5956eb47e8887" }
 wheels = [
@@ -3539,7 +3588,8 @@ name = "tornado"
 version = "6.4.2"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/59/45/a0daf161f7d6f36c3ea5fc0c2de619746cc3dd4c76402e9db545bd920f63/tornado-6.4.2.tar.gz", hash = "sha256:92bad5b4746e9879fd7bf1eb21dce4e3fc5128d71601f80005afa39237ad620b" }
 wheels = [
@@ -3609,7 +3659,8 @@ name = "typing-extensions"
 version = "4.13.2"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/f6/37/23083fcd6e35492953e8d2aaaa68b860eb422b34627b13f2ce3eb6106061/typing_extensions-4.13.2.tar.gz", hash = "sha256:e6c81219bd689f51865d9e372991c540bda33a0379d5573cddb9a3a23f7caaef" }
 wheels = [
@@ -3678,7 +3729,8 @@ name = "zipp"
 version = "3.20.2"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 resolution-markers = [
-    "python_full_version < '3.9'",
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/54/bf/5c0000c44ebc80123ecbdddba1f5dcd94a5ada602a9c225d84b5aaa55e86/zipp-3.20.2.tar.gz", hash = "sha256:bc9eb26f4506fda01b81bcde0ca78103b6e62f991b381fec825435c836edbc29" }
 wheels = [

@@ -7,10 +7,12 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Typing :: Typed",
 ]
 dependencies = [
     "rdkit>=2023.9.6",
-    "openbabel-wheel; python_version < '3.10'",
+    "openbabel-wheel==3.1.1.22; python_version < '3.9' and sys_platform == 'win32'",
+    "openbabel-wheel; python_version < '3.10' and (sys_platform != 'win32' or python_version >= '3.9')",
     "openbabel>=3.2.0; python_version >= '3.10'",
     "numpy<2; python_version == '3.8'",
     "numpy>=1.26,<2; python_version == '3.9'",
@@ -24,7 +26,8 @@ requires = [
     "scikit-build-core>=0.10",
     "setuptools-scm",
     "pybind11",
-    "openbabel-wheel; python_version < '3.10'",
+    "openbabel-wheel==3.1.1.22; python_version < '3.9' and sys_platform == 'win32'",
+    "openbabel-wheel; python_version < '3.10' and (sys_platform != 'win32' or python_version >= '3.9')",
     "openbabel>=3.2.0; python_version >= '3.10'",
 ]
 build-backend = "scikit_build_core.build"
@@ -136,8 +139,3 @@ pythonVersion = "3.8"
 typeCheckingMode = "basic"
 venvPath = "."
 venv = ".venv"
-
-
-[[tool.uv.index]]
-name = "pypi"
-url = "https://mirrors.zju.edu.cn/pypi/web/simple"
