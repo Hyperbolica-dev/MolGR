@@ -1,14 +1,44 @@
 [project]
 name = "molgr"
 dynamic = ["version"]
-description = "MolGR, a Python package for reconstructing molecular graphs from XYZ coordinates."
+description = "Reconstruct molecular graphs from XYZ coordinates with RDKit and Open Babel."
 readme = "README.md"
 license = { file = "LICENSE" }
+authors = [
+    { name = "Miao-jiong Tang", email = "mj_t@zju.edu.cn" },
+    { name = "Ying-zi Luo" },
+]
 requires-python = ">=3.8"
+keywords = [
+    "cheminformatics",
+    "chemistry",
+    "molecular graph",
+    "molecular reconstruction",
+    "molecular structure",
+    "XYZ",
+    "RDKit",
+    "Open Babel",
+]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Chemistry",
     "Typing :: Typed",
 ]
+
 dependencies = [
     "rdkit>=2023.9.6",
     "openbabel-wheel==3.1.1.22; python_version < '3.9' and sys_platform == 'win32'",
@@ -21,9 +51,16 @@ dependencies = [
     "typing-extensions>=4.13.2",
 ]
 
+
+[project.urls]
+Homepage = "https://github.com/gentle1999/MolGR"
+Repository = "https://github.com/gentle1999/MolGR"
+Documentation = "https://github.com/gentle1999/MolGR/tree/main/docs"
+Issues = "https://github.com/gentle1999/MolGR/issues"
+
 [build-system]
 requires = [
-    "scikit-build-core>=0.10",
+    "scikit-build-core>=1.0",
     "setuptools-scm",
     "pybind11",
     "openbabel-wheel==3.1.1.22; python_version < '3.9' and sys_platform == 'win32'",
@@ -36,11 +73,15 @@ build-backend = "scikit_build_core.build"
 cmake.build-type = "Release"
 wheel.packages = ["src/molgr"]
 
-# ✅ 这是官方原生支持的 Provider
-metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
-
 # 生成 _version.py (包含在 sdist 中)
 sdist.include = ["src/molgr/_version.py"]
+
+# ✅ 这是官方原生支持的 Provider
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.setuptools_scm"
+
+[tool.setuptools_scm]
+write_to = "src/molgr/_version.py"
 
 [dependency-groups]
 dev = [
@@ -55,7 +96,7 @@ dev = [
     "pytest-cov",
     "rich",
     "ruff",
-    "scikit-build-core>=0.11.6",
+    "scikit-build-core>=1.0",
     "scipy>=1.10.1",
     "setuptools-scm>=9.2.2",
     "jinja2",
