@@ -14,7 +14,11 @@ namespace molgr::config
 
     struct CppBackendConfig
     {
+#if defined(_WIN32)
+        std::optional<int> max_threads = 1;
+#else
         std::optional<int> max_threads;
+#endif
         bool enable_target_bucket_parallelism = true;
         bool enable_candidate_scoring_parallelism = false;
         bool enable_uff_atom_typing_cache = false;

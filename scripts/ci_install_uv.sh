@@ -38,6 +38,7 @@ if [ -n "${GITHUB_PATH:-}" ]; then
 fi
 if [ -n "${GITHUB_ENV:-}" ]; then
   echo "UV_BIN=$UV_BIN" >> "$GITHUB_ENV"
+  echo "UV_DEFAULT_INDEX=$PYPI_INDEX_URL" >> "$GITHUB_ENV"
 fi
 
 "$UV_BIN" --version

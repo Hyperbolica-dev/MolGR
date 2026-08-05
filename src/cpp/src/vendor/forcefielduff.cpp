@@ -30,11 +30,16 @@ GNU General Public License for more details.
 
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "molgr/utils/lru_cache.h"
 #include "molgr/vendor/forcefielduff.h"
@@ -54,6 +59,51 @@ using namespace std;
 namespace
 {
   constexpr std::size_t kMolgrUffAtomTypeAssignmentCacheMaxSize = 4096;
+
+#if defined(_WIN32)
+  // Open Babel's Windows import library exports these classes' methods, but
+  // not the global objects declared in locale.h and oberror.h.
+  OpenBabel::OBLocale &MolgrObLocale()
+  {
+    static OpenBabel::OBLocale locale;
+    return locale;
+  }
+
+  OpenBabel::OBMessageHandler &MolgrObErrorLog()
+  {
+    static OpenBabel::OBMessageHandler error_log;
+    return error_log;
+  }
+#define MOLGR_OB_LOCALE ::MolgrObLocale()
+#define MOLGR_OB_ERROR_LOG ::MolgrObErrorLog()
+#else
+#define MOLGR_OB_LOCALE OpenBabel::obLocale
+#define MOLGR_OB_ERROR_LOG OpenBabel::obErrorLog
+#endif
+
+#if defined(_WIN32)
+  void MolgrUffModuleAnchor() {}
+
+  std::filesystem::path MolgrInstalledUffParamPath()
+  {
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&MolgrUffModuleAnchor), &module)) {
+      return {};
+    }
+
+    std::wstring module_path(32768, L'\0');
+    const DWORD path_length = GetModuleFileNameW(
+        module, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (path_length == 0 || path_length >= module_path.size()) {
+      return {};
+    }
+    module_path.resize(path_length);
+    return std::filesystem::path(module_path).parent_path() / L"data" / L"UFF.prm";
+  }
+#endif
 
   struct MolgrUffAtomTypeRule
   {
@@ -683,11 +733,21 @@ namespace
 
     OpenBabel::OBFFParameter parameter;
     std::ifstream ifs;
-    if (OpenBabel::OpenDatafile(ifs, "UFF.prm").length() == 0) {
+    OpenBabel::OpenDatafile(ifs, "UFF.prm");
+#if defined(_WIN32)
+    if (!ifs.is_open()) {
+      ifs.clear();
+      const auto installed_path = MolgrInstalledUffParamPath();
+      if (!installed_path.empty()) {
+        ifs.open(installed_path, std::ios::in);
+      }
+    }
+#endif
+    if (!ifs.is_open()) {
       return data;
     }
 
-    OpenBabel::obLocale.SetLocale();
+    MOLGR_OB_LOCALE.SetLocale();
     while (ifs.getline(buffer, BUFF_SIZE)) {
       OpenBabel::tokenize(vs, buffer);
       if (EQn(buffer, "atom", 4) && vs.size() >= 3) {
@@ -754,7 +814,7 @@ namespace
       data.ffparam_index[parameter._a] = data.ffparams.size();
       data.ffparams.push_back(parameter);
     }
-    OpenBabel::obLocale.RestoreLocale();
+    MOLGR_OB_LOCALE.RestoreLocale();
     data.loaded = !data.ffparams.empty() && !data.atom_type_rules.empty();
     return data;
   }
@@ -1832,7 +1892,7 @@ namespace OpenBabel {
       if (parameterB == NULL) {
         snprintf(_logbuf, BUFF_SIZE, "    COULD NOT FIND PARAMETERS FOR ATOM %d (IDX)...\n",
                  atom->GetIdx());
-        obErrorLog.ThrowError(__FUNCTION__, _logbuf, obWarning);
+        MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, _logbuf, obWarning);
         IF_OBFF_LOGLVL_LOW
           OBFFLog(_logbuf);
         return false;
@@ -2687,7 +2747,7 @@ namespace OpenBabel {
   {
     const auto &shared = GetMolgrUffSharedData();
     if (!shared.loaded) {
-      obErrorLog.ThrowError(__FUNCTION__, "Cannot open UFF.prm", obError);
+      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Cannot open UFF.prm", obError);
       return false;
     }
     _ffparams = shared.ffparams;
@@ -2709,7 +2769,7 @@ namespace OpenBabel {
 
     const std::vector<MolgrCompiledUffAtomTypeRule> *compiled_rules = nullptr;
     if (!GetMolgrCompiledUffAtomTypeRules(compiled_rules) || compiled_rules == nullptr) {
-      obErrorLog.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
+      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
       return false;
     }
 

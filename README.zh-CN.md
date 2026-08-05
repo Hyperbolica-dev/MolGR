@@ -2,6 +2,19 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml/badge.svg)](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml)
+[![PyPI](https://img.shields.io/pypi/v/molgr.svg)](https://pypi.org/project/molgr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/molgr.svg)](https://pypi.org/project/molgr/)
+[![Wheel](https://img.shields.io/pypi/wheel/molgr.svg)](https://pypi.org/project/molgr/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-4C8BF5)
+![Python](https://img.shields.io/badge/python-3.8--3.14-3776AB?logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Development status](https://img.shields.io/badge/status-active%20development-F59E0B)
+![Typing](https://img.shields.io/badge/typing-PEP%20561%20typed-2F74C0)
+![Languages](https://img.shields.io/badge/languages-Python%20%7C%20C%2B%2B-00599C)
+![Ruff](https://img.shields.io/badge/lint%20%26%20format-Ruff-D7FF64?logo=ruff&logoColor=261230)
+[![License](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+
 MolGR 名称来源于 Moleculer Graph Reconstructor。
 
 MolGR 是一个从 XYZ 坐标重建分子图的 Python 包。它接收 XYZ 文本、总电荷和自旋多重度，
@@ -53,6 +66,11 @@ CONFIG.cpp_backend.enable_target_bucket_parallelism = True
 CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
 CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
 ```
+
+Windows 平台的 `CONFIG.cpp_backend.max_threads` 默认为 `1`。不建议在 Windows 上开启
+C++ 后端线程并行：Open Babel 并发重建可能触发 Python 无法捕获的原生 access violation。
+除非已经在本地完整验证实际工作负载，否则应保持 `max_threads=1`。Linux 和 macOS 仍使用
+自动并行的默认值 `None`。
 
 C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
 vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。

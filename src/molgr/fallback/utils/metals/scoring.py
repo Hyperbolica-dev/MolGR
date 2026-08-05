@@ -346,7 +346,9 @@ def _haptic_arene_reduction_count(
         )
 
     count = 0
-    for ring_iter in ob.OBMolRingIter(obmol):
+    # OBMolRingIter can expose a dangling SWIG ring on Windows for molecules
+    # without rings. GetSSSR() returns an owning vector and is stable there.
+    for ring_iter in obmol.GetSSSR():
         ring = cast(ob.OBRing, ring_iter)
         ring_atom_indices = tuple(int(idx) for idx in getattr(ring, "_path", ()))
         if len(ring_atom_indices) not in {5, 6}:
