@@ -10,9 +10,11 @@
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <openbabel/elements.h>
 #include "molgr/compat/openbabel_iter.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <tuple>
 #include <vector>
@@ -583,55 +585,104 @@ namespace molgr
             return hit;
         }
 
-        // Electron bookkeeping: consume exactly one neighboring monoradical and
-        // replace it with a one-unit negative formal charge. Lone pairs and
-        // unresolved centers never satisfy this rule.
+        // Neutralize each positive center from eligible neighboring
+        // monoradicals in descending electronegativity order. Stop once the
+        // center charge is balanced by neighboring negative formal charges.
         bool EliminateHighPositiveChargeAtoms(OBMol &mol, int &charge)
         {
             bool hit = false;
-            auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
-            while (!matches.empty())
+            const auto matches = molgr::smarts::FindAll(
+                mol,
+                molgr::smarts::PatternId::ELIM_HIGH_POSITIVE);
+            std::map<int, std::set<int>> neighbors_by_center;
+            for (const auto &idxs : matches)
             {
-                auto idxs = matches.front();
-                matches.erase(matches.begin());
-                OBAtom *a1 = mol.GetAtom(idxs[0]);
-                OBAtom *a2 = mol.GetAtom(idxs[1]);
-                if (!a1 || !a2)
+                if (idxs.size() == 2)
+                {
+                    neighbors_by_center[idxs[0]].insert(idxs[1]);
+                }
+            }
+
+            for (const auto &[center_idx, matched_neighbor_indices] : neighbors_by_center)
+            {
+                OBAtom *center = mol.GetAtom(center_idx);
+                if (center == nullptr)
+                {
+                    continue;
+                }
+                int remaining_positive_charge = center->GetFormalCharge();
+                FOR_NB_OF_ATOM(nbr, center)
+                {
+                    remaining_positive_charge += std::min(0, nbr->GetFormalCharge());
+                }
+                if (remaining_positive_charge <= 0)
                 {
                     continue;
                 }
 
-                int sum_nbr_charge = 0;
-                FOR_NB_OF_ATOM(nbr, a1)
-                sum_nbr_charge += nbr->GetFormalCharge();
+                std::vector<int> neighbor_indices(
+                    matched_neighbor_indices.begin(),
+                    matched_neighbor_indices.end());
+                std::sort(
+                    neighbor_indices.begin(),
+                    neighbor_indices.end(),
+                    [&mol](int left_idx, int right_idx)
+                    {
+                        const OBAtom *left = mol.GetAtom(left_idx);
+                        const OBAtom *right = mol.GetAtom(right_idx);
+                        const double left_electronegativity =
+                            OBElements::GetElectroNeg(left->GetAtomicNum());
+                        const double right_electronegativity =
+                            OBElements::GetElectroNeg(right->GetAtomicNum());
+                        if (left_electronegativity != right_electronegativity)
+                        {
+                            return left_electronegativity > right_electronegativity;
+                        }
+                        return left_idx < right_idx;
+                    });
 
-                bool a2_neighbor_has_pending_electrons = false;
-                FOR_NB_OF_ATOM(nbr, a2)
+                for (int neighbor_idx : neighbor_indices)
                 {
-                    if (nbr->GetIdx() == a1->GetIdx())
+                    if (remaining_positive_charge <= 0)
+                    {
+                        break;
+                    }
+                    OBAtom *neighbor = mol.GetAtom(neighbor_idx);
+                    if (neighbor == nullptr)
                     {
                         continue;
                     }
-                    if (molgr::utils::GetUnpairedElectronCount(*nbr) > 0 ||
-                        molgr::utils::HasUnresolvedTwoElectronCenter(*nbr))
+
+                    bool neighbor_has_pending_electrons = false;
+                    FOR_NB_OF_ATOM(adjacent, neighbor)
                     {
-                        a2_neighbor_has_pending_electrons = true;
-                        break;
+                        if (adjacent->GetIdx() == center_idx)
+                        {
+                            continue;
+                        }
+                        if (molgr::utils::GetUnpairedElectronCount(*adjacent) > 0 ||
+                            molgr::utils::HasUnresolvedTwoElectronCenter(*adjacent))
+                        {
+                            neighbor_has_pending_electrons = true;
+                            break;
+                        }
                     }
-                }
 
-                if (-sum_nbr_charge > a1->GetFormalCharge() ||
-                    molgr::utils::GetUnpairedElectronCount(*a2) != 1 ||
-                    a2_neighbor_has_pending_electrons)
-                {
-                    continue;
-                }
+                    if (neighbor->GetFormalCharge() != 0 ||
+                        molgr::utils::GetUnpairedElectronCount(*neighbor) != 1 ||
+                        molgr::utils::HasUnresolvedTwoElectronCenter(*neighbor) ||
+                        neighbor_has_pending_electrons)
+                    {
+                        continue;
+                    }
 
-                molgr::utils::SetUnpairedElectronCount(*a2, molgr::utils::GetUnpairedElectronCount(*a2) - 1);
-                a2->SetFormalCharge(a2->GetFormalCharge() - 1);
-                charge += 1;
-                hit = true;
-                LOG_DEBUG("[EliminateHighPos] Applied");
+                    molgr::utils::SetUnpairedElectronCount(*neighbor, 0);
+                    neighbor->SetFormalCharge(-1);
+                    ++charge;
+                    --remaining_positive_charge;
+                    hit = true;
+                    LOG_DEBUG("[EliminateHighPos] Applied");
+                }
             }
             return hit;
         }

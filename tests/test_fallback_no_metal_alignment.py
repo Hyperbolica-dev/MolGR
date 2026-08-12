@@ -1846,6 +1846,47 @@ def test_eliminate_high_positive_charge_atoms_skips_non_singlet_donor_for_python
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
+def test_eliminate_high_positive_charge_atoms_uses_electronegativity_and_stops_at_neutrality() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        center = obmol.NewAtom()
+        center.SetAtomicNum(16)
+        center.SetFormalCharge(1)
+        for atomic_num in (7, 8, 7):
+            neighbor = obmol.NewAtom()
+            neighbor.SetAtomicNum(atomic_num)
+            set_unpaired_electron_count(neighbor, 1)
+            obmol.AddBond(center.GetIdx(), neighbor.GetIdx(), 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol, given_charge, hit = eliminate_high_positive_charge_atoms(make_omol(), -1)
+
+    assert hit
+    assert given_charge == 0
+    assert [omol.OBMol.GetAtom(idx).GetFormalCharge() for idx in (2, 3, 4)] == [0, -1, 0]
+    assert [get_unpaired_electron_count(omol.OBMol.GetAtom(idx)) for idx in (2, 3, 4)] == [
+        1,
+        0,
+        1,
+    ]
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_high_positive_charge_atoms_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
 def test_eliminate_high_positive_charge_atoms_skips_pending_unresolved_neighbor_for_python_and_cpp() -> (
     None
 ):
