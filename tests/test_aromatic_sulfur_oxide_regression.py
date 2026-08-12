@@ -43,6 +43,11 @@ def test_aromatic_sulfur_oxide_uses_charge_separated_s_o_state(backend: str) -> 
     assert Chem.MolToSmiles(heavy, canonical=True, isomericSmiles=True) == _EXPECTED_SMILES
     assert sulfur.GetFormalCharge() == 1
     assert sulfur.GetIsAromatic()
+    assert all(
+        neighbor.GetFormalCharge() == 0
+        for neighbor in sulfur.GetNeighbors()
+        if neighbor.GetAtomicNum() == 7
+    )
     assert heavy.GetBondBetweenAtoms(sulfur.GetIdx(), negative_oxygen.GetIdx()).GetBondType() == (
         Chem.BondType.SINGLE
     )

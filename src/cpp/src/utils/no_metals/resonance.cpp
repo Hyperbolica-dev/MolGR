@@ -129,13 +129,13 @@ namespace
             machine.given_charge,
             machine.total_radical_electrons);
         machine.RunOmolStage(
-            "process_resonance_clean_neighbor_radicals",
-            molgr::reconstruct::CleanNeighborRadicals,
+            "process_resonance_clean_1_4_radicals",
+            molgr::reconstruct::Clean14Radicals,
             machine.given_charge,
             machine.total_radical_electrons);
         machine.RunOmolStage(
-            "process_resonance_clean_1_4_radicals",
-            molgr::reconstruct::Clean14Radicals,
+            "process_resonance_clean_neighbor_radicals",
+            molgr::reconstruct::CleanNeighborRadicals,
             machine.given_charge,
             machine.total_radical_electrons);
         machine.RunOmolStage(

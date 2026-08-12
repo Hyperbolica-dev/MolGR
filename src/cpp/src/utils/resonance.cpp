@@ -987,13 +987,13 @@ namespace molgr
                   hit;
             hit = machine.RunOmolStage(
                       std::nullopt,
-                      molgr::reconstruct::CleanNeighborRadicals,
+                      molgr::reconstruct::Clean14Radicals,
                       machine.given_charge,
                       machine.total_radical_electrons) ||
                   hit;
             hit = machine.RunOmolStage(
                       std::nullopt,
-                      molgr::reconstruct::Clean14Radicals,
+                      molgr::reconstruct::CleanNeighborRadicals,
                       machine.given_charge,
                       machine.total_radical_electrons) ||
                   hit;
