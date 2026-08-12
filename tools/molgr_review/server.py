@@ -147,6 +147,18 @@ def _row_dict(
     else:
         payload["candidate_snapshot_smiles"] = str(payload.get("candidate_smiles") or "")
         payload["candidate_snapshot_status"] = str(payload.get("candidate_status") or "")
+    candidate_smiles = str(payload.get("candidate_smiles") or "").strip()
+    reference_smiles = str(payload.get("reference_smiles") or "").strip()
+    candidate_organic_smiles = str(payload.get("candidate_organic_smiles") or "").strip()
+    reference_organic_smiles = str(payload.get("reference_organic_smiles") or "").strip()
+    available_render_kinds = ["candidate"]
+    if reference_smiles:
+        available_render_kinds.append("reference")
+    if candidate_organic_smiles and candidate_organic_smiles != candidate_smiles:
+        available_render_kinds.append("candidate_organic")
+    if reference_organic_smiles and reference_organic_smiles != reference_smiles:
+        available_render_kinds.append("reference_organic")
+    payload["available_render_kinds"] = available_render_kinds
     return payload
 
 
@@ -225,13 +237,13 @@ def _benchmark_candidate_mol(mol: Chem.Mol) -> Chem.Mol:
     return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
 
 
-def _mol_from_smiles(smiles: str) -> Chem.Mol | None:
+REVIEW_2D_RENDERER_VERSION = "review_2d_v2"
+
+
+def _render_mol_from_smiles(smiles: str) -> Chem.Mol | None:
     if not smiles.strip():
         return None
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    return Chem.AddHs(mol)
+    return Chem.MolFromSmiles(smiles)
 
 
 def _mol_from_smiles_without_sanitize(smiles: str) -> Chem.Mol | None:
@@ -270,11 +282,28 @@ def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str,
     return comparison
 
 
+def _prepare_review_2d_mol(mol: Chem.Mol) -> Chem.Mol:
+    """Copy a review molecule and omit removable explicit H atoms for 2D display."""
+
+    return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
+
+
 def _render_mol_svg(mol: Chem.Mol, *, legend: str) -> str:
     from rdkit_dof import MolToDofImage
 
-    image = MolToDofImage(mol, size=(520, 360), legend=legend, use_svg=True, return_image=False)
+    render_mol = _prepare_review_2d_mol(mol)
+    image = MolToDofImage(
+        render_mol,
+        size=(520, 360),
+        legend=legend,
+        use_svg=True,
+        return_image=False,
+    )
     return _svg_fragment_from_image(image)
+
+
+def _render_cache_kind(kind: str) -> str:
+    return f"{REVIEW_2D_RENDERER_VERSION}:{kind}"
 
 
 def _mol_to_sdf_block(mol: Chem.Mol) -> str:
@@ -770,10 +799,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
             return
 
         with _connect(self.server.db_path) as conn:
+            cache_kind = _render_cache_kind(kind)
             if kind != "candidate":
                 cached = conn.execute(
                     "SELECT svg, smiles, error FROM render_cache WHERE case_id = ? AND kind = ?",
-                    (case_id, kind),
+                    (case_id, cache_kind),
                 ).fetchone()
                 if cached is not None and not cached["error"]:
                     _json_response(self, {"kind": kind, **dict(cached)})
@@ -793,19 +823,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} candidate")
                 elif kind == "reference":
-                    mol = _mol_from_smiles(case["reference_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["reference_smiles"] or "")
                     if mol is None:
                         raise ValueError("reference_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} Reference")
                 elif kind == "candidate_organic":
-                    mol = _mol_from_smiles(case["candidate_organic_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["candidate_organic_smiles"] or "")
                     if mol is None:
                         raise ValueError("candidate_organic_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} candidate organic")
                 else:
-                    mol = _mol_from_smiles(case["reference_organic_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["reference_organic_smiles"] or "")
                     if mol is None:
                         raise ValueError("reference_organic_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
@@ -821,7 +851,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     )
                     VALUES(?, ?, ?, ?, ?, ?)
                     """,
-                    (case_id, kind, svg, smiles, error, datetime.now(timezone.utc).isoformat()),
+                    (
+                        case_id,
+                        cache_kind,
+                        svg,
+                        smiles,
+                        error,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
                 )
                 conn.commit()
         _json_response(self, {"kind": kind, "svg": svg, "smiles": smiles, "error": error})
