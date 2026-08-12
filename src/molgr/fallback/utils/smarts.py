@@ -12,7 +12,10 @@ PREPROCESS_ACCEPT = _smarts(
     "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]"
 )
 PRE_CLEAN_HYPERVALENT = _smarts("[Cv5,Nv5,Pv5,Siv5]=,#[*]")
-PRE_CLEAN_HYPER_PI_BOND = _smarts("[S,P,As,F,Cl,Br,I]=,#[*]")
+# Open Babel may perceive sulfur in an aromatic heterocycle as ``s``. Match by
+# atomic number so an aromatic S=O bond still gets normalized to S-O before
+# formal charge inference.
+PRE_CLEAN_HYPER_PI_BOND = _smarts("[#16,#15,#33,#9,#17,#35,#53]=,#[*]")
 PRE_CLEAN_BCP_RING_5 = _smarts("[#6]1([#6]2)([#6]3)[#7]23[#6]1")
 PRE_CLEAN_BCP_RING_4 = _smarts("[#6]1([#6]2)[#7]2[#6]1")
 PRE_CLEAN_SI_O_F = _smarts("[Siv5]-[O,F]")
