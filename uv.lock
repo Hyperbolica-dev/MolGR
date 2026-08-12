@@ -1623,7 +1623,7 @@ dev = [
     { name = "rdkit-dof", specifier = ">=0.2.1" },
     { name = "rich" },
     { name = "ruff" },
-    { name = "scikit-build-core", specifier = ">=0.11.6" },
+    { name = "scikit-build-core", specifier = ">=1.0" },
     { name = "scipy", specifier = ">=1.10.1" },
     { name = "setuptools-scm", specifier = ">=9.2.2" },
 ]
@@ -3280,7 +3280,7 @@ wheels = [
 
 [[package]]
 name = "scikit-build-core"
-version = "0.12.0"
+version = "1.0.3"
 source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }
 dependencies = [
     { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
@@ -3292,9 +3292,9 @@ dependencies = [
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.9'" },
     { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.zju.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
 ]
-sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/98/1f/15176e98ff3f88797bd289179ee77dc2cf462d9b21b8bc1b10c099eb7811/scikit_build_core-0.12.0.tar.gz", hash = "sha256:1314e683adc6f6b7186f154f120f85f113544c4f7c0bffcd7be3afe6377a3e26" }
+sdist = { url = "https://mirrors.zju.edu.cn/pypi/web/packages/8d/7c/0f69b0c7150ce4bcee78c199fe3b7e03a6e01578451bd5d5d1a58beb32f9/scikit_build_core-1.0.3.tar.gz", hash = "sha256:a4d7a05978ee37975c37743510c8991e2debce7ef83afb0a07c0c576fd4f16e8" }
 wheels = [
-    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/66/fe/dddda3cf88b19c20fe449817fb571615289260fbd8c3537b0dc20decfa59/scikit_build_core-0.12.0-py3-none-any.whl", hash = "sha256:710bbc9483f09503a7aeaeff3f3871be210698a09dd9ce8a09df484edbfa60a6" },
+    { url = "https://mirrors.zju.edu.cn/pypi/web/packages/b7/b0/7ad8fa9aebb0835b2e20afebf1483cbe175d1612fe01e85042ce9ced8755/scikit_build_core-1.0.3-py3-none-any.whl", hash = "sha256:ae95427b7d3c14a6cf8bbfd4d901f6138ab64c99e20cbe8ea7d75cd26093f085" },
 ]
 
 [[package]]

@@ -26,7 +26,7 @@ namespace
         "[Nv0,Cv1,Nv3,Clv1,Clv2,Clv3,Brv1,Brv2,Brv3,Iv1,Iv2,Iv3,Asv3,Sev2]",
         "[Hv0,Bv2,Bv3,Cv0,Cv1,Cv2,Cv3,Nv1,Nv2,Ov0,Ov1,Clv0,Siv3,Pv2,Sv0,Sv1,Brv0,Iv0]",
         "[Cv5,Nv5,Pv5,Siv5]=,#[*]",
-        "[S,P,As,F,Cl,Br,I]=,#[*]",
+        "[#16,#15,#33,#9,#17,#35,#53]=,#[*]",
         "[#6]1([#6]2)([#6]3)[#7]23[#6]1",
         "[#6]1([#6]2)[#7]2[#6]1",
         "[Siv5]-[O,F]",
