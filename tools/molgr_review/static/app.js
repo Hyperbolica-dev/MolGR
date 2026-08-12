@@ -55,8 +55,8 @@ const translations = {
     topologyCompare: "拓扑对比",
     currentCandidate: "当前候选",
     reference: "参考图",
-    candidateOrganic: "候选图 organic",
-    referenceOrganic: "参考图 organic",
+    candidateOrganic: "候选 Organic graph",
+    referenceOrganic: "参考 Organic graph",
     manualEdit: "人工修图",
     ketcherCorrection: "Ketcher 修正拓扑",
     loadCandidateSdf: "载入候选 SDF",
@@ -265,8 +265,8 @@ const translations = {
     topologyCompare: "Topology comparison",
     currentCandidate: "Current candidate",
     reference: "Reference",
-    candidateOrganic: "Candidate organic",
-    referenceOrganic: "Reference organic",
+    candidateOrganic: "Candidate Organic graph",
+    referenceOrganic: "Reference Organic graph",
     manualEdit: "Manual editing",
     ketcherCorrection: "Ketcher topology correction",
     loadCandidateSdf: "Load candidate SDF",
@@ -868,6 +868,13 @@ function renderCaseList() {
   });
 }
 
+function configureOrganicRenderKinds(item) {
+  const available = new Set(Array.isArray(item.available_render_kinds) ? item.available_render_kinds : []);
+  document.querySelectorAll('.render-kind[data-kind$="_organic"]').forEach((button) => {
+    button.hidden = !available.has(button.dataset.kind);
+  });
+}
+
 async function loadCase(caseId) {
   const item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
   state.current = item;
@@ -880,6 +887,7 @@ async function loadCase(caseId) {
   state.referenceRenderStatus = "unknown";
   state.xyzLoadStatus = "unknown";
   state.xyzLoadError = "";
+  configureOrganicRenderKinds(item);
   renderCaseHeader();
   renderReviewerSummary();
   populateReviewForm();
