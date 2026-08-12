@@ -2371,7 +2371,8 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     .tree-children { list-style:none; margin:4px 0 0 12px; padding-left:14px; border-left:1px solid #e5e7eb; }
     .tree li.is-collapsed > .tree-children { display:none; }
     .tree-node { flex:1 1 auto; width:auto; min-width:0; border:1px solid transparent; border-radius:6px; background:transparent; padding:7px 8px; text-align:left; cursor:pointer; color:var(--text); }
-    .tree-node:hover, .tree-node.is-active { border-color:#8fb8b4; background:#f1f8f7; }
+    .tree-node:hover { border-color:#8fb8b4; background:#f1f8f7; }
+    .tree-node.is-active { border-color:#b8cede; background:#eaf3f9; }
     .tree-node.is-selected { border-color:var(--selected); background:#edf7f5; }
     .tree-label { display:block; font-weight:800; font-size:13px; overflow-wrap:anywhere; }
     .tree-meta { display:block; margin-top:2px; color:var(--muted); font-size:11px; }
