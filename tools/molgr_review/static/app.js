@@ -15,6 +15,9 @@ const state = {
   ketcherLoaded: false,
   ketcherStatus: null,
   layout: null,
+  referenceRenderStatus: "unknown",
+  xyzLoadStatus: "unknown",
+  xyzLoadError: "",
 };
 
 const translations = {
@@ -30,7 +33,7 @@ const translations = {
     previousPage: "上一页",
     nextPage: "下一页",
     chooseCase: "选择一个 case",
-    focusKetcher: "Ketcher 画布",
+    currentCase: "当前审核 case",
     openTrace: "打开 Trace",
     reloadCurrent: "重载当前",
     manualConclusion: "人工结论",
@@ -61,7 +64,71 @@ const translations = {
     readCanvas: "读取画布",
     correctedSmiles: "修正 SMILES",
     correctedMolblock: "修正 Molfile / Molblock",
-    notes: "备注",
+    notes: "审核依据 / 备注",
+    reviewerSummary: "Reviewer Summary / 审核关注项",
+    datasetRuntime: "数据集 / 运行环境",
+    reviewStructures: "审核结构",
+    reviewStructuresHint: "优先核对输入几何、当前候选图与参考图。",
+    xyzGeometry: "原始 3D 几何",
+    additionalViews: "其他结构视图",
+    alternateRenders: "切换 2D 图",
+    alternateRendersHint: "选择后会更新上方两张 2D 图。",
+    caseDetails: "Case details / 完整信息",
+    smilesDetails: "完整 SMILES",
+    assessmentDetails: "Assessment / Reference 详情",
+    runtimeDetails: "Benchmark / Runtime",
+    otherMetadata: "Developer / raw metadata",
+    notProvided: "未提供",
+    present: "存在",
+    missing: "缺失",
+    invalid: "无效",
+    valid: "有效",
+    unknownValidity: "存在；有效性未提供",
+    currentDecision: "当前已保存：{status}",
+    noSavedDecision: "当前未保存审核结论",
+    reviewedBy: "审核人：{reviewer}",
+    updatedAt: "更新于：{updatedAt}",
+    referenceUnavailableTitle: "Reference 未参与主视觉对比",
+    referenceMissingNotice: "当前 payload 未提供 reference SMILES。",
+    referenceInvalidNotice: "当前 reference 无效或无法渲染；详情见折叠信息。",
+    focusCandidateFailure: "重点检查：当前候选重建不可用。",
+    focusReference: "重点检查：Reference 缺失或无效，优先核对 XYZ 与 Candidate。",
+    focusFormula: "重点检查：XYZ 与 Reference 的分子式状态异常。",
+    focusAssessment: "重点检查：当前 case 的 assessability 受限。",
+    focusSnapshot: "重点检查：当前重建与 candidate snapshot 不一致。",
+    focusComparison: "重点检查：对照 XYZ、Candidate 与 Reference 的成键和电荷。",
+    summaryReference: "Reference",
+    summaryCandidate: "Candidate",
+    summaryCharge: "Charge",
+    summaryMultiplicity: "Multiplicity",
+    summaryRadicals: "Radicals",
+    summaryFormula: "Formula",
+    summaryAssessability: "Assessability",
+    summarySnapshot: "Snapshot vs current",
+    summaryFixture: "Fixture",
+    xyzUnavailable: "XYZ 无法加载",
+    candidateUnavailableBecauseXyz: "当前候选因此不可用",
+    candidateUnavailable: "当前候选不可用",
+    technicalDetail: "技术信息：{detail}",
+    statusOk: "✓",
+    statusMissingCompact: "缺失",
+    statusInvalidCompact: "无效",
+    statusUnavailableCompact: "不可用",
+    statusUnknownCompact: "—",
+    formulaOk: "✓",
+    snapshotCurrent: "current",
+    snapshotDifferent: "不同",
+    snapshotUnknown: "—",
+    queueLabel: "Queue",
+    currentCandidateLabel: "Current",
+    currentVsSnapshotLabel: "Current vs snapshot",
+    availableCompact: "available",
+    missingCompact: "missing",
+    invalidCompact: "invalid",
+    unavailableCompact: "unavailable",
+    sameCompact: "same",
+    differentCompact: "different",
+    formulaLabel: "formula",
     structure: "结构图",
     close: "关闭",
     closeZoomedImage: "关闭放大图片",
@@ -122,6 +189,7 @@ const translations = {
       spin_multiplicity: "多重度",
       total_radical_electrons: "总自由基电子数",
       reference_smiles: "参考 SMILES",
+      candidate_smiles: "候选 SMILES",
       candidate_snapshot_smiles: "候选快照 SMILES",
       candidate_snapshot_runtime: "候选快照运行时",
       live_candidate_smiles: "当前候选 SMILES",
@@ -175,7 +243,7 @@ const translations = {
     previousPage: "Previous",
     nextPage: "Next",
     chooseCase: "Select a case",
-    focusKetcher: "Ketcher canvas",
+    currentCase: "Current review case",
     openTrace: "Open Trace",
     reloadCurrent: "Reload current",
     manualConclusion: "Manual decision",
@@ -206,7 +274,71 @@ const translations = {
     readCanvas: "Read canvas",
     correctedSmiles: "Corrected SMILES",
     correctedMolblock: "Corrected Molfile / Molblock",
-    notes: "Notes",
+    notes: "Review rationale / notes",
+    reviewerSummary: "Reviewer Summary",
+    datasetRuntime: "Dataset / runtime",
+    reviewStructures: "Review structures",
+    reviewStructuresHint: "Check the input geometry, current candidate, and reference first.",
+    xyzGeometry: "Original 3D geometry",
+    additionalViews: "Additional structure views",
+    alternateRenders: "Switch 2D render",
+    alternateRendersHint: "The selection updates the two 2D panels above.",
+    caseDetails: "Case details / Full information",
+    smilesDetails: "Full SMILES",
+    assessmentDetails: "Assessment / Reference details",
+    runtimeDetails: "Benchmark / Runtime",
+    otherMetadata: "Developer / raw metadata",
+    notProvided: "Not provided",
+    present: "Present",
+    missing: "Missing",
+    invalid: "Invalid",
+    valid: "Valid",
+    unknownValidity: "Present; validity not provided",
+    currentDecision: "Saved decision: {status}",
+    noSavedDecision: "No review decision saved",
+    reviewedBy: "Reviewer: {reviewer}",
+    updatedAt: "Updated: {updatedAt}",
+    referenceUnavailableTitle: "Reference excluded from primary comparison",
+    referenceMissingNotice: "The current payload does not provide a reference SMILES.",
+    referenceInvalidNotice: "The reference is invalid or cannot be rendered; see details below.",
+    focusCandidateFailure: "Focus: the current candidate reconstruction is unavailable.",
+    focusReference: "Focus: reference is missing or invalid; compare XYZ and Candidate first.",
+    focusFormula: "Focus: the XYZ and Reference formula status is abnormal.",
+    focusAssessment: "Focus: assessability is limited for this case.",
+    focusSnapshot: "Focus: current reconstruction differs from the candidate snapshot.",
+    focusComparison: "Focus: compare bonding and charge across XYZ, Candidate, and Reference.",
+    summaryReference: "Reference",
+    summaryCandidate: "Candidate",
+    summaryCharge: "Charge",
+    summaryMultiplicity: "Multiplicity",
+    summaryRadicals: "Radicals",
+    summaryFormula: "Formula",
+    summaryAssessability: "Assessability",
+    summarySnapshot: "Snapshot vs current",
+    summaryFixture: "Fixture",
+    xyzUnavailable: "XYZ could not be loaded",
+    candidateUnavailableBecauseXyz: "The current candidate is therefore unavailable",
+    candidateUnavailable: "Current candidate unavailable",
+    technicalDetail: "Technical detail: {detail}",
+    statusOk: "✓",
+    statusMissingCompact: "missing",
+    statusInvalidCompact: "invalid",
+    statusUnavailableCompact: "unavailable",
+    statusUnknownCompact: "—",
+    formulaOk: "✓",
+    snapshotCurrent: "current",
+    snapshotDifferent: "different",
+    snapshotUnknown: "—",
+    queueLabel: "Queue",
+    currentCandidateLabel: "Current",
+    currentVsSnapshotLabel: "Current vs snapshot",
+    availableCompact: "available",
+    missingCompact: "missing",
+    invalidCompact: "invalid",
+    unavailableCompact: "unavailable",
+    sameCompact: "same",
+    differentCompact: "different",
+    formulaLabel: "formula",
     structure: "Structure",
     close: "Close",
     closeZoomedImage: "Close enlarged image",
@@ -267,6 +399,7 @@ const translations = {
       spin_multiplicity: "Spin multiplicity",
       total_radical_electrons: "Total radical electrons",
       reference_smiles: "Reference SMILES",
+      candidate_smiles: "Candidate SMILES",
       candidate_snapshot_smiles: "Candidate snapshot SMILES",
       candidate_snapshot_runtime: "Candidate snapshot runtime",
       live_candidate_smiles: "Live candidate SMILES",
@@ -349,6 +482,7 @@ function applyLanguage() {
   renderCaseList();
   if (state.current) {
     renderCaseHeader();
+    renderReviewerSummary();
     renderVersionComparison();
     renderDiagnostics();
     renderCandidateSdfStatus();
@@ -711,14 +845,19 @@ function renderCaseList() {
     .map((item) => {
       const selected = state.current && state.current.case_id === item.case_id ? "selected" : "";
       const status = statusLabel(item.review_status);
-      const fixture = item.fixture ? msg("fixture", { kind: item.fixture.kind }) : tr("noFixture");
+      const category = hasValue(item.category)
+        ? badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`)
+        : "";
+      const fixture = item.fixture
+        ? badge(msg("fixture", { kind: item.fixture.kind }), "fixture-tag")
+        : "";
       return `
         <button class="case-item ${selected}" data-case-id="${escapeHtml(item.case_id)}" type="button">
           <span class="row"><strong>${escapeHtml(item.case_id)}</strong><span>#${item.row_index}</span></span>
           <span class="row">
-            ${badge(categoryLabel(item.category), categoryKind(item.category))}
-            ${badge(status, item.review_status ? reviewStatusKind(item.review_status) : "")}
-            ${badge(fixture, item.fixture ? "ok" : "warn")}
+            ${category}
+            ${badge(status, `review-tag ${item.review_status ? reviewStatusKind(item.review_status) : ""}`)}
+            ${fixture}
           </span>
         </button>`;
     })
@@ -738,7 +877,11 @@ async function loadCase(caseId) {
   state.primaryKind = "candidate";
   state.secondaryKind = "reference";
   state.currentLiveCandidate = null;
+  state.referenceRenderStatus = "unknown";
+  state.xyzLoadStatus = "unknown";
+  state.xyzLoadError = "";
   renderCaseHeader();
+  renderReviewerSummary();
   populateReviewForm();
   renderVersionComparison();
   renderDiagnostics();
@@ -753,34 +896,202 @@ function renderCaseHeader() {
   openTrace.disabled = !item;
   openTrace.title = item ? msg("traceTitle", { caseId: item.case_id }) : tr("selectCaseFirst");
   const fixture = item.fixture;
-  const fixtureBadge = fixture
-    ? badge(msg("fixture", { kind: fixture.kind }), "ok")
-    : badge(tr("noFixture"), "warn");
-  $("caseTitle").textContent = `${item.case_id} · row ${item.row_index}`;
-  const liveMismatchBadge = item.live_matches_candidate_snapshot === false
-    ? badge(tr("candidateSnapshotMismatch"), "bad")
-    : "";
-  $("caseMeta").innerHTML = [
-    badge(categoryLabel(item.category), categoryKind(item.category)),
-    badge(
-      msg("candidateSnapshot", { status: item.candidate_snapshot_status || tr("statusMissing") }),
-      item.candidate_snapshot_status === "ok" ? "ok" : "bad",
-    ),
+  $("caseTitle").textContent = item.case_id;
+  const context = hasValue(item.row_index) ? [`${tr("row")} ${item.row_index}`] : [];
+  $("caseContext").textContent = context.length ? context.join(" · ") : tr("notProvided");
+  const candidateStatus = item.live_candidate_status || item.candidate_status;
+  const headerItems = [];
+  if (hasValue(item.category)) {
+    headerItems.push(badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`));
+  }
+  headerItems.push(
     item.review_status
-      ? badge(
-          statusLabel(item.review_status),
-          reviewStatusKind(item.review_status),
-        )
-      : badge(tr("unreviewed")),
-    fixtureBadge,
-    liveMismatchBadge,
-  ].join(" ");
+      ? badge(statusLabel(item.review_status), `review-tag ${reviewStatusKind(item.review_status)}`)
+      : badge(tr("unreviewed"), "review-tag"),
+  );
+  if (fixture) headerItems.push(badge(msg("fixture", { kind: fixture.kind }), "fixture-tag"));
+  $("caseMeta").innerHTML = headerItems.join(" ");
+  const audit = [];
+  if (hasValue(item.source)) audit.push(item.source);
+  if (candidateStatus && candidateStatus !== "ok") audit.push(`${tr("currentCandidateLabel")}: ${candidateStatus}`);
+  if (item.review_status && hasValue(item.reviewer)) {
+    audit.push(msg("reviewedBy", { reviewer: item.reviewer }));
+  }
+  if (item.review_status && hasValue(item.updated_at)) {
+    audit.push(msg("updatedAt", { updatedAt: formatTimestamp(item.updated_at) }));
+  }
+  $("reviewAudit").textContent = audit.join(" · ");
   const removeFixture = $("removeFixture");
   removeFixture.hidden = !fixture;
   removeFixture.disabled = !fixture;
   removeFixture.title = fixture
     ? msg("removeFixtureTitle", { file: fixture.structure_file, caseId: item.case_id })
     : tr("noFixture");
+}
+
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function formatTimestamp(value) {
+  if (!hasValue(value)) return tr("notProvided");
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function referenceState(item) {
+  if (!hasValue(item?.reference_smiles)) return "missing";
+  const parseStatus = String(item.reference_parse_status || "").toLowerCase();
+  if (parseStatus && parseStatus !== "ok") return "invalid";
+  if (state.referenceRenderStatus === "invalid") return "invalid";
+  if (parseStatus === "ok" || state.referenceRenderStatus === "valid") return "valid";
+  return "unknown";
+}
+
+function referenceLabel(item) {
+  const status = referenceState(item);
+  if (status === "missing") return tr("missing");
+  if (status === "invalid") return tr("invalid");
+  if (status === "valid") return tr("valid");
+  return tr("unknownValidity");
+}
+
+function summaryValue(value) {
+  return hasValue(value) ? String(value) : tr("notProvided");
+}
+
+function formulaSummary(item) {
+  const fields = [
+    item.reference_formula_check_status,
+    item.reference_formula_match,
+    item.xyz_formula,
+    item.reference_formula_with_h,
+  ].filter(hasValue);
+  return fields.length ? fields.join(" · ") : tr("notProvided");
+}
+
+function formulaCompact(item) {
+  const match = item.reference_formula_match;
+  const status = String(item.reference_formula_check_status || "").toLowerCase();
+  if (!hasValue(match) && !status) return tr("statusUnknownCompact");
+  if (match === "True" || status === "ok") return tr("formulaOk");
+  if (["not_applicable", "missing_reference_smiles"].includes(status)) return tr("statusUnknownCompact");
+  return summaryValue(item.reference_formula_check_status || match);
+}
+
+function assessmentSummary(item) {
+  const fields = [
+    item.accuracy_assessment_status,
+    item.tmqmg_answer_assessment,
+    item.molgr_answer_assessment,
+  ].filter(hasValue);
+  return fields.length ? fields.join(" · ") : tr("notProvided");
+}
+
+function snapshotSummary(item) {
+  if (item.live_matches_candidate_snapshot === true) return tr("generatedSnapshotMatch");
+  if (item.live_matches_candidate_snapshot === false) return tr("generatedSnapshotMismatch");
+  if (hasValue(item.live_candidate_status)) return tr("generatedSnapshotIncomparable");
+  return tr("notProvided");
+}
+
+function snapshotCompact(item) {
+  if (item.live_matches_candidate_snapshot === true) return tr("snapshotCurrent");
+  if (item.live_matches_candidate_snapshot === false) return tr("snapshotDifferent");
+  return tr("snapshotUnknown");
+}
+
+function referenceCompact(item) {
+  const status = referenceState(item);
+  if (status === "valid") return tr("statusOk");
+  if (status === "missing") return tr("statusMissingCompact");
+  if (status === "invalid") return tr("statusInvalidCompact");
+  return tr("statusUnknownCompact");
+}
+
+function candidateCompact(item) {
+  const status = String(item.live_candidate_status || item.candidate_status || "").toLowerCase();
+  if (status === "ok") return tr("statusOk");
+  if (["failed", "error", "unavailable"].includes(status)) return tr("statusUnavailableCompact");
+  return status || tr("statusUnknownCompact");
+}
+
+function assessabilityCompact(item) {
+  const value = item.accuracy_assessment_status || item.tmqmg_answer_assessment || item.molgr_answer_assessment;
+  if (!hasValue(value)) return tr("statusUnknownCompact");
+  return String(value).toLowerCase() === "assessable" ? tr("statusOk") : String(value);
+}
+
+function reviewFocusKey(item) {
+  if (["failed", "error", "unavailable"].includes(String(item.live_candidate_status || item.candidate_status || "").toLowerCase())) {
+    return "focusCandidateFailure";
+  }
+  if (["missing", "invalid"].includes(referenceState(item))) return "focusReference";
+  const formulaStatus = String(item.reference_formula_check_status || "").toLowerCase();
+  if (item.reference_formula_match === "False" || (formulaStatus && !["ok", "not_applicable"].includes(formulaStatus))) {
+    return "focusFormula";
+  }
+  const assessability = assessmentSummary(item).toLowerCase();
+  if (assessability !== tr("notProvided").toLowerCase() && /not_assessable|unassessable|limited/.test(assessability)) {
+    return "focusAssessment";
+  }
+  if (item.live_matches_candidate_snapshot === false) return "focusSnapshot";
+  return "focusComparison";
+}
+
+function renderReviewerSummary() {
+  const item = state.current;
+  if (!item) return;
+  const referenceStatus = referenceState(item);
+  const candidateStatus = String(item.live_candidate_status || item.candidate_status || "").toLowerCase();
+  const snapshotDifferent = item.live_matches_candidate_snapshot === false;
+  const snapshotKnown = typeof item.live_matches_candidate_snapshot === "boolean";
+  const provenance = snapshotDifferent ? compactProvenanceReason(item.live_candidate_equivalence_reason) : "";
+  const secondary = [
+    `q ${summaryValue(item.total_charge)}`,
+    `M ${summaryValue(item.spin_multiplicity)}`,
+    `radicals ${summaryValue(item.total_radical_electrons)}`,
+    `${tr("formulaLabel")} ${formulaCompact(item)}`,
+  ];
+  const snapshotText = snapshotKnown
+    ? snapshotDifferent
+      ? `<span class="status-pill drift">${escapeHtml(tr("differentCompact"))}</span>`
+      : `<span class="snapshot-same">${escapeHtml(tr("sameCompact"))}</span>`
+    : escapeHtml(tr("statusUnknownCompact"));
+  const mainStatus = [
+    `${escapeHtml(tr("currentCandidateLabel"))} ${candidateStatus === "ok" ? "✓" : escapeHtml(candidateStatus || tr("statusUnknownCompact"))}`,
+    `${escapeHtml(tr("summaryReference"))} ${referenceStatus === "valid" ? "✓" : escapeHtml(referenceStatus === "missing" ? tr("missingCompact") : referenceStatus === "invalid" ? tr("invalidCompact") : tr("statusUnknownCompact"))}`,
+    `${escapeHtml(tr("currentVsSnapshotLabel"))} ${snapshotText}`,
+  ];
+  $("reviewSummary").innerHTML = `
+    <div class="status-line">${mainStatus.join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>
+    ${provenance ? `<div class="drift-reason">${escapeHtml(provenance)}</div>` : ""}
+    <div class="status-line metadata-line">${secondary.map(escapeHtml).join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>`;
+  updateReferenceVisual();
+}
+
+function compactProvenanceReason(reason) {
+  return String(reason || "")
+    .replace(/^Not equivalent:\s*/i, "")
+    .replace(/\.$/, "");
+}
+
+function updateReferenceVisual() {
+  const item = state.current;
+  if (!item) return;
+  const status = referenceState(item);
+  const unavailable = status === "missing" || status === "invalid";
+  const primaryIsReference = state.primaryKind === "reference";
+  const secondaryIsReference = state.secondaryKind === "reference";
+  const hidePrimary = unavailable && primaryIsReference;
+  const hideSecondary = unavailable && secondaryIsReference;
+  $("primaryVisuals").classList.toggle("reference-unavailable", unavailable);
+  $("primaryVisual").hidden = hidePrimary;
+  $("secondaryVisual").hidden = hideSecondary;
+  $("referenceNotice").hidden = !(hidePrimary || hideSecondary);
+  if (unavailable) {
+    $("referenceNotice").innerHTML = `<strong>${escapeHtml(tr("referenceUnavailableTitle"))}</strong><span>${escapeHtml(tr(status === "missing" ? "referenceMissingNotice" : "referenceInvalidNotice"))}</span>`;
+  }
 }
 
 function populateReviewForm() {
@@ -792,23 +1103,22 @@ function populateReviewForm() {
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
+  if (item.review_status === "manual_reference") {
+    $("manualEditorDetails").open = true;
+  }
 }
 
 function renderDiagnostics() {
   const item = state.current;
-  const pairs = [
-    ["total_charge", item.total_charge],
-    ["spin_multiplicity", item.spin_multiplicity],
-    ["total_radical_electrons", item.total_radical_electrons],
+  const smilesPairs = [
     ["reference_smiles", item.reference_smiles],
+    ["candidate_smiles", item.candidate_smiles],
     ["candidate_snapshot_smiles", item.candidate_snapshot_smiles],
-    ["candidate_snapshot_runtime", item.candidate_snapshot_runtime],
     ["live_candidate_smiles", item.live_candidate_smiles],
-    ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
-    ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
-    ["live_candidate_reason", item.live_candidate_equivalence_reason],
     ["candidate_organic", item.candidate_organic_smiles],
     ["reference_organic", item.reference_organic_smiles],
+  ];
+  const assessmentPairs = [
     ["reference_formula_status", item.reference_formula_check_status],
     ["xyz_formula", item.xyz_formula],
     ["reference_formula_with_h", item.reference_formula_with_h],
@@ -821,12 +1131,54 @@ function renderDiagnostics() {
     ["molgr_answer_assessment", item.molgr_answer_assessment],
     ["error", item.error],
   ];
-  $("diagnostics").innerHTML = pairs
+  const runtimePairs = [
+    ["candidate_snapshot_runtime", item.candidate_snapshot_runtime],
+    ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
+    ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
+    ["live_candidate_reason", item.live_candidate_equivalence_reason],
+  ];
+  renderDiagnosticList("smilesDiagnostics", smilesPairs);
+  renderDiagnosticList("assessmentDiagnostics", assessmentPairs);
+  renderDiagnosticList("runtimeDiagnostics", runtimePairs);
+
+  const represented = new Set([
+    "fixture", "case_id", "row_index", "source", "category", "xyz_path",
+    "total_charge", "total_radical_electrons", "spin_multiplicity", "reference_smiles",
+    "candidate_smiles", "candidate_organic_smiles", "reference_organic_smiles",
+    "candidate_status", "review_status", "corrected_smiles", "corrected_molblock", "notes",
+    "reviewer", "updated_at", "candidate_snapshot_runtime", "candidate_snapshot_smiles",
+    "candidate_snapshot_status", "live_candidate_status", "live_candidate_smiles",
+    "live_candidate_smiles_exact_match", "live_matches_candidate_snapshot",
+    "live_candidate_equivalence_method", "live_candidate_equivalence_reason",
+    "reference_formula_check_status", "xyz_formula", "reference_formula_with_h",
+    "reference_formula_mismatch_detail", "reference_answer_status", "reference_answer_reason",
+    "accuracy_assessment_status", "accuracy_assessment_reason", "tmqmg_answer_assessment",
+    "molgr_answer_assessment", "error",
+  ]);
+  const metadataPairs = Object.entries(item)
+    .filter(([key, value]) => !represented.has(key) && hasValue(value))
+    .sort(([left], [right]) => left.localeCompare(right));
+  renderDiagnosticList("metadataDiagnostics", metadataPairs, false);
+
+  $("diagnostics").innerHTML = [...smilesPairs, ...assessmentPairs, ...runtimePairs]
     .map(([key, value]) => {
       const displayValue = value === null || value === undefined ? "" : String(value);
       return `<dt>${escapeHtml(tr(`diagnostics.${key}`, key))}</dt><dd>${escapeHtml(displayValue)}</dd>`;
     })
     .join("");
+}
+
+function renderDiagnosticList(id, pairs, translateKeys = true) {
+  const available = pairs.filter(([, value]) => hasValue(value));
+  $(id).innerHTML = available.length
+    ? available
+        .map(([key, value]) => {
+          const label = translateKeys ? tr(`diagnostics.${key}`, key) : key;
+          const display = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+          return `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(display)}</dd>`;
+        })
+        .join("")
+    : `<div class="details-empty">${escapeHtml(tr("notProvided"))}</div>`;
 }
 
 function statusBadge(status) {
@@ -836,14 +1188,13 @@ function statusBadge(status) {
   return badge(status, "bad");
 }
 
-function versionResultCard(label, status, smiles) {
+function versionResultCard(label, status) {
   return `
     <article class="version-card">
       <header>
         <strong>${escapeHtml(label)}</strong>
         ${statusBadge(status)}
       </header>
-      <code>${escapeHtml(smiles || "")}</code>
     </article>`;
 }
 
@@ -871,8 +1222,8 @@ function renderVersionComparison() {
       ${badge(mismatch ? tr("disagreement") : tr("consistent"), mismatch ? "warn" : "ok")}
     </header>
     <div class="version-grid">
-      ${versionResultCard("Python 3.8 · candidate_cpp", py38Status, py38Smiles)}
-      ${versionResultCard("Python 3.10 · candidate_cpp", py310Status, py310Smiles)}
+      ${versionResultCard("Python 3.8 · candidate_cpp", py38Status)}
+      ${versionResultCard("Python 3.10 · candidate_cpp", py310Status)}
     </div>`;
 }
 
@@ -903,17 +1254,28 @@ function renderCandidateSdfStatus() {
 
 async function loadXyz(item) {
   const container = $("viewer3d");
+  const technical = $("xyzTechnicalError");
   $("xyzText").textContent = tr("statusLoading");
+  technical.hidden = true;
+  technical.textContent = "";
   try {
     const xyz = await fetch(`/api/cases/${encodeURIComponent(item.case_id)}/xyz`).then((r) => {
       if (!r.ok) throw new Error(`XYZ load failed: ${r.status}`);
       return r.text();
     });
     $("xyzText").textContent = xyz;
+    state.xyzLoadStatus = "ok";
+    state.xyzLoadError = "";
     render3d(xyz);
+    renderReviewerSummary();
   } catch (error) {
+    state.xyzLoadStatus = "error";
+    state.xyzLoadError = error.message;
     $("xyzText").textContent = error.message;
-    container.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    container.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("xyzUnavailable"))}</strong><span>${escapeHtml(tr("candidateUnavailableBecauseXyz"))}</span></div>`;
+    technical.hidden = false;
+    technical.textContent = msg("technicalDetail", { detail: error.message });
+    renderReviewerSummary();
   }
 }
 
@@ -921,11 +1283,14 @@ async function loadCandidateSdf(item) {
   const text = $("candidateSdfText");
   const status = $("candidateSdfStatus");
   const modelStatus = $("candidateModelStatus");
+  const technical = $("candidateTechnicalError");
   text.textContent = tr("statusLoading");
   status.textContent = "";
   modelStatus.textContent = "";
   state.currentCandidateSdf = "";
   state.currentLiveCandidate = null;
+  technical.hidden = true;
+  technical.textContent = "";
   try {
     const data = await api(`/api/cases/${encodeURIComponent(item.case_id)}/candidate-sdf`);
     state.currentLiveCandidate = data;
@@ -936,12 +1301,16 @@ async function loadCandidateSdf(item) {
     item.live_candidate_equivalence_method = data.live_candidate_equivalence_method || "";
     item.live_candidate_equivalence_reason = data.live_candidate_equivalence_reason || "";
     renderCaseHeader();
+    renderReviewerSummary();
     renderDiagnostics();
     if (!data.available) {
       text.textContent = data.error || tr("reconstructionUnavailable");
       item.live_candidate_status = "unavailable";
+      renderReviewerSummary();
       status.textContent = tr("unavailable");
       modelStatus.textContent = tr("unavailable");
+      technical.hidden = !data.error;
+      technical.textContent = data.error ? msg("technicalDetail", { detail: data.error }) : "";
       renderCandidate3d("");
       return;
     }
@@ -960,9 +1329,12 @@ async function loadCandidateSdf(item) {
     modelStatus.textContent = state.currentCandidateSdf ? tr("rendered") : tr("emptyResult");
   } catch (error) {
     item.live_candidate_status = "error";
+    renderReviewerSummary();
     text.textContent = error.message;
     status.textContent = tr("error");
     modelStatus.textContent = tr("error");
+    technical.hidden = false;
+    technical.textContent = msg("technicalDetail", { detail: error.message });
     renderCandidate3d("");
   }
 }
@@ -1061,6 +1433,12 @@ async function loadRender(kind, slot) {
   box.innerHTML = `<div class="empty">${escapeHtml(tr("rendering"))}</div>`;
   setImageZoomState(box, title.textContent);
   smiles.textContent = "";
+  if (kind === "reference" && referenceState(item) === "missing") {
+    box.innerHTML = `<div class="empty compact-empty">${escapeHtml(tr("referenceMissingNotice"))}</div>`;
+    state.referenceRenderStatus = "unknown";
+    renderReviewerSummary();
+    return;
+  }
   try {
     const data =
       kind === "candidate"
@@ -1070,15 +1448,31 @@ async function loadRender(kind, slot) {
           );
     const renderError = kind === "candidate" ? data?.render_error || data?.error : data?.error;
     if (!data || renderError) {
-      box.innerHTML = `<div class="empty">${escapeHtml(renderError || tr("reconstructionUnavailable"))}</div>`;
+      const reviewerMessage = kind === "candidate" ? tr("candidateUnavailable") : tr("referenceInvalidNotice");
+      box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(reviewerMessage)}</strong></div>`;
+      if (kind === "candidate" && renderError) {
+        $("candidateTechnicalError").hidden = false;
+        $("candidateTechnicalError").textContent = msg("technicalDetail", { detail: renderError });
+      }
+      if (kind === "reference") state.referenceRenderStatus = "invalid";
     } else {
       box.innerHTML = data.svg || `<div class="empty">${escapeHtml(tr("emptyRender"))}</div>`;
+      if (kind === "reference") state.referenceRenderStatus = data.svg ? "valid" : "invalid";
     }
     setImageZoomState(box, title.textContent);
     smiles.textContent = kind === "candidate" ? data?.live_candidate_smiles || "" : data?.smiles || "";
+    if (kind === "reference") {
+      renderCaseHeader();
+      renderReviewerSummary();
+    }
   } catch (error) {
-    box.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(kind === "candidate" ? tr("candidateUnavailable") : tr("referenceInvalidNotice"))}</strong></div>`;
     setImageZoomState(box, title.textContent);
+    if (kind === "reference") {
+      state.referenceRenderStatus = "invalid";
+      renderCaseHeader();
+      renderReviewerSummary();
+    }
   }
 }
 
@@ -1273,10 +1667,6 @@ function bindEvents() {
       openImageLightbox(box);
     });
   });
-  $("focusKetcher").addEventListener("click", () => {
-    $("ketcherPanel").scrollIntoView({ block: "center", behavior: "smooth" });
-    $("ketcherFrame").focus();
-  });
   $("loadMolgrToKetcher").addEventListener("click", () =>
     setKetcherMolecule(state.currentCandidateSdf || currentCandidateOrganicSmiles()),
   );
@@ -1297,6 +1687,7 @@ function bindEvents() {
       button.classList.add("active");
       state.primaryKind = button.dataset.kind;
       state.secondaryKind = state.primaryKind === "candidate" ? "reference" : "candidate";
+      renderReviewerSummary();
       await loadPair();
     });
   });
