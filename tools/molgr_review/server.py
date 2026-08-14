@@ -45,6 +45,7 @@ from fixture_builder import (
     resolve_xyz_path,
     sync_review_fixture,
 )
+from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.utils.equivalence import check_equivalence
 from project_runtime import validate_project_runtime
 from scripts.reconstruction_trace import TraceInputCase, render_trace_report
@@ -253,6 +254,101 @@ def _mol_from_smiles_without_sanitize(smiles: str) -> Chem.Mol | None:
     if mol is not None:
         mol.UpdatePropertyCache(strict=False)
     return mol
+
+
+def _atom_h_count(atom: Chem.Atom, *, implicit: bool) -> int | None:
+    try:
+        return int(atom.GetNumImplicitHs() if implicit else atom.GetNumExplicitHs())
+    except (RuntimeError, ValueError):
+        return None
+
+
+def _review_graph_payload(mol: Chem.Mol, *, kind: str, smiles: str) -> dict[str, Any]:
+    graph = Chem.Mol(mol)
+    graph.UpdatePropertyCache(strict=False)
+    atoms: list[dict[str, Any]] = []
+    metal_atoms: list[dict[str, Any]] = []
+    for atom in graph.GetAtoms():  # pyright: ignore[reportCallIssue]
+        atomic_num = int(atom.GetAtomicNum())
+        is_metal = atomic_num not in NON_METAL_DICT
+        atom_payload = {
+            "index": int(atom.GetIdx()),
+            "element": atom.GetSymbol(),
+            "formal_charge": int(atom.GetFormalCharge()),
+            "radical_electrons": int(atom.GetNumRadicalElectrons()),
+            "explicit_h": _atom_h_count(atom, implicit=False),
+            "implicit_h": _atom_h_count(atom, implicit=True),
+            "is_metal": is_metal,
+            "neighbours": [
+                {"index": int(neighbour.GetIdx()), "element": neighbour.GetSymbol()}
+                for neighbour in atom.GetNeighbors()  # pyright: ignore[reportCallIssue]
+            ],
+        }
+        atoms.append(atom_payload)
+        if is_metal:
+            metal_atoms.append(
+                {
+                    "index": atom_payload["index"],
+                    "element": atom_payload["element"],
+                    "formal_charge": atom_payload["formal_charge"],
+                }
+            )
+
+    dative_types = {
+        Chem.BondType.DATIVE,
+        Chem.BondType.DATIVEL,
+        Chem.BondType.DATIVER,
+        Chem.BondType.DATIVEONE,
+    }
+    bond_names = {
+        Chem.BondType.SINGLE: "single",
+        Chem.BondType.DOUBLE: "double",
+        Chem.BondType.TRIPLE: "triple",
+        Chem.BondType.AROMATIC: "aromatic",
+    }
+    bonds: list[dict[str, Any]] = []
+    for bond in graph.GetBonds():  # pyright: ignore[reportCallIssue]
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        bond_type = bond.GetBondType()
+        kind_name = "dative" if bond_type in dative_types else bond_names.get(bond_type)
+        if kind_name is None:
+            kind_name = str(bond_type).lower()
+        bonds.append(
+            {
+                "index": int(bond.GetIdx()),
+                "begin_atom": int(begin.GetIdx()),
+                "begin_element": begin.GetSymbol(),
+                "end_atom": int(end.GetIdx()),
+                "end_element": end.GetSymbol(),
+                "type": kind_name,
+                "directional": bond_type in dative_types,
+            }
+        )
+
+    explicit_h_count = sum(atom.GetAtomicNum() == 1 for atom in graph.GetAtoms())
+    explicit_h_count += sum(
+        value
+        for atom in graph.GetAtoms()
+        if atom.GetAtomicNum() != 1
+        for value in [_atom_h_count(atom, implicit=False)]
+        if value is not None
+    )
+    return {
+        "kind": kind,
+        "smiles": smiles,
+        "summary": {
+            "total_formal_charge": sum(atom.GetFormalCharge() for atom in graph.GetAtoms()),
+            "atom_count": graph.GetNumAtoms(),
+            "explicit_h_count": explicit_h_count,
+            "total_radical_electrons": sum(
+                atom.GetNumRadicalElectrons() for atom in graph.GetAtoms()
+            ),
+            "metals": metal_atoms,
+        },
+        "atoms": atoms,
+        "bonds": bonds,
+    }
 
 
 def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str, Any]:
@@ -486,6 +582,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/cases/") and path.endswith("/candidate-sdf"):
             case_id = unquote(path.split("/")[3])
             self._api_candidate_sdf(case_id)
+        elif path.startswith("/api/cases/") and path.endswith("/graph"):
+            case_id = unquote(path.split("/")[3])
+            self._api_graph(case_id, query)
         elif path.startswith("/api/cases/"):
             case_id = unquote(path.split("/")[3])
             self._api_case(case_id)
@@ -809,6 +908,32 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 **_live_candidate_comparison(candidate_mol, snapshot_smiles),
             },
         )
+
+    def _api_graph(self, case_id: str, query: dict[str, list[str]]) -> None:
+        kind = query.get("kind", ["candidate"])[0]
+        if kind not in {"candidate", "reference"}:
+            _json_response(self, {"error": "invalid_graph_kind"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        with _connect(self.server.db_path) as conn:
+            case = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+        if case is None:
+            _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        if kind == "candidate":
+            mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
+            smiles = _safe_smiles(mol)
+        else:
+            source_smiles = str(case["reference_smiles"] or "")
+            mol = _render_mol_from_smiles(source_smiles)
+            if mol is None:
+                _json_response(
+                    self,
+                    {"error": "reference_smiles_missing_or_invalid"},
+                    status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
+                return
+            smiles = source_smiles
+        _json_response(self, _review_graph_payload(mol, kind=kind, smiles=smiles))
 
     def _api_render(self, case_id: str, query: dict[str, list[str]]) -> None:
         kind = query.get("kind", ["candidate"])[0]
