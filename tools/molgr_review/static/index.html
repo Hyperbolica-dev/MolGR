@@ -109,11 +109,12 @@
             <button class="decision" data-status="skip" type="button" data-i18n="skip">跳过</button>
           </div>
           <label class="reviewer-field">
-            <span data-i18n="reviewer">审核人</span>
-            <input id="reviewer" type="text" autocomplete="name" />
+            <span data-i18n="reviewer">审核理由</span>
+            <input id="reviewer" type="text" list="reviewReasonOptions" autocomplete="off" />
+            <datalist id="reviewReasonOptions"></datalist>
           </label>
           <label class="notes-field action-notes">
-            <span data-i18n="notes">审核依据 / 备注</span>
+            <span data-i18n="notes">备注 / 证据</span>
             <textarea id="notes" rows="1"></textarea>
           </label>
         </div>

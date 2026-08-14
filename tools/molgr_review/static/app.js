@@ -39,7 +39,7 @@ const translations = {
     manualConclusion: "人工结论",
     removeFixture: "移除 fixture",
     removeFixtureTitle: "移除 {file} 并将 {caseId} 标记为待复核",
-    reviewer: "审核人",
+    reviewer: "审核理由",
     candidateGraph: "候选图为准",
     referenceGraph: "参考图为准",
     acceptBoth: "接受两者",
@@ -64,7 +64,7 @@ const translations = {
     readCanvas: "读取画布",
     correctedSmiles: "修正 SMILES",
     correctedMolblock: "修正 Molfile / Molblock",
-    notes: "审核依据 / 备注",
+    notes: "备注 / 证据",
     reviewerSummary: "Reviewer Summary / 审核关注项",
     datasetRuntime: "数据集 / 运行环境",
     reviewStructures: "审核结构",
@@ -84,7 +84,7 @@ const translations = {
     unknownValidity: "存在；有效性未提供",
     currentDecision: "当前已保存：{status}",
     noSavedDecision: "当前未保存审核结论",
-    reviewedBy: "审核人：{reviewer}",
+    reviewedBy: "审核理由：{reviewer}",
     updatedAt: "更新于：{updatedAt}",
     referenceMissingNotice: "当前 payload 未提供 reference SMILES。",
     referenceInvalidNotice: "当前 reference SMILES 无法解析。",
@@ -248,7 +248,7 @@ const translations = {
     manualConclusion: "Manual decision",
     removeFixture: "Remove fixture",
     removeFixtureTitle: "Remove {file} and mark {caseId} for follow-up",
-    reviewer: "Reviewer",
+    reviewer: "Review reason",
     candidateGraph: "Accept candidate",
     referenceGraph: "Accept reference",
     acceptBoth: "Accept both",
@@ -273,7 +273,7 @@ const translations = {
     readCanvas: "Read canvas",
     correctedSmiles: "Corrected SMILES",
     correctedMolblock: "Corrected Molfile / Molblock",
-    notes: "Review rationale / notes",
+    notes: "Notes / evidence",
     reviewerSummary: "Reviewer Summary",
     datasetRuntime: "Dataset / runtime",
     reviewStructures: "Review structures",
@@ -293,7 +293,7 @@ const translations = {
     unknownValidity: "Present; validity not provided",
     currentDecision: "Saved decision: {status}",
     noSavedDecision: "No review decision saved",
-    reviewedBy: "Reviewer: {reviewer}",
+    reviewedBy: "Review reason: {reviewer}",
     updatedAt: "Updated: {updatedAt}",
     referenceMissingNotice: "The current payload does not provide a reference SMILES.",
     referenceInvalidNotice: "The reference SMILES could not be parsed.",
@@ -819,6 +819,19 @@ async function loadStats() {
         `<div><span>${escapeHtml(name)}</span>` +
         `<code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`,
     )
+    .join("");
+}
+
+async function loadReviewReasons() {
+  const data = await api("/api/review-reasons");
+  const items = Array.isArray(data.items) ? data.items : [];
+  $("reviewReasonOptions").innerHTML = items
+    .filter((item) => hasValue(item.reviewer))
+    .map((item) => {
+      const reviewer = String(item.reviewer).trim();
+      const count = Number(item.count) || 0;
+      return `<option value="${escapeHtml(reviewer)}">${escapeHtml(`${reviewer} (${count})`)}</option>`;
+    })
     .join("");
 }
 
@@ -1574,7 +1587,7 @@ async function saveReview(status) {
     $("saveState").textContent = result.fixture
       ? msg("savedFixture", { file: result.fixture.structure_file })
       : tr("savedNoFixture");
-    await loadStats();
+    await Promise.all([loadStats(), loadReviewReasons()]);
     await loadCase(state.current.case_id);
   } catch (error) {
     $("saveState").textContent = error.message;
@@ -1703,9 +1716,11 @@ function bindEvents() {
   });
   $("refreshStats").addEventListener("click", () => {
     loadStats();
+    loadReviewReasons();
     loadCases(true);
   });
   $("languageToggle").addEventListener("click", toggleLanguage);
+  $("reviewer").addEventListener("focus", () => loadReviewReasons());
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));
@@ -1775,6 +1790,7 @@ async function init() {
   const requestedCaseId = new URLSearchParams(window.location.search).get("case")?.trim() || "";
   if (requestedCaseId) $("searchBox").value = requestedCaseId;
   await loadStats();
+  await loadReviewReasons();
   await loadCases(true);
   if (requestedCaseId) {
     await loadCase(requestedCaseId);
