@@ -473,6 +473,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self._trace_page(unquote(path[len("/trace/") :]))
         elif path == "/api/stats":
             self._api_stats()
+        elif path == "/api/review-reasons":
+            self._api_review_reasons()
         elif path == "/api/cases":
             self._api_cases(query)
         elif path.startswith("/api/cases/") and path.endswith("/render"):
@@ -643,6 +645,22 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "metadata": {row["key"]: row["value"] for row in metadata_rows},
                 "runtime": getattr(self.server, "runtime_info", {}),
             },
+        )
+
+    def _api_review_reasons(self) -> None:
+        with _connect(self.server.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT reviewer, COUNT(*) AS count
+                FROM reviews
+                WHERE reviewer IS NOT NULL AND TRIM(reviewer) != ''
+                GROUP BY reviewer
+                ORDER BY COUNT(*) DESC, reviewer
+                """
+            ).fetchall()
+        _json_response(
+            self,
+            {"items": [{"reviewer": row["reviewer"], "count": row["count"]} for row in rows]},
         )
 
     def _api_cases(self, query: dict[str, list[str]]) -> None:
