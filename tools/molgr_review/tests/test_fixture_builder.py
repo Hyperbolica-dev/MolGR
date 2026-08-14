@@ -73,8 +73,10 @@ def test_review_page_exposes_fixture_removal_action() -> None:
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in stylesheet
     assert "text-overflow: ellipsis;" in stylesheet
     assert "body {\n    display: block;" not in stylesheet
-    assert "function configureOrganicRenderKinds(item)" in javascript
-    assert "button.hidden = !available.has(button.dataset.kind);" in javascript
+    assert 'class="render-kind' not in html
+    assert "primaryKind" not in javascript
+    assert "secondaryKind" not in javascript
+    assert 'querySelectorAll(".render-kind")' not in javascript
 
 
 def test_review_2d_render_omits_explicit_h_without_mutating_electronic_state(

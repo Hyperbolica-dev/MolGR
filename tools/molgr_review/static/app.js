@@ -6,8 +6,7 @@ const state = {
   limit: 80,
   current: null,
   viewStyle: "stick",
-  primaryKind: "candidate",
-  secondaryKind: "reference",
+  caseRequestToken: 0,
   xyzViewer: null,
   candidateViewer: null,
   currentCandidateSdf: "",
@@ -15,7 +14,8 @@ const state = {
   ketcherLoaded: false,
   ketcherStatus: null,
   layout: null,
-  referenceRenderStatus: "unknown",
+  referenceRenderStatus: "render_failed",
+  referenceRenderError: "",
   xyzLoadStatus: "unknown",
   xyzLoadError: "",
 };
@@ -71,8 +71,6 @@ const translations = {
     reviewStructuresHint: "优先核对输入几何、当前候选图与参考图。",
     xyzGeometry: "原始 3D 几何",
     additionalViews: "其他结构视图",
-    alternateRenders: "切换 2D 图",
-    alternateRendersHint: "选择后会更新上方两张 2D 图。",
     caseDetails: "Case details / 完整信息",
     smilesDetails: "完整 SMILES",
     assessmentDetails: "Assessment / Reference 详情",
@@ -88,11 +86,11 @@ const translations = {
     noSavedDecision: "当前未保存审核结论",
     reviewedBy: "审核人：{reviewer}",
     updatedAt: "更新于：{updatedAt}",
-    referenceUnavailableTitle: "Reference 未参与主视觉对比",
     referenceMissingNotice: "当前 payload 未提供 reference SMILES。",
-    referenceInvalidNotice: "当前 reference 无效或无法渲染；详情见折叠信息。",
+    referenceInvalidNotice: "当前 reference SMILES 无法解析。",
+    referenceRenderFailed: "Reference render failed",
     focusCandidateFailure: "重点检查：当前候选重建不可用。",
-    focusReference: "重点检查：Reference 缺失或无效，优先核对 XYZ 与 Candidate。",
+    focusReference: "重点检查：Reference 缺失、无效或渲染失败，优先核对 XYZ 与 Candidate。",
     focusFormula: "重点检查：XYZ 与 Reference 的分子式状态异常。",
     focusAssessment: "重点检查：当前 case 的 assessability 受限。",
     focusSnapshot: "重点检查：当前重建与 candidate snapshot 不一致。",
@@ -125,6 +123,7 @@ const translations = {
     availableCompact: "available",
     missingCompact: "missing",
     invalidCompact: "invalid",
+    renderFailedCompact: "render failed",
     unavailableCompact: "unavailable",
     sameCompact: "same",
     differentCompact: "different",
@@ -281,8 +280,6 @@ const translations = {
     reviewStructuresHint: "Check the input geometry, current candidate, and reference first.",
     xyzGeometry: "Original 3D geometry",
     additionalViews: "Additional structure views",
-    alternateRenders: "Switch 2D render",
-    alternateRendersHint: "The selection updates the two 2D panels above.",
     caseDetails: "Case details / Full information",
     smilesDetails: "Full SMILES",
     assessmentDetails: "Assessment / Reference details",
@@ -298,11 +295,11 @@ const translations = {
     noSavedDecision: "No review decision saved",
     reviewedBy: "Reviewer: {reviewer}",
     updatedAt: "Updated: {updatedAt}",
-    referenceUnavailableTitle: "Reference excluded from primary comparison",
     referenceMissingNotice: "The current payload does not provide a reference SMILES.",
-    referenceInvalidNotice: "The reference is invalid or cannot be rendered; see details below.",
+    referenceInvalidNotice: "The reference SMILES could not be parsed.",
+    referenceRenderFailed: "Reference render failed",
     focusCandidateFailure: "Focus: the current candidate reconstruction is unavailable.",
-    focusReference: "Focus: reference is missing or invalid; compare XYZ and Candidate first.",
+    focusReference: "Focus: reference is missing, invalid, or failed to render; compare XYZ and Candidate first.",
     focusFormula: "Focus: the XYZ and Reference formula status is abnormal.",
     focusAssessment: "Focus: assessability is limited for this case.",
     focusSnapshot: "Focus: current reconstruction differs from the candidate snapshot.",
@@ -335,6 +332,7 @@ const translations = {
     availableCompact: "available",
     missingCompact: "missing",
     invalidCompact: "invalid",
+    renderFailedCompact: "render failed",
     unavailableCompact: "unavailable",
     sameCompact: "same",
     differentCompact: "different",
@@ -486,7 +484,7 @@ function applyLanguage() {
     renderVersionComparison();
     renderDiagnostics();
     renderCandidateSdfStatus();
-    loadPair();
+    loadPair(state.caseRequestToken);
   }
   renderKetcherStatus();
 }
@@ -517,8 +515,6 @@ function localizedError(key) {
 const labels = {
   candidate: "currentCandidate",
   reference: "reference",
-  candidate_organic: "candidateOrganic",
-  reference_organic: "referenceOrganic",
 };
 
 const layoutStorageKey = "moleculeReviewLayout.v1";
@@ -724,7 +720,10 @@ async function api(path, options = {}) {
   const payload = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const message = typeof payload === "string" ? payload : payload.error || response.statusText;
-    throw new Error(message);
+    const error = new Error(message);
+    error.httpStatus = response.status;
+    error.payloadError = typeof payload === "object" && payload ? payload.error || "" : "";
+    throw error;
   }
   return payload;
 }
@@ -868,33 +867,38 @@ function renderCaseList() {
   });
 }
 
-function configureOrganicRenderKinds(item) {
-  const available = new Set(Array.isArray(item.available_render_kinds) ? item.available_render_kinds : []);
-  document.querySelectorAll('.render-kind[data-kind$="_organic"]').forEach((button) => {
-    button.hidden = !available.has(button.dataset.kind);
-  });
+function isCurrentCaseRequest(token, caseId) {
+  return token === state.caseRequestToken && state.current?.case_id === caseId;
 }
 
 async function loadCase(caseId) {
-  const item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+  const token = ++state.caseRequestToken;
+  let item;
+  try {
+    item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+  } catch (error) {
+    if (token !== state.caseRequestToken) return;
+    throw error;
+  }
+  if (token !== state.caseRequestToken) return;
   state.current = item;
   const url = new URL(window.location.href);
   url.searchParams.set("case", item.case_id);
   window.history.replaceState({}, "", url);
-  state.primaryKind = "candidate";
-  state.secondaryKind = "reference";
   state.currentLiveCandidate = null;
-  state.referenceRenderStatus = "unknown";
+  state.referenceRenderStatus = "render_failed";
+  state.referenceRenderError = "";
   state.xyzLoadStatus = "unknown";
   state.xyzLoadError = "";
-  configureOrganicRenderKinds(item);
   renderCaseHeader();
   renderReviewerSummary();
   populateReviewForm();
   renderVersionComparison();
   renderDiagnostics();
-  await Promise.all([loadXyz(item), loadCandidateSdf(item)]);
-  await loadPair();
+  await Promise.all([loadXyz(item, token), loadCandidateSdf(item, token)]);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  await loadPair(token);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
   renderCaseList();
 }
 
@@ -950,18 +954,16 @@ function formatTimestamp(value) {
 function referenceState(item) {
   if (!hasValue(item?.reference_smiles)) return "missing";
   const parseStatus = String(item.reference_parse_status || "").toLowerCase();
-  if (parseStatus && parseStatus !== "ok") return "invalid";
-  if (state.referenceRenderStatus === "invalid") return "invalid";
-  if (parseStatus === "ok" || state.referenceRenderStatus === "valid") return "valid";
-  return "unknown";
+  if (parseStatus && parseStatus !== "ok") return "parse_invalid";
+  return state.referenceRenderStatus === "available" ? "available" : "render_failed";
 }
 
 function referenceLabel(item) {
   const status = referenceState(item);
   if (status === "missing") return tr("missing");
-  if (status === "invalid") return tr("invalid");
-  if (status === "valid") return tr("valid");
-  return tr("unknownValidity");
+  if (status === "parse_invalid") return tr("invalid");
+  if (status === "render_failed") return tr("referenceRenderFailed");
+  return tr("valid");
 }
 
 function summaryValue(value) {
@@ -1011,10 +1013,10 @@ function snapshotCompact(item) {
 
 function referenceCompact(item) {
   const status = referenceState(item);
-  if (status === "valid") return tr("statusOk");
+  if (status === "available") return tr("statusOk");
   if (status === "missing") return tr("statusMissingCompact");
-  if (status === "invalid") return tr("statusInvalidCompact");
-  return tr("statusUnknownCompact");
+  if (status === "parse_invalid") return tr("statusInvalidCompact");
+  return tr("renderFailedCompact");
 }
 
 function candidateCompact(item) {
@@ -1034,7 +1036,7 @@ function reviewFocusKey(item) {
   if (["failed", "error", "unavailable"].includes(String(item.live_candidate_status || item.candidate_status || "").toLowerCase())) {
     return "focusCandidateFailure";
   }
-  if (["missing", "invalid"].includes(referenceState(item))) return "focusReference";
+  if (["missing", "parse_invalid", "render_failed"].includes(referenceState(item))) return "focusReference";
   const formulaStatus = String(item.reference_formula_check_status || "").toLowerCase();
   if (item.reference_formula_match === "False" || (formulaStatus && !["ok", "not_applicable"].includes(formulaStatus))) {
     return "focusFormula";
@@ -1068,7 +1070,7 @@ function renderReviewerSummary() {
     : escapeHtml(tr("statusUnknownCompact"));
   const mainStatus = [
     `${escapeHtml(tr("currentCandidateLabel"))} ${candidateStatus === "ok" ? "✓" : escapeHtml(candidateStatus || tr("statusUnknownCompact"))}`,
-    `${escapeHtml(tr("summaryReference"))} ${referenceStatus === "valid" ? "✓" : escapeHtml(referenceStatus === "missing" ? tr("missingCompact") : referenceStatus === "invalid" ? tr("invalidCompact") : tr("statusUnknownCompact"))}`,
+    `${escapeHtml(tr("summaryReference"))} ${referenceStatus === "available" ? "✓" : escapeHtml(referenceStatus === "missing" ? tr("missingCompact") : referenceStatus === "parse_invalid" ? tr("invalidCompact") : tr("renderFailedCompact"))}`,
     `${escapeHtml(tr("currentVsSnapshotLabel"))} ${snapshotText}`,
   ];
   $("reviewSummary").innerHTML = `
@@ -1088,17 +1090,12 @@ function updateReferenceVisual() {
   const item = state.current;
   if (!item) return;
   const status = referenceState(item);
-  const unavailable = status === "missing" || status === "invalid";
-  const primaryIsReference = state.primaryKind === "reference";
-  const secondaryIsReference = state.secondaryKind === "reference";
-  const hidePrimary = unavailable && primaryIsReference;
-  const hideSecondary = unavailable && secondaryIsReference;
-  $("primaryVisuals").classList.toggle("reference-unavailable", unavailable);
-  $("primaryVisual").hidden = hidePrimary;
-  $("secondaryVisual").hidden = hideSecondary;
-  $("referenceNotice").hidden = !(hidePrimary || hideSecondary);
-  if (unavailable) {
-    $("referenceNotice").innerHTML = `<strong>${escapeHtml(tr("referenceUnavailableTitle"))}</strong><span>${escapeHtml(tr(status === "missing" ? "referenceMissingNotice" : "referenceInvalidNotice"))}</span>`;
+  $("primaryVisual").hidden = false;
+  $("secondaryVisual").hidden = false;
+  if (status === "missing") showReferenceMessage(tr("referenceMissingNotice"));
+  if (status === "parse_invalid") showReferenceMessage(tr("referenceInvalidNotice"));
+  if (status === "render_failed") {
+    showReferenceMessage(tr("referenceRenderFailed"), state.referenceRenderError);
   }
 }
 
@@ -1260,7 +1257,7 @@ function renderCandidateSdfStatus() {
   modelStatus.textContent = tr("rendered");
 }
 
-async function loadXyz(item) {
+async function loadXyz(item, token) {
   const container = $("viewer3d");
   const technical = $("xyzTechnicalError");
   $("xyzText").textContent = tr("statusLoading");
@@ -1271,12 +1268,14 @@ async function loadXyz(item) {
       if (!r.ok) throw new Error(`XYZ load failed: ${r.status}`);
       return r.text();
     });
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     $("xyzText").textContent = xyz;
     state.xyzLoadStatus = "ok";
     state.xyzLoadError = "";
-    render3d(xyz);
+    render3d(xyz, token, item.case_id);
     renderReviewerSummary();
   } catch (error) {
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     state.xyzLoadStatus = "error";
     state.xyzLoadError = error.message;
     $("xyzText").textContent = error.message;
@@ -1287,7 +1286,7 @@ async function loadXyz(item) {
   }
 }
 
-async function loadCandidateSdf(item) {
+async function loadCandidateSdf(item, token) {
   const text = $("candidateSdfText");
   const status = $("candidateSdfStatus");
   const modelStatus = $("candidateModelStatus");
@@ -1301,6 +1300,7 @@ async function loadCandidateSdf(item) {
   technical.textContent = "";
   try {
     const data = await api(`/api/cases/${encodeURIComponent(item.case_id)}/candidate-sdf`);
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     state.currentLiveCandidate = data;
     item.live_candidate_status = data.live_candidate_status || "";
     item.live_candidate_smiles = data.live_candidate_smiles || "";
@@ -1319,7 +1319,7 @@ async function loadCandidateSdf(item) {
       modelStatus.textContent = tr("unavailable");
       technical.hidden = !data.error;
       technical.textContent = data.error ? msg("technicalDetail", { detail: data.error }) : "";
-      renderCandidate3d("");
+      renderCandidate3d("", token, item.case_id);
       return;
     }
     state.currentCandidateSdf = data.sdf || "";
@@ -1333,9 +1333,10 @@ async function loadCandidateSdf(item) {
         ? tr("generatedSnapshotIncomparable")
         : tr("emptyResult");
     }
-    renderCandidate3d(state.currentCandidateSdf);
+    renderCandidate3d(state.currentCandidateSdf, token, item.case_id);
     modelStatus.textContent = state.currentCandidateSdf ? tr("rendered") : tr("emptyResult");
   } catch (error) {
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     item.live_candidate_status = "error";
     renderReviewerSummary();
     text.textContent = error.message;
@@ -1343,7 +1344,7 @@ async function loadCandidateSdf(item) {
     modelStatus.textContent = tr("error");
     technical.hidden = false;
     technical.textContent = msg("technicalDetail", { detail: error.message });
-    renderCandidate3d("");
+    renderCandidate3d("", token, item.case_id);
   }
 }
 
@@ -1368,7 +1369,7 @@ function copyViewerPose(sourceViewer, targetViewer) {
   }
 }
 
-function render3d(xyz) {
+function render3d(xyz, token = state.caseRequestToken, caseId = state.current?.case_id) {
   const container = $("viewer3d");
   container.innerHTML = "";
   if (!window.$3Dmol) {
@@ -1376,6 +1377,7 @@ function render3d(xyz) {
     return;
   }
   requestAnimationFrame(() => {
+    if (!isCurrentCaseRequest(token, caseId)) return;
     const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
     viewer.addModel(xyz, "xyz");
     applyViewerStyle(viewer);
@@ -1386,12 +1388,12 @@ function render3d(xyz) {
     viewer.render();
     state.xyzViewer = viewer;
     if (state.currentCandidateSdf) {
-      renderCandidate3d(state.currentCandidateSdf);
+      renderCandidate3d(state.currentCandidateSdf, token, caseId);
     }
   });
 }
 
-function renderCandidate3d(sdf) {
+function renderCandidate3d(sdf, token = state.caseRequestToken, caseId = state.current?.case_id) {
   const container = $("viewerCandidate3d");
   container.innerHTML = "";
   if (!sdf) {
@@ -1405,6 +1407,7 @@ function renderCandidate3d(sdf) {
     return;
   }
   requestAnimationFrame(() => {
+    if (!isCurrentCaseRequest(token, caseId)) return;
     const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
     viewer.addModel(sdf, "sdf");
     applyViewerStyle(viewer);
@@ -1418,15 +1421,35 @@ function renderCandidate3d(sdf) {
   });
 }
 
-async function loadPair() {
+async function loadPair(token = state.caseRequestToken) {
   await Promise.all([
-    loadRender(state.primaryKind, "primary"),
-    loadRender(state.secondaryKind, "secondary"),
+    loadRender("candidate", "primary", token),
+    loadRender("reference", "secondary", token),
   ]);
 }
 
-async function loadRender(kind, slot) {
+function renderErrorDetail(kind, { httpStatus = null, payloadError = "", message = "" } = {}) {
+  const parts = [`kind=${kind}`];
+  if (httpStatus !== null && httpStatus !== undefined) parts.push(`HTTP ${httpStatus}`);
+  if (payloadError) parts.push(`payload.error=${payloadError}`);
+  if (message && message !== payloadError) parts.push(message);
+  return parts.join(" · ");
+}
+
+function showReferenceMessage(message, technicalDetail = "") {
+  const box = $("secondarySvg");
+  box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(message)}</strong></div>`;
+  setImageZoomState(box, tr("reference"));
+  const technical = $("referenceTechnicalError");
+  technical.hidden = !technicalDetail;
+  technical.textContent = technicalDetail
+    ? msg("technicalDetail", { detail: technicalDetail })
+    : "";
+}
+
+async function loadRender(kind, slot, token = state.caseRequestToken) {
   const item = state.current;
+  if (!item || !isCurrentCaseRequest(token, item.case_id)) return;
   const title = slot === "primary" ? $("primaryRenderTitle") : $("secondaryRenderTitle");
   const reason =
     slot === "primary" ? $("primaryReferenceReason") : $("secondaryReferenceReason");
@@ -1441,9 +1464,18 @@ async function loadRender(kind, slot) {
   box.innerHTML = `<div class="empty">${escapeHtml(tr("rendering"))}</div>`;
   setImageZoomState(box, title.textContent);
   smiles.textContent = "";
-  if (kind === "reference" && referenceState(item) === "missing") {
-    box.innerHTML = `<div class="empty compact-empty">${escapeHtml(tr("referenceMissingNotice"))}</div>`;
-    state.referenceRenderStatus = "unknown";
+  if (kind === "reference") {
+    $("referenceTechnicalError").hidden = true;
+    $("referenceTechnicalError").textContent = "";
+  }
+  const initialReferenceState = kind === "reference" ? referenceState(item) : null;
+  if (initialReferenceState === "missing" || initialReferenceState === "parse_invalid") {
+    state.referenceRenderError = "";
+    showReferenceMessage(
+      initialReferenceState === "missing"
+        ? tr("referenceMissingNotice")
+        : tr("referenceInvalidNotice"),
+    );
     renderReviewerSummary();
     return;
   }
@@ -1454,18 +1486,43 @@ async function loadRender(kind, slot) {
         : await api(
             `/api/cases/${encodeURIComponent(item.case_id)}/render?kind=${encodeURIComponent(kind)}`,
           );
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     const renderError = kind === "candidate" ? data?.render_error || data?.error : data?.error;
     if (!data || renderError) {
-      const reviewerMessage = kind === "candidate" ? tr("candidateUnavailable") : tr("referenceInvalidNotice");
-      box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(reviewerMessage)}</strong></div>`;
-      if (kind === "candidate" && renderError) {
+      const detail = renderErrorDetail(kind, {
+        payloadError: renderError || "",
+        message: !data ? "empty response" : "",
+      });
+      if (kind === "candidate") {
+        box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("candidateUnavailable"))}</strong></div>`;
         $("candidateTechnicalError").hidden = false;
-        $("candidateTechnicalError").textContent = msg("technicalDetail", { detail: renderError });
+        $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
+      } else {
+        state.referenceRenderStatus = "render_failed";
+        state.referenceRenderError = detail;
+        showReferenceMessage(tr("referenceRenderFailed"), detail);
       }
-      if (kind === "reference") state.referenceRenderStatus = "invalid";
     } else {
-      box.innerHTML = data.svg || `<div class="empty">${escapeHtml(tr("emptyRender"))}</div>`;
-      if (kind === "reference") state.referenceRenderStatus = data.svg ? "valid" : "invalid";
+      if (data.svg) {
+        box.innerHTML = data.svg;
+        if (kind === "reference") {
+          state.referenceRenderStatus = "available";
+          state.referenceRenderError = "";
+          $("referenceTechnicalError").hidden = true;
+          $("referenceTechnicalError").textContent = "";
+        }
+      } else {
+        const detail = renderErrorDetail(kind, { message: "empty SVG" });
+        if (kind === "reference") {
+          state.referenceRenderStatus = "render_failed";
+          state.referenceRenderError = detail;
+          showReferenceMessage(tr("referenceRenderFailed"), detail);
+        } else {
+          box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("candidateUnavailable"))}</strong></div>`;
+          $("candidateTechnicalError").hidden = false;
+          $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
+        }
+      }
     }
     setImageZoomState(box, title.textContent);
     smiles.textContent = kind === "candidate" ? data?.live_candidate_smiles || "" : data?.smiles || "";
@@ -1474,12 +1531,23 @@ async function loadRender(kind, slot) {
       renderReviewerSummary();
     }
   } catch (error) {
-    box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(kind === "candidate" ? tr("candidateUnavailable") : tr("referenceInvalidNotice"))}</strong></div>`;
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
+    const detail = renderErrorDetail(kind, {
+      httpStatus: error.httpStatus,
+      payloadError: error.payloadError,
+      message: error.message,
+    });
+    box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(kind === "candidate" ? tr("candidateUnavailable") : tr("referenceRenderFailed"))}</strong></div>`;
     setImageZoomState(box, title.textContent);
     if (kind === "reference") {
-      state.referenceRenderStatus = "invalid";
+      state.referenceRenderStatus = "render_failed";
+      state.referenceRenderError = detail;
+      showReferenceMessage(tr("referenceRenderFailed"), detail);
       renderCaseHeader();
       renderReviewerSummary();
+    } else {
+      $("candidateTechnicalError").hidden = false;
+      $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
     }
   }
 }
@@ -1687,16 +1755,6 @@ function bindEvents() {
       state.viewStyle = button.dataset.style;
       if ($("xyzText").textContent) render3d($("xyzText").textContent);
       if (state.currentCandidateSdf) renderCandidate3d(state.currentCandidateSdf);
-    });
-  });
-  document.querySelectorAll(".render-kind").forEach((button) => {
-    button.addEventListener("click", async () => {
-      document.querySelectorAll(".render-kind").forEach((b) => b.classList.remove("active"));
-      button.classList.add("active");
-      state.primaryKind = button.dataset.kind;
-      state.secondaryKind = state.primaryKind === "candidate" ? "reference" : "candidate";
-      renderReviewerSummary();
-      await loadPair();
     });
   });
   document.querySelectorAll(".decision").forEach((button) => {
