@@ -125,10 +125,13 @@
           <div>
             <h3 data-i18n="reviewStructures">审核结构</h3>
           </div>
-          <div class="segmented">
-            <button class="view-mode active" data-style="stick" type="button">Stick</button>
-            <button class="view-mode" data-style="sphere" type="button">Sphere</button>
-            <button class="view-mode" data-style="line" type="button">Line</button>
+          <div class="structure-header-actions">
+            <button id="jumpToReviewerDetails" class="details-jump" type="button" data-i18n="reviewDetailsJump">审核详情</button>
+            <div class="segmented">
+              <button class="view-mode active" data-style="stick" type="button">Stick</button>
+              <button class="view-mode" data-style="sphere" type="button">Sphere</button>
+              <button class="view-mode" data-style="line" type="button">Line</button>
+            </div>
           </div>
         </header>
 
@@ -178,27 +181,100 @@
           <code id="secondarySmiles"></code>
         </div>
 
-        <details class="secondary-visuals">
-          <summary data-i18n="additionalViews">其他结构视图</summary>
-          <div class="secondary-visual-grid">
-            <section class="text-block">
-              <header class="subsection-header">
-                <h4 data-i18n="currentCandidateTopology3d">当前候选重建 3D 拓扑</h4>
-                <span id="candidateModelStatus" class="muted"></span>
-              </header>
-              <div id="viewerCandidate3d" class="viewer viewer-secondary"></div>
-            </section>
-          </div>
-        </details>
       </section>
 
-      <details class="technical-details panel">
-        <summary data-i18n="caseDetails">Case details / 完整信息</summary>
-        <div class="details-content">
-          <section>
-            <h4 data-i18n="smilesDetails">完整 SMILES</h4>
-            <dl id="smilesDiagnostics" class="diagnostics"></dl>
+      <details id="reviewerDetails" class="reviewer-details panel">
+        <summary data-i18n="reviewerDetails">Reviewer details / 审核详情</summary>
+        <div class="reviewer-details-content">
+          <details id="smilesGraphDetails">
+            <summary data-i18n="smilesGraphSummary">SMILES &amp; graph summary</summary>
+            <div class="reviewer-detail-section">
+              <dl id="reviewerSmiles" class="reviewer-smiles"></dl>
+              <div class="table-scroll">
+                <table class="evidence-table graph-summary-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="metric">Metric</th>
+                      <th data-i18n="currentCandidate">Current Candidate</th>
+                      <th data-i18n="reference">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody id="graphSummaryRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+
+          <details id="atomBondDetails">
+            <summary data-i18n="atomBondInspector">Atom / bond inspector</summary>
+            <div class="graph-inspector-grid">
+              <section class="graph-inspector" data-graph-kind="candidate">
+                <header>
+                  <h4 data-i18n="currentCandidate">Current Candidate</h4>
+                  <label><input class="show-full-graph" data-kind="candidate" type="checkbox" /> <span data-i18n="showFullGraph">Show full graph</span></label>
+                </header>
+                <div id="candidateGraphError" class="technical-error" hidden></div>
+                <div class="table-scroll">
+                  <table class="evidence-table atom-table">
+                    <thead><tr><th>idx</th><th data-i18n="element">Element</th><th data-i18n="formalCharge">Formal charge</th><th data-i18n="radicalElectrons">Radical e−</th><th data-i18n="explicitH">Explicit H</th><th data-i18n="implicitH">Implicit H</th><th data-i18n="neighbours">Neighbours</th></tr></thead>
+                    <tbody id="candidateAtomRows"></tbody>
+                  </table>
+                </div>
+                <div class="table-scroll">
+                  <table class="evidence-table bond-table">
+                    <thead><tr><th>idx</th><th data-i18n="bond">Bond</th><th data-i18n="bondType">Type</th></tr></thead>
+                    <tbody id="candidateBondRows"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="graph-inspector" data-graph-kind="reference">
+                <header>
+                  <h4 data-i18n="reference">Reference</h4>
+                  <label><input class="show-full-graph" data-kind="reference" type="checkbox" /> <span data-i18n="showFullGraph">Show full graph</span></label>
+                </header>
+                <div id="referenceGraphError" class="technical-error" hidden></div>
+                <div class="table-scroll">
+                  <table class="evidence-table atom-table">
+                    <thead><tr><th>idx</th><th data-i18n="element">Element</th><th data-i18n="formalCharge">Formal charge</th><th data-i18n="radicalElectrons">Radical e−</th><th data-i18n="explicitH">Explicit H</th><th data-i18n="implicitH">Implicit H</th><th data-i18n="neighbours">Neighbours</th></tr></thead>
+                    <tbody id="referenceAtomRows"></tbody>
+                  </table>
+                </div>
+                <div class="table-scroll">
+                  <table class="evidence-table bond-table">
+                    <thead><tr><th>idx</th><th data-i18n="bond">Bond</th><th data-i18n="bondType">Type</th></tr></thead>
+                    <tbody id="referenceBondRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </details>
+
+          <details id="provenanceDetails">
+            <summary data-i18n="provenanceSnapshot">Provenance / snapshot</summary>
+            <div class="reviewer-detail-section">
+              <dl id="reviewerProvenance" class="diagnostics reviewer-provenance"></dl>
+            </div>
+          </details>
+        </div>
+      </details>
+
+      <details class="secondary-visuals panel">
+        <summary data-i18n="additionalViews">其他结构视图</summary>
+        <div class="secondary-visual-grid">
+          <section class="text-block">
+            <header class="subsection-header">
+              <h4 data-i18n="currentCandidateTopology3d">当前候选重建 3D 拓扑</h4>
+              <span id="candidateModelStatus" class="muted"></span>
+            </header>
+            <div id="viewerCandidate3d" class="viewer viewer-secondary"></div>
           </section>
+        </div>
+      </details>
+
+      <details class="technical-details panel">
+        <summary data-i18n="caseDetails">Developer details / 开发信息</summary>
+        <div class="details-content">
           <section>
             <h4 data-i18n="assessmentDetails">Assessment / Reference 详情</h4>
             <dl id="assessmentDiagnostics" class="diagnostics"></dl>
