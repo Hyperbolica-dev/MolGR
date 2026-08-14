@@ -16,6 +16,8 @@ const state = {
   layout: null,
   referenceRenderStatus: "render_failed",
   referenceRenderError: "",
+  graphEvidence: {},
+  graphEvidenceLoadingCaseId: "",
   xyzLoadStatus: "unknown",
   xyzLoadError: "",
 };
@@ -68,11 +70,45 @@ const translations = {
     reviewerSummary: "Reviewer Summary / 审核关注项",
     datasetRuntime: "数据集 / 运行环境",
     reviewStructures: "审核结构",
+    reviewDetailsJump: "审核详情",
     reviewStructuresHint: "优先核对输入几何、当前候选图与参考图。",
     xyzGeometry: "原始 3D 几何",
     additionalViews: "其他结构视图",
-    caseDetails: "Case details / 完整信息",
-    smilesDetails: "完整 SMILES",
+    reviewerDetails: "Reviewer details / 审核详情",
+    smilesGraphSummary: "SMILES & graph summary",
+    atomBondInspector: "Atom / bond inspector",
+    provenanceSnapshot: "Provenance / snapshot",
+    showFullGraph: "查看完整 graph",
+    metric: "指标",
+    element: "元素",
+    formalCharge: "形式电荷",
+    radicalElectrons: "自由基电子",
+    explicitH: "显式 H",
+    implicitH: "隐式 H",
+    neighbours: "邻接原子",
+    bond: "键",
+    bondType: "类型",
+    currentCandidateSmiles: "Current Candidate SMILES",
+    candidateSnapshotSmiles: "Candidate snapshot SMILES",
+    referenceSmiles: "Reference SMILES",
+    totalFormalCharge: "总形式电荷",
+    atomCount: "原子数",
+    explicitHCount: "显式 H 数",
+    totalRadicalElectrons: "总自由基电子数",
+    metals: "金属及形式电荷",
+    graphLoading: "正在读取 graph…",
+    graphUnavailable: "Graph unavailable",
+    noRelevantAtoms: "没有符合默认筛选的原子",
+    currentCandidateStatus: "当前候选状态",
+    currentVsSnapshot: "Current vs snapshot",
+    equivalenceMethod: "等价性方法",
+    equivalenceReason: "等价性说明",
+    snapshotRuntime: "Snapshot runtime",
+    qTooltip: "分子总电荷",
+    multiplicityTooltip: "自旋多重度",
+    radicalsTooltip: "显式自由基电子总数",
+    formulaTooltip: "XYZ 与 graph 分子式一致性",
+    caseDetails: "Developer details / 开发信息",
     assessmentDetails: "Assessment / Reference 详情",
     runtimeDetails: "Benchmark / Runtime",
     otherMetadata: "Developer / raw metadata",
@@ -277,11 +313,45 @@ const translations = {
     reviewerSummary: "Reviewer Summary",
     datasetRuntime: "Dataset / runtime",
     reviewStructures: "Review structures",
+    reviewDetailsJump: "Review details",
     reviewStructuresHint: "Check the input geometry, current candidate, and reference first.",
     xyzGeometry: "Original 3D geometry",
     additionalViews: "Additional structure views",
-    caseDetails: "Case details / Full information",
-    smilesDetails: "Full SMILES",
+    reviewerDetails: "Reviewer details",
+    smilesGraphSummary: "SMILES & graph summary",
+    atomBondInspector: "Atom / bond inspector",
+    provenanceSnapshot: "Provenance / snapshot",
+    showFullGraph: "Show full graph",
+    metric: "Metric",
+    element: "Element",
+    formalCharge: "Formal charge",
+    radicalElectrons: "Radical e−",
+    explicitH: "Explicit H",
+    implicitH: "Implicit H",
+    neighbours: "Neighbours",
+    bond: "Bond",
+    bondType: "Type",
+    currentCandidateSmiles: "Current Candidate SMILES",
+    candidateSnapshotSmiles: "Candidate snapshot SMILES",
+    referenceSmiles: "Reference SMILES",
+    totalFormalCharge: "Total formal charge",
+    atomCount: "Atom count",
+    explicitHCount: "Explicit H count",
+    totalRadicalElectrons: "Total radical electrons",
+    metals: "Metals and formal charges",
+    graphLoading: "Loading graph…",
+    graphUnavailable: "Graph unavailable",
+    noRelevantAtoms: "No atoms match the default filter",
+    currentCandidateStatus: "Current candidate status",
+    currentVsSnapshot: "Current vs snapshot",
+    equivalenceMethod: "Equivalence method",
+    equivalenceReason: "Equivalence reason",
+    snapshotRuntime: "Snapshot runtime",
+    qTooltip: "Total molecular charge",
+    multiplicityTooltip: "Spin multiplicity",
+    radicalsTooltip: "Total explicit radical electrons",
+    formulaTooltip: "XYZ / graph molecular formula consistency",
+    caseDetails: "Developer details",
     assessmentDetails: "Assessment / Reference details",
     runtimeDetails: "Benchmark / Runtime",
     otherMetadata: "Developer / raw metadata",
@@ -483,6 +553,7 @@ function applyLanguage() {
     renderReviewerSummary();
     renderVersionComparison();
     renderDiagnostics();
+    renderReviewerDetails();
     renderCandidateSdfStatus();
     loadPair(state.caseRequestToken);
   }
@@ -901,6 +972,8 @@ async function loadCase(caseId) {
   state.currentLiveCandidate = null;
   state.referenceRenderStatus = "render_failed";
   state.referenceRenderError = "";
+  state.graphEvidence = {};
+  state.graphEvidenceLoadingCaseId = "";
   state.xyzLoadStatus = "unknown";
   state.xyzLoadError = "";
   renderCaseHeader();
@@ -908,9 +981,12 @@ async function loadCase(caseId) {
   populateReviewForm();
   renderVersionComparison();
   renderDiagnostics();
+  renderReviewerDetails();
   await Promise.all([loadXyz(item, token), loadCandidateSdf(item, token)]);
   if (!isCurrentCaseRequest(token, item.case_id)) return;
   await loadPair(token);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  if ($("reviewerDetails").open) await loadGraphEvidence(token);
   if (!isCurrentCaseRequest(token, item.case_id)) return;
   renderCaseList();
 }
@@ -1071,10 +1147,10 @@ function renderReviewerSummary() {
   const snapshotKnown = typeof item.live_matches_candidate_snapshot === "boolean";
   const provenance = snapshotDifferent ? compactProvenanceReason(item.live_candidate_equivalence_reason) : "";
   const secondary = [
-    `q ${summaryValue(item.total_charge)}`,
-    `M ${summaryValue(item.spin_multiplicity)}`,
-    `radicals ${summaryValue(item.total_radical_electrons)}`,
-    `${tr("formulaLabel")} ${formulaCompact(item)}`,
+    ["q", summaryValue(item.total_charge), "qTooltip"],
+    ["M", summaryValue(item.spin_multiplicity), "multiplicityTooltip"],
+    ["radicals", summaryValue(item.total_radical_electrons), "radicalsTooltip"],
+    [tr("formulaLabel"), formulaCompact(item), "formulaTooltip"],
   ];
   const snapshotText = snapshotKnown
     ? snapshotDifferent
@@ -1089,7 +1165,12 @@ function renderReviewerSummary() {
   $("reviewSummary").innerHTML = `
     <div class="status-line">${mainStatus.join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>
     ${provenance ? `<div class="drift-reason">${escapeHtml(provenance)}</div>` : ""}
-    <div class="status-line metadata-line">${secondary.map(escapeHtml).join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>`;
+    <div class="status-line metadata-line">${secondary
+      .map(
+        ([label, value, tooltip]) =>
+          `<span title="${escapeHtml(tr(tooltip))}">${escapeHtml(label)} ${escapeHtml(value)}</span>`,
+      )
+      .join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>`;
   updateReferenceVisual();
 }
 
@@ -1126,6 +1207,187 @@ function populateReviewForm() {
   }
 }
 
+function renderReviewerDetails() {
+  const item = state.current;
+  if (!item) return;
+  const smilesRows = [
+    [tr("currentCandidateSmiles"), item.live_candidate_smiles],
+    [tr("candidateSnapshotSmiles"), item.candidate_snapshot_smiles],
+    [tr("referenceSmiles"), item.reference_smiles],
+  ];
+  $("reviewerSmiles").innerHTML = smilesRows
+    .map(
+      ([label, value]) =>
+        `<dt>${escapeHtml(label)}</dt><dd><code>${escapeHtml(hasValue(value) ? value : tr("notProvided"))}</code></dd>`,
+    )
+    .join("");
+  renderDiagnosticList(
+    "reviewerProvenance",
+    [
+      [tr("currentCandidateStatus"), item.live_candidate_status || item.candidate_status],
+      [tr("currentVsSnapshot"), snapshotSummary(item)],
+      [tr("equivalenceMethod"), item.live_candidate_equivalence_method],
+      [tr("equivalenceReason"), item.live_candidate_equivalence_reason],
+      [tr("snapshotRuntime"), item.candidate_snapshot_runtime],
+    ],
+    false,
+  );
+  renderGraphEvidence();
+}
+
+function jumpToReviewerDetails() {
+  const details = $("reviewerDetails");
+  details.open = true;
+  loadGraphEvidence(state.caseRequestToken);
+  requestAnimationFrame(() => details.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+function signedCharge(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return tr("notProvided");
+  return number > 0 ? `+${number}` : String(number);
+}
+
+function metalSummary(metals) {
+  if (!Array.isArray(metals) || !metals.length) return "—";
+  return metals
+    .map((metal) => `${metal.element}${metal.index} ${signedCharge(metal.formal_charge)}`)
+    .join(", ");
+}
+
+function renderGraphEvidence() {
+  const metrics = [
+    ["totalFormalCharge", "total_formal_charge", (value) => signedCharge(value)],
+    ["atomCount", "atom_count", String],
+    ["explicitHCount", "explicit_h_count", String],
+    ["totalRadicalElectrons", "total_radical_electrons", String],
+    ["metals", "metals", metalSummary],
+  ];
+  const candidate = state.graphEvidence.candidate?.summary;
+  const reference = state.graphEvidence.reference?.summary;
+  $("graphSummaryRows").innerHTML = metrics
+    .map(([labelKey, field, format]) => {
+      const candidateValue = candidate && candidate[field] !== undefined
+        ? format(candidate[field])
+        : "—";
+      const referenceValue = reference && reference[field] !== undefined
+        ? format(reference[field])
+        : "—";
+      return `<tr><th>${escapeHtml(tr(labelKey))}</th><td>${escapeHtml(candidateValue)}</td><td>${escapeHtml(referenceValue)}</td></tr>`;
+    })
+    .join("");
+  renderGraphInspector("candidate");
+  renderGraphInspector("reference");
+}
+
+function relevantAtomIndices(graph, showFull) {
+  if (!graph || !Array.isArray(graph.atoms)) return new Set();
+  if (showFull) return new Set(graph.atoms.map((atom) => atom.index));
+  const metalIndices = new Set(
+    graph.atoms.filter((atom) => atom.is_metal).map((atom) => atom.index),
+  );
+  return new Set(
+    graph.atoms
+      .filter(
+        (atom) =>
+          !["C", "H"].includes(atom.element) ||
+          atom.is_metal ||
+          atom.neighbours.some((neighbour) => metalIndices.has(neighbour.index)),
+      )
+      .map((atom) => atom.index),
+  );
+}
+
+function atomLabel(element, index) {
+  return `${element}${index}`;
+}
+
+function renderGraphInspector(kind) {
+  const graph = state.graphEvidence[kind];
+  const prefix = kind === "candidate" ? "candidate" : "reference";
+  const atomRows = $(`${prefix}AtomRows`);
+  const bondRows = $(`${prefix}BondRows`);
+  const error = $(`${prefix}GraphError`);
+  if (!graph) {
+    atomRows.innerHTML = `<tr><td colspan="7">${escapeHtml(tr("graphLoading"))}</td></tr>`;
+    bondRows.innerHTML = `<tr><td colspan="3">${escapeHtml(tr("graphLoading"))}</td></tr>`;
+    error.hidden = true;
+    error.textContent = "";
+    return;
+  }
+  if (graph.error) {
+    atomRows.innerHTML = `<tr><td colspan="7">${escapeHtml(tr("graphUnavailable"))}</td></tr>`;
+    bondRows.innerHTML = `<tr><td colspan="3">${escapeHtml(tr("graphUnavailable"))}</td></tr>`;
+    error.hidden = false;
+    error.textContent = tr("graphUnavailable");
+    return;
+  }
+  error.hidden = true;
+  error.textContent = "";
+  const showFull = document.querySelector(`.show-full-graph[data-kind="${kind}"]`)?.checked;
+  const visible = relevantAtomIndices(graph, showFull);
+  const atoms = graph.atoms.filter((atom) => visible.has(atom.index));
+  atomRows.innerHTML = atoms.length
+    ? atoms
+        .map(
+          (atom) => `<tr>
+            <td>${atom.index}</td><td>${escapeHtml(atom.element)}</td>
+            <td>${escapeHtml(signedCharge(atom.formal_charge))}</td>
+            <td>${atom.radical_electrons}</td><td>${atom.explicit_h ?? "—"}</td>
+            <td>${atom.implicit_h ?? "—"}</td>
+            <td>${escapeHtml(atom.neighbours.map((neighbour) => atomLabel(neighbour.element, neighbour.index)).join(", "))}</td>
+          </tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="7">${escapeHtml(tr("noRelevantAtoms"))}</td></tr>`;
+  const bonds = graph.bonds.filter(
+    (bond) => showFull || visible.has(bond.begin_atom) || visible.has(bond.end_atom),
+  );
+  bondRows.innerHTML = bonds.length
+    ? bonds
+        .map((bond) => {
+          const begin = atomLabel(bond.begin_element, bond.begin_atom);
+          const end = atomLabel(bond.end_element, bond.end_atom);
+          const connector = bond.directional
+            ? "→"
+            : bond.type === "double"
+              ? "="
+              : bond.type === "triple"
+                ? "≡"
+                : bond.type === "aromatic"
+                  ? "↔"
+                  : "–";
+          return `<tr><td>${bond.index}</td><td>${escapeHtml(`${begin} ${connector} ${end}`)}</td><td>${escapeHtml(bond.type)}</td></tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="3">—</td></tr>`;
+}
+
+async function loadGraphEvidence(token = state.caseRequestToken) {
+  const item = state.current;
+  if (!item || !isCurrentCaseRequest(token, item.case_id)) return;
+  if (state.graphEvidenceLoadingCaseId === item.case_id) return;
+  if (state.graphEvidence.candidate && state.graphEvidence.reference) return;
+  state.graphEvidenceLoadingCaseId = item.case_id;
+  renderGraphEvidence();
+  const kinds = ["candidate", "reference"];
+  const results = await Promise.all(
+    kinds.map(async (kind) => {
+      try {
+        return await api(
+          `/api/cases/${encodeURIComponent(item.case_id)}/graph?kind=${encodeURIComponent(kind)}`,
+        );
+      } catch (error) {
+        return { kind, error: error.message };
+      }
+    }),
+  );
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  state.graphEvidence = Object.fromEntries(results.map((result) => [result.kind, result]));
+  state.graphEvidenceLoadingCaseId = "";
+  renderGraphEvidence();
+}
+
 function renderDiagnostics() {
   const item = state.current;
   const smilesPairs = [
@@ -1155,7 +1417,6 @@ function renderDiagnostics() {
     ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
     ["live_candidate_reason", item.live_candidate_equivalence_reason],
   ];
-  renderDiagnosticList("smilesDiagnostics", smilesPairs);
   renderDiagnosticList("assessmentDiagnostics", assessmentPairs);
   renderDiagnosticList("runtimeDiagnostics", runtimePairs);
 
@@ -1324,10 +1585,12 @@ async function loadCandidateSdf(item, token) {
     renderCaseHeader();
     renderReviewerSummary();
     renderDiagnostics();
+    renderReviewerDetails();
     if (!data.available) {
       text.textContent = data.error || tr("reconstructionUnavailable");
       item.live_candidate_status = "unavailable";
       renderReviewerSummary();
+      renderReviewerDetails();
       status.textContent = tr("unavailable");
       modelStatus.textContent = tr("unavailable");
       technical.hidden = !data.error;
@@ -1352,6 +1615,7 @@ async function loadCandidateSdf(item, token) {
     if (!isCurrentCaseRequest(token, item.case_id)) return;
     item.live_candidate_status = "error";
     renderReviewerSummary();
+    renderReviewerDetails();
     text.textContent = error.message;
     status.textContent = tr("error");
     modelStatus.textContent = tr("error");
@@ -1721,6 +1985,13 @@ function bindEvents() {
   });
   $("languageToggle").addEventListener("click", toggleLanguage);
   $("reviewer").addEventListener("focus", () => loadReviewReasons());
+  $("reviewerDetails").addEventListener("toggle", () => {
+    if ($("reviewerDetails").open) loadGraphEvidence(state.caseRequestToken);
+  });
+  $("jumpToReviewerDetails").addEventListener("click", jumpToReviewerDetails);
+  document.querySelectorAll(".show-full-graph").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => renderGraphInspector(checkbox.dataset.kind));
+  });
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));
