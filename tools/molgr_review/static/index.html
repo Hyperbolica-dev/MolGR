@@ -45,6 +45,12 @@
             <option value="skip" data-i18n="status.skip">跳过</option>
           </select>
         </label>
+        <label id="triageFilterField" hidden>
+          <span data-i18n="triageBucket">Triage bucket</span>
+          <select id="triageFilter">
+            <option value="" data-i18n="all">全部</option>
+          </select>
+        </label>
         <label>
           <span data-i18n="search">搜索</span>
           <input id="searchBox" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="id 或 row_index" />
@@ -84,12 +90,14 @@
       <section class="summary-panel panel" aria-labelledby="summaryTitle">
         <h3 id="summaryTitle" class="visually-hidden" data-i18n="reviewerSummary">Reviewer Summary / 审核关注项</h3>
         <div id="reviewSummary" class="compact-summary"></div>
+        <div id="triageEvidence" class="triage-evidence" hidden></div>
       </section>
 
       <section class="review-controls panel" id="reviewControls">
         <header class="action-bar-header">
           <div class="action-title">
             <h3 data-i18n="manualConclusion">人工结论</h3>
+            <span class="shortcut-hint" data-i18n="shortcutHint">快捷键 1–7 · 上一条/下一条 ← →</span>
           </div>
           <div class="review-header-actions">
             <span id="saveState" class="muted"></span>

@@ -20,6 +20,7 @@ const state = {
   graphEvidenceLoadingCaseId: "",
   xyzLoadStatus: "unknown",
   xyzLoadError: "",
+  savingReview: false,
 };
 
 const translations = {
@@ -29,6 +30,7 @@ const translations = {
     languageToggle: "English",
     category: "类别",
     reviewStatus: "审核状态",
+    triageBucket: "Triage bucket",
     search: "搜索",
     searchPlaceholder: "id 或 row_index",
     all: "全部",
@@ -39,6 +41,9 @@ const translations = {
     openTrace: "打开 Trace",
     reloadCurrent: "重载当前",
     manualConclusion: "人工结论",
+    shortcutHint: "快捷键 1–7 · 上一条/下一条 ← →",
+    triageEvidence: "审核证据",
+    mappingConfidence: "mapping",
     removeFixture: "移除 fixture",
     removeFixtureTitle: "移除 {file} 并将 {caseId} 标记为待复核",
     reviewer: "审核理由",
@@ -272,6 +277,7 @@ const translations = {
     languageToggle: "中文",
     category: "Category",
     reviewStatus: "Review status",
+    triageBucket: "Triage bucket",
     search: "Search",
     searchPlaceholder: "id or row_index",
     all: "All",
@@ -282,6 +288,9 @@ const translations = {
     openTrace: "Open Trace",
     reloadCurrent: "Reload current",
     manualConclusion: "Manual decision",
+    shortcutHint: "Shortcuts 1–7 · previous/next ← →",
+    triageEvidence: "Review evidence",
+    mappingConfidence: "mapping",
     removeFixture: "Remove fixture",
     removeFixtureTitle: "Remove {file} and mark {caseId} for follow-up",
     reviewer: "Review reason",
@@ -891,6 +900,22 @@ async function loadStats() {
         `<code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`,
     )
     .join("");
+  const triageBuckets = stats.triage_buckets || {};
+  const triageFilter = $("triageFilter");
+  const selectedBucket = triageFilter.value;
+  const triageEntries = Object.entries(triageBuckets).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  $("triageFilterField").hidden = triageEntries.length === 0;
+  triageFilter.innerHTML = `<option value="">${escapeHtml(tr("all"))}</option>${triageEntries
+    .map(
+      ([bucket, count]) =>
+        `<option value="${escapeHtml(bucket)}">${escapeHtml(bucket)} (${count})</option>`,
+    )
+    .join("")}`;
+  if (triageEntries.some(([bucket]) => bucket === selectedBucket)) {
+    triageFilter.value = selectedBucket;
+  }
 }
 
 async function loadReviewReasons() {
@@ -912,9 +937,11 @@ async function loadCases(reset = false) {
   const category = $("categoryFilter").value;
   const status = $("statusFilter").value;
   const q = $("searchBox").value.trim();
+  const triageBucket = $("triageFilter").value;
   if (category) params.set("category", category);
   if (status) params.set("status", status);
   if (q) params.set("q", q);
+  if (triageBucket) params.set("triage_bucket", triageBucket);
   params.set("limit", state.limit);
   params.set("offset", state.offset);
   const data = await api(`/api/cases?${params.toString()}`);
@@ -934,12 +961,16 @@ function renderCaseList() {
       const fixture = item.fixture
         ? badge(msg("fixture", { kind: item.fixture.kind }), "fixture-tag")
         : "";
+      const triage = item.triage_bucket
+        ? badge(item.triage_bucket, "triage-tag")
+        : "";
       return `
         <button class="case-item ${selected}" data-case-id="${escapeHtml(item.case_id)}" type="button">
           <span class="row"><strong>${escapeHtml(item.case_id)}</strong><span>#${item.row_index}</span></span>
           <span class="row">
             ${category}
             ${badge(status, `review-tag ${item.review_status ? reviewStatusKind(item.review_status) : ""}`)}
+            ${triage}
             ${fixture}
           </span>
         </button>`;
@@ -1004,6 +1035,9 @@ function renderCaseHeader() {
   const headerItems = [];
   if (hasValue(item.category)) {
     headerItems.push(badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`));
+  }
+  if (hasValue(item.triage_bucket)) {
+    headerItems.push(badge(item.triage_bucket, "triage-tag"));
   }
   headerItems.push(
     item.review_status
@@ -1171,7 +1205,74 @@ function renderReviewerSummary() {
           `<span title="${escapeHtml(tr(tooltip))}">${escapeHtml(label)} ${escapeHtml(value)}</span>`,
       )
       .join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>`;
+  renderTriageEvidence(item);
   updateReferenceVisual();
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!hasValue(value)) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function renderTriageEvidence(item) {
+  const panel = $("triageEvidence");
+  const triage = item?.triage;
+  if (!triage) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  const evidence = [];
+  parseJsonArray(triage.metal_coordination_diff).forEach((edge) => {
+    const side = edge.edge_present_in;
+    const pair = (edge.candidate_atoms || []).join("–");
+    const distance = Number(edge.distance);
+    evidence.push(
+      `${(edge.elements || []).join("–")} · XYZ ${pair || "—"} · ` +
+        `${Number.isFinite(distance) ? `${distance.toFixed(3)} Å` : "distance —"} · ` +
+        `Candidate ${side === "candidate" ? "yes" : "no"} · Reference ${side === "reference" ? "yes" : "no"}`,
+    );
+  });
+  parseJsonArray(triage.hydrogen_assignment_diff).forEach((hydrogen) => {
+    evidence.push(
+      `H#${hydrogen.h_atom} · ${hydrogen.candidate_center_element}#${hydrogen.candidate_center} ` +
+        `${hydrogen.candidate_distance} Å vs ${hydrogen.reference_center_element}#${hydrogen.reference_center} ` +
+        `${hydrogen.reference_distance} Å · nearest ${hydrogen.nearest_assignment}`,
+    );
+  });
+  if (!evidence.length && hasValue(triage.xyz_evidence_summary)) {
+    evidence.push(triage.xyz_evidence_summary);
+  }
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="triage-evidence-head"><strong>${escapeHtml(tr("triageEvidence"))}</strong>
+      <span>${escapeHtml(triage.triage_bucket || "")} · ${escapeHtml(tr("mappingConfidence"))} ${escapeHtml(triage.mapping_confidence || "—")}</span>
+    </div>
+    ${evidence.slice(0, 3).map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+    ${hasValue(triage.trace_evidence_summary) ? `<div class="triage-trace" title="${escapeHtml(triage.trace_evidence_summary)}">Trace · ${escapeHtml(triage.trace_evidence_summary)}</div>` : ""}`;
+}
+
+function suggestedReviewReason(item) {
+  const triage = item?.triage;
+  if (!triage) return "";
+  const text = `${triage.reason_tags || ""} ${triage.machine_reason || ""}`.toLowerCase();
+  if (triage.triage_bucket === "reference_integrity_issue") return "reference-metal-scan";
+  if (text.includes("hydrogen-assignment") || text.includes("h assignment")) {
+    return "xyz-hydrogen-assignment";
+  }
+  if (text.includes("metal-coordination") || text.includes("metal edge")) {
+    return "xyz-metal-coordination";
+  }
+  if (triage.triage_bucket === "possible_redox_representation") {
+    return "auto-oxidative-addition";
+  }
+  return "";
 }
 
 function compactProvenanceReason(reason) {
@@ -1198,7 +1299,8 @@ function populateReviewForm() {
   $("correctedSmiles").value = item.corrected_smiles || "";
   $("correctedMolblock").value = item.corrected_molblock || "";
   $("notes").value = item.notes || "";
-  $("reviewer").value = item.reviewer || localStorage.getItem("moleculeReviewReviewer") || "";
+  $("reviewer").value =
+    item.reviewer || suggestedReviewReason(item) || localStorage.getItem("moleculeReviewReviewer") || "";
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
@@ -1830,7 +1932,10 @@ async function loadRender(kind, slot, token = state.caseRequestToken) {
 }
 
 async function saveReview(status) {
-  if (!state.current) return;
+  if (!state.current || state.savingReview) return;
+  state.savingReview = true;
+  const currentIndex = state.cases.findIndex((item) => item.case_id === state.current.case_id);
+  const queuedNextCaseId = currentIndex >= 0 ? state.cases[currentIndex + 1]?.case_id : "";
   $("saveState").textContent = tr("saving");
   try {
     if (status === "manual_reference") {
@@ -1852,9 +1957,65 @@ async function saveReview(status) {
       ? msg("savedFixture", { file: result.fixture.structure_file })
       : tr("savedNoFixture");
     await Promise.all([loadStats(), loadReviewReasons()]);
-    await loadCase(state.current.case_id);
+    await loadCases();
+    if (queuedNextCaseId) {
+      await loadCase(queuedNextCaseId);
+      return;
+    }
+    const nextIndex = currentIndex >= 0 ? Math.min(currentIndex, state.cases.length - 1) : 0;
+    const nextCase = state.cases[nextIndex];
+    if (nextCase) await loadCase(nextCase.case_id);
   } catch (error) {
     $("saveState").textContent = error.message;
+  } finally {
+    state.savingReview = false;
+  }
+}
+
+async function navigateCase(delta) {
+  if (!state.cases.length) return;
+  const currentIndex = state.current
+    ? state.cases.findIndex((item) => item.case_id === state.current.case_id)
+    : -1;
+  const targetIndex = currentIndex + delta;
+  if (targetIndex >= 0 && targetIndex < state.cases.length) {
+    await loadCase(state.cases[targetIndex].case_id);
+    return;
+  }
+  if (delta > 0 && state.offset + state.limit < state.total) {
+    state.offset += state.limit;
+    await loadCases();
+    if (state.cases.length) await loadCase(state.cases[0].case_id);
+  } else if (delta < 0 && state.offset > 0) {
+    state.offset = Math.max(0, state.offset - state.limit);
+    await loadCases();
+    if (state.cases.length) await loadCase(state.cases[state.cases.length - 1].case_id);
+  }
+}
+
+function reviewShortcut(event) {
+  const target = event.target;
+  if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+  const statusByKey = {
+    1: "accept_candidate",
+    2: "accept_reference",
+    3: "accept_both",
+    4: "manual_reference",
+    5: "reference_answer_wrong",
+    6: "needs_followup",
+    7: "skip",
+  };
+  if (statusByKey[event.key]) {
+    event.preventDefault();
+    saveReview(statusByKey[event.key]);
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    navigateCase(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    navigateCase(1);
   }
 }
 
@@ -1994,6 +2155,7 @@ function bindEvents() {
   });
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
+  $("triageFilter").addEventListener("change", () => loadCases(true));
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));
   $("prevPage").addEventListener("click", () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -2046,6 +2208,7 @@ function bindEvents() {
   document.querySelectorAll(".decision").forEach((button) => {
     button.addEventListener("click", () => saveReview(button.dataset.status));
   });
+  document.addEventListener("keydown", reviewShortcut);
 }
 
 function debounce(fn, wait) {
