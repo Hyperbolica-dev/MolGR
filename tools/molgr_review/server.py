@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import html
 import json
 import mimetypes
@@ -16,6 +17,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -99,6 +101,12 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="Directory updated immediately from fixture-producing review decisions.",
     )
+    parser.add_argument(
+        "--triage-csv",
+        type=Path,
+        default=None,
+        help="Optional read-only triage CSV used for queue filtering and reviewer evidence.",
+    )
     return parser.parse_args()
 
 
@@ -113,11 +121,15 @@ def _row_dict(
     row: sqlite3.Row | Mapping[str, Any] | None,
     *,
     fixture: dict[str, Any] | None = None,
+    triage: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if row is None:
         return None
     payload = dict(row)
     payload["fixture"] = fixture
+    payload["triage"] = triage
+    if triage:
+        payload["triage_bucket"] = triage.get("triage_bucket", "")
     metadata_json = payload.pop("metadata_json", None)
     if isinstance(metadata_json, str) and metadata_json:
         try:
@@ -523,6 +535,20 @@ class ReviewServer(ThreadingHTTPServer):
     xyz_dir: Path | None
     fixtures_dir: Path
     runtime_info: dict[str, Any]
+    triage_records: dict[str, dict[str, str]]
+
+
+def load_triage_records(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None:
+        return {}
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    with path.open(encoding="utf-8", newline="") as handle:
+        return {
+            row["case_id"]: row
+            for row in csv.DictReader(handle)
+            if str(row.get("case_id") or "").strip()
+        }
 
 
 class ReviewHandler(BaseHTTPRequestHandler):
@@ -743,6 +769,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "review_statuses": {row["status"]: row["count"] for row in status_rows},
                 "metadata": {row["key"]: row["value"] for row in metadata_rows},
                 "runtime": getattr(self.server, "runtime_info", {}),
+                "storage": {
+                    "review_db": str(self.server.db_path.resolve()),
+                    "fixtures_dir": str(self.server.fixtures_dir.resolve()),
+                },
+                "triage_buckets": dict(
+                    sorted(
+                        Counter(
+                            row.get("triage_bucket", "")
+                            for row in getattr(self.server, "triage_records", {}).values()
+                            if row.get("triage_bucket")
+                        ).items()
+                    )
+                ),
             },
         )
 
@@ -766,6 +805,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         category = query.get("category", [""])[0]
         status = query.get("status", [""])[0]
         search = query.get("q", [""])[0].strip()
+        triage_bucket = query.get("triage_bucket", [""])[0]
         limit = max(1, min(int(query.get("limit", ["100"])[0]), 500))
         offset = max(0, int(query.get("offset", ["0"])[0]))
 
@@ -785,27 +825,47 @@ class ReviewHandler(BaseHTTPRequestHandler):
             params.extend((f"%{search}%", search))
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
+        triage_records = getattr(self.server, "triage_records", {})
         with _connect(self.server.db_path) as conn:
-            rows = conn.execute(
-                _case_query() + where_sql + " ORDER BY c.row_index LIMIT ? OFFSET ?",
-                (*params, limit, offset),
-            ).fetchall()
-            total = conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM cases c
-                LEFT JOIN reviews r ON r.case_id = c.case_id
-                """
-                + where_sql,
-                params,
-            ).fetchone()["count"]
+            if triage_bucket:
+                matching = conn.execute(
+                    _case_query() + where_sql + " ORDER BY c.row_index",
+                    params,
+                ).fetchall()
+                matching = [
+                    row
+                    for row in matching
+                    if triage_records.get(str(row["case_id"]), {}).get("triage_bucket")
+                    == triage_bucket
+                ]
+                total = len(matching)
+                rows = matching[offset : offset + limit]
+            else:
+                rows = conn.execute(
+                    _case_query() + where_sql + " ORDER BY c.row_index LIMIT ? OFFSET ?",
+                    (*params, limit, offset),
+                ).fetchall()
+                total = conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM cases c
+                    LEFT JOIN reviews r ON r.case_id = c.case_id
+                    """
+                    + where_sql,
+                    params,
+                ).fetchone()["count"]
         fixture_records = load_fixture_records(self.server.fixtures_dir)
         _json_response(
             self,
             {
                 "total": total,
                 "items": [
-                    _row_dict(row, fixture=fixture_records.get(str(row["case_id"]))) for row in rows
+                    _row_dict(
+                        row,
+                        fixture=fixture_records.get(str(row["case_id"])),
+                        triage=triage_records.get(str(row["case_id"])),
+                    )
+                    for row in rows
                 ],
             },
         )
@@ -817,6 +877,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         payload = _row_dict(
             row,
             fixture=fixture_records.get(case_id),
+            triage=getattr(self.server, "triage_records", {}).get(case_id),
         )
         if payload is None:
             _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
@@ -1099,6 +1160,7 @@ def main() -> None:
     server.db_path = args.db
     server.xyz_dir = args.xyz_dir
     server.fixtures_dir = args.fixtures_dir
+    server.triage_records = load_triage_records(args.triage_csv)
     server.runtime_info = runtime_info
     server.fixtures_dir.mkdir(parents=True, exist_ok=True)
     print(f"Molecule review server: http://{args.host}:{args.port}")
