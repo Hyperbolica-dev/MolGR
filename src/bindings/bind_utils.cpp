@@ -223,7 +223,7 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
               auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
               OpenBabel::OBMol working = molgr::utils::CloneMolTopologyOnly(*mol);
               molgr::vendor::openbabel_threading::SetAromaticPerceived(working, false);
-              OpenBabel::MolgrForceFieldUFF force_field("", false);
+              OpenBabel::MolgrForceFieldUFF force_field;
               force_field.SetLogLevel(OBFF_LOGLVL_NONE);
               py::dict out;
               const bool setup_ok = force_field.Setup(working);

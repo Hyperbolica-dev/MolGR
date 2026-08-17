@@ -15,19 +15,23 @@
 
 namespace
 {
-    OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
+    struct XyzOutConversion
     {
-        thread_local OpenBabel::OBConversion *conversion = []()
+        XyzOutConversion()
         {
-            auto *instance = new OpenBabel::OBConversion();
-            if (!instance->SetOutFormat("xyz"))
+            if (!conversion.SetOutFormat("xyz"))
             {
-                delete instance;
                 throw std::runtime_error("Open Babel XYZ output format is unavailable");
             }
-            return instance;
-        }();
-        return *conversion;
+        }
+
+        OpenBabel::OBConversion conversion;
+    };
+
+    OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
+    {
+        thread_local XyzOutConversion instance;
+        return instance.conversion;
     }
 
 }

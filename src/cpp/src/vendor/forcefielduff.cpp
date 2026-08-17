@@ -828,17 +828,17 @@ namespace
   bool GetMolgrCompiledUffAtomTypeRules(
       const std::vector<MolgrCompiledUffAtomTypeRule> *&compiled_rules)
   {
-    static const std::vector<MolgrCompiledUffAtomTypeRule> *rules = []()
+    static const std::vector<MolgrCompiledUffAtomTypeRule> rules = []()
     {
       const auto &shared = GetMolgrUffSharedData();
-      auto *compiled = new std::vector<MolgrCompiledUffAtomTypeRule>();
-      compiled->reserve(shared.atom_type_rules.size());
+      std::vector<MolgrCompiledUffAtomTypeRule> compiled;
+      compiled.reserve(shared.atom_type_rules.size());
       for (const auto &rule : shared.atom_type_rules) {
-        compiled->push_back(CompileMolgrUffAtomTypeRule(rule));
+        compiled.push_back(CompileMolgrUffAtomTypeRule(rule));
       }
       return compiled;
     }();
-    compiled_rules = rules;
+    compiled_rules = &rules;
     return compiled_rules != nullptr && !compiled_rules->empty();
   }
 

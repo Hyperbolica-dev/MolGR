@@ -602,19 +602,23 @@ namespace molgr
     {
         namespace
         {
-            OpenBabel::OBConversion &ThreadLocalSmilesOutConversion()
+            struct SmilesOutConversion
             {
-                thread_local OpenBabel::OBConversion *conversion = []()
+                SmilesOutConversion()
                 {
-                    auto *instance = new OpenBabel::OBConversion();
-                    if (!instance->SetOutFormat("smi"))
+                    if (!conversion.SetOutFormat("smi"))
                     {
-                        delete instance;
                         throw std::runtime_error("Open Babel SMILES output format is unavailable");
                     }
-                    return instance;
-                }();
-                return *conversion;
+                }
+
+                OpenBabel::OBConversion conversion;
+            };
+
+            OpenBabel::OBConversion &ThreadLocalSmilesOutConversion()
+            {
+                thread_local SmilesOutConversion instance;
+                return instance.conversion;
             }
         }
 

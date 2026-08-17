@@ -311,6 +311,7 @@ def test_cpp_owned_thread_local_resources_use_raii() -> None:
         if path.suffix in {".cpp", ".h", ".hpp"}
     )
     for path in source_files:
+        source_path = path.as_posix()
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if "thread_local" not in line or "*" not in line or "=" not in line:
                 continue
@@ -318,14 +319,14 @@ def test_cpp_owned_thread_local_resources_use_raii() -> None:
                 (
                     name
                     for allowed_path, name in allowed_non_owning_tls_pointers
-                    if str(path) == allowed_path and name in line
+                    if source_path == allowed_path and name in line
                 ),
                 None,
             )
             if matched_name is None:
-                unexpected_tls_pointer_lines.append(f"{path}:{line_number}:{line.strip()}")
+                unexpected_tls_pointer_lines.append(f"{source_path}:{line_number}:{line.strip()}")
             else:
-                observed_non_owning_tls_pointers.add((str(path), matched_name))
+                observed_non_owning_tls_pointers.add((source_path, matched_name))
 
     assert unexpected_tls_pointer_lines == []
     assert observed_non_owning_tls_pointers == allowed_non_owning_tls_pointers
