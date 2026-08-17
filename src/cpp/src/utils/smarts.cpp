@@ -94,9 +94,9 @@ namespace
 
     PatternArray &ThreadLocalPatterns()
     {
-        thread_local PatternArray compiled_patterns = []()
+        thread_local PatternArray *compiled_patterns = []()
         {
-            PatternArray patterns{};
+            auto *patterns = new PatternArray{};
             for (std::size_t idx = 0; idx < kPatternCount; ++idx)
             {
                 auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
@@ -105,11 +105,11 @@ namespace
                     throw std::runtime_error(
                         std::string("Invalid built-in SMARTS pattern: ") + kSmartsPatterns[idx]);
                 }
-                patterns[idx] = std::move(pattern);
+                (*patterns)[idx] = std::move(pattern);
             }
             return patterns;
         }();
-        return compiled_patterns;
+        return *compiled_patterns;
     }
 
 }

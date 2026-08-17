@@ -553,11 +553,12 @@ namespace
 
     std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> &ThreadLocalFunctionalGroupPatterns()
     {
-        thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> patterns = []()
+        thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *patterns = []()
         {
-            std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> compiled_patterns;
+            auto *compiled_patterns =
+                new std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>>();
             const auto &rules = FunctionalGroupBondRules();
-            compiled_patterns.reserve(rules.size());
+            compiled_patterns->reserve(rules.size());
             for (const FunctionalGroupBondRule &rule : rules)
             {
                 auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
@@ -567,11 +568,11 @@ namespace
                         std::string("Invalid MolGR vendor functional-group SMARTS: ") +
                         rule.smarts);
                 }
-                compiled_patterns.push_back(std::move(pattern));
+                compiled_patterns->push_back(std::move(pattern));
             }
             return compiled_patterns;
         }();
-        return patterns;
+        return *patterns;
     }
 
     std::vector<std::vector<int>> MatchUMapList(
