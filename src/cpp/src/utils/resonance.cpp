@@ -600,6 +600,28 @@ namespace molgr
 {
     namespace resonance
     {
+        namespace
+        {
+            struct SmilesOutConversion
+            {
+                SmilesOutConversion()
+                {
+                    if (!conversion.SetOutFormat("smi"))
+                    {
+                        throw std::runtime_error("Open Babel SMILES output format is unavailable");
+                    }
+                }
+
+                OpenBabel::OBConversion conversion;
+            };
+
+            OpenBabel::OBConversion &ThreadLocalSmilesOutConversion()
+            {
+                thread_local SmilesOutConversion instance;
+                return instance.conversion;
+            }
+        }
+
         bool ResonanceStateKey::operator==(const ResonanceStateKey &other) const
         {
             return atom_keys == other.atom_keys && bond_keys == other.bond_keys;
@@ -612,14 +634,8 @@ namespace molgr
 
         std::string SmilesFirstToken(const OpenBabel::OBMol &mol)
         {
-            thread_local OpenBabel::OBConversion *conv = nullptr;
-            if (conv == nullptr)
-            {
-                conv = new OpenBabel::OBConversion();
-                conv->SetOutFormat("smi");
-            }
             OpenBabel::OBMol temp(mol);
-            const std::string smi = conv->WriteString(&temp, true);
+            const std::string smi = ThreadLocalSmilesOutConversion().WriteString(&temp, true);
             std::istringstream iss(smi);
             std::string token;
             iss >> token;

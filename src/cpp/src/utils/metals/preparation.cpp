@@ -11,18 +11,27 @@
 #include "molgr/compat/openbabel_iter.h"
 
 #include <set>
+#include <stdexcept>
 
 namespace
 {
+    struct XyzOutConversion
+    {
+        XyzOutConversion()
+        {
+            if (!conversion.SetOutFormat("xyz"))
+            {
+                throw std::runtime_error("Open Babel XYZ output format is unavailable");
+            }
+        }
+
+        OpenBabel::OBConversion conversion;
+    };
+
     OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
     {
-        thread_local OpenBabel::OBConversion *conv = nullptr;
-        if (conv == nullptr)
-        {
-            conv = new OpenBabel::OBConversion();
-            conv->SetOutFormat("xyz");
-        }
-        return *conv;
+        thread_local XyzOutConversion instance;
+        return instance.conversion;
     }
 
 }
