@@ -3,7 +3,7 @@ name: Build, Test, and Deploy
 on:
   push:
     branches:
-      - main
+      - "**"
   pull_request:
     branches:
       - main
@@ -160,16 +160,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: linux-manylinux2014
+          - target: linux-manylinux2014-x86_64
             os: ubuntu-latest
             build: "cp38-manylinux_* cp39-manylinux_* cp310-manylinux_* cp311-manylinux_* cp312-manylinux_*"
-            archs_linux: "x86_64 aarch64"
+            archs_linux: x86_64
             manylinux_x86_64_image: manylinux2014
             manylinux_aarch64_image: manylinux2014
-          - target: linux-manylinux_2_28
+          - target: linux-manylinux2014-aarch64
+            os: ubuntu-24.04-arm
+            build: "cp38-manylinux_* cp39-manylinux_* cp310-manylinux_* cp311-manylinux_* cp312-manylinux_*"
+            archs_linux: aarch64
+            manylinux_x86_64_image: manylinux2014
+            manylinux_aarch64_image: manylinux2014
+          - target: linux-manylinux_2_28-x86_64
             os: ubuntu-latest
             build: "cp313-manylinux_* cp314-manylinux_*"
-            archs_linux: "x86_64 aarch64"
+            archs_linux: x86_64
+            manylinux_x86_64_image: manylinux_2_28
+            manylinux_aarch64_image: manylinux_2_28
+          - target: linux-manylinux_2_28-aarch64
+            os: ubuntu-24.04-arm
+            build: "cp313-manylinux_* cp314-manylinux_*"
+            archs_linux: aarch64
             manylinux_x86_64_image: manylinux_2_28
             manylinux_aarch64_image: manylinux_2_28
           - target: windows-amd64
@@ -201,12 +213,6 @@ jobs:
 
       - name: Disable proxy for package installs
         run: sh scripts/ci_disable_proxy.sh
-
-      - name: Set up QEMU for Linux aarch64
-        if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Set up Python 3.11 (GitHub)
         if: ${{ env.ACT != 'true' }}
@@ -313,7 +319,7 @@ jobs:
         with:
           name: release-wheel-${{ matrix.target }}
           path: wheelhouse/*.whl
-        
+
   deploy:
     name: Deploy to PyPI
     runs-on: ubuntu-latest

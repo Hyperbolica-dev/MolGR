@@ -127,7 +127,7 @@ namespace
         {
             return nullptr;
         }
-        return std::make_unique<OpenBabel::MolgrForceFieldUFF>("MolGR-UFF", false);
+        return std::make_unique<OpenBabel::MolgrForceFieldUFF>();
     }
 
     struct ReusableForceField
@@ -241,8 +241,8 @@ namespace
     ReusableForceField &ThreadLocalForceField(
         const std::string &force_field)
     {
-        thread_local auto *force_fields = new std::unordered_map<std::string, ReusableForceField>();
-        ReusableForceField &entry = (*force_fields)[force_field];
+        thread_local std::unordered_map<std::string, ReusableForceField> force_fields;
+        ReusableForceField &entry = force_fields[force_field];
         if (entry.instance == nullptr)
         {
             entry.instance = MakeForceFieldInstance(force_field);
