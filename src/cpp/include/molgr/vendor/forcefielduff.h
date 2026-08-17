@@ -161,8 +161,9 @@ namespace OpenBabel
     static thread_local MolgrForceFieldUFF* active_instance_;
 
   public:
-    //! Constructor
-    explicit MolgrForceFieldUFF(const char* ID, bool IsDefault=true) : OBForceField(ID, IsDefault)
+    // A non-empty Open Babel plugin ID registers this instance in a process-wide
+    // map. MolGR owns these per-thread instances, so they must remain unregistered.
+    MolgrForceFieldUFF() : OBForceField("", false)
     {
       _validSetup = false;
       _init = false;
@@ -175,13 +176,13 @@ namespace OpenBabel
     }
 
     //! Destructor
-    virtual ~MolgrForceFieldUFF();
+    ~MolgrForceFieldUFF() override;
 
      //!Clone the current instance. May be desirable in multithreaded environments
-     virtual MolgrForceFieldUFF* MakeNewInstance()
-     {
-       return new MolgrForceFieldUFF(_id, false);
-     }
+    MolgrForceFieldUFF* MakeNewInstance() override
+    {
+       return new MolgrForceFieldUFF();
+    }
 
     bool Setup(OBMol &mol);
     bool Setup(OBMol &mol, OBFFConstraints &constraints);

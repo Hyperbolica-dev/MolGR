@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import os
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -273,6 +275,159 @@ def test_cpp_force_field_uses_vendor_uff_without_openbabel_plugin_lock() -> None
     assert "std::lock_guard<std::mutex>" not in force_field_source
     assert "enable_vendor_uff_force_field" not in force_field_source
     assert "MolgrForceFieldUFF" in force_field_source
+
+
+def test_cpp_owned_thread_local_resources_use_raii() -> None:
+    smarts_source = Path("src/cpp/src/utils/smarts.cpp").read_text(encoding="utf-8")
+    threading_source = Path("src/cpp/src/vendor/openbabel_threading.cpp").read_text(
+        encoding="utf-8"
+    )
+    metal_preparation_source = Path("src/cpp/src/utils/metals/preparation.cpp").read_text(
+        encoding="utf-8"
+    )
+    resonance_source = Path("src/cpp/src/utils/resonance.cpp").read_text(encoding="utf-8")
+    force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(encoding="utf-8")
+    vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(encoding="utf-8")
+
+    assert "thread_local PatternArray *" not in smarts_source
+    assert "thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *" not in (
+        threading_source
+    )
+    assert "thread_local OpenBabel::OBConversion *" not in metal_preparation_source
+    assert "thread_local OpenBabel::OBConversion *" not in resonance_source
+    assert "thread_local auto *force_fields = new" not in force_field_source
+    assert "new std::vector<MolgrCompiledUffAtomTypeRule>" not in vendor_uff_source
+
+    allowed_non_owning_tls_pointers = {
+        ("src/cpp/src/utils/perf.cpp", "t_active_run_timing_reducer"),
+        ("src/cpp/src/vendor/forcefielduff.cpp", "active_instance_"),
+    }
+    observed_non_owning_tls_pointers: set[tuple[str, str]] = set()
+    unexpected_tls_pointer_lines: list[str] = []
+    source_files = sorted(
+        path
+        for root in (Path("src/cpp"), Path("src/bindings"))
+        for path in root.rglob("*")
+        if path.suffix in {".cpp", ".h", ".hpp"}
+    )
+    for path in source_files:
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "thread_local" not in line or "*" not in line or "=" not in line:
+                continue
+            matched_name = next(
+                (
+                    name
+                    for allowed_path, name in allowed_non_owning_tls_pointers
+                    if str(path) == allowed_path and name in line
+                ),
+                None,
+            )
+            if matched_name is None:
+                unexpected_tls_pointer_lines.append(f"{path}:{line_number}:{line.strip()}")
+            else:
+                observed_non_owning_tls_pointers.add((str(path), matched_name))
+
+    assert unexpected_tls_pointer_lines == []
+    assert observed_non_owning_tls_pointers == allowed_non_owning_tls_pointers
+
+
+def test_cpp_private_uff_instances_do_not_register_as_openbabel_plugins() -> None:
+    vendor_uff_header = Path("src/cpp/include/molgr/vendor/forcefielduff.h").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'MolgrForceFieldUFF() : OBForceField("", false)' in vendor_uff_header
+    assert "MolgrForceFieldUFF(const char*" not in vendor_uff_header
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or not Path("/proc/self/statm").is_file(),
+    reason="native RSS regression requires Linux procfs and malloc_trim",
+)
+def test_cpp_thread_local_resources_are_reclaimed_when_external_workers_exit() -> None:
+    script = r'''
+import ctypes
+import gc
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+from molgr import _core
+
+xyz = """12
+benzene
+C 1.396 0 0
+C 0.698 1.209 0
+C -0.698 1.209 0
+C -1.396 0 0
+C -0.698 -1.209 0
+C 0.698 -1.209 0
+H 2.479 0 0
+H 1.240 2.147 0
+H -1.240 2.147 0
+H -2.479 0 0
+H -1.240 -2.147 0
+H 1.240 -2.147 0
+"""
+libc = ctypes.CDLL(None)
+malloc_trim = getattr(libc, "malloc_trim", None)
+if malloc_trim is None:
+    raise SystemExit(77)
+page_size = os.sysconf("SC_PAGE_SIZE")
+
+
+def rss_kib():
+    with open("/proc/self/statm", encoding="ascii") as handle:
+        return int(handle.read().split()[1]) * page_size // 1024
+
+
+def trim():
+    gc.collect()
+    malloc_trim(0)
+
+
+def run_round():
+    barrier = threading.Barrier(8)
+
+    def reconstruct(_):
+        barrier.wait()
+        return list(
+            _core.dev.pipeline.reconstruct_without_metals.debug_resonance_candidate_summaries(
+                xyz, 0, 0
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(reconstruct, range(8)))
+    assert all(results)
+
+
+for _ in range(4):
+    run_round()
+trim()
+before = rss_kib()
+for _ in range(32):
+    run_round()
+trim()
+print(before, rss_kib())
+'''
+    env = os.environ.copy()
+    env["MALLOC_ARENA_MAX"] = "2"
+    env["PYTHONMALLOC"] = "malloc"
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        env=env,
+        text=True,
+        timeout=90,
+    )
+    if completed.returncode == 77:
+        pytest.skip("malloc_trim is unavailable")
+    assert completed.returncode == 0, completed.stderr
+    before_kib, after_kib = map(int, completed.stdout.strip().split()[-2:])
+
+    assert after_kib - before_kib < 8 * 1024
 
 
 def test_cpp_config_bridge_reads_current_global_config(monkeypatch: pytest.MonkeyPatch) -> None:
