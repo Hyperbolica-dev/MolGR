@@ -277,7 +277,7 @@ def test_cpp_force_field_uses_vendor_uff_without_openbabel_plugin_lock() -> None
     assert "MolgrForceFieldUFF" in force_field_source
 
 
-def test_cpp_owned_thread_local_resources_use_raii() -> None:
+def test_cpp_openbabel_thread_local_resources_are_process_lived() -> None:
     smarts_source = Path("src/cpp/src/utils/smarts.cpp").read_text(encoding="utf-8")
     threading_source = Path("src/cpp/src/vendor/openbabel_threading.cpp").read_text(
         encoding="utf-8"
@@ -289,18 +289,23 @@ def test_cpp_owned_thread_local_resources_use_raii() -> None:
     force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(encoding="utf-8")
     vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(encoding="utf-8")
 
-    assert "thread_local PatternArray *" not in smarts_source
-    assert "thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *" not in (
+    assert "thread_local PatternArray *compiled_patterns" in smarts_source
+    assert "thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *patterns" in (
         threading_source
     )
-    assert "thread_local OpenBabel::OBConversion *" not in metal_preparation_source
-    assert "thread_local OpenBabel::OBConversion *" not in resonance_source
-    assert "thread_local auto *force_fields = new" not in force_field_source
+    assert "thread_local OpenBabel::OBConversion *conversion" in metal_preparation_source
+    assert "thread_local OpenBabel::OBConversion *conversion" in resonance_source
+    assert "thread_local auto *force_fields = new" in force_field_source
     assert "new std::vector<MolgrCompiledUffAtomTypeRule>" not in vendor_uff_source
 
     allowed_non_owning_tls_pointers = {
         ("src/cpp/src/utils/perf.cpp", "t_active_run_timing_reducer"),
         ("src/cpp/src/vendor/forcefielduff.cpp", "active_instance_"),
+        ("src/cpp/src/utils/force_field.cpp", "force_fields"),
+        ("src/cpp/src/utils/metals/preparation.cpp", "conversion"),
+        ("src/cpp/src/utils/resonance.cpp", "conversion"),
+        ("src/cpp/src/utils/smarts.cpp", "compiled_patterns"),
+        ("src/cpp/src/vendor/openbabel_threading.cpp", "patterns"),
     }
     observed_non_owning_tls_pointers: set[tuple[str, str]] = set()
     unexpected_tls_pointer_lines: list[str] = []
@@ -345,14 +350,11 @@ def test_cpp_private_uff_instances_do_not_register_as_openbabel_plugins() -> Non
     not sys.platform.startswith("linux") or not Path("/proc/self/statm").is_file(),
     reason="native RSS regression requires Linux procfs and malloc_trim",
 )
-def test_cpp_thread_local_resources_are_reclaimed_when_external_workers_exit() -> None:
+def test_cpp_thread_local_resources_are_bounded_on_reused_batch_workers() -> None:
     script = r'''
 import ctypes
 import gc
 import os
-import threading
-from concurrent.futures import ThreadPoolExecutor
-
 from molgr import _core
 
 xyz = """12
@@ -388,19 +390,13 @@ def trim():
 
 
 def run_round():
-    barrier = threading.Barrier(8)
-
-    def reconstruct(_):
-        barrier.wait()
-        return list(
-            _core.dev.pipeline.reconstruct_without_metals.debug_resonance_candidate_summaries(
-                xyz, 0, 0
-            )
-        )
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = list(executor.map(reconstruct, range(8)))
-    assert all(results)
+    requests = [(xyz, 0, 0)] * 8
+    iterator = _core.pipeline.reconstruct_with_metals.batch_xyz2omol(
+        requests, max_workers=8, queue_size=1, ordered=True
+    )
+    results = list(iterator)
+    iterator.close()
+    assert all(result["molecule_data"] is not None for result in results)
 
 
 for _ in range(4):

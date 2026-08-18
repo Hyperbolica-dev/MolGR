@@ -12,11 +12,15 @@ import molgr.config
 from . import reconstruct_with_metals, reconstruct_without_metals
 
 __all__: list[str] = [
+    "get_last_reconstruction_diagnostics",
     "get_last_run_timing_breakdown_ms",
     "reconstruct_with_metals",
     "reconstruct_without_metals",
     "xyz2omol",
 ]
+
+def get_last_reconstruction_diagnostics() -> dict:
+    """Return structured diagnostics from the most recent C++ failure."""
 
 def get_last_run_timing_breakdown_ms() -> dict:
     """

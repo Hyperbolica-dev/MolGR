@@ -9,7 +9,12 @@ import typing
 import molgr._core.utils
 import molgr.config
 
-__all__: list[str] = ["xyz2omol"]
+__all__: list[str] = ["ReconstructionBatchIterator", "batch_xyz2omol", "xyz2omol"]
+
+class ReconstructionBatchIterator(typing.Iterator[dict[str, object]]):
+    def __iter__(self) -> ReconstructionBatchIterator: ...
+    def __next__(self) -> dict[str, object]: ...
+    def close(self) -> None: ...
 
 def xyz2omol(
     xyz_block: str,
@@ -20,4 +25,16 @@ def xyz2omol(
 ) -> molgr._core.utils.MoleculeData | None:
     """
     Reconstruct molecule data from XYZ with metal-aware pipeline.
+    """
+
+def batch_xyz2omol(
+    requests: typing.Iterable[tuple[str, int, int]],
+    *,
+    config: molgr.config.MolGRConfig | None = None,
+    max_workers: int = 0,
+    queue_size: int = 16,
+    ordered: bool = False,
+) -> ReconstructionBatchIterator:
+    """
+    Reconstruct a finite XYZ batch with a bounded native result queue.
     """

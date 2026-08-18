@@ -90,9 +90,9 @@ bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
   --methods molgr_cpp,molgr_fallback
 ```
 
-`tmqmg_xyz_benchmark` 还支持 `--process-workers N`。每个方法会被拆到多个 worker
-子进程中运行，同时 C++ 后端仍可使用内部 target-bucket 线程。过高进程数会和 C++ 线程竞争
-CPU，因此实际取值应按目标机器实测决定。
+`tmqmg_xyz_benchmark` 默认使用 `--process-workers 1` 串行运行；C++ 单分子调用仍保留
+内部 target-bucket 并行。对 `molgr_cpp` 指定更大的值时，单个子进程会把 worker 数交给
+native batch 池，避免外部进程和 C++ 线程叠加。批量吞吐仍应按目标机器实测 worker 数。
 
 如果需要连续运行 benchmark 命令，可以把当前 shell 切到 benchmark project：
 
@@ -135,7 +135,8 @@ Molfile/SDF benchmark：
 - `--limit`：限制 case 数量，便于快速检查。
 - `--out`：输出运行目录。
 - `--methods`：tmQMg 入口可用，用 method id 限制共享方法注册表。
-- `--process-workers`：tmQMg 入口可用，把每个方法拆到多个 worker 子进程。
+- `--process-workers`：tmQMg 串行/native batch worker 数；`1` 使用单分子串行路径，
+  C++ 更大取值使用单个 native batch 池。
 - `--cpp-accelerations`：tmQMg 入口可用，选择 C++ 加速 preset。
 
 ## 输出

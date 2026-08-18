@@ -87,6 +87,43 @@ semantics. C++-only switches may change scheduling, caching, or thread-safe vend
 implementations, but they must not change the selected molecule for the same
 `MolGRConfig`.
 
+## Advanced Usage
+
+### Parallel execution
+
+For low-latency or benchmark runs, call `xyz_to_rdmol()` serially. Each C++ call
+may still parallelize the metal target buckets internally, so an outer Python
+worker pool is not needed.
+
+For high-throughput workloads, use the native batch API. It accepts any finite
+iterable, runs reconstruction in a bounded C++ worker pool, and streams
+`(input, result, status)` triples. The input is included even when
+`ordered=False`, so completion-order results remain associated with the correct
+XYZ request.
+
+```python
+from molgr import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
+
+requests = (
+    ReconstructionBatchRequest(xyz, total_charge=0, spin_multiplicity=1)
+    for xyz in xyz_blocks
+)
+
+for request, molecule, status in iter_xyz_to_rdmol_batch(
+    requests,
+    backend="cpp",
+    max_workers=None,  # select the native worker count automatically
+):
+    consume(request, molecule, status)
+```
+
+When the batch uses more than one worker, MolGR disables per-molecule target-bucket
+and candidate-scoring parallelism to avoid nested oversubscription. A one-worker
+batch retains the normal per-molecule parallel strategy. Do not wrap the native
+batch API in `joblib`, a thread pool, or a process pool; set `max_workers` on the
+batch call instead. The `python` backend remains sequential as the semantic
+reference implementation.
+
 ## Installation
 
 MolGR requires Python `>=3.8`. Runtime and build dependencies are declared in

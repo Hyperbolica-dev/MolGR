@@ -22,6 +22,8 @@
 #include <openbabel/obconversion.h>
 #include <openbabel/bond.h>
 #include "molgr/compat/openbabel_iter.h"
+#include "molgr/diagnostics.h"
+#include "molgr/pipeline/reconstruct_batch.h"
 
 #include <cmath>
 #include <cstdint>
@@ -37,6 +39,83 @@ namespace molgr
     {
         namespace
         {
+            thread_local molgr::diagnostics::ReconstructionDiagnostics
+                t_last_reconstruction_diagnostics;
+
+            py::dict reconstruction_diagnostics_signature(
+                const molgr::diagnostics::ReconstructionDiagnostics &diagnostics)
+            {
+                py::dict out;
+                if (diagnostics.code.empty())
+                {
+                    return out;
+                }
+                out["code"] = diagnostics.code;
+                out["stage"] = diagnostics.stage;
+                out["backend"] = "cpp";
+                out["message"] = diagnostics.message;
+                py::dict counts;
+                for (const auto &[key, value] : diagnostics.counts)
+                {
+                    counts[key.c_str()] = value;
+                }
+                out["counts"] = std::move(counts);
+                py::dict details;
+                for (const auto &[key, value] : diagnostics.details)
+                {
+                    details[key.c_str()] = value;
+                }
+                out["details"] = std::move(details);
+                out["cause_type"] = "";
+                out["cause_message"] = "";
+                return out;
+            }
+
+            py::dict reconstruction_batch_result_signature(
+                molgr::pipeline::reconstruct_batch::ReconstructionBatchResult result)
+            {
+                py::dict out;
+                out["index"] = result.index;
+                if (result.molecule)
+                {
+                    out["molecule_data"] = py::cast(std::move(result.molecule));
+                }
+                else
+                {
+                    out["molecule_data"] = py::none();
+                }
+                out["diagnostics"] = reconstruction_diagnostics_signature(result.diagnostics);
+                return out;
+            }
+
+            std::vector<molgr::pipeline::reconstruct_batch::ReconstructionBatchRequest>
+            parse_reconstruction_batch_requests(const py::iterable &requests)
+            {
+                std::vector<molgr::pipeline::reconstruct_batch::ReconstructionBatchRequest> parsed;
+                for (const py::handle item : requests)
+                {
+                    if (!py::isinstance<py::sequence>(item) || py::isinstance<py::str>(item))
+                    {
+                        throw py::type_error(
+                            "batch requests must be sequences of "
+                            "(xyz_block, total_charge, total_radical_electrons)");
+                    }
+                    const auto sequence = py::reinterpret_borrow<py::sequence>(item);
+                    if (py::len(sequence) != 3)
+                    {
+                        throw py::value_error(
+                            "each batch request must contain exactly three values: "
+                            "xyz_block, total_charge, total_radical_electrons");
+                    }
+                    molgr::pipeline::reconstruct_batch::ReconstructionBatchRequest request;
+                    request.xyz_block = py::cast<std::string>(sequence[0]);
+                    request.total_charge = py::cast<int>(sequence[1]);
+                    request.total_radical_electrons = py::cast<int>(sequence[2]);
+                    parsed.push_back(std::move(request));
+                }
+                return parsed;
+            }
+
             OpenBabel::OBMol *require_obmol_ptr(intptr_t mol_ptr)
             {
                 if (mol_ptr == 0)
@@ -117,6 +196,36 @@ namespace molgr
 
             void bind_reconstruct_with_metals_public_ns(py::module_ &ns)
             {
+                py::class_<molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator>(
+                    ns,
+                    "ReconstructionBatchIterator")
+                    .def(
+                        "__iter__",
+                        [](molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator &iterator)
+                            -> molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator &
+                        { return iterator; },
+                        py::return_value_policy::reference_internal)
+                    .def(
+                        "__next__",
+                        [](molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator &iterator)
+                        {
+                            std::optional<
+                                molgr::pipeline::reconstruct_batch::ReconstructionBatchResult>
+                                result;
+                            {
+                                py::gil_scoped_release release;
+                                result = iterator.Next();
+                            }
+                            if (!result.has_value())
+                            {
+                                throw py::stop_iteration();
+                            }
+                            return reconstruction_batch_result_signature(std::move(*result));
+                        })
+                    .def(
+                        "close",
+                        &molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator::Close);
+
                 ns.def(
                     "xyz2omol",
                     [](const std::string &xyz_block,
@@ -126,12 +235,14 @@ namespace molgr
                         -> std::unique_ptr<molgr::utils::MoleculeData>
                     {
                         auto runtime_config = molgr::config::FromPython(config);
+                        t_last_reconstruction_diagnostics.Reset();
                         py::gil_scoped_release release;
                         auto mol_data = molgr::pipeline::reconstruct_with_metals::Xyz2OmolMolData(
                             xyz_block,
                             total_charge,
                             total_radical_electrons,
-                            runtime_config);
+                            runtime_config,
+                            &t_last_reconstruction_diagnostics);
                         if (!mol_data)
                         {
                             return nullptr;
@@ -144,6 +255,34 @@ namespace molgr
                     py::arg("total_radical_electrons") = 0,
                     py::kw_only(),
                     py::arg("config") = py::none());
+
+                ns.def(
+                    "batch_xyz2omol",
+                    [](const py::iterable &requests,
+                       py::object config,
+                       std::size_t max_workers,
+                       std::size_t queue_size,
+                       bool ordered)
+                        -> std::unique_ptr<
+                            molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator>
+                    {
+                        auto runtime_config = molgr::config::FromPython(config);
+                        auto parsed_requests = parse_reconstruction_batch_requests(requests);
+                        return std::make_unique<
+                            molgr::pipeline::reconstruct_batch::ReconstructionBatchIterator>(
+                            std::move(parsed_requests),
+                            runtime_config,
+                            max_workers,
+                            queue_size,
+                            ordered);
+                    },
+                    "Reconstruct a finite batch with a bounded native worker queue.",
+                    py::arg("requests"),
+                    py::kw_only(),
+                    py::arg("config") = py::none(),
+                    py::arg("max_workers") = 0,
+                    py::arg("queue_size") = 16,
+                    py::arg("ordered") = false);
             }
 
             void bind_reconstruct_with_metals_dev_ns(py::module_ &ns)
@@ -1041,12 +1180,14 @@ namespace molgr
                     -> std::unique_ptr<molgr::utils::MoleculeData>
                 {
                     auto runtime_config = molgr::config::FromPython(config);
+                    t_last_reconstruction_diagnostics.Reset();
                     py::gil_scoped_release release;
                     auto mol_data = molgr::pipeline::reconstruct_with_metals::Xyz2OmolMolData(
                         xyz_block,
                         total_charge,
                         total_radical_electrons,
-                        runtime_config);
+                        runtime_config,
+                        &t_last_reconstruction_diagnostics);
                     if (!mol_data)
                     {
                         return nullptr;
@@ -1059,6 +1200,14 @@ namespace molgr
                 py::arg("total_radical_electrons") = 0,
                 py::kw_only(),
                 py::arg("config") = py::none());
+
+            m.def(
+                "get_last_reconstruction_diagnostics",
+                []() -> py::dict
+                {
+                    return reconstruction_diagnostics_signature(t_last_reconstruction_diagnostics);
+                },
+                "Return structured diagnostics from the most recent C++ reconstruction failure.");
 
             reconstruct_without_metals.def(
                 "xyz_to_omol_no_metal",

@@ -31,8 +31,10 @@ Execution flags:
   optional C++ accelerations such as the vendor UFF atom-typing cache.
 - `--enable-uff-atom-typing-cache` enables the vendor UFF atom-typing cache when
   using the default preset.
-- `--process-workers N` splits each method across `N` worker subprocesses. This can
-  stack with C++ internal target-bucket threading, but high values may compete for CPU.
+- `--process-workers 1` (the default) runs rows serially; `molgr_cpp` still keeps
+  its internal target-bucket parallelism. For `molgr_cpp` with `N > 1`, one
+  benchmark subprocess owns a native batch pool of `N` workers instead of stacking
+  external processes. Other methods may still split across subprocesses when `N > 1`.
 - `--case-timeout-seconds` sets the per-method per-case wall-time limit; use `0` to
   disable it.
 

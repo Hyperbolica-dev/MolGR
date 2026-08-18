@@ -35,6 +35,9 @@ Benchmark 使用 [`methods/__init__.py`](methods/__init__.py) 中的共享方法
 使用 [`../README.zh-CN.md`](../README.zh-CN.md) 中说明的专用 benchmark 环境。
 该环境使用 Python `>=3.10,<3.12`，benchmark-only 依赖位于 [`../pyproject.toml`](../pyproject.toml)。
 
+默认按行串行执行；`molgr_cpp` 的单分子调用仍保留后端 target-bucket 并行。需要批量
+吞吐时可给入口增加 `--jobs N`，由 native batch 池统一管理 C++ worker。
+
 在仓库根目录创建或刷新环境：
 
 ```bash

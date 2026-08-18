@@ -75,6 +75,38 @@ C++ 后端线程并行：Open Babel 并发重建可能触发 Python 无法捕获
 C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
 vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。
 
+## 高级使用
+
+### 并行执行策略
+
+对于低延迟场景或 benchmark，应串行调用 `xyz_to_rdmol()`。每次 C++ 调用仍可在内部自动并行
+处理金属价态目标桶，因此不需要再套一层 Python worker 池。
+
+对于高吞吐批量任务，应使用 native batch API。它接受任意有限迭代器，由有界 C++ worker 池
+完成重建，并流式返回 `(input, result, status)` 三元组。即使使用默认的 `ordered=False`，每个
+结果也会携带原始输入，不会丢失 XYZ 与重建结果的对应关系。
+
+```python
+from molgr import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
+
+requests = (
+    ReconstructionBatchRequest(xyz, total_charge=0, spin_multiplicity=1)
+    for xyz in xyz_blocks
+)
+
+for request, molecule, status in iter_xyz_to_rdmol_batch(
+    requests,
+    backend="cpp",
+    max_workers=None,  # 自动选择 native worker 数量
+):
+    consume(request, molecule, status)
+```
+
+当 batch 使用多个 worker 时，MolGR 会自动关闭单分子内部的目标桶和候选评分并行，避免嵌套
+并行造成线程过量；batch 只有一个 worker 时仍保留单分子内部并行。不要在 native batch 外层
+再套 `joblib`、线程池或进程池，应直接通过 batch 的 `max_workers` 控制并行数。`python`
+后端继续保持串行，作为语义参考实现。
+
 ## 安装
 
 MolGR 需要 Python `>=3.8`。运行时依赖和构建依赖以 [`pyproject.toml`](pyproject.toml) 为准；
