@@ -12,7 +12,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -28,6 +28,7 @@ from benchmarks.tmqmg_xyz_benchmark.comparison_annotations import (
 )
 from benchmarks.tmqmg_xyz_benchmark.methods import METHOD_IDS, get_method_registry
 from benchmarks.tmqmg_xyz_benchmark.schema import BenchmarkResult
+from benchmarks.smiles_xyz_benchmark.methods.base import MethodRunOutput
 
 from rdkit import Chem
 
@@ -105,7 +106,11 @@ def _parse_args() -> argparse.Namespace:
         "--process-workers",
         type=int,
         default=1,
-        help="Number of benchmark worker subprocesses per method.",
+        help=(
+            "External worker budget for non-C++ methods. For molgr_cpp this is "
+            "the native batch worker count; 1 keeps the benchmark serial while "
+            "retaining MolGR's internal metal-bucket parallelism."
+        ),
     )
     parser.add_argument(
         "--case-timeout-seconds",
@@ -231,7 +236,7 @@ def _reference_element_counts(reference_smiles: str) -> Counter[str]:
     if mol is None:
         raise ValueError("reference SMILES could not be parsed")
     mol = Chem.AddHs(mol)
-    return Counter(atom.GetSymbol() for atom in mol.GetAtoms())
+    return Counter(atom.GetSymbol() for atom in cast(Any, mol).GetAtoms())
 
 
 def _validate_reference_matches_xyz(reference_smiles: str, xyz_block: str) -> None:
@@ -314,6 +319,7 @@ def _run_case_method(
     method_runner,
     *,
     case_timeout_seconds: float | None,
+    precomputed_output: MethodRunOutput | None = None,
 ) -> BenchmarkResult:
     from molgr.utils.equivalence import check_equivalence
 
@@ -322,7 +328,9 @@ def _run_case_method(
         comparison_annotation is not None and comparison_annotation.skip_comparison
     )
     comparison_skip_reason = (
-        comparison_annotation.comparison_skip_reason if comparison_skipped else None
+        comparison_annotation.comparison_skip_reason
+        if comparison_annotation is not None and comparison_skipped
+        else None
     )
     if case.get("provider_error"):
         breakdown = {"method_ms": 0.0, "equivalence_ms": 0.0}
@@ -344,29 +352,34 @@ def _run_case_method(
         )
 
     started = time.perf_counter()
-    try:
-        with case_timeout(case_timeout_seconds, f"{method_id} case {case['case_idx']}"):
-            output = method_runner(case)
-    except CaseTimeoutError as exc:
+    if precomputed_output is None:
+        try:
+            with case_timeout(case_timeout_seconds, f"{method_id} case {case['case_idx']}"):
+                output = method_runner(case)
+        except CaseTimeoutError as exc:
+            method_elapsed_ms = (time.perf_counter() - started) * 1000.0
+            breakdown = {"method_ms": method_elapsed_ms, "equivalence_ms": 0.0}
+            return BenchmarkResult(
+                case_idx=int(case["case_idx"]),
+                method_id=method_id,
+                input_smiles=str(case["input_smiles"]),
+                ground_truth_smiles=case.get("ground_truth_smiles"),
+                status="error",
+                error=str(exc),
+                predicted_smiles=None,
+                equivalent=None,
+                equivalence_method=None,
+                timing_ms_total=method_elapsed_ms,
+                timing_ms_breakdown=breakdown,
+                case_id=case.get("id"),
+                comparison_skipped=comparison_skipped,
+                comparison_skip_reason=comparison_skip_reason,
+            )
         method_elapsed_ms = (time.perf_counter() - started) * 1000.0
-        breakdown = {"method_ms": method_elapsed_ms, "equivalence_ms": 0.0}
-        return BenchmarkResult(
-            case_idx=int(case["case_idx"]),
-            method_id=method_id,
-            input_smiles=str(case["input_smiles"]),
-            ground_truth_smiles=case.get("ground_truth_smiles"),
-            status="error",
-            error=str(exc),
-            predicted_smiles=None,
-            equivalent=None,
-            equivalence_method=None,
-            timing_ms_total=method_elapsed_ms,
-            timing_ms_breakdown=breakdown,
-            case_id=case.get("id"),
-            comparison_skipped=comparison_skipped,
-            comparison_skip_reason=comparison_skip_reason,
-        )
-    method_elapsed_ms = (time.perf_counter() - started) * 1000.0
+    else:
+        output = precomputed_output
+        output_breakdown = output.timing_ms_breakdown or {}
+        method_elapsed_ms = float(output_breakdown.get("method_ms", sum(output_breakdown.values())))
     breakdown = dict(output.timing_ms_breakdown or {})
     breakdown["method_ms"] = method_elapsed_ms
     breakdown.setdefault("equivalence_ms", 0.0)
@@ -421,7 +434,7 @@ def _run_case_method(
         method_id=method_id,
         input_smiles=str(case["input_smiles"]),
         ground_truth_smiles=case.get("ground_truth_smiles"),
-        status=status,
+        status=cast(Any, status),
         error=error,
         predicted_smiles=output.predicted_smiles,
         equivalent=equivalent,
@@ -452,9 +465,36 @@ def _run_method_cases_worker(payload: dict[str, Any]) -> list[BenchmarkResult]:
 
     methods = {method.method_id: method for method in get_method_registry((method_id,))}
     method = methods[method_id]
+    built_cases = [
+        _build_case(int(item["row_index"]), item["row"], xyz_dir=xyz_dir) for item in cases
+    ]
     results: list[BenchmarkResult] = []
-    for item in cases:
-        case = _build_case(int(item["row_index"]), item["row"], xyz_dir=xyz_dir)
+    batch_runner = getattr(method, "run_batch", None)
+    if method_id == "molgr_cpp" and payload.get("native_batch", False) and callable(batch_runner):
+        batch_outputs = cast(Any, batch_runner)(
+            built_cases,
+            max_workers=payload.get("native_workers"),
+        )
+        for case in built_cases:
+            output = batch_outputs.get(
+                int(case["case_idx"]),
+                MethodRunOutput(
+                    status="error",
+                    error="native batch returned no result for case",
+                    timing_ms_breakdown={"method_ms": 0.0},
+                ),
+            )
+            results.append(
+                _run_case_method(
+                    case,
+                    method_id,
+                    method.run,
+                    case_timeout_seconds=case_timeout_seconds,
+                    precomputed_output=output,
+                )
+            )
+        return results
+    for case in built_cases:
         results.append(
             _run_case_method(
                 case,
@@ -491,6 +531,8 @@ def _run_method_subprocess(
     xyz_dir: Path,
     case_timeout_seconds: float | None,
     cpp_backend_config: dict[str, Any],
+    native_workers: int | None = None,
+    native_batch: bool = False,
 ) -> list[BenchmarkResult]:
     payload = {
         "method_id": method_id,
@@ -498,6 +540,8 @@ def _run_method_subprocess(
         "xyz_dir": str(xyz_dir),
         "case_timeout_seconds": case_timeout_seconds,
         "cpp_backend_config": cpp_backend_config,
+        "native_workers": native_workers,
+        "native_batch": native_batch,
     }
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp_payload:
         payload_path = Path(tmp_payload.name)
@@ -542,6 +586,19 @@ def _run_method_subprocesses(
     cpp_backend_config: dict[str, Any],
     process_workers: int,
 ) -> list[BenchmarkResult]:
+    if method_id == "molgr_cpp" and process_workers > 1:
+        # One process owns one native batch executor. Splitting this method
+        # into subprocesses would recreate the oversubscription hazard that
+        # the native batch backend is designed to remove.
+        return _run_method_subprocess(
+            method_id=method_id,
+            cases=cases,
+            xyz_dir=xyz_dir,
+            case_timeout_seconds=case_timeout_seconds,
+            cpp_backend_config=cpp_backend_config,
+            native_workers=process_workers,
+            native_batch=True,
+        )
     if process_workers <= 1 or len(cases) <= 1:
         return _run_method_subprocess(
             method_id=method_id,

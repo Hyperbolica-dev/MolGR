@@ -15,23 +15,21 @@
 
 namespace
 {
-    struct XyzOutConversion
-    {
-        XyzOutConversion()
-        {
-            if (!conversion.SetOutFormat("xyz"))
-            {
-                throw std::runtime_error("Open Babel XYZ output format is unavailable");
-            }
-        }
-
-        OpenBabel::OBConversion conversion;
-    };
-
     OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
     {
-        thread_local XyzOutConversion instance;
-        return instance.conversion;
+        // Open Babel conversions access process-wide registries while being
+        // destroyed. Avoid running that destructor during worker TLS teardown.
+        thread_local OpenBabel::OBConversion *conversion = []()
+        {
+            auto *instance = new OpenBabel::OBConversion();
+            if (!instance->SetOutFormat("xyz"))
+            {
+                delete instance;
+                throw std::runtime_error("Open Babel XYZ output format is unavailable");
+            }
+            return instance;
+        }();
+        return *conversion;
     }
 
 }

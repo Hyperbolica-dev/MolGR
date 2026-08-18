@@ -107,6 +107,58 @@ namespace molgr
 {
     namespace utils
     {
+        bool ParseXyzAtomicNumbers(
+            const std::string &xyz_block,
+            std::vector<int> *atomic_numbers)
+        {
+            if (atomic_numbers == nullptr)
+            {
+                return false;
+            }
+
+            std::istringstream input(xyz_block);
+            input.imbue(std::locale::classic());
+
+            std::string atom_count_line;
+            if (!std::getline(input, atom_count_line))
+            {
+                return false;
+            }
+
+            std::size_t atom_count = 0;
+            if (!ParseAtomCountLine(atom_count_line, &atom_count))
+            {
+                return false;
+            }
+
+            std::string title_line;
+            if (!std::getline(input, title_line))
+            {
+                return false;
+            }
+
+            std::vector<int> parsed_numbers;
+            parsed_numbers.reserve(atom_count);
+            std::string atom_line;
+            for (std::size_t idx = 0; idx < atom_count; ++idx)
+            {
+                if (!std::getline(input, atom_line))
+                {
+                    return false;
+                }
+
+                ParsedXyzAtom parsed_atom;
+                if (!ParseAtomLine(atom_line, &parsed_atom))
+                {
+                    return false;
+                }
+                parsed_numbers.push_back(parsed_atom.atomic_num);
+            }
+
+            *atomic_numbers = std::move(parsed_numbers);
+            return true;
+        }
+
         bool ReadXyzBlockToMol(const std::string &xyz_block, OpenBabel::OBMol *mol)
         {
             if (mol == nullptr)

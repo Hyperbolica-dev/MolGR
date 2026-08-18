@@ -31,6 +31,11 @@ _configure_openbabel_data_dir()
 from . import _core as core  # noqa: E402
 from . import config  # noqa: E402
 from ._core import pipeline  # noqa: E402
+from .batch import (  # noqa: E402
+    ReconstructionBatchRequest,
+    ReconstructionBatchResult,
+    iter_xyz_to_rdmol_batch,
+)
 from .config import (  # noqa: E402
     CONFIG,
     CppBackendConfig,
@@ -42,6 +47,13 @@ from .config import (  # noqa: E402
     ReconstructionFailurePolicy,
     ResonanceConfig,
     ResonanceTraversalScore,
+)
+from .diagnostics import (  # noqa: E402
+    RECONSTRUCTION_FAILURE_CODES,
+    ReconstructionDiagnosticCollector,
+    ReconstructionDiagnostics,
+    ReconstructionError,
+    ReconstructionFailureCode,
 )
 
 
@@ -73,10 +85,18 @@ __all__ = [
     "MolGRConfig",
     "OrganicTopologyConfig",
     "PythonInterfaceConfig",
+    "RECONSTRUCTION_FAILURE_CODES",
     "ReconstructionFailurePolicy",
+    "ReconstructionDiagnosticCollector",
+    "ReconstructionDiagnostics",
+    "ReconstructionError",
+    "ReconstructionFailureCode",
+    "ReconstructionBatchRequest",
+    "ReconstructionBatchResult",
     "ResonanceConfig",
     "ResonanceTraversalScore",
     "config",
+    "iter_xyz_to_rdmol_batch",
     "set_log_level",
     "pipeline",
 ]

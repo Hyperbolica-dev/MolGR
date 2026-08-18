@@ -17,6 +17,11 @@ from openbabel import pybel
 # isort: on
 
 from molgr.config import CONFIG, MolGRConfig
+from molgr.diagnostics import (
+    ReconstructionDiagnostics,
+    ReconstructionError,
+    ReconstructionFailureCode,
+)
 from molgr.fallback import xyz2omol
 from molgr.utils.converter import mol_data_to_rdkit, pybel_to_rdmol
 from molgr.utils.post_process import make_dative_bond
@@ -25,7 +30,10 @@ from molgr.utils.post_process import make_stereochemistry as restore_stereochemi
 from . import _core as core
 
 
-def _suspicious_rdmol_from_input_xyz(xyz_block: str) -> Chem.Mol:
+def _suspicious_rdmol_from_input_xyz(
+    xyz_block: str,
+    diagnostics: ReconstructionDiagnostics | None = None,
+) -> Chem.Mol:
     """Build an untrusted RDKit molecule from OpenBabel's initial bond perception."""
 
     omol = pybel.readstring("xyz", xyz_block)
@@ -33,6 +41,10 @@ def _suspicious_rdmol_from_input_xyz(xyz_block: str) -> Chem.Mol:
     omol.OBMol.PerceiveBondOrders()
     rdmol = pybel_to_rdmol(omol, sanitize=False, kekulize=False)
     rdmol.SetProp("_MolGRReconstructionStatus", "suspicious_fallback")
+    if diagnostics is not None:
+        rdmol.SetProp("_MolGRReconstructionFailureCode", diagnostics.code.value)
+        rdmol.SetProp("_MolGRReconstructionFailureStage", diagnostics.stage)
+        rdmol.SetProp("_MolGRReconstructionDiagnostics", diagnostics.as_json())
     return rdmol
 
 
@@ -45,10 +57,47 @@ def _should_return_suspicious_on_reconstruction_failure(config: MolGRConfig) -> 
     raise ValueError(f"Unknown reconstruction failure policy: {policy!r}")
 
 
-def _handle_reconstruction_failure(xyz_block: str, *, config: MolGRConfig) -> Chem.Mol:
+def _handle_reconstruction_failure(
+    xyz_block: str,
+    *,
+    config: MolGRConfig,
+    diagnostics: ReconstructionDiagnostics | None = None,
+) -> Chem.Mol:
+    resolved_diagnostics = diagnostics or ReconstructionDiagnostics(
+        code=ReconstructionFailureCode.NO_VALID_RECONSTRUCTION,
+        stage="reconstruction",
+        backend="unknown",
+        message="The reconstruction backend returned no molecule.",
+    )
     if _should_return_suspicious_on_reconstruction_failure(config):
-        return _suspicious_rdmol_from_input_xyz(xyz_block)
-    raise ValueError("xyz2omol failed")
+        return _suspicious_rdmol_from_input_xyz(xyz_block, resolved_diagnostics)
+    raise ReconstructionError(resolved_diagnostics)
+
+
+def _diagnostics_from_exception(exc: BaseException, *, backend: str) -> ReconstructionDiagnostics:
+    if isinstance(exc, ReconstructionError):
+        return exc.diagnostics
+    return ReconstructionDiagnostics(
+        code=ReconstructionFailureCode.BACKEND_EXCEPTION,
+        stage="reconstruction",
+        backend=backend,
+        message=f"The {backend} reconstruction backend raised an exception.",
+        cause_type=type(exc).__name__,
+        cause_message=str(exc),
+    )
+
+
+def _cpp_reconstruction_diagnostics() -> ReconstructionDiagnostics | None:
+    getter = getattr(core.pipeline, "get_last_reconstruction_diagnostics", None)
+    if getter is None:
+        return None
+    try:
+        raw = getter()
+    except Exception:
+        return None
+    if not raw:
+        return None
+    return ReconstructionDiagnostics.from_mapping(raw, backend="cpp")
 
 
 def _validate_spin_multiplicity(
@@ -81,6 +130,39 @@ def _validate_spin_multiplicity(
         )
 
 
+def _finalize_rdmol(
+    rdmol: Chem.Mol,
+    xyz_block: str,
+    *,
+    backend: Literal["cpp", "python"],
+    make_dative_bonds: bool,
+    make_stereochemistry: bool,
+    config: MolGRConfig,
+) -> Chem.Mol:
+    try:
+        if make_dative_bonds:
+            rdmol = make_dative_bond(rdmol, config=config)
+
+        for atom_idx in range(rdmol.GetNumAtoms()):
+            rd_atom = rdmol.GetAtomWithIdx(atom_idx)
+            rd_atom.SetNoImplicit(True)
+        if make_stereochemistry:
+            rdmol = restore_stereochemistry(rdmol)
+    except Exception as exc:
+        diagnostics = ReconstructionDiagnostics(
+            code=ReconstructionFailureCode.RDKIT_POSTPROCESS_FAILED,
+            stage="rdkit.postprocess",
+            backend=backend,
+            message="RDKit post-processing failed after graph reconstruction.",
+            cause_type=type(exc).__name__,
+            cause_message=str(exc),
+        )
+        if _should_return_suspicious_on_reconstruction_failure(config):
+            return _suspicious_rdmol_from_input_xyz(xyz_block, diagnostics)
+        raise ReconstructionError(diagnostics) from exc
+    return rdmol
+
+
 def xyz_to_rdmol(
     xyz_block: str,
     total_charge: int = 0,
@@ -95,7 +177,26 @@ def xyz_to_rdmol(
     Convert XYZ block to RDKit Mol.
     """
     resolved_config = CONFIG if config is None else config
-    _validate_spin_multiplicity(xyz_block, total_charge, spin_multiplicity)
+    try:
+        _validate_spin_multiplicity(xyz_block, total_charge, spin_multiplicity)
+    except OSError as exc:
+        diagnostics = ReconstructionDiagnostics(
+            code=ReconstructionFailureCode.INVALID_XYZ,
+            stage="input.parse",
+            backend=backend,
+            message="The XYZ block could not be parsed by Open Babel.",
+            cause_type=type(exc).__name__,
+            cause_message=str(exc),
+        )
+        raise ReconstructionError(diagnostics) from exc
+    except ValueError as exc:
+        diagnostics = ReconstructionDiagnostics(
+            code=ReconstructionFailureCode.INVALID_ELECTRONIC_TARGET,
+            stage="input.electronic_state",
+            backend=backend,
+            message=str(exc),
+        )
+        raise ReconstructionError(diagnostics) from exc
     total_radical_electrons = spin_multiplicity - 1
     if backend == "cpp":
         try:
@@ -105,37 +206,85 @@ def xyz_to_rdmol(
                 total_radical_electrons,
                 config=resolved_config,
             )
-        except Exception:
+        except Exception as exc:
+            diagnostics = _diagnostics_from_exception(exc, backend="cpp")
             if _should_return_suspicious_on_reconstruction_failure(resolved_config):
-                return _suspicious_rdmol_from_input_xyz(xyz_block)
-            raise
+                return _suspicious_rdmol_from_input_xyz(xyz_block, diagnostics)
+            raise ReconstructionError(diagnostics) from exc
         if moldata is None:
-            return _handle_reconstruction_failure(xyz_block, config=resolved_config)
-        rdmol = mol_data_to_rdkit(moldata)
+            return _handle_reconstruction_failure(
+                xyz_block,
+                config=resolved_config,
+                diagnostics=_cpp_reconstruction_diagnostics(),
+            )
+        try:
+            rdmol = mol_data_to_rdkit(moldata)
+        except Exception as exc:
+            diagnostics = ReconstructionDiagnostics(
+                code=ReconstructionFailureCode.RDKIT_POSTPROCESS_FAILED,
+                stage="rdkit.conversion",
+                backend="cpp",
+                message="The C++ molecule could not be converted to an RDKit molecule.",
+                cause_type=type(exc).__name__,
+                cause_message=str(exc),
+            )
+            if _should_return_suspicious_on_reconstruction_failure(resolved_config):
+                return _suspicious_rdmol_from_input_xyz(xyz_block, diagnostics)
+            raise ReconstructionError(diagnostics) from exc
     elif backend == "python":
+        diagnostic_holder: dict[str, object] = {}
         try:
             omol = xyz2omol(
                 xyz_block,
                 total_charge,
                 total_radical_electrons,
                 config=resolved_config,
+                _diagnostics=diagnostic_holder,
             )
-        except Exception:
+        except Exception as exc:
+            diagnostics = (
+                ReconstructionDiagnostics.from_mapping(
+                    diagnostic_holder,
+                    backend="python",
+                )
+                if diagnostic_holder
+                else _diagnostics_from_exception(exc, backend="python")
+            )
             if _should_return_suspicious_on_reconstruction_failure(resolved_config):
-                return _suspicious_rdmol_from_input_xyz(xyz_block)
-            raise
+                return _suspicious_rdmol_from_input_xyz(xyz_block, diagnostics)
+            raise ReconstructionError(diagnostics) from exc
         if omol is None:
-            return _handle_reconstruction_failure(xyz_block, config=resolved_config)
-        rdmol = pybel_to_rdmol(omol)
+            diagnostics = ReconstructionDiagnostics.from_mapping(
+                diagnostic_holder,
+                backend="python",
+            )
+            return _handle_reconstruction_failure(
+                xyz_block,
+                config=resolved_config,
+                diagnostics=diagnostics,
+            )
+        try:
+            rdmol = pybel_to_rdmol(omol)
+        except Exception as exc:
+            diagnostics = ReconstructionDiagnostics(
+                code=ReconstructionFailureCode.RDKIT_POSTPROCESS_FAILED,
+                stage="rdkit.conversion",
+                backend="python",
+                message="The Python molecule could not be converted to an RDKit molecule.",
+                cause_type=type(exc).__name__,
+                cause_message=str(exc),
+            )
+            if _should_return_suspicious_on_reconstruction_failure(resolved_config):
+                return _suspicious_rdmol_from_input_xyz(xyz_block, diagnostics)
+            raise ReconstructionError(diagnostics) from exc
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
-    if make_dative_bonds:
-        rdmol = make_dative_bond(rdmol, config=resolved_config)
-
-    for atom_idx in range(rdmol.GetNumAtoms()):
-        rd_atom = rdmol.GetAtomWithIdx(atom_idx)
-        rd_atom.SetNoImplicit(True)
-    if make_stereochemistry:
-        rdmol = restore_stereochemistry(rdmol)
-    return rdmol
+    return _finalize_rdmol(
+        rdmol,
+        xyz_block,
+        backend=backend,
+        make_dative_bonds=make_dative_bonds,
+        make_stereochemistry=make_stereochemistry,
+        config=resolved_config,
+    )

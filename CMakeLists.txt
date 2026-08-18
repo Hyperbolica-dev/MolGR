@@ -97,6 +97,7 @@ add_library(molgr STATIC
     src/cpp/src/utils/scoring.cpp
     src/cpp/src/utils/logger.cpp
     src/cpp/src/pipeline/reconstruct_with_metals.cpp
+    src/cpp/src/pipeline/reconstruct_batch.cpp
     src/cpp/src/pipeline/reconstruct_without_metals.cpp
     src/cpp/src/pipeline/resonance.cpp
     src/cpp/src/stages/preprocess.cpp

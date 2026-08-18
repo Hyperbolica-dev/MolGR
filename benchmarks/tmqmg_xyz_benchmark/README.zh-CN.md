@@ -27,8 +27,10 @@
 - `--cpp-accelerations default|all` 选择 C++ 后端加速 preset。两个 preset 都保持
   target-bucket 并行开启；`all` 会额外开启 vendor UFF atom-typing cache 等可选 C++ 加速项。
 - `--enable-uff-atom-typing-cache` 在 default preset 下开启 vendor UFF atom-typing cache。
-- `--process-workers N` 把每个方法拆到 `N` 个 worker 子进程中运行。它可以和 C++ 内部
-  target-bucket 线程叠加，但过高取值可能竞争 CPU。
+- `--process-workers 1`（默认）按行串行运行；`molgr_cpp` 仍开启单分子内部的
+  target-bucket 并行。对 `molgr_cpp` 使用 `N > 1` 时只启动一个 benchmark 子进程，
+  将 `N` 交给 native batch worker 池，不再叠加外部进程。其他方法才会在 `N > 1`
+  时拆分外部 worker。
 - `--case-timeout-seconds` 设置每个方法、每个 case 的 wall-time 限制；传 `0` 表示关闭。
 
 后端对齐检查示例：

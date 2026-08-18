@@ -367,59 +367,45 @@ def test_tmqmg_worker_applies_cpp_backend_config_before_running_methods(
     assert seen_configs[0].target_bucket_parallel_max_threads == 1
 
 
-def test_tmqmg_method_subprocesses_split_cases_across_process_workers(
+def test_tmqmg_cpp_method_uses_one_subprocess_with_native_workers(
     monkeypatch,
 ) -> None:
-    class _FakeProcess:
-        def __init__(self, *, env):
-            self.returncode = 0
-            self._out_path = Path(env["MOLGR_TMQMG_SUBPROCESS_OUT"])
-            payload = json.loads(
-                Path(env["MOLGR_TMQMG_SUBPROCESS_PAYLOAD_PATH"]).read_text(encoding="utf-8")
-            )
-            with self._out_path.open("w", encoding="utf-8") as fh:
-                for item in payload["cases"]:
-                    row_index = int(item["row_index"])
-                    fh.write(
-                        json.dumps(
-                            BenchmarkResult(
-                                case_idx=row_index,
-                                method_id=payload["method_id"],
-                                input_smiles="C",
-                                ground_truth_smiles="C",
-                                status="ok",
-                                error=None,
-                                predicted_smiles="C",
-                                equivalent=True,
-                                equivalence_method="ideal",
-                                timing_ms_total=float(row_index),
-                                timing_ms_breakdown={"method_ms": float(row_index)},
-                                case_id=item["row"]["id"],
-                            ).to_dict(),
-                            ensure_ascii=True,
-                        )
-                        + "\n"
+    run_calls = []
+    payloads = []
+
+    def fake_run(*args, **kwargs):
+        run_calls.append((args, kwargs))
+        payload = json.loads(
+            Path(kwargs["env"]["MOLGR_TMQMG_SUBPROCESS_PAYLOAD_PATH"]).read_text(encoding="utf-8")
+        )
+        payloads.append(payload)
+        output_path = Path(kwargs["env"]["MOLGR_TMQMG_SUBPROCESS_OUT"])
+        with output_path.open("w", encoding="utf-8") as fh:
+            for item in payload["cases"]:
+                row_index = int(item["row_index"])
+                fh.write(
+                    json.dumps(
+                        BenchmarkResult(
+                            case_idx=row_index,
+                            method_id=payload["method_id"],
+                            input_smiles="C",
+                            ground_truth_smiles="C",
+                            status="ok",
+                            error=None,
+                            predicted_smiles="C",
+                            equivalent=True,
+                            equivalence_method="ideal",
+                            timing_ms_total=float(row_index),
+                            timing_ms_breakdown={"method_ms": float(row_index)},
+                            case_id=item["row"]["id"],
+                        ).to_dict(),
+                        ensure_ascii=True,
                     )
+                    + "\n"
+                )
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
-        def communicate(self):
-            return "", ""
-
-        def poll(self):
-            return self.returncode
-
-        def kill(self):
-            self.returncode = -9
-
-        def wait(self):
-            return self.returncode
-
-    popen_calls = []
-
-    def fake_popen(*args, **kwargs):
-        popen_calls.append((args, kwargs))
-        return _FakeProcess(env=kwargs["env"])
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     cases = [TmqmgBenchmarkInput(row_index=idx, row={"id": f"C{idx}"}) for idx in range(1, 6)]
     results = _run_method_subprocesses(
@@ -431,7 +417,11 @@ def test_tmqmg_method_subprocesses_split_cases_across_process_workers(
         process_workers=3,
     )
 
-    assert len(popen_calls) == 3
+    assert len(run_calls) == 1
+    payload = payloads[0]
+    assert payload["native_workers"] == 3
+    assert payload["native_batch"] is True
+    assert len(payload["cases"]) == 5
     assert [result.case_idx for result in results] == [1, 2, 3, 4, 5]
     assert [result.case_id for result in results] == ["C1", "C2", "C3", "C4", "C5"]
 

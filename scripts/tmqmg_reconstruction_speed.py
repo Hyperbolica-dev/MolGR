@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # pyright: reportCallIssue=false
-"""Benchmark tmQMg reconstruction speed for Python and C++ backends.
+"""Benchmark tmQMg reconstruction speed for Python and native C++ batch backends.
 
-The script walks tmQMg rows in CSV order, resolves each XYZ file, and runs one
-reconstruction call with backend="python" and one with backend="cpp" for each
-row. It uses a fresh MolGR config object so each run is isolated from global
-configuration mutations.
+The default ``serial`` mode is a per-row comparison: Python is serial and each
+C++ call keeps its internal metal-bucket parallelism. The optional
+``native_batch`` mode submits all C++ rows once through the native scheduler,
+which owns the bounded worker pool and avoids an outer Python pool.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from pathlib import Path
 from statistics import median
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 
 if __package__ in (None, ""):
@@ -28,6 +28,7 @@ if __package__ in (None, ""):
 
 from rdkit import Chem, RDLogger
 
+from molgr.batch import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
 from molgr.config import MolGRConfig
 from molgr.interface import xyz_to_rdmol
 
@@ -50,6 +51,7 @@ RESULT_FIELDNAMES = (
     "python_error",
     "cpp_status",
     "cpp_elapsed_ms",
+    "cpp_batch_elapsed_ms",
     "cpp_error",
     "speedup_ratio_python_over_cpp",
     "row_elapsed_ms",
@@ -118,6 +120,32 @@ def _parse_args() -> argparse.Namespace:
         default=10,
         help="Print one stderr progress line every N rows. Use 0 to silence.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("serial", "native_batch"),
+        default="serial",
+        help=(
+            "serial compares one Python and one C++ call per row (C++ keeps "
+            "internal metal-bucket parallelism); native_batch submits all C++ "
+            "rows through the native batch scheduler. Default: serial."
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=0,
+        help=(
+            "Number of native C++ batch workers. Use 0 for automatic native sizing; "
+            "the Python reference path remains serial."
+        ),
+    )
+    parser.add_argument(
+        "--queue-size",
+        type=int,
+        default=16,
+        help="Bounded native batch result queue size. Default: 16.",
+    )
     args = parser.parse_args()
     if args.start_row < 1:
         parser.error("--start-row must be >= 1")
@@ -127,6 +155,10 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--limit must be >= 1")
     if args.progress_every < 0:
         parser.error("--progress-every must be >= 0")
+    if args.jobs < 0:
+        parser.error("--jobs must be >= 0")
+    if args.queue_size < 1:
+        parser.error("--queue-size must be >= 1")
     return args
 
 
@@ -275,6 +307,7 @@ def _empty_result(
         "python_error": "",
         "cpp_status": "",
         "cpp_elapsed_ms": "",
+        "cpp_batch_elapsed_ms": "",
         "cpp_error": "",
         "speedup_ratio_python_over_cpp": "",
         "row_elapsed_ms": "",
@@ -293,6 +326,7 @@ def _finalize_skipped(
     result["python_error"] = error
     result["cpp_status"] = status
     result["cpp_error"] = error
+    result["cpp_batch_elapsed_ms"] = 0.0
     result["row_elapsed_ms"] = round((time.perf_counter() - started_at) * 1000.0, 6)
     return result
 
@@ -304,6 +338,7 @@ def _benchmark_row(
     xyz_dir: Path | None,
     spin_source: str,
     config,
+    mode: Literal["serial", "native_batch"] = "serial",
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     try:
@@ -368,31 +403,130 @@ def _benchmark_row(
         backend="python",
         config=config,
     )
-    cpp_result = _time_backend(
-        xyz_block,
-        total_charge=total_charge,
-        spin_multiplicity=total_radical_electrons + 1,
-        backend="cpp",
-        config=config,
-    )
-
     result["python_status"] = python_result["status"]
     result["python_elapsed_ms"] = python_result["elapsed_ms"]
     result["python_error"] = python_result["error"]
-    result["cpp_status"] = cpp_result["status"]
-    result["cpp_elapsed_ms"] = cpp_result["elapsed_ms"]
-    result["cpp_error"] = cpp_result["error"]
-    if (
-        result["python_status"] == "ok"
-        and result["cpp_status"] == "ok"
-        and float(result["cpp_elapsed_ms"]) > 0.0
-    ):
-        result["speedup_ratio_python_over_cpp"] = round(
-            float(result["python_elapsed_ms"]) / float(result["cpp_elapsed_ms"]),
-            6,
+    if mode == "serial":
+        cpp_result = _time_backend(
+            xyz_block,
+            total_charge=total_charge,
+            spin_multiplicity=total_radical_electrons + 1,
+            backend="cpp",
+            config=config,
         )
+        result["cpp_status"] = cpp_result["status"]
+        result["cpp_elapsed_ms"] = cpp_result["elapsed_ms"]
+        result["cpp_error"] = cpp_result["error"]
+        result["cpp_batch_elapsed_ms"] = 0.0
+        if (
+            result["python_status"] == "ok"
+            and result["cpp_status"] == "ok"
+            and float(result["cpp_elapsed_ms"]) > 0.0
+        ):
+            result["speedup_ratio_python_over_cpp"] = round(
+                float(result["python_elapsed_ms"]) / float(result["cpp_elapsed_ms"]),
+                6,
+            )
+    else:
+        # C++ is filled by one native batch after all Python reference rows
+        # have been evaluated. Per-row C++ timing is stream-ready latency from
+        # the batch start, not an isolated single-molecule call.
+        result["cpp_status"] = "pending_native_batch"
     result["row_elapsed_ms"] = round((time.perf_counter() - started_at) * 1000.0, 6)
     return result
+
+
+def _run_native_cpp_batch(
+    results: list[dict[str, Any]],
+    *,
+    config: MolGRConfig,
+    max_workers: int,
+    queue_size: int,
+) -> float:
+    """Run valid rows through one native C++ batch and return wall time.
+
+    The native iterator returns the original request alongside each result, but
+    this script keeps CSV row identity as the stable join key. ``cpp_elapsed_ms``
+    records stream-ready latency; ``cpp_batch_elapsed_ms`` is the full batch wall
+    time and is the value used for throughput calculations.
+    """
+
+    requests: list[ReconstructionBatchRequest] = []
+    result_indices: list[int] = []
+    for result_index, result in enumerate(results):
+        if result.get("cpp_status") != "pending_native_batch":
+            continue
+        try:
+            xyz_path = Path(str(result["xyz_path"]))
+            xyz_block = xyz_path.read_text(encoding="utf-8")
+            total_charge = int(str(result["charge"]).strip())
+            spin_multiplicity = int(result["spin_multiplicity_used"])
+        except Exception as exc:  # noqa: BLE001
+            result["cpp_status"] = f"failed:{type(exc).__name__}"
+            result["cpp_error"] = str(exc)
+            result["cpp_elapsed_ms"] = 0.0
+            result["cpp_batch_elapsed_ms"] = 0.0
+            continue
+        requests.append(
+            ReconstructionBatchRequest(
+                xyz_block=xyz_block,
+                total_charge=total_charge,
+                spin_multiplicity=spin_multiplicity,
+            )
+        )
+        result_indices.append(result_index)
+
+    if not requests:
+        return 0.0
+
+    started_at = time.perf_counter()
+    try:
+        batch_results = iter_xyz_to_rdmol_batch(
+            requests,
+            backend="cpp",
+            max_workers=None if max_workers == 0 else max_workers,
+            queue_size=queue_size,
+            ordered=True,
+            config=config,
+        )
+        for request_index, batch_result in enumerate(batch_results):
+            result = results[result_indices[request_index]]
+            result["cpp_elapsed_ms"] = round(
+                (time.perf_counter() - started_at) * 1000.0,
+                6,
+            )
+            diagnostics = batch_result.diagnostics
+            if batch_result.molecule is None:
+                result["cpp_status"] = (
+                    f"failed:{diagnostics.code.value}"
+                    if diagnostics is not None
+                    else "failed:NO_VALID_RECONSTRUCTION"
+                )
+                if diagnostics is not None:
+                    result["cpp_error"] = (
+                        f"{diagnostics.code.value} at {diagnostics.stage}: {diagnostics.message}"
+                    )
+                else:
+                    result["cpp_error"] = "native batch returned no molecule"
+            else:
+                result["cpp_status"] = "ok"
+                result["cpp_error"] = ""
+    except Exception as exc:  # noqa: BLE001
+        error = f"native batch execution failed: {type(exc).__name__}: {exc}"
+        for result_index in result_indices:
+            result = results[result_index]
+            if result["cpp_status"] == "pending_native_batch":
+                result["cpp_status"] = "failed:BatchExecution"
+                result["cpp_error"] = error
+                result["cpp_elapsed_ms"] = round(
+                    (time.perf_counter() - started_at) * 1000.0,
+                    6,
+                )
+
+    batch_elapsed_ms = round((time.perf_counter() - started_at) * 1000.0, 6)
+    for result_index in result_indices:
+        results[result_index]["cpp_batch_elapsed_ms"] = batch_elapsed_ms
+    return batch_elapsed_ms
 
 
 def _timing_stats(values: list[float]) -> dict[str, float]:
@@ -426,8 +560,11 @@ def _summarize(
     csv_path: Path,
     xyz_dir: Path | None,
     spin_source: str,
+    mode: Literal["serial", "native_batch"],
     config,
     wall_seconds: float,
+    native_workers: int,
+    queue_size: int,
 ) -> dict[str, Any]:
     python_successes = [
         float(row["python_elapsed_ms"]) for row in results if row.get("python_status") == "ok"
@@ -440,6 +577,16 @@ def _summarize(
         for row in results
         if row.get("speedup_ratio_python_over_cpp") != ""
     ]
+    cpp_batch_times = sorted(
+        {
+            float(row["cpp_batch_elapsed_ms"])
+            for row in results
+            if row.get("cpp_batch_elapsed_ms") not in ("", None)
+            and float(row["cpp_batch_elapsed_ms"]) > 0.0
+        }
+    )
+    cpp_batch_elapsed_ms = cpp_batch_times[-1] if cpp_batch_times else 0.0
+    python_total_ms = sum(python_successes)
 
     summary = {
         "source_csv": str(csv_path),
@@ -447,6 +594,17 @@ def _summarize(
         "spin_source": spin_source,
         "record_count": len(results),
         "wall_seconds": round(wall_seconds, 6),
+        "execution": {
+            "python_backend": "serial",
+            "cpp_backend": mode,
+            "native_workers": 1 if mode == "serial" else native_workers,
+            "queue_size": queue_size,
+            "cpp_elapsed_ms_semantics": (
+                "single_call_wall_time"
+                if mode == "serial"
+                else "stream_ready_latency_from_batch_start"
+            ),
+        },
         "config": {
             "cpp_backend": {
                 "max_threads": config.cpp_backend.max_threads,
@@ -477,6 +635,18 @@ def _summarize(
                 1 for row in results if str(row.get("cpp_status", "")).startswith("skipped:")
             ),
         },
+        "cpp_batch": {
+            "wall_ms": cpp_batch_elapsed_ms,
+            "ok_count": sum(1 for row in results if row.get("cpp_status") == "ok"),
+            "items_per_second": round(
+                1000.0
+                * sum(1 for row in results if row.get("cpp_status") == "ok")
+                / cpp_batch_elapsed_ms,
+                6,
+            )
+            if cpp_batch_elapsed_ms > 0.0
+            else 0.0,
+        },
         "paired": {
             "ok_count": len(paired_speedups),
             "mean_speedup_ratio_python_over_cpp": round(
@@ -488,6 +658,12 @@ def _summarize(
             if paired_speedups
             else 0.0,
         },
+        "batch_speedup_ratio_python_over_cpp": round(
+            python_total_ms / cpp_batch_elapsed_ms,
+            6,
+        )
+        if cpp_batch_elapsed_ms > 0.0
+        else 0.0,
         "status_counts": {
             "python": _status_counts(results, "python_status"),
             "cpp": _status_counts(results, "cpp_status"),
@@ -501,7 +677,7 @@ def _write_results_csv(path: Path, results: list[dict[str, Any]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=RESULT_FIELDNAMES)
         writer.writeheader()
-        writer.writerows(results)
+        writer.writerows(cast(Any, results))
 
 
 def _write_summary_json(path: Path, summary: dict[str, Any]) -> None:
@@ -521,8 +697,11 @@ def run(
     start_row: int = 1,
     end_row: int | None = None,
     spin_source: str = "closed_shell",
+    mode: Literal["serial", "native_batch"] = "serial",
     progress_every: int = 10,
     summary_out: Path | None = None,
+    native_workers: int = 0,
+    queue_size: int = 16,
 ) -> list[dict[str, Any]]:
     fieldnames, rows = _load_rows(csv_path)
     _validate_columns(fieldnames, xyz_dir=xyz_dir, spin_source=spin_source)
@@ -544,6 +723,7 @@ def run(
             xyz_dir=xyz_dir,
             spin_source=spin_source,
             config=config,
+            mode=mode,
         )
         results.append(result)
         if progress_every and processed % progress_every == 0:
@@ -554,6 +734,22 @@ def run(
                 file=sys.stderr,
             )
 
+    cpp_batch_elapsed_ms = 0.0
+    if mode == "native_batch":
+        cpp_batch_elapsed_ms = _run_native_cpp_batch(
+            results,
+            config=config,
+            max_workers=native_workers,
+            queue_size=queue_size,
+        )
+    if results:
+        print(
+            f"[tmqmg-speed] C++ {mode} run completed in {cpp_batch_elapsed_ms:.3f} ms"
+            if mode == "native_batch"
+            else "[tmqmg-speed] C++ serial run completed",
+            file=sys.stderr,
+        )
+
     _write_results_csv(out, results)
     total_wall_seconds = time.perf_counter() - started_at
     summary = _summarize(
@@ -561,8 +757,11 @@ def run(
         csv_path=csv_path,
         xyz_dir=xyz_dir,
         spin_source=spin_source,
+        mode=mode,
         config=config,
         wall_seconds=total_wall_seconds,
+        native_workers=native_workers,
+        queue_size=queue_size,
     )
     _write_summary_json(summary_out or _summary_path_from_output(out), summary)
     print(
@@ -582,9 +781,12 @@ def main() -> int:
         start_row=args.start_row,
         end_row=args.end_row,
         spin_source=args.spin_source,
+        mode=args.mode,
         out=args.out,
         summary_out=args.summary_out,
         progress_every=args.progress_every,
+        native_workers=args.jobs,
+        queue_size=args.queue_size,
     )
     return 0
 
