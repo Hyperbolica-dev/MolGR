@@ -5,6 +5,7 @@
 #include "molgr/stages/eliminate.h"
 #include "molgr/stages/fresh.h"
 #include "molgr/stages/preprocess.h"
+#include "molgr/utils/logger.h"
 
 #include <cstdint>
 #include <stdexcept>
@@ -14,6 +15,9 @@ namespace bind {
 
 static OpenBabel::OBMol *require_obmol_ptr(intptr_t mol_ptr)
 {
+    molgr::WarnUnsafeOpenBabelUse(
+        "molgr.dev.stages.*_ptr",
+        "OBMol pointers are not thread-safe; keep ownership and all operations on one thread, and free owned pointers exactly once.");
     if (mol_ptr == 0)
     {
         throw std::runtime_error("null OBMol pointer");

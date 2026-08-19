@@ -1,6 +1,7 @@
 #include "molgr/pipeline/reconstruct_batch.h"
 
 #include "molgr/pipeline/reconstruct_with_metals.h"
+#include "molgr/process_guard.h"
 #include "molgr/utils/parallel.h"
 #include "molgr/utils/xyz.h"
 
@@ -104,6 +105,7 @@ namespace molgr::pipeline::reconstruct_batch
               ordered(ordered_in),
               queue_size(std::max<std::size_t>(1, queue_size_in))
         {
+            molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.batch_xyz2omol");
             auto &executor = molgr::utils::parallel::detail::ParallelExecutor::Instance();
             const std::size_t requested_workers = max_workers == 0
                 ? molgr::utils::parallel::ConfiguredParallelism(config, requests.size())
@@ -131,7 +133,10 @@ namespace molgr::pipeline::reconstruct_batch
 
         ~Impl()
         {
-            Close();
+            if (molgr::IsCurrentProcess())
+            {
+                Close();
+            }
         }
 
         ReconstructionBatchResult Process(std::size_t index)
@@ -343,17 +348,20 @@ namespace molgr::pipeline::reconstruct_batch
         : impl_(std::make_unique<Impl>(
               std::move(requests), config, max_workers, queue_size, ordered))
     {
+        molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.batch_xyz2omol");
     }
 
     ReconstructionBatchIterator::~ReconstructionBatchIterator() = default;
 
     std::optional<ReconstructionBatchResult> ReconstructionBatchIterator::Next()
     {
+        molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.batch_xyz2omol.__next__");
         return impl_->Next();
     }
 
     void ReconstructionBatchIterator::Close()
     {
+        molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.batch_xyz2omol.close");
         impl_->Close();
     }
 }

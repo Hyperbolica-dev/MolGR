@@ -66,7 +66,11 @@ class LogLevel:
 
 def free_obmol_ptr(arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
     """
-    Manually delete the OBMol pointer
+    Manually delete the OBMol pointer.
+
+    Warning:
+        The pointer must be owned by the caller and must not be accessed by
+        another thread while it is being freed.
     """
 
 def set_log_level(level: LogLevel) -> None:

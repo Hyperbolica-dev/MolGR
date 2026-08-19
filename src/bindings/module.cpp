@@ -16,6 +16,7 @@
 #include <cstdint> // 用于 intptr_t
 
 #include "molgr/utils/logger.h" // 日志模块
+#include "molgr/process_guard.h"
 #include "bindings.h"
 #include <openbabel/mol.h>
 
@@ -23,6 +24,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(_core, m)
 {
+    molgr::InitializeProcessGuard();
     m.doc() = R"pbdoc(
         MolGR Core C++ Implementation
         -----------------------------
@@ -43,6 +45,9 @@ PYBIND11_MODULE(_core, m)
 
     m.def("free_obmol_ptr", [](intptr_t mol_ptr)
           {
+        molgr::WarnUnsafeOpenBabelUse(
+            "molgr.free_obmol_ptr",
+            "This raw pointer must be owned by the caller and freed exactly once; never free it while another thread can access the OBMol.");
         if (mol_ptr != 0) {
             delete reinterpret_cast<OpenBabel::OBMol*>(mol_ptr);
         } }, "Manually delete the OBMol pointer");

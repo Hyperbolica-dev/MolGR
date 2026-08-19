@@ -133,14 +133,25 @@ def test_cpp_openbabel_threading_helpers_do_not_expose_a_cross_subsystem_global_
     threading_source = Path("src/cpp/src/vendor/openbabel_threading.cpp").read_text(
         encoding="utf-8"
     )
+    conversion_header = Path("src/cpp/include/molgr/vendor/openbabel_conversion.h").read_text(
+        encoding="utf-8"
+    )
+    conversion_source = Path("src/cpp/src/vendor/openbabel_conversion.cpp").read_text(
+        encoding="utf-8"
+    )
     target_bucket_pipeline = Path("src/cpp/src/pipeline/reconstruct_with_metals.cpp").read_text(
         encoding="utf-8"
     )
 
     assert "PerceptionMutex" not in threading_header
     assert "PerceptionMutex" not in threading_source
-    assert "std::mutex" not in threading_source
-    assert "std::lock_guard" not in threading_source
+    assert "ConversionMutex" not in threading_header
+    assert "ConversionMutex" not in threading_source
+    assert "ReadSmiles" in conversion_header
+    assert "WriteSmilesFirstToken" in conversion_header
+    assert "OpenBabel::OBConversion" in conversion_source
+    assert "std::mutex" in conversion_source
+    assert "std::lock_guard" in conversion_source
     assert ".ConnectTheDots(" not in threading_source
     assert ".PerceiveBondOrders(" not in threading_source
     assert "OBMol::ConnectTheDots" not in threading_source
@@ -172,6 +183,28 @@ def test_cpp_xyz_seed_perception_uses_only_the_vendor_helper() -> None:
 
     assert direct_connect_the_dots_calls == []
     assert direct_perceive_bond_order_calls == []
+
+
+def test_cpp_openbabel_global_state_surfaces_are_confined_to_vendor_adapters() -> None:
+    source_files = sorted(
+        path
+        for root in (Path("src/cpp"), Path("src/bindings"))
+        for path in root.rglob("*")
+        if path.suffix in {".cpp", ".h", ".hpp"}
+    )
+    conversion_users = {
+        path.as_posix()
+        for path in source_files
+        if "OpenBabel::OBConversion" in path.read_text(encoding="utf-8")
+        or "#include <openbabel/obconversion.h>" in path.read_text(encoding="utf-8")
+    }
+    assert conversion_users == {"src/cpp/src/vendor/openbabel_conversion.cpp"}
+
+    vendor_uff_source = Path("src/cpp/src/vendor/forcefielduff.cpp").read_text(encoding="utf-8")
+    assert "OpenBabel::obErrorLog" not in vendor_uff_source
+    assert "OpenBabel::obLocale" not in vendor_uff_source
+    assert "SetLocale(" not in vendor_uff_source
+    assert "RestoreLocale(" not in vendor_uff_source
 
 
 def test_cpp_vendor_uff_atom_typing_does_not_call_openbabel_smarts() -> None:
@@ -267,6 +300,29 @@ def test_cpp_vendor_xyz_seed_perception_is_safe_under_parallel_calls() -> None:
     assert observed == expected_sequence
 
 
+def test_cpp_vendor_xyz_writer_round_trips_elements_and_coordinates() -> None:
+    xyz_block = """4
+plugin-free round trip
+Fe 1.25 -2.5 3.75
+C -0.125 0.25 -0.5
+Cl 10 20 30
+H 0 0 0
+"""
+
+    serialized = _core.dev.utils.debug_roundtrip_xyz_block(xyz_block)
+    lines = serialized.splitlines()
+
+    assert lines[:2] == ["4", "plugin-free round trip"]
+    atoms = [line.split() for line in lines[2:]]
+    assert [atom[0] for atom in atoms] == ["Fe", "C", "Cl", "H"]
+    assert [[float(value) for value in atom[1:]] for atom in atoms] == [
+        [1.25, -2.5, 3.75],
+        [-0.125, 0.25, -0.5],
+        [10.0, 20.0, 30.0],
+        [0.0, 0.0, 0.0],
+    ]
+
+
 def test_cpp_force_field_uses_vendor_uff_without_openbabel_plugin_lock() -> None:
     force_field_source = Path("src/cpp/src/utils/force_field.cpp").read_text(encoding="utf-8")
 
@@ -293,8 +349,9 @@ def test_cpp_openbabel_thread_local_resources_are_process_lived() -> None:
     assert "thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *patterns" in (
         threading_source
     )
-    assert "thread_local OpenBabel::OBConversion *conversion" in metal_preparation_source
-    assert "thread_local OpenBabel::OBConversion *conversion" in resonance_source
+    assert "OpenBabel::OBConversion" not in metal_preparation_source
+    assert "WriteXyzBlock" in metal_preparation_source
+    assert "OpenBabel::OBConversion" not in resonance_source
     assert "thread_local auto *force_fields = new" in force_field_source
     assert "new std::vector<MolgrCompiledUffAtomTypeRule>" not in vendor_uff_source
 
@@ -302,8 +359,6 @@ def test_cpp_openbabel_thread_local_resources_are_process_lived() -> None:
         ("src/cpp/src/utils/perf.cpp", "t_active_run_timing_reducer"),
         ("src/cpp/src/vendor/forcefielduff.cpp", "active_instance_"),
         ("src/cpp/src/utils/force_field.cpp", "force_fields"),
-        ("src/cpp/src/utils/metals/preparation.cpp", "conversion"),
-        ("src/cpp/src/utils/resonance.cpp", "conversion"),
         ("src/cpp/src/utils/smarts.cpp", "compiled_patterns"),
         ("src/cpp/src/vendor/openbabel_threading.cpp", "patterns"),
     }
@@ -344,6 +399,60 @@ def test_cpp_private_uff_instances_do_not_register_as_openbabel_plugins() -> Non
 
     assert 'MolgrForceFieldUFF() : OBForceField("", false)' in vendor_uff_header
     assert "MolgrForceFieldUFF(const char*" not in vendor_uff_header
+
+
+def test_cpp_smiles_conversion_cold_start_is_serialized_across_threads() -> None:
+    script = r"""
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from molgr import _core
+
+workers = 16
+barrier = threading.Barrier(workers)
+
+
+def convert():
+    barrier.wait()
+    return _core.dev.pipeline.resonance.get_radical_resonances_smi("C=C[CH2]")
+
+
+with ThreadPoolExecutor(max_workers=workers) as executor:
+    results = list(executor.map(lambda _: convert(), range(workers)))
+
+assert results == [["[C]=[C][C]"]] * workers
+"""
+    for _ in range(5):
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert completed.returncode == 0, completed.stderr
+
+
+def test_cpp_raw_openbabel_pointer_apis_emit_deduplicated_danger_warning() -> None:
+    script = r"""
+from molgr import _core
+
+data = _core.dev.utils.debug_xyz_seed_molecule_data("1\nH\nH 0 0 0\n")
+ptr = _core.utils.molecule_data_to_obmol_ptr(data)
+_core.free_obmol_ptr(ptr)
+_core.free_obmol_ptr(0)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr.count("[UNSAFE_OPENBABEL]") == 2
+    assert "molecule_data_to_obmol_ptr" in completed.stderr
+    assert "free_obmol_ptr" in completed.stderr
+    assert "not safe to share across threads" in completed.stderr
 
 
 @pytest.mark.skipif(

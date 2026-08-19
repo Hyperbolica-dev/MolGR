@@ -87,6 +87,28 @@ semantics. C++-only switches may change scheduling, caching, or thread-safe vend
 implementations, but they must not change the selected molecule for the same
 `MolGRConfig`.
 
+### Dangerous-use warnings
+
+Low-level APIs that still expose raw `OBMol*` pointers emit one
+`[UNSAFE_OPENBABEL]` warning per API name on first use. These pointers have manual
+ownership, must not be shared across threads, and must be freed exactly once after
+all access has finished. Prefer `xyz_to_rdmol()`, `MoleculeData`, and the native
+batch API. Raising the C++ log threshold hides the message but does not change
+Open Babel's thread-safety or lifetime constraints. Use process isolation for
+untrusted inputs or code that must call other raw Open Babel/Pybel APIs.
+
+MolGR rejects calls from a POSIX child created by `fork` after MolGR/Open Babel
+was imported. Such a child inherits inconsistent native mutex, worker-pool, and
+Open Babel global state. Use `multiprocessing.get_context("spawn")` on Linux and
+macOS; Windows already uses `spawn` and is unaffected. Forking before the child
+first imports MolGR, or immediately executing a fresh program after `fork`, does
+not inherit initialized MolGR state.
+
+Calling `molgr.interface.xyz_to_rdmol()` directly inside a `spawn` worker is
+also supported. When the process pool owns cross-molecule parallelism, use
+`max_threads=1` and disable single-molecule native parallelism in each worker
+so process count and native worker count do not multiply unexpectedly.
+
 ## Advanced Usage
 
 ### Parallel execution

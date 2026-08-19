@@ -20,6 +20,7 @@ from molgr.interface import (
     _suspicious_rdmol_from_input_xyz,
     xyz_to_rdmol,
 )
+from molgr.process_guard import ensure_current_process
 from molgr.utils.converter import mol_data_to_rdkit
 
 from . import _core as core
@@ -279,6 +280,7 @@ def iter_xyz_to_rdmol_batch(
     native scheduling, so generators and other one-shot iterators are valid.
     """
 
+    ensure_current_process("molgr.iter_xyz_to_rdmol_batch")
     resolved_config = CONFIG if config is None else config
     if queue_size < 1:
         raise ValueError("queue_size must be >= 1")
