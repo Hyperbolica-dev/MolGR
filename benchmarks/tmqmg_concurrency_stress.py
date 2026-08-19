@@ -11,9 +11,11 @@ and worker count per invocation to keep measurements in a fresh process tree.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import gc
 import json
+import math
 import multiprocessing as mp
 import os
 import platform
@@ -24,6 +26,71 @@ from typing import Any, Tuple
 
 
 Item = Tuple[str, str, int, int]
+
+
+def _read_cpu_quota() -> int | None:
+    """Return the integer CPU budget imposed by a Linux cgroup, if present."""
+    quota_paths = (
+        Path("/sys/fs/cgroup/cpu.max"),
+        Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
+    )
+    period_paths = (
+        Path("/sys/fs/cgroup/cpu.max"),
+        Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us"),
+    )
+    try:
+        v2_quota = quota_paths[0].read_text(encoding="ascii").split()
+        if len(v2_quota) == 2:
+            if v2_quota[0] == "max":
+                return None
+            quota, period = int(v2_quota[0]), int(v2_quota[1])
+            if quota > 0 and period > 0:
+                return max(1, math.floor(quota / period))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        quota = int(quota_paths[1].read_text(encoding="ascii").strip())
+        period = int(period_paths[1].read_text(encoding="ascii").strip())
+        if quota > 0 and period > 0:
+            return max(1, math.floor(quota / period))
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def available_cpu_count() -> int:
+    """Estimate CPUs available to this process, including affinity/cgroup limits."""
+    counts: list[int] = []
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if process_cpu_count is not None:
+        count = process_cpu_count()
+        if count is not None and count > 0:
+            counts.append(int(count))
+    if hasattr(os, "sched_getaffinity"):
+        with contextlib.suppress(OSError):
+            counts.append(len(os.sched_getaffinity(0)))
+    system_count = os.cpu_count()
+    if system_count is not None and system_count > 0:
+        counts.append(int(system_count))
+    quota_count = _read_cpu_quota()
+    if quota_count is not None:
+        counts.append(quota_count)
+    return max(1, min(counts)) if counts else 1
+
+
+def stress_worker_counts(*, max_workers: int = 8) -> tuple[int, ...]:
+    """Return bounded powers of two plus the runner's exact available CPU budget."""
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
+    available = min(max_workers, available_cpu_count())
+    counts = [1]
+    candidate = 2
+    while candidate <= available:
+        counts.append(candidate)
+        candidate *= 2
+    if available not in counts:
+        counts.append(available)
+    return tuple(counts)
 
 
 def _load_items(
@@ -344,6 +411,7 @@ def main() -> None:
             "platform": platform.platform(),
             "python": platform.python_version(),
             "cpu_count": os.cpu_count(),
+            "available_cpu_count": available_cpu_count(),
             "rss_unit": "KiB on Linux/macOS; bytes on Windows",
         }
     )

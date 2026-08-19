@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pytest
 
+import benchmarks.tmqmg_concurrency_stress as stress_benchmark
+from benchmarks.tmqmg_concurrency_stress import available_cpu_count, stress_worker_counts
+
 
 pytest.importorskip("openbabel")
 pytest.importorskip("rdkit")
@@ -56,6 +59,13 @@ def _find_tmqmg_dataset() -> tuple[Path, Path, bool]:
 
 
 _TMQMG_CSV, _TMQMG_XYZ_DIR, _REPEAT_INPUTS = _find_tmqmg_dataset()
+_STRESS_WORKER_COUNTS = stress_worker_counts()
+
+
+def test_stress_worker_counts_follow_available_cpu_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(stress_benchmark, "available_cpu_count", lambda: 3)
+    assert stress_benchmark.stress_worker_counts() == (1, 2, 3)
+    assert stress_benchmark.stress_worker_counts(max_workers=2) == (1, 2)
 
 
 def test_repository_xyz_stress_manifest_covers_every_xyz_fixture() -> None:
@@ -72,7 +82,7 @@ def test_repository_xyz_stress_manifest_covers_every_xyz_fixture() -> None:
 
 @pytest.mark.stress
 @pytest.mark.parametrize("mode", ["native_batch", "spawn_xyz_to_rdmol"])
-@pytest.mark.parametrize("worker_count", [1, 2, 4, 8])
+@pytest.mark.parametrize("worker_count", _STRESS_WORKER_COUNTS)
 def test_native_batch_and_spawn_process_stress_on_1000_tmqmg_inputs(
     mode: str,
     worker_count: int,
@@ -108,6 +118,7 @@ def test_native_batch_and_spawn_process_stress_on_1000_tmqmg_inputs(
     expected_start_method = "native_threads" if mode == "native_batch" else "spawn"
     assert summary["mode"] == mode
     assert summary["start_method"] == expected_start_method
+    assert summary["available_cpu_count"] == available_cpu_count()
     assert summary["worker_count"] == worker_count
     expected_process_count = 1 if mode == "native_batch" else worker_count
     expected_native_workers = worker_count if mode == "native_batch" else 0
