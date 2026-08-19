@@ -15,6 +15,13 @@ pytest.importorskip("openbabel")
 pytest.importorskip("rdkit")
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from benchmarks.tmqmg_concurrency_stress import available_cpu_count  # noqa: E402
+
+
 _WATER_XYZ = """3
 water
 O 0.0000 0.0000 0.0000
@@ -27,10 +34,22 @@ _TMQMG_ABACAL_XYZ = (
 ).read_text(encoding="utf-8")
 
 
-def _spawn_native_batch_worker(rounds_and_size: tuple[int, int]) -> dict[str, int]:
+def _spawn_stress_process_count() -> int:
+    return min(4, max(1, available_cpu_count()))
+
+
+def _spawn_stress_native_worker_count(process_count: int) -> int:
+    if sys.platform == "win32":
+        # Windows defaults to serial per-molecule native execution. Keep the
+        # process-level stress test within the documented safety boundary.
+        return 1
+    return max(1, min(2, available_cpu_count() // process_count))
+
+
+def _spawn_native_batch_worker(rounds_and_size: tuple[int, int, int]) -> dict[str, int]:
     from molgr import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
 
-    rounds, batch_size = rounds_and_size
+    rounds, batch_size, native_worker_count = rounds_and_size
     completed = 0
     for _ in range(rounds):
         requests = [ReconstructionBatchRequest(_WATER_XYZ) for _ in range(batch_size)]
@@ -38,7 +57,7 @@ def _spawn_native_batch_worker(rounds_and_size: tuple[int, int]) -> dict[str, in
             iter_xyz_to_rdmol_batch(
                 requests,
                 backend="cpp",
-                max_workers=2,
+                max_workers=native_worker_count,
                 queue_size=2,
                 ordered=False,
             )
@@ -50,7 +69,8 @@ def _spawn_native_batch_worker(rounds_and_size: tuple[int, int]) -> dict[str, in
 
 
 def _run_spawn_stress() -> None:
-    process_count = 4
+    process_count = _spawn_stress_process_count()
+    native_worker_count = _spawn_stress_native_worker_count(process_count)
     rounds = 5
     batch_size = 24
     context = mp.get_context("spawn")
@@ -58,14 +78,25 @@ def _run_spawn_stress() -> None:
         summaries = list(
             executor.map(
                 _spawn_native_batch_worker,
-                [(rounds, batch_size)] * process_count,
+                [(rounds, batch_size, native_worker_count)] * process_count,
             )
         )
     assert len({summary["pid"] for summary in summaries}) == process_count
     assert sum(summary["completed"] for summary in summaries) == (
         process_count * rounds * batch_size
     )
-    print(json.dumps({"start_method": "spawn", "workers": summaries}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "start_method": "spawn",
+                "process_count": process_count,
+                "native_batch_worker_count": native_worker_count,
+                "available_cpu_count": available_cpu_count(),
+                "workers": summaries,
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def _spawn_public_xyz_worker(rounds_and_size: tuple[int, int]) -> dict[str, object]:
@@ -96,7 +127,7 @@ def _spawn_public_xyz_worker(rounds_and_size: tuple[int, int]) -> dict[str, obje
 
 
 def _run_public_xyz_stress() -> None:
-    process_count = 4
+    process_count = _spawn_stress_process_count()
     rounds = 4
     batch_size = 20
     context = mp.get_context("spawn")
@@ -111,7 +142,17 @@ def _run_public_xyz_stress() -> None:
     assert sum(summary["completed"] for summary in summaries) == (
         process_count * rounds * batch_size
     )
-    print(json.dumps({"api": "xyz_to_rdmol", "workers": summaries}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "api": "xyz_to_rdmol",
+                "process_count": process_count,
+                "available_cpu_count": available_cpu_count(),
+                "workers": summaries,
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def test_spawn_processes_can_run_native_batches_under_stress() -> None:
@@ -126,8 +167,12 @@ def test_spawn_processes_can_run_native_batches_under_stress() -> None:
     assert completed.returncode == 0, completed.stderr
     summary = json.loads(completed.stdout.strip().splitlines()[-1])
     assert summary["start_method"] == "spawn"
-    assert len(summary["workers"]) == 4
-    assert sum(worker["completed"] for worker in summary["workers"]) == 480
+    process_count = _spawn_stress_process_count()
+    assert summary["available_cpu_count"] == available_cpu_count()
+    assert summary["process_count"] == process_count
+    assert summary["native_batch_worker_count"] == _spawn_stress_native_worker_count(process_count)
+    assert len(summary["workers"]) == process_count
+    assert sum(worker["completed"] for worker in summary["workers"]) == process_count * 120
 
 
 def test_spawn_processes_can_call_public_xyz_to_rdmol_under_stress() -> None:
@@ -142,8 +187,11 @@ def test_spawn_processes_can_call_public_xyz_to_rdmol_under_stress() -> None:
     assert completed.returncode == 0, completed.stderr
     summary = json.loads(completed.stdout.strip().splitlines()[-1])
     assert summary["api"] == "xyz_to_rdmol"
-    assert len(summary["workers"]) == 4
-    assert sum(worker["completed"] for worker in summary["workers"]) == 320
+    process_count = _spawn_stress_process_count()
+    assert summary["available_cpu_count"] == available_cpu_count()
+    assert summary["process_count"] == process_count
+    assert len(summary["workers"]) == process_count
+    assert sum(worker["completed"] for worker in summary["workers"]) == process_count * 80
     assert all(
         worker["config"]["enable_target_bucket_parallelism"] for worker in summary["workers"]
     )
