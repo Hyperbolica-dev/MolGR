@@ -1,6 +1,7 @@
 #include "molgr/pipeline/reconstruct_with_metals.h"
 
 #include "molgr/context.h"
+#include "molgr/process_guard.h"
 #include "molgr/pipeline/reconstruct_without_metals.h"
 #include "molgr/state.h"
 #include "molgr/utils/conversions.h"
@@ -167,6 +168,7 @@ namespace molgr
                 const molgr::config::MolGRConfig &config,
                 molgr::diagnostics::ReconstructionDiagnostics *diagnostics)
             {
+                molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.xyz2omol");
                 if (diagnostics != nullptr)
                 {
                     diagnostics->Reset();

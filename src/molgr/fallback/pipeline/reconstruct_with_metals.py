@@ -23,6 +23,7 @@ from molgr.diagnostics import ReconstructionDiagnosticCollector, ReconstructionF
 from molgr.fallback.state import MetalCandidateState, MetalCandidateStateMachine
 from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
+from molgr.process_guard import ensure_current_process
 
 from . import reconstruct_without_metals
 
@@ -52,6 +53,7 @@ def xyz2omol_state(
 ) -> Optional[MetalCandidateState]:
     """Return the best scored metal candidate state for the input XYZ block."""
 
+    ensure_current_process("molgr.fallback.xyz2omol_state")
     diagnostics = _diagnostics
     if diagnostics is not None:
         diagnostics.set("total_charge", int(total_charge))

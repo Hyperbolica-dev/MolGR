@@ -8,12 +8,12 @@
 #include "molgr/utils/electrons.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_conversion.h"
 #include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
-#include <openbabel/obconversion.h>
 #include <openbabel/obfunctions.h>
 #include "molgr/compat/openbabel_iter.h"
 
@@ -600,26 +600,6 @@ namespace molgr
 {
     namespace resonance
     {
-        namespace
-        {
-            OpenBabel::OBConversion &ThreadLocalSmilesOutConversion()
-            {
-                // Keep the conversion process-lived; Open Babel registry
-                // teardown is unsafe from disposable worker TLS destructors.
-                thread_local OpenBabel::OBConversion *conversion = []()
-                {
-                    auto *instance = new OpenBabel::OBConversion();
-                    if (!instance->SetOutFormat("smi"))
-                    {
-                        delete instance;
-                        throw std::runtime_error("Open Babel SMILES output format is unavailable");
-                    }
-                    return instance;
-                }();
-                return *conversion;
-            }
-        }
-
         bool ResonanceStateKey::operator==(const ResonanceStateKey &other) const
         {
             return atom_keys == other.atom_keys && bond_keys == other.bond_keys;
@@ -632,12 +612,7 @@ namespace molgr
 
         std::string SmilesFirstToken(const OpenBabel::OBMol &mol)
         {
-            OpenBabel::OBMol temp(mol);
-            const std::string smi = ThreadLocalSmilesOutConversion().WriteString(&temp, true);
-            std::istringstream iss(smi);
-            std::string token;
-            iss >> token;
-            return token;
+            return molgr::vendor::openbabel_conversion::WriteSmilesFirstToken(mol);
         }
 
         ResonanceStateKey BuildResonanceStateKey(const OpenBabel::OBMol &mol)

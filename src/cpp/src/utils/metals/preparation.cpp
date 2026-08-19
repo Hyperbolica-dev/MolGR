@@ -7,32 +7,9 @@
 #include "molgr/utils/xyz.h"
 
 #include <openbabel/elements.h>
-#include <openbabel/obconversion.h>
 #include "molgr/compat/openbabel_iter.h"
 
 #include <set>
-#include <stdexcept>
-
-namespace
-{
-    OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
-    {
-        // Open Babel conversions access process-wide registries while being
-        // destroyed. Avoid running that destructor during worker TLS teardown.
-        thread_local OpenBabel::OBConversion *conversion = []()
-        {
-            auto *instance = new OpenBabel::OBConversion();
-            if (!instance->SetOutFormat("xyz"))
-            {
-                delete instance;
-                throw std::runtime_error("Open Babel XYZ output format is unavailable");
-            }
-            return instance;
-        }();
-        return *conversion;
-    }
-
-}
 
 namespace molgr
 {
@@ -246,7 +223,7 @@ namespace molgr
                 }
 
                 molgr::state::MetalPreparationState state;
-                state.no_metal_xyz_block = ThreadLocalXyzOutConversion().WriteString(&mol);
+                state.no_metal_xyz_block = molgr::utils::WriteXyzBlock(mol);
                 state.available_valence_radical_states = std::move(available_states);
                 state.total_charge = total_charge;
                 state.total_radical_electrons = total_radical_electrons;

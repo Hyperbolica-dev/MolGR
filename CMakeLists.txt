@@ -73,6 +73,7 @@ endif()
 # ==============================================================================
 
 add_library(molgr STATIC
+    src/cpp/src/process_guard.cpp
     src/cpp/src/state.cpp
     src/cpp/src/utils/consts.cpp
     src/cpp/src/utils/utils.cpp
@@ -81,6 +82,7 @@ add_library(molgr STATIC
     src/cpp/src/utils/force_field.cpp
     src/cpp/src/utils/metal_radical_inference.cpp
     src/cpp/src/vendor/forcefielduff.cpp
+    src/cpp/src/vendor/openbabel_conversion.cpp
     src/cpp/src/vendor/openbabel_threading.cpp
     src/cpp/src/utils/metals/preparation.cpp
     src/cpp/src/utils/metals/scoring.cpp

@@ -1,4 +1,5 @@
 #include "molgr/utils/xyz.h"
+#include "molgr/process_guard.h"
 
 #include "molgr/vendor/openbabel_threading.h"
 
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <locale>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -161,6 +163,7 @@ namespace molgr
 
         bool ReadXyzBlockToMol(const std::string &xyz_block, OpenBabel::OBMol *mol)
         {
+            molgr::EnsureCurrentProcess("molgr.native.xyz_reader");
             if (mol == nullptr)
             {
                 return false;
@@ -219,6 +222,26 @@ namespace molgr
             molgr::vendor::openbabel_threading::ConnectTheDotsAndPerceiveBondOrders(*mol);
             mol->EndModify();
             return true;
+        }
+
+        std::string WriteXyzBlock(const OpenBabel::OBMol &mol)
+        {
+            std::ostringstream output;
+            output.imbue(std::locale::classic());
+            output << mol.NumAtoms() << '\n' << mol.GetTitle() << '\n';
+            output << std::fixed << std::setprecision(10);
+
+            for (unsigned int index = 1; index <= mol.NumAtoms(); ++index)
+            {
+                const OpenBabel::OBAtom *atom = mol.GetAtom(index);
+                if (atom == nullptr)
+                {
+                    continue;
+                }
+                output << OpenBabel::OBElements::GetSymbol(atom->GetAtomicNum()) << ' '
+                       << atom->GetX() << ' ' << atom->GetY() << ' ' << atom->GetZ() << '\n';
+            }
+            return output.str();
         }
     }
 }

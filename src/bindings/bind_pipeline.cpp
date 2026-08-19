@@ -18,8 +18,10 @@
 #include "molgr/utils/no_metals/preparation.h"
 #include "molgr/utils/utils.h"
 #include "molgr/vendor/forcefielduff.h"
+#include "molgr/vendor/openbabel_conversion.h"
+#include "molgr/vendor/openbabel_threading.h"
+#include "molgr/utils/logger.h"
 
-#include <openbabel/obconversion.h>
 #include <openbabel/bond.h>
 #include "molgr/compat/openbabel_iter.h"
 #include "molgr/diagnostics.h"
@@ -118,6 +120,9 @@ namespace molgr
 
             OpenBabel::OBMol *require_obmol_ptr(intptr_t mol_ptr)
             {
+                molgr::WarnUnsafeOpenBabelUse(
+                    "molgr.dev.pipeline.*_ptr",
+                    "OBMol pointers are not thread-safe; keep ownership and all operations on one thread, and free owned pointers exactly once.");
                 if (mol_ptr == 0)
                 {
                     throw std::runtime_error("null OBMol pointer");
@@ -185,9 +190,7 @@ namespace molgr
             std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
             {
                 auto mol = std::make_unique<OpenBabel::OBMol>();
-                OpenBabel::OBConversion conv;
-                conv.SetInFormat("smi");
-                if (!conv.ReadString(mol.get(), smiles))
+                if (!molgr::vendor::openbabel_conversion::ReadSmiles(smiles, mol.get()))
                 {
                     return nullptr;
                 }

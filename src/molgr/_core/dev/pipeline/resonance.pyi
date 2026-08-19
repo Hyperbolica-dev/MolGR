@@ -17,6 +17,9 @@ __all__: list[str] = [
 def get_radical_resonances_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> list[int]:
     """
     Get radical resonance OBMol pointers for an input OBMol pointer.
+
+    Warning:
+        Raw OBMol pointers are not thread-safe and have manual ownership.
     """
 
 def get_radical_resonances_smi(smiles: str) -> list[str]:
@@ -32,6 +35,9 @@ def process_resonance_ptr(
 ) -> tuple:
     """
     Process resonance on an OBMol pointer and return (new_ptr, updated_charge).
+
+    Warning:
+        Raw OBMol pointers are not thread-safe and have manual ownership.
     """
 
 def process_resonance_smi(
@@ -47,4 +53,8 @@ def process_resonance_smi(
 def smiles_token_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> str:
     """
     Return canonical first-token SMILES string for an OBMol pointer.
+
+    Warning:
+        Raw OBMol pointers are not thread-safe; confine the pointer and this
+        call to one thread.
     """

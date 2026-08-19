@@ -12,7 +12,6 @@
 #include <openbabel/kekulize.h>
 #include "molgr/compat/openbabel_iter.h"
 
-#include <openbabel/obconversion.h>
 #include <algorithm>
 #include <cstdlib>
 

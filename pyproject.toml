@@ -146,6 +146,9 @@ minversion = "6.0"
 addopts = "-ra -q --cov=src --cov-report=term-missing"
 testpaths = ["tests"]
 pythonpath = ["src", "."]
+markers = [
+    "stress: resource-intensive native concurrency and memory stress tests",
+]
 
 
 [tool.mypy]

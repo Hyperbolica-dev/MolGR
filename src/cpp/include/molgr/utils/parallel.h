@@ -59,8 +59,9 @@ namespace molgr
                         // molecule helper work and asynchronous batch items.
                         // A synchronous Run still counts its calling thread,
                         // so it uses at most worker_count - 1 helpers.
-                        static ParallelExecutor instance(HardwareParallelism());
-                        return instance;
+                        static ParallelExecutor *instance =
+                            new ParallelExecutor(HardwareParallelism());
+                        return *instance;
                     }
 
                     std::size_t HelperCapacity() const

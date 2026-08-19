@@ -23,6 +23,7 @@ from molgr.diagnostics import (
     ReconstructionFailureCode,
 )
 from molgr.fallback import xyz2omol
+from molgr.process_guard import ensure_current_process
 from molgr.utils.converter import mol_data_to_rdkit, pybel_to_rdmol
 from molgr.utils.post_process import make_dative_bond
 from molgr.utils.post_process import make_stereochemistry as restore_stereochemistry
@@ -176,6 +177,7 @@ def xyz_to_rdmol(
     """
     Convert XYZ block to RDKit Mol.
     """
+    ensure_current_process("molgr.xyz_to_rdmol")
     resolved_config = CONFIG if config is None else config
     try:
         _validate_spin_multiplicity(xyz_block, total_charge, spin_multiplicity)

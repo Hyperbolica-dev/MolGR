@@ -19,7 +19,6 @@ GNU General Public License for more details.
 
 #include <openbabel/babelconfig.h>
 #include <openbabel/mol.h>
-#include <openbabel/locale.h>
 #include <openbabel/elements.h>
 #include <openbabel/atom.h>
 #include "molgr/compat/openbabel_iter.h"
@@ -32,8 +31,10 @@ GNU General Public License for more details.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <locale>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -61,27 +62,6 @@ namespace
   constexpr std::size_t kMolgrUffAtomTypeAssignmentCacheMaxSize = 4096;
 
 #if defined(_WIN32)
-  // Open Babel's Windows import library exports these classes' methods, but
-  // not the global objects declared in locale.h and oberror.h.
-  OpenBabel::OBLocale &MolgrObLocale()
-  {
-    static OpenBabel::OBLocale locale;
-    return locale;
-  }
-
-  OpenBabel::OBMessageHandler &MolgrObErrorLog()
-  {
-    static OpenBabel::OBMessageHandler error_log;
-    return error_log;
-  }
-#define MOLGR_OB_LOCALE ::MolgrObLocale()
-#define MOLGR_OB_ERROR_LOG ::MolgrObErrorLog()
-#else
-#define MOLGR_OB_LOCALE OpenBabel::obLocale
-#define MOLGR_OB_ERROR_LOG OpenBabel::obErrorLog
-#endif
-
-#if defined(_WIN32)
   void MolgrUffModuleAnchor() {}
 
   std::filesystem::path MolgrInstalledUffParamPath()
@@ -104,6 +84,14 @@ namespace
     return std::filesystem::path(module_path).parent_path() / L"data" / L"UFF.prm";
   }
 #endif
+
+  bool ParseClassicDouble(const std::string &text, double *value)
+  {
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    stream >> *value;
+    return stream && stream.eof();
+  }
 
   struct MolgrUffAtomTypeRule
   {
@@ -747,7 +735,6 @@ namespace
       return data;
     }
 
-    MOLGR_OB_LOCALE.SetLocale();
     while (ifs.getline(buffer, BUFF_SIZE)) {
       OpenBabel::tokenize(vs, buffer);
       if (EQn(buffer, "atom", 4) && vs.size() >= 3) {
@@ -761,17 +748,18 @@ namespace
 
       parameter.clear();
       parameter._a = vs[1];
-      parameter._dpar.push_back(atof(vs[2].c_str()));
-      parameter._dpar.push_back(atof(vs[3].c_str()));
-      parameter._dpar.push_back(atof(vs[4].c_str()));
-      parameter._dpar.push_back(atof(vs[5].c_str()));
-      parameter._dpar.push_back(atof(vs[6].c_str()));
-      parameter._dpar.push_back(atof(vs[7].c_str()));
-      parameter._dpar.push_back(atof(vs[8].c_str()));
-      parameter._dpar.push_back(atof(vs[9].c_str()));
-      parameter._dpar.push_back(atof(vs[10].c_str()));
-      parameter._dpar.push_back(atof(vs[11].c_str()));
-      parameter._dpar.push_back(atof(vs[12].c_str()));
+      bool parameter_parse_ok = true;
+      for (std::size_t index = 2; index < 13; ++index) {
+        double value = 0.0;
+        if (!ParseClassicDouble(vs[index], &value)) {
+          parameter_parse_ok = false;
+          break;
+        }
+        parameter._dpar.push_back(value);
+      }
+      if (!parameter_parse_ok) {
+        continue;
+      }
 
       parameter.b = 0;
       parameter.c = 0;
@@ -814,7 +802,6 @@ namespace
       data.ffparam_index[parameter._a] = data.ffparams.size();
       data.ffparams.push_back(parameter);
     }
-    MOLGR_OB_LOCALE.RestoreLocale();
     data.loaded = !data.ffparams.empty() && !data.atom_type_rules.empty();
     return data;
   }
@@ -1895,7 +1882,6 @@ namespace OpenBabel {
       if (parameterB == NULL) {
         snprintf(_logbuf, BUFF_SIZE, "    COULD NOT FIND PARAMETERS FOR ATOM %d (IDX)...\n",
                  atom->GetIdx());
-        MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, _logbuf, obWarning);
         IF_OBFF_LOGLVL_LOW
           OBFFLog(_logbuf);
         return false;
@@ -2750,7 +2736,6 @@ namespace OpenBabel {
   {
     const auto &shared = GetMolgrUffSharedData();
     if (!shared.loaded) {
-      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Cannot open UFF.prm", obError);
       return false;
     }
     _ffparams = shared.ffparams;
@@ -2772,7 +2757,6 @@ namespace OpenBabel {
 
     const std::vector<MolgrCompiledUffAtomTypeRule> *compiled_rules = nullptr;
     if (!GetMolgrCompiledUffAtomTypeRules(compiled_rules) || compiled_rules == nullptr) {
-      MOLGR_OB_ERROR_LOG.ThrowError(__FUNCTION__, "Could not initialize vendor UFF atom type rules", obError);
       return false;
     }
 

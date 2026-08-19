@@ -75,6 +75,24 @@ C++ 后端线程并行：Open Babel 并发重建可能触发 Python 无法捕获
 C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
 vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。
 
+### 危险行为告警
+
+仍然暴露裸 `OBMol*` 的低层接口会在第一次调用时输出一次
+`[UNSAFE_OPENBABEL]` 警告。此类指针由调用方手动管理，不能跨线程共享，必须在所有访问结束后且
+只释放一次；优先使用 `xyz_to_rdmol()`、`MoleculeData` 和 native batch API。提高 C++ 日志级别可以
+隐藏告警，但不会改变 Open Babel 的线程安全或生命周期约束。对于不受信任输入或必须调用其他裸
+Open Babel/Pybel API 的场景，仍应使用进程级隔离。
+
+MolGR 会拒绝在已经 import MolGR/Open Babel 的父进程中通过 POSIX `fork` 创建的子进程继续
+调用 MolGR，因为子进程继承的 native mutex、线程池和 Open Babel 全局状态可能不一致。Linux
+和 macOS 多进程任务应使用 `multiprocessing.get_context("spawn")`；Windows 默认使用 `spawn`，
+不受此限制。先 `fork` 再在子进程中首次 import MolGR，或 `fork` 后立即 `exec` 新程序，也不会
+继承已初始化的 MolGR 状态。
+
+在 `spawn` 子进程中直接调用 `molgr.interface.xyz_to_rdmol()` 也是支持的；此时建议让进程池
+承担跨分子并行，并在每个子进程使用 `max_threads=1`、关闭单分子内部并行，避免进程数与
+native worker 数相乘造成过量调度。
+
 ## 高级使用
 
 ### 并行执行策略

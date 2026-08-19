@@ -138,6 +138,10 @@ def calculate_tetrahedron_volume(
 def extract_molecule_data(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> MoleculeData:
     """
     Extracts OBMol content into a structured object.
+
+    Warning:
+        The pointer is not thread-safe and must remain valid for the duration
+        of this call. Prefer the regular pipeline APIs when possible.
     """
 
 def get_possible_metal_radicals(
@@ -156,5 +160,9 @@ def get_possible_metal_radicals(
 
 def molecule_data_to_obmol_ptr(molecule_data: MoleculeData) -> int:
     """
-    Converts MoleculeData to a newly allocated OBMol pointer. Free it with _core.free_obmol_ptr.
+    Converts MoleculeData to a newly allocated OBMol pointer.
+
+    Warning:
+        The returned pointer has manual ownership, is not safe to share across
+        threads, and must be freed exactly once with _core.free_obmol_ptr.
     """
