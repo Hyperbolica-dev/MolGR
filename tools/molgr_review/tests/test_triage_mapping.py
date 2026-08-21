@@ -9,7 +9,11 @@ from rdkit import Chem
 from rdkit.Geometry import Point3D
 
 from tools.molgr_review.fixture_builder import reconstruct_case_mol
-from tools.molgr_review.triage_mapping import map_candidate_reference_xyz, parse_xyz_atoms
+from tools.molgr_review.triage_mapping import (
+    _projection_overlong_rank,
+    map_candidate_reference_xyz,
+    parse_xyz_atoms,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -200,3 +204,39 @@ def test_abatec_real_mapping_regression_stays_ambiguous_when_truncated() -> None
     assert (conformer.GetAtomPosition(0) - conformer.GetAtomPosition(42)).Length() == pytest.approx(
         1.888161076, abs=1e-9
     )
+
+
+def test_projection_overlong_rank_penalizes_over_long_graph_edges() -> None:
+    candidate = graph(
+        ["C", "C", "C"],
+        [(0, 1, Chem.BondType.SINGLE), (1, 2, Chem.BondType.SINGLE)],
+        coordinates=[(0.0, 0.0, 0.0), (1.5, 0.0, 0.0), (3.0, 0.0, 0.0)],
+    )
+    reference = graph(["C", "C"], [(0, 1, Chem.BondType.SINGLE)])
+    candidate_to_source = {0: 0, 1: 1, 2: 2}
+    reference_to_source = {0: 0, 1: 1}
+    candidate_to_xyz = {0: 0, 1: 1, 2: 2}
+    xyz_atoms = [("C", (0.0, 0.0, 0.0)), ("C", (1.5, 0.0, 0.0)), ("C", (3.0, 0.0, 0.0))]
+
+    sane = _projection_overlong_rank(
+        {0: 0, 1: 1},
+        candidate,
+        reference,
+        candidate_to_source,
+        reference_to_source,
+        candidate_to_xyz,
+        xyz_atoms,
+    )
+    assert sane[0] == 0  # 1.5 A C-C is a plausible bond
+
+    # Reference edge (0,1) projected onto candidate atoms {0,2} = 3.0 A apart.
+    overlong = _projection_overlong_rank(
+        {0: 0, 2: 1},
+        candidate,
+        reference,
+        candidate_to_source,
+        reference_to_source,
+        candidate_to_xyz,
+        xyz_atoms,
+    )
+    assert overlong[0] > 0  # 3 A projected edge is obviously not a covalent bond

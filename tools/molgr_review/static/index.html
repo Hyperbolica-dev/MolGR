@@ -45,11 +45,21 @@
             <option value="skip" data-i18n="status.skip">跳过</option>
           </select>
         </label>
+        <label id="reviewReasonFilterField">
+          <span data-i18n="reviewReasonFilter">审核理由</span>
+          <select id="reviewReasonFilter">
+            <option value="" data-i18n="all">全部</option>
+          </select>
+        </label>
         <label id="triageFilterField" hidden>
           <span data-i18n="triageBucket">Triage bucket</span>
           <select id="triageFilter">
             <option value="" data-i18n="all">全部</option>
           </select>
+        </label>
+        <label id="familyQueueField" hidden>
+          <span data-i18n="familyQueue">Family QA queue</span>
+          <select id="familyQueue"></select>
         </label>
         <label>
           <span data-i18n="search">搜索</span>
@@ -93,6 +103,35 @@
         <div id="triageEvidence" class="triage-evidence" hidden></div>
       </section>
 
+      <section id="familyQaCard" class="family-qa-card panel" hidden>
+        <header>
+          <div>
+            <strong id="familyQaTitle"></strong>
+            <span id="familyQaRep" class="muted"></span>
+          </div>
+          <span id="familyQaProgress" class="muted"></span>
+        </header>
+        <dl class="family-qa-summary">
+          <dt data-i18n="calibrationRelation">Calibration relation</dt><dd id="familyCalibration"></dd>
+          <dt data-i18n="metalStateTransition">Metal state</dt><dd id="familyMetalState"></dd>
+          <dt data-i18n="repeatCount">Repeat</dt><dd id="familyRepeat"></dd>
+          <dt data-i18n="mappingSource">Mapping</dt><dd id="familyMapping"></dd>
+          <dt data-i18n="transformation">Transformation</dt><dd id="familyTransformation"></dd>
+        </dl>
+        <div class="family-qa-actions">
+          <div class="representative-actions" aria-label="Representative QA mark">
+            <button type="button" data-rep-mark="matches_family" data-i18n="matchesFamily">Matches family</button>
+            <button type="button" data-rep-mark="outlier_blocker" data-i18n="outlierBlocker">Outlier / blocker</button>
+          </div>
+          <div class="family-decision-actions" aria-label="Family QA decision">
+            <button type="button" data-family-decision="approve_resonance" data-i18n="approveResonance">Approve · resonance</button>
+            <button type="button" data-family-decision="approve_redox" data-i18n="approveRedox">Approve · redox</button>
+            <button type="button" data-family-decision="reject_split" data-i18n="rejectSplit">Reject batch / split family</button>
+          </div>
+        </div>
+        <p class="family-qa-safety" data-i18n="familyQaSafety">Pending manifest only · authoritative reviews are not changed.</p>
+      </section>
+
       <section class="review-controls panel" id="reviewControls">
         <header class="action-bar-header">
           <div class="action-title">
@@ -100,6 +139,8 @@
             <span class="shortcut-hint" data-i18n="shortcutHint">快捷键 1–7 · 上一条/下一条 ← →</span>
           </div>
           <div class="review-header-actions">
+            <span id="lastReviewSummary" class="last-review-summary muted"></span>
+            <button id="undoReview" type="button" disabled data-i18n="undoReview">撤回上一条审核</button>
             <span id="saveState" class="muted"></span>
             <button id="removeFixture" class="danger-action" type="button" hidden>
               <span data-i18n="removeFixture">移除 fixture</span>
@@ -126,6 +167,10 @@
             <textarea id="notes" rows="1"></textarea>
           </label>
         </div>
+        <details class="recent-reviews">
+          <summary data-i18n="recentReviews">最近审核</summary>
+          <div id="recentReviewList" class="recent-review-list"></div>
+        </details>
       </section>
 
       <section class="visual-workspace panel" id="mainLayout">
@@ -135,13 +180,26 @@
           </div>
           <div class="structure-header-actions">
             <button id="jumpToReviewerDetails" class="details-jump" type="button" data-i18n="reviewDetailsJump">审核详情</button>
-            <div class="segmented">
+            <span class="mode-label">2D:</span>
+            <div class="segmented" aria-label="2D display mode">
+              <button class="two-d-mode active" data-mode="skeleton" type="button" data-i18n="skeletonMode">骨架</button>
+              <button class="two-d-mode" data-mode="hydrogen" type="button" data-i18n="hydrogenMode">H 分配</button>
+            </div>
+            <span class="mode-label">3D:</span>
+            <div class="segmented" aria-label="3D display mode">
               <button class="view-mode active" data-style="stick" type="button">Stick</button>
               <button class="view-mode" data-style="sphere" type="button">Sphere</button>
               <button class="view-mode" data-style="line" type="button">Line</button>
             </div>
+            <span class="mode-label">XYZ:</span>
+            <div class="segmented" aria-label="XYZ comparison mode">
+              <button class="xyz-comparison-mode active" data-mode="raw" type="button" data-i18n="rawXyz">Raw XYZ</button>
+              <button class="xyz-comparison-mode" data-mode="mapped" type="button" data-i18n="mappedComparison">Mapped comparison</button>
+            </div>
           </div>
         </header>
+
+        <div id="mappedComparisonNote" class="mapped-comparison-note" hidden></div>
 
         <div class="viewer-grid">
         <div id="primaryVisuals" class="primary-visuals">
@@ -157,10 +215,22 @@
             <div id="xyzTechnicalError" class="technical-error" hidden></div>
           </article>
 
-          <article class="visual-card candidate-card" id="primaryVisual">
+          <article class="visual-card reference-xyz-card" id="referenceXyzPanel">
             <header class="visual-card-header">
               <div>
                 <span class="visual-index">2</span>
+                <h4 data-i18n="referenceXyz">参考 XYZ</h4>
+              </div>
+              <span class="muted" data-i18n="referenceXyzHint">Reference graph on source XYZ</span>
+            </header>
+            <div id="referenceViewer3d" class="viewer"></div>
+            <div id="referenceXyzTechnicalError" class="technical-error" hidden></div>
+          </article>
+
+          <article class="visual-card candidate-card" id="primaryVisual">
+            <header class="visual-card-header">
+              <div>
+                <span class="visual-index">3</span>
                 <h4 id="primaryRenderTitle">当前候选</h4>
               </div>
               <span id="primaryReferenceReason" class="reference-answer-reason" hidden></span>
@@ -173,7 +243,7 @@
           <article class="visual-card reference-card" id="secondaryVisual">
             <header class="visual-card-header">
               <div>
-                <span class="visual-index">3</span>
+                <span class="visual-index">4</span>
                 <h4 id="secondaryRenderTitle">参考图</h4>
               </div>
               <span id="secondaryReferenceReason" class="reference-answer-reason" hidden></span>

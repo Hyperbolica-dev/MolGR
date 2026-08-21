@@ -12,7 +12,9 @@ import mimetypes
 import os
 import sqlite3
 import sys
+import threading
 import traceback
+import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,12 +47,16 @@ from fixture_builder import (
     load_fixture_records,
     reconstruct_case_mol,
     resolve_xyz_path,
+    restore_review_fixture_snapshot,
+    snapshot_review_fixture,
     sync_review_fixture,
 )
 from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.utils.equivalence import check_equivalence
 from project_runtime import validate_project_runtime
+from reference_diagnostics import classify_reference_problem, comparison_skip_reasons
 from scripts.reconstruction_trace import TraceInputCase, render_trace_report
+from triage_mapping import atom_h_count, is_metal, map_candidate_reference_xyz, parse_xyz_atoms
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
@@ -107,6 +113,18 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional read-only triage CSV used for queue filtering and reviewer evidence.",
     )
+    parser.add_argument(
+        "--family-qa-csv",
+        type=Path,
+        default=None,
+        help="Optional frozen representation family QA representative queue CSV.",
+    )
+    parser.add_argument(
+        "--family-qa-manifest",
+        type=Path,
+        default=None,
+        help="Pending family QA manifest updated by family decisions (never the review DB).",
+    )
     return parser.parse_args()
 
 
@@ -140,6 +158,20 @@ def _row_dict(
             for key, value in raw_payload.items():
                 if key not in payload:
                     payload[key] = value
+
+    diagnostic_group, diagnostic_reason = classify_reference_problem(
+        reference_smiles=payload.get("reference_smiles"),
+        skip_reasons=comparison_skip_reasons(payload.get("error")),
+        formula_status=payload.get("reference_formula_check_status"),
+    )
+    payload["reference_diagnostic_group"] = diagnostic_group
+    payload["reference_diagnostic_reason"] = diagnostic_reason
+    if triage:
+        payload["triage"] = {
+            **triage,
+            "reference_diagnostic_group": diagnostic_group,
+            "reference_diagnostic_reason": diagnostic_reason,
+        }
 
     runtime_label = f"py{sys.version_info.major}{sys.version_info.minor}"
     snapshot_smiles = ""
@@ -390,28 +422,432 @@ def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str,
     return comparison
 
 
-def _prepare_review_2d_mol(mol: Chem.Mol) -> Chem.Mol:
-    """Copy a review molecule and omit removable explicit H atoms for 2D display."""
+def _prepare_review_2d_mol(mol: Chem.Mol, *, show_hydrogens: bool = False) -> Chem.Mol:
+    """Prepare a display-only copy without changing the source graph."""
 
-    return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
+    copied = Chem.Mol(mol)
+    if show_hydrogens:
+        # Candidate reconstruction and the verified reference-XYZ display graph
+        # already contain every source hydrogen as a real atom.  Render that
+        # graph unchanged: AddHs would create atoms with no source-XYZ identity.
+        copied.UpdatePropertyCache(strict=False)
+        return copied
+    return Chem.RemoveHs(copied, sanitize=False)
 
 
-def _render_mol_svg(mol: Chem.Mol, *, legend: str) -> str:
+def _render_mol_svg(
+    mol: Chem.Mol,
+    *,
+    legend: str,
+    atom_notes: dict[int, str] | None = None,
+    show_hydrogens: bool = False,
+) -> str:
     from rdkit_dof import MolToDofImage
 
-    render_mol = _prepare_review_2d_mol(mol)
+    annotated = Chem.Mol(mol)
+    for atom_index, note in (atom_notes or {}).items():
+        if 0 <= atom_index < annotated.GetNumAtoms():
+            atom = annotated.GetAtomWithIdx(atom_index)
+            atom.SetProp("atomNote", note)
+            atom.SetBoolProp("_review_disputed_atom", True)
+    render_mol = _prepare_review_2d_mol(annotated, show_hydrogens=show_hydrogens)
+    highlight_atoms = [
+        atom.GetIdx() for atom in render_mol.GetAtoms() if atom.HasProp("_review_disputed_atom")
+    ]
     image = MolToDofImage(
         render_mol,
         size=(520, 360),
         legend=legend,
         use_svg=True,
         return_image=False,
+        highlightAtoms=highlight_atoms,
+        highlightColor=(0.10, 0.55, 0.64, 0.55),
     )
     return _svg_fragment_from_image(image)
 
 
-def _render_cache_kind(kind: str) -> str:
-    return f"{REVIEW_2D_RENDERER_VERSION}:{kind}"
+def _render_cache_kind(kind: str, mode: str = "skeleton") -> str:
+    return f"{REVIEW_2D_RENDERER_VERSION}:{kind}:{mode}"
+
+
+def _triage_atom_notes(
+    case: Mapping[str, Any],
+    triage: dict[str, str] | None,
+    candidate: Chem.Mol,
+    reference: Chem.Mol | None,
+    xyz_dir: Path | None,
+) -> tuple[dict[int, str], dict[int, str]]:
+    if not triage:
+        return {}, {}
+    candidate_notes: dict[int, list[str]] = {}
+    reference_xyz_notes: dict[int, list[str]] = {}
+
+    def add_note(target: dict[int, list[str]], index: Any, text: str) -> None:
+        try:
+            atom_index = int(index)
+        except (TypeError, ValueError):
+            return
+        target.setdefault(atom_index, []).append(text)
+
+    def atom_label(mol: Chem.Mol, index: Any) -> str:
+        try:
+            atom_index = int(index)
+        except (TypeError, ValueError):
+            return ""
+        if not 0 <= atom_index < mol.GetNumAtoms():
+            return ""
+        return f"{mol.GetAtomWithIdx(atom_index).GetSymbol()} · #{atom_index}"
+
+    for edge in _json_array(triage.get("metal_coordination_diff")):
+        for index in edge.get("candidate_atoms", []):
+            add_note(candidate_notes, index, atom_label(candidate, index))
+            add_note(reference_xyz_notes, index, atom_label(candidate, index))
+    for assignment in _json_array(triage.get("hydrogen_assignment_diff")):
+        hydrogen = assignment.get("h_atom")
+        add_note(candidate_notes, hydrogen, f"H · #{hydrogen}")
+        candidate_center = assignment.get("candidate_center")
+        reference_center = assignment.get("reference_center")
+        add_note(candidate_notes, candidate_center, atom_label(candidate, candidate_center))
+        add_note(reference_xyz_notes, hydrogen, f"H · #{hydrogen}")
+        add_note(reference_xyz_notes, reference_center, atom_label(candidate, reference_center))
+    candidate_result = {
+        index: " · ".join(dict.fromkeys(notes)) for index, notes in candidate_notes.items()
+    }
+    if reference is None or not candidate_result:
+        return candidate_result, {}
+    try:
+        xyz_path = resolve_xyz_path(str(case.get("xyz_path") or ""), xyz_dir)
+        xyz_atoms = parse_xyz_atoms(xyz_path.read_text(encoding="utf-8"))
+        mapping = map_candidate_reference_xyz(candidate, reference, xyz_atoms)
+        if mapping.confidence not in {"exact", "unique_graph_mapping"}:
+            return candidate_result, {}
+        xyz_to_reference = {
+            candidate_index: reference_index
+            for reference_index, candidate_index in mapping.reference_to_candidate.items()
+        }
+        reference_result = {
+            xyz_to_reference[xyz_index]: note
+            for xyz_index, notes in reference_xyz_notes.items()
+            if xyz_index in xyz_to_reference
+            for note in [" · ".join(dict.fromkeys(notes))]
+        }
+        return candidate_result, reference_result
+    except Exception:  # noqa: BLE001
+        return candidate_result, {}
+
+
+def _json_array(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not value:
+        return []
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+
+
+def _triage_source_atom_notes(
+    triage: dict[str, str] | None,
+    source_mol: Chem.Mol,
+    *,
+    reference_assignment: bool,
+) -> dict[int, str]:
+    """Labels keyed by authoritative source XYZ atom index."""
+
+    if not triage:
+        return {}
+    notes: dict[int, list[str]] = {}
+
+    def add(index: Any, label: str) -> None:
+        try:
+            atom_index = int(index)
+        except (TypeError, ValueError):
+            return
+        if not 0 <= atom_index < source_mol.GetNumAtoms():
+            return
+        notes.setdefault(atom_index, []).append(label)
+
+    def label(index: Any) -> str:
+        try:
+            atom_index = int(index)
+        except (TypeError, ValueError):
+            return ""
+        if not 0 <= atom_index < source_mol.GetNumAtoms():
+            return ""
+        return f"{source_mol.GetAtomWithIdx(atom_index).GetSymbol()} · #{atom_index}"
+
+    for edge in _json_array(triage.get("metal_coordination_diff")):
+        for index in edge.get("candidate_atoms", []):
+            add(index, label(index))
+    for assignment in _json_array(triage.get("hydrogen_assignment_diff")):
+        hydrogen = assignment.get("h_atom")
+        center_key = "reference_center" if reference_assignment else "candidate_center"
+        center = assignment.get(center_key)
+        add(hydrogen, f"H · #{hydrogen}")
+        add(center, label(center))
+    return {index: " · ".join(dict.fromkeys(values)) for index, values in notes.items()}
+
+
+def _reference_xyz_mol(
+    case: Mapping[str, Any],
+    triage: dict[str, str] | None,
+    candidate: Chem.Mol,
+    reference: Chem.Mol,
+    xyz_dir: Path | None,
+    mapping_result: Any | None = None,
+) -> tuple[Chem.Mol | None, str, str]:
+    """Place reference connectivity on source XYZ using a valid mapping representative."""
+
+    xyz_path = resolve_xyz_path(str(case.get("xyz_path") or ""), xyz_dir)
+    xyz_atoms = parse_xyz_atoms(xyz_path.read_text(encoding="utf-8"))
+    mapping = mapping_result or map_candidate_reference_xyz(candidate, reference, xyz_atoms)
+    if mapping.confidence not in {"exact", "unique_graph_mapping", "ambiguous"}:
+        return None, mapping.confidence, "atom_correspondence_not_reliable"
+    if not mapping.reference_to_candidate:
+        return None, mapping.confidence, "atom_correspondence_not_reliable"
+    if candidate.GetNumAtoms() != len(xyz_atoms) or candidate.GetNumConformers() == 0:
+        return None, mapping.confidence, "candidate_xyz_not_complete"
+
+    reference_to_xyz = dict(mapping.reference_to_candidate)
+    reference_copy = Chem.Mol(reference)
+    reference_copy.UpdatePropertyCache(strict=False)
+    candidate_copy = Chem.Mol(candidate)
+    candidate_copy.UpdatePropertyCache(strict=False)
+    editable = Chem.RWMol()
+    for xyz_index, (symbol, _) in enumerate(xyz_atoms):
+        source_atom = candidate_copy.GetAtomWithIdx(xyz_index)
+        atom = Chem.Atom(symbol)
+        atom.SetFormalCharge(source_atom.GetFormalCharge())
+        atom.SetNumRadicalElectrons(source_atom.GetNumRadicalElectrons())
+        atom.SetNoImplicit(True)
+        editable.AddAtom(atom)
+
+    for reference_atom in reference_copy.GetAtoms():
+        if reference_atom.GetAtomicNum() == 1:
+            continue
+        xyz_index = reference_to_xyz.get(reference_atom.GetIdx())
+        if xyz_index is None:
+            return None, mapping.confidence, "reference_mapping_incomplete"
+        target = editable.GetAtomWithIdx(xyz_index)
+        target.SetFormalCharge(reference_atom.GetFormalCharge())
+        target.SetNumRadicalElectrons(reference_atom.GetNumRadicalElectrons())
+        target.SetIsAromatic(reference_atom.GetIsAromatic())
+
+    for bond in reference_copy.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if (
+            reference_copy.GetAtomWithIdx(begin).GetAtomicNum() == 1
+            or reference_copy.GetAtomWithIdx(end).GetAtomicNum() == 1
+        ):
+            continue
+        mapped_begin = reference_to_xyz.get(begin)
+        mapped_end = reference_to_xyz.get(end)
+        if mapped_begin is None or mapped_end is None:
+            return None, mapping.confidence, "reference_bond_mapping_incomplete"
+        editable.AddBond(mapped_begin, mapped_end, bond.GetBondType())
+        editable.GetBondBetweenAtoms(mapped_begin, mapped_end).SetIsAromatic(bond.GetIsAromatic())
+
+    hydrogen_centers: dict[int, int] = {}
+    for atom in candidate_copy.GetAtoms():
+        if atom.GetAtomicNum() != 1:
+            continue
+        heavy_neighbours = [
+            neighbour.GetIdx() for neighbour in atom.GetNeighbors() if neighbour.GetAtomicNum() != 1
+        ]
+        if len(heavy_neighbours) == 1:
+            hydrogen_centers[atom.GetIdx()] = heavy_neighbours[0]
+    for assignment in _json_array((triage or {}).get("hydrogen_assignment_diff")):
+        try:
+            hydrogen_centers[int(assignment["h_atom"])] = int(assignment["reference_center"])
+        except (KeyError, TypeError, ValueError):
+            return None, mapping.confidence, "invalid_hydrogen_assignment"
+
+    expected_h_counts = {
+        reference_to_xyz[atom.GetIdx()]: atom_h_count(atom)
+        for atom in reference_copy.GetAtoms()
+        if atom.GetAtomicNum() != 1 and atom.GetIdx() in reference_to_xyz
+    }
+    actual_h_counts = Counter(hydrogen_centers.values())
+    if any(actual_h_counts.get(index, 0) != count for index, count in expected_h_counts.items()):
+        return None, mapping.confidence, "reference_hydrogen_mapping_incomplete"
+    for hydrogen, center in hydrogen_centers.items():
+        editable.AddBond(hydrogen, center, Chem.BondType.SINGLE)
+
+    result = editable.GetMol()
+    conformer = Chem.Conformer(len(xyz_atoms))
+    source_conformer = candidate_copy.GetConformer()
+    for index in range(len(xyz_atoms)):
+        conformer.SetAtomPosition(index, source_conformer.GetAtomPosition(index))
+    result.AddConformer(conformer)
+    result.UpdatePropertyCache(strict=False)
+    return result, mapping.confidence, ""
+
+
+def _mapped_coordination_comparison(
+    candidate: Chem.Mol,
+    reference: Chem.Mol,
+    reference_to_xyz: Mapping[int, int],
+) -> dict[str, Any]:
+    """Describe mapped metal-donor edges without changing either molecular graph."""
+
+    xyz_to_reference = {xyz: reference_index for reference_index, xyz in reference_to_xyz.items()}
+
+    def coordination_edges(
+        mol: Chem.Mol, atom_map: Mapping[int, int] | None = None
+    ) -> dict[tuple[int, int], tuple[int, int]]:
+        result: dict[tuple[int, int], tuple[int, int]] = {}
+        for bond in mol.GetBonds():
+            begin, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+            begin_metal = is_metal(mol.GetAtomWithIdx(begin))
+            end_metal = is_metal(mol.GetAtomWithIdx(end))
+            if begin_metal == end_metal:
+                continue
+            metal, donor = (begin, end) if begin_metal else (end, begin)
+            mapped_metal = atom_map.get(metal) if atom_map is not None else metal
+            mapped_donor = atom_map.get(donor) if atom_map is not None else donor
+            if mapped_metal is None or mapped_donor is None:
+                continue
+            result[(mapped_metal, mapped_donor)] = (metal, donor)
+        return result
+
+    candidate_edges = coordination_edges(candidate)
+    reference_edges = coordination_edges(reference, reference_to_xyz)
+    conformer = candidate.GetConformer() if candidate.GetNumConformers() else None
+
+    def mapped_ligand_group(donor_xyz: int) -> list[dict[str, Any]]:
+        donor = candidate.GetAtomWithIdx(donor_xyz)
+        group = {donor_xyz}
+        for center in donor.GetNeighbors():
+            if is_metal(center) or center.GetAtomicNum() == 1:
+                continue
+            group.update(
+                neighbour.GetIdx()
+                for neighbour in center.GetNeighbors()
+                if neighbour.GetAtomicNum() == donor.GetAtomicNum() and not is_metal(neighbour)
+            )
+        return [
+            {
+                "element": candidate.GetAtomWithIdx(xyz_index).GetSymbol(),
+                "candidate_xyz_index": xyz_index,
+                "reference_atom_index": xyz_to_reference.get(xyz_index),
+                "role": "donor" if xyz_index == donor_xyz else "mapped_equivalent",
+            }
+            for xyz_index in sorted(group)
+            if xyz_index in xyz_to_reference
+        ]
+
+    edges = []
+    for metal_xyz, donor_xyz in sorted(set(candidate_edges) | set(reference_edges)):
+        candidate_source = candidate_edges.get((metal_xyz, donor_xyz))
+        reference_source = reference_edges.get((metal_xyz, donor_xyz))
+        presence = (
+            "common"
+            if candidate_source is not None and reference_source is not None
+            else "candidate_only"
+            if candidate_source is not None
+            else "reference_only"
+        )
+        distance = None
+        if conformer is not None:
+            distance = float(
+                conformer.GetAtomPosition(metal_xyz).Distance(
+                    conformer.GetAtomPosition(donor_xyz)
+                )
+            )
+        group = mapped_ligand_group(donor_xyz)
+        edges.append(
+            {
+                "presence": presence,
+                "metal_element": candidate.GetAtomWithIdx(metal_xyz).GetSymbol(),
+                "donor_element": candidate.GetAtomWithIdx(donor_xyz).GetSymbol(),
+                "candidate_metal_xyz_index": metal_xyz,
+                "candidate_donor_xyz_index": donor_xyz,
+                "reference_metal_atom_index": (
+                    reference_source[0] if reference_source is not None else xyz_to_reference.get(metal_xyz)
+                ),
+                "reference_donor_atom_index": (
+                    reference_source[1] if reference_source is not None else xyz_to_reference.get(donor_xyz)
+                ),
+                "distance": distance,
+                "mapped_ligand_group": group if len(group) > 1 else [],
+                "interpretation": (
+                    "mapped_donor_preserved" if presence == "common" else "coordination_edge_missing"
+                ),
+            }
+        )
+    return {
+        "candidate_to_xyz": {str(index): index for index in range(candidate.GetNumAtoms())},
+        "reference_to_xyz": {str(key): value for key, value in reference_to_xyz.items()},
+        "coordination_edges": edges,
+    }
+
+
+def _mapping_ambiguity_details(mapping: Any) -> tuple[str, str]:
+    if getattr(mapping, "confidence", "") != "ambiguous":
+        return "", ""
+    if getattr(mapping, "timeout", False):
+        return "mapping_timeout", "mapping_timeout_before_unique_correspondence"
+    if getattr(mapping, "enumeration_truncated", False):
+        return "mapping_enumeration_truncated", "mapping_enumeration_truncated_before_unique_correspondence"
+    if getattr(mapping, "mapping_signature_count", 0) > 1:
+        return "multiple_valid_mappings", "multiple_equally_valid_atom_mappings"
+    if getattr(mapping, "equal_best_mapping_count", 0) > 1:
+        return "symmetry_equivalent_atoms", "symmetry_equivalent_atoms_prevent_unique_correspondence"
+    return "ambiguous_mapping", "unique_atom_correspondence_not_established"
+
+
+def _mapping_ambiguity_locations(mapping: Any) -> dict[str, Any]:
+    signatures = getattr(mapping, "decision_relevant_signatures", ())
+    alternatives = []
+    affected_atoms: set[int] = set()
+    for alternative_index, signature in enumerate(signatures, start=1):
+        differences = []
+        for difference in signature:
+            if not difference:
+                continue
+            kind = str(difference[0])
+            if kind in {"metal_bond", "organic_bond"}:
+                atoms = [int(index) for index in difference[1]]
+                affected_atoms.update(atoms)
+                differences.append(
+                    {
+                        "kind": kind,
+                        "xyz_atoms": atoms,
+                        "candidate_present": bool(difference[2]),
+                        "reference_present": bool(difference[3]),
+                        "candidate_bond": str(difference[4]),
+                        "reference_bond": str(difference[5]),
+                    }
+                )
+            elif kind == "hydrogen_assignment":
+                hydrogen_atoms = [int(index) for index in difference[1]]
+                candidate_center = difference[2]
+                reference_centers = [int(index) for index in difference[3]]
+                affected_atoms.update(hydrogen_atoms)
+                affected_atoms.update(reference_centers)
+                if candidate_center is not None:
+                    affected_atoms.add(int(candidate_center))
+                differences.append(
+                    {
+                        "kind": kind,
+                        "hydrogen_xyz_atoms": hydrogen_atoms,
+                        "candidate_center_xyz": candidate_center,
+                        "reference_center_xyz": reference_centers,
+                    }
+                )
+        alternatives.append({"alternative": alternative_index, "differences": differences})
+    return {
+        "affected_xyz_atoms": sorted(affected_atoms),
+        "alternatives": alternatives,
+        "location_proven": (
+            not getattr(mapping, "enumeration_truncated", False)
+            and not getattr(mapping, "timeout", False)
+            and len(signatures) > 1
+        ),
+    }
 
 
 def _mol_to_sdf_block(mol: Chem.Mol) -> str:
@@ -536,6 +972,15 @@ class ReviewServer(ThreadingHTTPServer):
     fixtures_dir: Path
     runtime_info: dict[str, Any]
     triage_records: dict[str, dict[str, str]]
+    review_histories: dict[str, list[dict[str, Any]]]
+    review_mutation_lock: threading.RLock
+    family_qa: dict[str, Any] | None
+    family_qa_manifest_path: Path | None
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.review_histories = {}
+        self.review_mutation_lock = threading.RLock()
 
 
 def load_triage_records(path: Path | None) -> dict[str, dict[str, str]]:
@@ -549,6 +994,158 @@ def load_triage_records(path: Path | None) -> dict[str, dict[str, str]]:
             for row in csv.DictReader(handle)
             if str(row.get("case_id") or "").strip()
         }
+
+
+def load_family_qa(path: Path | None, manifest_path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        if manifest_path is not None:
+            raise ValueError("--family-qa-manifest requires --family-qa-csv")
+        return None
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    if manifest_path is None:
+        raise ValueError("--family-qa-manifest is required with --family-qa-csv")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(manifest_path)
+    with path.open(encoding="utf-8", newline="") as handle:
+        representatives = [dict(row) for row in csv.DictReader(handle)]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("families"), list):
+        raise ValueError("invalid family QA manifest")
+    manifest_families = {
+        str(family.get("family_id") or ""): family
+        for family in manifest["families"]
+        if isinstance(family, dict)
+    }
+    families: dict[str, dict[str, Any]] = {}
+    for row in representatives:
+        family_id = str(row.get("family_id") or "").strip()
+        case_id = str(row.get("case_id") or "").strip()
+        if not family_id or not case_id or family_id not in manifest_families:
+            raise ValueError(f"invalid frozen family QA row: family={family_id!r}, case={case_id!r}")
+        family = families.setdefault(
+            family_id,
+            {"metadata": dict(row), "representatives": []},
+        )
+        family["representatives"].append(row)
+    for family_id, family in families.items():
+        frozen = manifest_families[family_id]
+        expected = {str(value) for value in frozen.get("representatives", [])}
+        actual = {str(row["case_id"]) for row in family["representatives"]}
+        if expected != actual:
+            raise ValueError(f"frozen representative mismatch for {family_id}")
+    return {"csv": path, "families": families}
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _family_manifest(server: ReviewServer) -> dict[str, Any]:
+    path = server.family_qa_manifest_path
+    if path is None:
+        raise ValueError("family_qa_not_configured")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("families"), list):
+        raise ValueError("invalid family QA manifest")
+    return payload
+
+
+def _public_family_qa(server: ReviewServer) -> dict[str, Any]:
+    qa = server.family_qa
+    if qa is None:
+        return {"enabled": False, "families": [], "progress": {}}
+    manifest = _family_manifest(server)
+    manifest_by_id = {
+        str(item.get("family_id") or ""): item
+        for item in manifest["families"]
+        if isinstance(item, dict)
+    }
+    families = []
+    reviewed = approved_cases = 0
+    total_cases = 0
+    for family_id, source in qa["families"].items():
+        pending = manifest_by_id[family_id]
+        decision = str(pending.get("qa_decision") or "")
+        family_size = int(source["metadata"].get("family_size") or pending.get("size") or 0)
+        total_cases += family_size
+        if decision:
+            reviewed += 1
+            if decision.startswith("approve_"):
+                approved_cases += family_size
+        marks = pending.get("representative_marks") or {}
+        representatives = []
+        for row in source["representatives"]:
+            case_id = str(row["case_id"])
+            representatives.append({**row, "qa_mark": str(marks.get(case_id) or "")})
+        families.append(
+            {
+                **source["metadata"],
+                "family_id": family_id,
+                "family_size": family_size,
+                "representatives": representatives,
+                "decision": decision,
+                "proposed_status": pending.get("proposed_status"),
+                "proposed_reason": pending.get("proposed_reason"),
+            }
+        )
+    return {
+        "enabled": True,
+        "approval_required": True,
+        "approved": False,
+        "families": families,
+        "progress": {
+            "reviewed_families": reviewed,
+            "total_families": len(families),
+            "approved_cases": approved_cases,
+            "total_cases": total_cases,
+        },
+    }
+
+
+REVIEW_COLUMNS = (
+    "status",
+    "corrected_smiles",
+    "corrected_molblock",
+    "notes",
+    "reviewer",
+    "updated_at",
+)
+
+
+def _review_state(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, str] | None:
+    if row is None:
+        return None
+    return {key: str(row[key] or "") for key in REVIEW_COLUMNS}
+
+
+def _public_review_mutation(mutation: Mapping[str, Any]) -> dict[str, Any]:
+    if mutation.get("mutation_type") == "family_qa":
+        return {
+            "mutation_id": mutation["mutation_id"],
+            "mutation_type": "family_qa",
+            "case_id": mutation.get("case_id", ""),
+            "family_id": mutation["family_id"],
+            "status": mutation["label"],
+            "reviewer": "family QA",
+            "notes": "",
+            "timestamp": mutation["timestamp"],
+            "undone": bool(mutation.get("undone")),
+        }
+    return {
+        "mutation_id": mutation["mutation_id"],
+        "case_id": mutation["case_id"],
+        "status": mutation["after_review"]["status"],
+        "reviewer": mutation["after_review"]["reviewer"],
+        "notes": mutation["after_review"]["notes"],
+        "timestamp": mutation["timestamp"],
+        "undone": bool(mutation.get("undone")),
+    }
 
 
 class ReviewHandler(BaseHTTPRequestHandler):
@@ -597,6 +1194,10 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self._api_stats()
         elif path == "/api/review-reasons":
             self._api_review_reasons()
+        elif path == "/api/review-history":
+            self._api_review_history()
+        elif path == "/api/family-qa":
+            self._api_family_qa()
         elif path == "/api/cases":
             self._api_cases(query)
         elif path.startswith("/api/cases/") and path.endswith("/render"):
@@ -607,7 +1208,10 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self._api_xyz(case_id)
         elif path.startswith("/api/cases/") and path.endswith("/candidate-sdf"):
             case_id = unquote(path.split("/")[3])
-            self._api_candidate_sdf(case_id)
+            self._api_candidate_sdf(case_id, query)
+        elif path.startswith("/api/cases/") and path.endswith("/reference-xyz"):
+            case_id = unquote(path.split("/")[3])
+            self._api_reference_xyz(case_id)
         elif path.startswith("/api/cases/") and path.endswith("/graph"):
             case_id = unquote(path.split("/")[3])
             self._api_graph(case_id, query)
@@ -673,6 +1277,10 @@ class ReviewHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/api/render-dof":
             self._api_render_dof()
+        elif path == "/api/review-undo":
+            self._api_review_undo()
+        elif path == "/api/family-qa":
+            self._api_family_qa_mutation()
         elif path.startswith("/api/cases/") and path.endswith("/review"):
             case_id = unquote(path.split("/")[3])
             self._api_review(case_id)
@@ -801,9 +1409,232 @@ class ReviewHandler(BaseHTTPRequestHandler):
             {"items": [{"reviewer": row["reviewer"], "count": row["count"]} for row in rows]},
         )
 
+    def _review_session_id(self) -> str:
+        session_id = self.headers.get("X-MolGR-Review-Session", "").strip()
+        return session_id if 0 < len(session_id) <= 128 else ""
+
+    def _api_review_history(self) -> None:
+        session_id = self._review_session_id()
+        if not session_id:
+            _json_response(self, {"error": "review_session_required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        with self.server.review_mutation_lock:
+            history = self.server.review_histories.get(session_id, [])
+            _json_response(
+                self,
+                {"items": [_public_review_mutation(item) for item in reversed(history)]},
+            )
+
+    def _api_family_qa(self) -> None:
+        with self.server.review_mutation_lock:
+            payload = _public_family_qa(self.server)
+        if payload.get("enabled"):
+            case_ids = [
+                str(rep["case_id"])
+                for family in payload["families"]
+                for rep in family["representatives"]
+            ]
+            case_rows: dict[str, dict[str, Any]] = {}
+            if case_ids:
+                placeholders = ",".join("?" for _ in case_ids)
+                with _connect(self.server.db_path) as conn:
+                    rows = conn.execute(
+                        _case_query() + f" WHERE c.case_id IN ({placeholders})", case_ids
+                    ).fetchall()
+                fixtures = load_fixture_records(self.server.fixtures_dir)
+                case_rows = {
+                    str(row["case_id"]): _row_dict(
+                        row,
+                        fixture=fixtures.get(str(row["case_id"])),
+                        triage=self.server.triage_records.get(str(row["case_id"])),
+                    )
+                    for row in rows
+                }
+            missing = []
+            for family in payload["families"]:
+                for rep in family["representatives"]:
+                    case_id = str(rep["case_id"])
+                    rep["case"] = case_rows.get(case_id)
+                    rep["triage"] = self.server.triage_records.get(case_id)
+                    if rep["case"] is None or rep["triage"] is None:
+                        missing.append(case_id)
+            payload["missing_join_cases"] = sorted(set(missing))
+        _json_response(self, payload)
+
+    def _api_family_qa_mutation(self) -> None:
+        if self.server.family_qa is None or self.server.family_qa_manifest_path is None:
+            _json_response(self, {"error": "family_qa_not_configured"}, status=HTTPStatus.NOT_FOUND)
+            return
+        session_id = self._review_session_id()
+        if not session_id:
+            _json_response(self, {"error": "review_session_required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        payload = self._read_json_body()
+        family_id = str(payload.get("family_id") or "").strip()
+        action = str(payload.get("action") or "").strip()
+        case_id = str(payload.get("case_id") or "").strip()
+        value = str(payload.get("value") or "").strip()
+        source = self.server.family_qa["families"].get(family_id)
+        if source is None:
+            _json_response(self, {"error": "family_not_in_frozen_queue"}, status=HTTPStatus.NOT_FOUND)
+            return
+        allowed_decisions = {"approve_resonance", "approve_redox", "reject_split"}
+        allowed_marks = {"matches_family", "outlier_blocker", ""}
+        if action == "decision" and value not in allowed_decisions:
+            _json_response(self, {"error": "invalid_family_decision"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        frozen_reps = {str(row["case_id"]) for row in source["representatives"]}
+        if action == "representative_mark" and (case_id not in frozen_reps or value not in allowed_marks):
+            _json_response(self, {"error": "invalid_representative_mark"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if action not in {"decision", "representative_mark"}:
+            _json_response(self, {"error": "invalid_family_action"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        with self.server.review_mutation_lock:
+            before = _family_manifest(self.server)
+            after = json.loads(json.dumps(before))
+            family = next(
+                (item for item in after["families"] if str(item.get("family_id") or "") == family_id),
+                None,
+            )
+            if family is None:
+                _json_response(self, {"error": "family_not_in_manifest"}, status=HTTPStatus.CONFLICT)
+                return
+            now = datetime.now(timezone.utc).isoformat()
+            if action == "decision":
+                family["qa_decision"] = value
+                family["qa_passed"] = value.startswith("approve_")
+                family["proposed_status"] = "accept_both" if value.startswith("approve_") else None
+                family["proposed_reason"] = {
+                    "approve_resonance": "resonance-representation",
+                    "approve_redox": "redox-representation",
+                }.get(value)
+                label = value
+            else:
+                marks = family.setdefault("representative_marks", {})
+                if value:
+                    marks[case_id] = value
+                else:
+                    marks.pop(case_id, None)
+                label = value or "clear representative mark"
+            family["qa_updated_at"] = now
+            after["approval_required"] = True
+            after["approved"] = False
+            _write_json_atomic(self.server.family_qa_manifest_path, after)
+            mutation = {
+                "mutation_id": uuid.uuid4().hex,
+                "mutation_type": "family_qa",
+                "family_id": family_id,
+                "case_id": case_id,
+                "label": label,
+                "before_manifest": before,
+                "after_manifest": after,
+                "timestamp": now,
+                "undone": False,
+            }
+            history = self.server.review_histories.setdefault(session_id, [])
+            history.append(mutation)
+            del history[:-20]
+        _json_response(self, {"ok": True, "mutation": _public_review_mutation(mutation), "family_qa": _public_family_qa(self.server)})
+
+    def _api_review_undo(self) -> None:
+        session_id = self._review_session_id()
+        if not session_id:
+            _json_response(self, {"error": "review_session_required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        payload = self._read_json_body()
+        requested_id = str(payload.get("mutation_id") or "").strip()
+        with self.server.review_mutation_lock:
+            history = self.server.review_histories.get(session_id, [])
+            mutation = next((item for item in reversed(history) if not item.get("undone")), None)
+            if mutation is None:
+                _json_response(self, {"error": "no_review_mutation_to_undo"}, status=HTTPStatus.CONFLICT)
+                return
+            if requested_id and requested_id != mutation["mutation_id"]:
+                _json_response(self, {"error": "undo_must_target_latest_mutation"}, status=HTTPStatus.CONFLICT)
+                return
+            if mutation.get("mutation_type") == "family_qa":
+                current = _family_manifest(self.server)
+                if current != mutation["after_manifest"]:
+                    _json_response(self, {"error": "family_manifest_changed_since_session_action"}, status=HTTPStatus.CONFLICT)
+                    return
+                _write_json_atomic(self.server.family_qa_manifest_path, mutation["before_manifest"])
+                mutation["undone"] = True
+                _json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "case_id": mutation.get("case_id") or "",
+                        "family_id": mutation["family_id"],
+                        "mutation": _public_review_mutation(mutation),
+                    },
+                )
+                return
+            case_id = str(mutation["case_id"])
+            with _connect(self.server.db_path) as conn:
+                current = conn.execute(
+                    "SELECT * FROM reviews WHERE case_id = ?", (case_id,)
+                ).fetchone()
+                if _review_state(current) != mutation["after_review"]:
+                    _json_response(
+                        self,
+                        {"error": "review_changed_since_session_save"},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
+                current_fixture = snapshot_review_fixture(self.server.fixtures_dir, case_id)
+                if current_fixture != mutation["after_fixture"]:
+                    _json_response(
+                        self,
+                        {"error": "fixture_changed_since_session_save"},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
+                try:
+                    restore_review_fixture_snapshot(
+                        self.server.fixtures_dir, case_id, mutation["before_fixture"]
+                    )
+                    before = mutation["before_review"]
+                    if before is None:
+                        conn.execute("DELETE FROM reviews WHERE case_id = ?", (case_id,))
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO reviews(
+                                case_id, status, corrected_smiles, corrected_molblock,
+                                notes, reviewer, updated_at
+                            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(case_id) DO UPDATE SET
+                                status=excluded.status,
+                                corrected_smiles=excluded.corrected_smiles,
+                                corrected_molblock=excluded.corrected_molblock,
+                                notes=excluded.notes,
+                                reviewer=excluded.reviewer,
+                                updated_at=excluded.updated_at
+                            """,
+                            (case_id, *(before[key] for key in REVIEW_COLUMNS)),
+                        )
+                    conn.commit()
+                except Exception:
+                    restore_review_fixture_snapshot(
+                        self.server.fixtures_dir, case_id, current_fixture
+                    )
+                    raise
+            mutation["undone"] = True
+            _json_response(
+                self,
+                {
+                    "ok": True,
+                    "case_id": case_id,
+                    "restored_review": mutation["before_review"],
+                    "mutation": _public_review_mutation(mutation),
+                },
+            )
+
     def _api_cases(self, query: dict[str, list[str]]) -> None:
         category = query.get("category", [""])[0]
         status = query.get("status", [""])[0]
+        reviewer = query.get("reviewer", [""])[0].strip()
         search = query.get("q", [""])[0].strip()
         triage_bucket = query.get("triage_bucket", [""])[0]
         limit = max(1, min(int(query.get("limit", ["100"])[0]), 500))
@@ -820,6 +1651,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
             else:
                 where.append("r.status = ?")
                 params.append(status)
+        if reviewer:
+            where.append("TRIM(r.reviewer) = ?")
+            params.append(reviewer)
         if search:
             where.append("(c.case_id LIKE ? OR CAST(c.row_index AS TEXT) = ?)")
             params.extend((f"%{search}%", search))
@@ -827,6 +1661,24 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
         triage_records = getattr(self.server, "triage_records", {})
         with _connect(self.server.db_path) as conn:
+            count_rows = conn.execute(
+                """
+                SELECT c.case_id
+                FROM cases c
+                LEFT JOIN reviews r ON r.case_id = c.case_id
+                """
+                + where_sql,
+                params,
+            ).fetchall()
+            triage_bucket_counts = dict(
+                sorted(
+                    Counter(
+                        triage_records.get(str(row["case_id"]), {}).get("triage_bucket", "")
+                        for row in count_rows
+                        if triage_records.get(str(row["case_id"]), {}).get("triage_bucket")
+                    ).items()
+                )
+            )
             if triage_bucket:
                 matching = conn.execute(
                     _case_query() + where_sql + " ORDER BY c.row_index",
@@ -859,6 +1711,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self,
             {
                 "total": total,
+                "triage_bucket_counts": triage_bucket_counts,
                 "items": [
                     _row_dict(
                         row,
@@ -902,7 +1755,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
             return
         _text_response(self, path.read_text(encoding="utf-8"), content_type="chemical/x-xyz")
 
-    def _api_candidate_sdf(self, case_id: str) -> None:
+    def _api_candidate_sdf(self, case_id: str, query: dict[str, list[str]]) -> None:
+        render_mode = query.get("mode", ["skeleton"])[0]
+        if render_mode not in {"skeleton", "hydrogen"}:
+            _json_response(self, {"error": "invalid_render_mode"}, status=HTTPStatus.BAD_REQUEST)
+            return
         with _connect(self.server.db_path) as conn:
             row = conn.execute(
                 """
@@ -948,9 +1805,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
         svg = ""
         render_error = ""
         try:
+            reference_mol = _render_mol_from_smiles(str(row["reference_smiles"] or ""))
+            candidate_notes, _ = _triage_atom_notes(
+                dict(row),
+                getattr(self.server, "triage_records", {}).get(case_id),
+                reconstructed_mol,
+                reference_mol,
+                self.server.xyz_dir,
+            )
             svg = _render_mol_svg(
                 reconstructed_mol,
                 legend=f"{case_id} candidate current",
+                atom_notes=candidate_notes,
+                show_hydrogens=render_mode == "hydrogen",
             )
         except Exception as exc:  # noqa: BLE001
             render_error = f"{type(exc).__name__}: {exc}"
@@ -969,6 +1836,103 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 **_live_candidate_comparison(candidate_mol, snapshot_smiles),
             },
         )
+
+    def _api_reference_xyz(self, case_id: str) -> None:
+        with _connect(self.server.db_path) as conn:
+            row = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+        if row is None:
+            _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        reference = _render_mol_from_smiles(str(row["reference_smiles"] or ""))
+        if reference is None:
+            _json_response(
+                self,
+                {
+                    "available": False,
+                    "reference_xyz_status": "unavailable",
+                    "mapping_confidence": "failed",
+                    "reference_atom_to_xyz": {},
+                    "failure_code": "reference_missing_or_invalid",
+                    "error": "reference_missing_or_invalid",
+                    "sdf": "",
+                },
+            )
+            return
+        try:
+            candidate = reconstruct_case_mol(dict(row), xyz_dir=self.server.xyz_dir)
+            xyz_atoms = parse_xyz_atoms(
+                resolve_xyz_path(str(row["xyz_path"] or ""), self.server.xyz_dir).read_text(
+                    encoding="utf-8"
+                )
+            )
+            mapping = map_candidate_reference_xyz(candidate, reference, xyz_atoms)
+            ambiguity_type, ambiguity_reason = _mapping_ambiguity_details(mapping)
+            reference_xyz, confidence, error = _reference_xyz_mol(
+                dict(row),
+                getattr(self.server, "triage_records", {}).get(case_id),
+                candidate,
+                reference,
+                self.server.xyz_dir,
+                mapping,
+            )
+            representative_mapping = reference_xyz is not None and confidence == "ambiguous"
+            _json_response(
+                self,
+                {
+                    "available": reference_xyz is not None,
+                    "sdf": _mol_to_sdf_block(reference_xyz) if reference_xyz is not None else "",
+                    "reference_xyz_status": "available" if reference_xyz is not None else "unavailable",
+                    "mapping_confidence": confidence,
+                    "mapping_is_representative": representative_mapping,
+                    "mapping_selection_method": (
+                        "existing_valid_deterministic_representative"
+                        if representative_mapping
+                        else "unique_mapping"
+                        if reference_xyz is not None
+                        else ""
+                    ),
+                    "mapping_ambiguity_type": ambiguity_type,
+                    "mapping_ambiguity_reason": ambiguity_reason,
+                    "mapping_enumeration_truncated": mapping.enumeration_truncated,
+                    "mapping_timeout": mapping.timeout,
+                    "mapping_signature_count": mapping.mapping_signature_count,
+                    "mapping_equal_best_count": mapping.equal_best_mapping_count,
+                    "mapping_ambiguity_locations": _mapping_ambiguity_locations(mapping),
+                    "reference_atom_to_xyz": (
+                        {
+                            str(reference_index): candidate_index
+                            for reference_index, candidate_index in mapping.reference_to_candidate.items()
+                        }
+                        if reference_xyz is not None
+                        else {}
+                    ),
+                    "coordinate_source": "source_xyz",
+                    "connectivity_source": "reference_graph",
+                    "mapped_comparison": (
+                        _mapped_coordination_comparison(
+                            candidate, reference, mapping.reference_to_candidate
+                        )
+                        if reference_xyz is not None
+                        else {}
+                    ),
+                    "failure_code": error,
+                    "error": error,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            failure = f"{type(exc).__name__}: {exc}"
+            _json_response(
+                self,
+                {
+                    "available": False,
+                    "reference_xyz_status": "unavailable",
+                    "mapping_confidence": "failed",
+                    "reference_atom_to_xyz": {},
+                    "failure_code": "mapping_failed",
+                    "sdf": "",
+                    "error": failure,
+                },
+            )
 
     def _api_graph(self, case_id: str, query: dict[str, list[str]]) -> None:
         kind = query.get("kind", ["candidate"])[0]
@@ -998,13 +1962,18 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def _api_render(self, case_id: str, query: dict[str, list[str]]) -> None:
         kind = query.get("kind", ["candidate"])[0]
+        localize = query.get("localize", [""])[0] == "1"
+        render_mode = query.get("mode", ["skeleton"])[0]
+        if render_mode not in {"skeleton", "hydrogen"}:
+            _json_response(self, {"error": "invalid_render_mode"}, status=HTTPStatus.BAD_REQUEST)
+            return
         if kind not in {"candidate", "reference", "candidate_organic", "reference_organic"}:
             _json_response(self, {"error": "invalid_render_kind"}, status=HTTPStatus.BAD_REQUEST)
             return
 
         with _connect(self.server.db_path) as conn:
-            cache_kind = _render_cache_kind(kind)
-            if kind != "candidate":
+            cache_kind = _render_cache_kind(kind, render_mode)
+            if kind != "candidate" and not localize:
                 cached = conn.execute(
                     "SELECT svg, smiles, error FROM render_cache WHERE case_id = ? AND kind = ?",
                     (case_id, cache_kind),
@@ -1031,7 +2000,32 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     if mol is None:
                         raise ValueError("reference_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
-                    svg = _render_mol_svg(mol, legend=f"{case_id} Reference")
+                    atom_notes = None
+                    if localize:
+                        candidate = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
+                        triage = getattr(self.server, "triage_records", {}).get(case_id)
+                        _, atom_notes = _triage_atom_notes(
+                            dict(case),
+                            triage,
+                            candidate,
+                            mol,
+                            self.server.xyz_dir,
+                        )
+                        if render_mode == "hydrogen":
+                            reference_xyz, _, _ = _reference_xyz_mol(
+                                dict(case), triage, candidate, mol, self.server.xyz_dir
+                            )
+                            if reference_xyz is not None:
+                                mol = reference_xyz
+                                atom_notes = _triage_source_atom_notes(
+                                    triage, candidate, reference_assignment=True
+                                )
+                    svg = _render_mol_svg(
+                        mol,
+                        legend=f"{case_id} Reference",
+                        atom_notes=atom_notes,
+                        show_hydrogens=render_mode == "hydrogen",
+                    )
                 elif kind == "candidate_organic":
                     mol = _render_mol_from_smiles(case["candidate_organic_smiles"] or "")
                     if mol is None:
@@ -1047,7 +2041,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 error = f"{type(exc).__name__}: {exc}"
 
-            if kind != "candidate":
+            if kind != "candidate" and not localize:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO render_cache(
@@ -1097,52 +2091,85 @@ class ReviewHandler(BaseHTTPRequestHandler):
             "reviewer": str(payload.get("reviewer", "")).strip(),
             "updated_at": updated_at,
         }
-        with _connect(self.server.db_path) as conn:
-            case = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
-            if case is None:
-                _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
-                return
-            try:
-                fixture = sync_review_fixture(
-                    dict(case),
-                    review,
-                    fixtures_dir=self.server.fixtures_dir,
-                    xyz_dir=self.server.xyz_dir,
+        session_id = self._review_session_id()
+        mutation = None
+        with self.server.review_mutation_lock:
+            with _connect(self.server.db_path) as conn:
+                case = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+                if case is None:
+                    _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
+                    return
+                before_review = _review_state(
+                    conn.execute("SELECT * FROM reviews WHERE case_id = ?", (case_id,)).fetchone()
                 )
-            except (FileNotFoundError, ValueError) as exc:
-                _json_response(
-                    self,
-                    {"error": str(exc)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            conn.execute(
-                """
-                INSERT INTO reviews(
-                    case_id, status, corrected_smiles, corrected_molblock,
-                    notes, reviewer, updated_at
-                )
-                VALUES(?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(case_id) DO UPDATE SET
-                    status = excluded.status,
-                    corrected_smiles = excluded.corrected_smiles,
-                    corrected_molblock = excluded.corrected_molblock,
-                    notes = excluded.notes,
-                    reviewer = excluded.reviewer,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    case_id,
-                    status,
-                    corrected_smiles,
-                    corrected_molblock,
-                    review["notes"],
-                    review["reviewer"],
-                    updated_at,
-                ),
-            )
-            conn.commit()
-        _json_response(self, {"ok": True, "fixture": fixture})
+                before_fixture = snapshot_review_fixture(self.server.fixtures_dir, case_id)
+                try:
+                    fixture = sync_review_fixture(
+                        dict(case),
+                        review,
+                        fixtures_dir=self.server.fixtures_dir,
+                        xyz_dir=self.server.xyz_dir,
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO reviews(
+                            case_id, status, corrected_smiles, corrected_molblock,
+                            notes, reviewer, updated_at
+                        )
+                        VALUES(?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(case_id) DO UPDATE SET
+                            status = excluded.status,
+                            corrected_smiles = excluded.corrected_smiles,
+                            corrected_molblock = excluded.corrected_molblock,
+                            notes = excluded.notes,
+                            reviewer = excluded.reviewer,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            case_id,
+                            status,
+                            corrected_smiles,
+                            corrected_molblock,
+                            review["notes"],
+                            review["reviewer"],
+                            updated_at,
+                        ),
+                    )
+                    conn.commit()
+                    after_fixture = snapshot_review_fixture(self.server.fixtures_dir, case_id)
+                except (FileNotFoundError, ValueError) as exc:
+                    restore_review_fixture_snapshot(
+                        self.server.fixtures_dir, case_id, before_fixture
+                    )
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                except Exception:
+                    restore_review_fixture_snapshot(
+                        self.server.fixtures_dir, case_id, before_fixture
+                    )
+                    raise
+            if session_id:
+                mutation = {
+                    "mutation_id": uuid.uuid4().hex,
+                    "case_id": case_id,
+                    "before_review": before_review,
+                    "before_fixture": before_fixture,
+                    "after_fixture": after_fixture,
+                    "after_review": dict(review),
+                    "timestamp": updated_at,
+                    "undone": False,
+                }
+                history = self.server.review_histories.setdefault(session_id, [])
+                history.append(mutation)
+                del history[:-20]
+        _json_response(
+            self,
+            {
+                "ok": True,
+                "fixture": fixture,
+                "mutation": _public_review_mutation(mutation) if mutation else None,
+            },
+        )
 
 
 def main() -> None:
@@ -1161,6 +2188,10 @@ def main() -> None:
     server.xyz_dir = args.xyz_dir
     server.fixtures_dir = args.fixtures_dir
     server.triage_records = load_triage_records(args.triage_csv)
+    server.family_qa = load_family_qa(args.family_qa_csv, args.family_qa_manifest)
+    server.family_qa_manifest_path = args.family_qa_manifest
+    server.review_histories = {}
+    server.review_mutation_lock = threading.RLock()
     server.runtime_info = runtime_info
     server.fixtures_dir.mkdir(parents=True, exist_ok=True)
     print(f"Molecule review server: http://{args.host}:{args.port}")
@@ -1168,6 +2199,9 @@ def main() -> None:
     if args.xyz_dir is not None:
         print(f"xyz directory: {args.xyz_dir}")
     print(f"review fixtures: {args.fixtures_dir}")
+    if args.family_qa_csv is not None:
+        print(f"family QA queue: {args.family_qa_csv}")
+        print(f"family QA pending manifest: {args.family_qa_manifest}")
     print(f"molgr source: {runtime_info['molgr_source']}")
     print(f"C++ extension: {runtime_info['cpp_extension']}")
     print(

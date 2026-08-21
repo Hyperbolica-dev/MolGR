@@ -274,3 +274,28 @@ def test_python_versions_compare_candidate_graphs_not_reference_verdicts() -> No
 
     assert equivalent is True
     assert reason == "identical_smiles"
+
+
+def test_comparison_timeout_is_diagnostic_not_formula_failure(tmp_path: Path) -> None:
+    _write_xyz(tmp_path / "FORMULA.xyz")
+    result_paths = {"py38": tmp_path / "py38.csv", "py310": tmp_path / "py310.csv"}
+    for label, path in result_paths.items():
+        row = replace(
+            _benchmark_row(label),
+            comparison_skip_reason="molgr_cpp equivalence 1 timed out after 1.000s",
+        )
+        _write_result(path, row)
+
+    rows, summary = _build_review_rows(
+        metadata={(1, "FORMULA"): {"smiles": "C", "n_atoms": "5"}},
+        result_paths=result_paths,
+        xyz_dir=tmp_path,
+        method_ids=("molgr_cpp",),
+        python_version_comparison="graph",
+    )
+
+    assert summary["category_counts"] == {"reference_not_comparable": 1}
+    assert rows[0]["reference_diagnostic_group"] == "equivalence_timeout"
+    assert rows[0]["reference_formula_check_status"] == "ok"
+    assert rows[0]["reference_formula_match"] == "True"
+    assert rows[0]["reference_formula_mismatch_detail"] == ""
