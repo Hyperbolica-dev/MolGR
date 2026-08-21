@@ -7,25 +7,9 @@
 #include "molgr/utils/xyz.h"
 
 #include <openbabel/elements.h>
-#include <openbabel/obconversion.h>
 #include "molgr/compat/openbabel_iter.h"
 
 #include <set>
-
-namespace
-{
-    OpenBabel::OBConversion &ThreadLocalXyzOutConversion()
-    {
-        thread_local OpenBabel::OBConversion *conv = nullptr;
-        if (conv == nullptr)
-        {
-            conv = new OpenBabel::OBConversion();
-            conv->SetOutFormat("xyz");
-        }
-        return *conv;
-    }
-
-}
 
 namespace molgr
 {
@@ -239,7 +223,7 @@ namespace molgr
                 }
 
                 molgr::state::MetalPreparationState state;
-                state.no_metal_xyz_block = ThreadLocalXyzOutConversion().WriteString(&mol);
+                state.no_metal_xyz_block = molgr::utils::WriteXyzBlock(mol);
                 state.available_valence_radical_states = std::move(available_states);
                 state.total_charge = total_charge;
                 state.total_radical_electrons = total_radical_electrons;

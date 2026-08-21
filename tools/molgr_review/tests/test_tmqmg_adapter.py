@@ -135,7 +135,8 @@ def test_cross_openbabel_benchmark_pins_shared_rdkit() -> None:
     dependencies = _benchmark_build_dependencies()
 
     assert BENCHMARK_RDKIT_REQUIREMENT in dependencies
-    assert "openbabel-wheel; python_version < '3.10'" in dependencies
+    assert "openbabel-wheel==3.1.1.22; python_version < '3.9' and sys_platform == 'win32'" in dependencies
+    assert "openbabel-wheel; python_version < '3.10' and (sys_platform != 'win32' or python_version >= '3.9')" in dependencies
     assert "openbabel>=3.2.0; python_version >= '3.10'" in dependencies
 
 

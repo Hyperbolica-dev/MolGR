@@ -2,6 +2,19 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml/badge.svg)](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml)
+[![PyPI](https://img.shields.io/pypi/v/molgr.svg)](https://pypi.org/project/molgr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/molgr.svg)](https://pypi.org/project/molgr/)
+[![Wheel](https://img.shields.io/pypi/wheel/molgr.svg)](https://pypi.org/project/molgr/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-4C8BF5)
+![Python](https://img.shields.io/badge/python-3.8--3.14-3776AB?logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Development status](https://img.shields.io/badge/status-active%20development-F59E0B)
+![Typing](https://img.shields.io/badge/typing-PEP%20561%20typed-2F74C0)
+![Languages](https://img.shields.io/badge/languages-Python%20%7C%20C%2B%2B-00599C)
+![Ruff](https://img.shields.io/badge/lint%20%26%20format-Ruff-D7FF64?logo=ruff&logoColor=261230)
+[![License](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+
 MolGR 名称来源于 Moleculer Graph Reconstructor。
 
 MolGR 是一个从 XYZ 坐标重建分子图的 Python 包。它接收 XYZ 文本、总电荷和自旋多重度，
@@ -54,8 +67,63 @@ CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
 CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
 ```
 
+Windows 平台的 `CONFIG.cpp_backend.max_threads` 默认为 `1`。不建议在 Windows 上开启
+C++ 后端线程并行：Open Babel 并发重建可能触发 Python 无法捕获的原生 access violation。
+除非已经在本地完整验证实际工作负载，否则应保持 `max_threads=1`。Linux 和 macOS 仍使用
+自动并行的默认值 `None`。
+
 C++ 后端是 Python fallback 语义的默认加速实现。C++ 专属开关可以改变调度、缓存或线程安全
 vendor 实现，但同一个 `MolGRConfig` 下不能改变最终入选分子。
+
+### 危险行为告警
+
+仍然暴露裸 `OBMol*` 的低层接口会在第一次调用时输出一次
+`[UNSAFE_OPENBABEL]` 警告。此类指针由调用方手动管理，不能跨线程共享，必须在所有访问结束后且
+只释放一次；优先使用 `xyz_to_rdmol()`、`MoleculeData` 和 native batch API。提高 C++ 日志级别可以
+隐藏告警，但不会改变 Open Babel 的线程安全或生命周期约束。对于不受信任输入或必须调用其他裸
+Open Babel/Pybel API 的场景，仍应使用进程级隔离。
+
+MolGR 会拒绝在已经 import MolGR/Open Babel 的父进程中通过 POSIX `fork` 创建的子进程继续
+调用 MolGR，因为子进程继承的 native mutex、线程池和 Open Babel 全局状态可能不一致。Linux
+和 macOS 多进程任务应使用 `multiprocessing.get_context("spawn")`；Windows 默认使用 `spawn`，
+不受此限制。先 `fork` 再在子进程中首次 import MolGR，或 `fork` 后立即 `exec` 新程序，也不会
+继承已初始化的 MolGR 状态。
+
+在 `spawn` 子进程中直接调用 `molgr.interface.xyz_to_rdmol()` 也是支持的；此时建议让进程池
+承担跨分子并行，并在每个子进程使用 `max_threads=1`、关闭单分子内部并行，避免进程数与
+native worker 数相乘造成过量调度。
+
+## 高级使用
+
+### 并行执行策略
+
+对于低延迟场景或 benchmark，应串行调用 `xyz_to_rdmol()`。每次 C++ 调用仍可在内部自动并行
+处理金属价态目标桶，因此不需要再套一层 Python worker 池。
+
+对于高吞吐批量任务，应使用 native batch API。它接受任意有限迭代器，由有界 C++ worker 池
+完成重建，并流式返回 `(input, result, status)` 三元组。即使使用默认的 `ordered=False`，每个
+结果也会携带原始输入，不会丢失 XYZ 与重建结果的对应关系。
+
+```python
+from molgr import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
+
+requests = (
+    ReconstructionBatchRequest(xyz, total_charge=0, spin_multiplicity=1)
+    for xyz in xyz_blocks
+)
+
+for request, molecule, status in iter_xyz_to_rdmol_batch(
+    requests,
+    backend="cpp",
+    max_workers=None,  # 自动选择 native worker 数量
+):
+    consume(request, molecule, status)
+```
+
+当 batch 使用多个 worker 时，MolGR 会自动关闭单分子内部的目标桶和候选评分并行，避免嵌套
+并行造成线程过量；batch 只有一个 worker 时仍保留单分子内部并行。不要在 native batch 外层
+再套 `joblib`、线程池或进程池，应直接通过 batch 的 `max_workers` 控制并行数。`python`
+后端继续保持串行，作为语义参考实现。
 
 ## 安装
 

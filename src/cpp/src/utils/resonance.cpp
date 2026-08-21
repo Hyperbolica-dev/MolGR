@@ -8,12 +8,12 @@
 #include "molgr/utils/electrons.h"
 #include "molgr/utils/smarts.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_conversion.h"
 #include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/elements.h>
-#include <openbabel/obconversion.h>
 #include <openbabel/obfunctions.h>
 #include "molgr/compat/openbabel_iter.h"
 
@@ -612,18 +612,7 @@ namespace molgr
 
         std::string SmilesFirstToken(const OpenBabel::OBMol &mol)
         {
-            thread_local OpenBabel::OBConversion *conv = nullptr;
-            if (conv == nullptr)
-            {
-                conv = new OpenBabel::OBConversion();
-                conv->SetOutFormat("smi");
-            }
-            OpenBabel::OBMol temp(mol);
-            const std::string smi = conv->WriteString(&temp, true);
-            std::istringstream iss(smi);
-            std::string token;
-            iss >> token;
-            return token;
+            return molgr::vendor::openbabel_conversion::WriteSmilesFirstToken(mol);
         }
 
         ResonanceStateKey BuildResonanceStateKey(const OpenBabel::OBMol &mol)
@@ -987,13 +976,13 @@ namespace molgr
                   hit;
             hit = machine.RunOmolStage(
                       std::nullopt,
-                      molgr::reconstruct::CleanNeighborRadicals,
+                      molgr::reconstruct::Clean14Radicals,
                       machine.given_charge,
                       machine.total_radical_electrons) ||
                   hit;
             hit = machine.RunOmolStage(
                       std::nullopt,
-                      molgr::reconstruct::Clean14Radicals,
+                      molgr::reconstruct::CleanNeighborRadicals,
                       machine.given_charge,
                       machine.total_radical_electrons) ||
                   hit;

@@ -15,9 +15,10 @@
 #include "molgr/utils/utils.h"
 #include "molgr/utils/xyz.h"
 #include "molgr/vendor/forcefielduff.h"
+#include "molgr/vendor/openbabel_conversion.h"
 #include "molgr/vendor/openbabel_threading.h"
+#include "molgr/utils/logger.h"
 
-#include <openbabel/obconversion.h>
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <pybind11/stl.h> // 必须包含
@@ -27,10 +28,9 @@
 static std::unique_ptr<OpenBabel::OBMol> mol_from_smiles(const std::string &smiles)
 {
     auto mol = std::make_unique<OpenBabel::OBMol>();
-    OpenBabel::OBConversion conv;
-    conv.SetInFormat("smi");
-    conv.ReadString(mol.get(), smiles);
-    return mol;
+    return molgr::vendor::openbabel_conversion::ReadSmiles(smiles, mol.get())
+               ? std::move(mol)
+               : nullptr;
 }
 
 static std::unique_ptr<OpenBabel::OBMol> mol_from_xyz(const std::string &xyz)
@@ -134,22 +134,46 @@ void molgr::bind::bind_utils(py::module_ &m)
         .def_readwrite("total_radical_num", &molgr::utils::MoleculeData::total_radical_num);
 
     // 绑定提取函数
-    m.def("extract_molecule_data", &molgr::utils::ExtractMoleculeData,
+    m.def("extract_molecule_data",
+          [](intptr_t mol_ptr)
+          {
+              molgr::WarnUnsafeOpenBabelUse(
+                  "molgr.utils.extract_molecule_data",
+                  "The input OBMol pointer is not thread-safe; keep it confined to one thread and do not use it after free_obmol_ptr.");
+              return molgr::utils::ExtractMoleculeData(mol_ptr);
+          },
           "Extracts OBMol content into a structured object.",
           py::arg("mol_ptr"));
 
     m.def("molecule_data_to_obmol_ptr",
           [](const molgr::utils::MoleculeData &molecule_data)
           {
+              molgr::WarnUnsafeOpenBabelUse(
+                  "molgr.utils.molecule_data_to_obmol_ptr",
+                  "The returned OBMol pointer has manual ownership and is not safe to share across threads; prefer MoleculeData or pipeline APIs.");
               OpenBabel::OBMol *mol = new OpenBabel::OBMol(molgr::utils::MolFromMoleculeData(molecule_data));
               return reinterpret_cast<intptr_t>(mol);
           },
-          "Converts MoleculeData to a newly allocated OBMol pointer. Free it with _core.free_obmol_ptr.",
+          "Converts MoleculeData to a newly allocated OBMol pointer. This raw pointer is not thread-safe; free it exactly once with _core.free_obmol_ptr.",
           py::arg("molecule_data"));
 }
 
 void molgr::bind::bind_dev_utils(py::module_ &m)
 {
+    m.def("debug_roundtrip_xyz_block",
+          [](const std::string &xyz_block)
+          {
+              OpenBabel::OBMol mol;
+              py::gil_scoped_release release;
+              if (!molgr::utils::ReadXyzBlockToMol(xyz_block, &mol))
+              {
+                  throw std::runtime_error("failed to parse XYZ block");
+              }
+              return molgr::utils::WriteXyzBlock(mol);
+          },
+          "Round-trip an XYZ block through the plugin-free C++ reader and writer.",
+          py::arg("xyz_block"));
+
     m.def("debug_xyz_seed_molecule_data",
           [](const std::string &xyz_block)
           {
@@ -171,6 +195,9 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
     m.def("compute_organic_topology_metrics_ptr",
           [](intptr_t mol_ptr, py::object config)
           {
+              molgr::WarnUnsafeOpenBabelUse(
+                  "molgr.dev.utils.compute_organic_topology_metrics_ptr",
+                  "OBMol pointers are not thread-safe; keep the pointer confined to one thread for its entire lifetime.");
               if (mol_ptr == 0)
               {
                   throw std::runtime_error("null OBMol pointer");
@@ -200,6 +227,9 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
     m.def("organic_force_field_energy_ptr",
           [](intptr_t mol_ptr, py::object config)
           {
+              molgr::WarnUnsafeOpenBabelUse(
+                  "molgr.dev.utils.organic_force_field_energy_ptr",
+                  "OBMol pointers are not thread-safe; keep the pointer confined to one thread for its entire lifetime.");
               if (mol_ptr == 0)
               {
                   throw std::runtime_error("null OBMol pointer");
@@ -216,6 +246,9 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
     m.def("debug_vendor_uff_ptr",
           [](intptr_t mol_ptr)
           {
+              molgr::WarnUnsafeOpenBabelUse(
+                  "molgr.dev.utils.debug_vendor_uff_ptr",
+                  "OBMol pointers are not thread-safe; keep the pointer confined to one thread for its entire lifetime.");
               if (mol_ptr == 0)
               {
                   throw std::runtime_error("null OBMol pointer");
@@ -223,7 +256,7 @@ void molgr::bind::bind_dev_utils(py::module_ &m)
               auto *mol = reinterpret_cast<OpenBabel::OBMol *>(mol_ptr);
               OpenBabel::OBMol working = molgr::utils::CloneMolTopologyOnly(*mol);
               molgr::vendor::openbabel_threading::SetAromaticPerceived(working, false);
-              OpenBabel::MolgrForceFieldUFF force_field("MolGR-UFF-debug", false);
+              OpenBabel::MolgrForceFieldUFF force_field;
               force_field.SetLogLevel(OBFF_LOGLVL_NONE);
               py::dict out;
               const bool setup_ok = force_field.Setup(working);

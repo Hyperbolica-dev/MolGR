@@ -39,6 +39,7 @@ from molgr.fallback.utils.no_metals import (
     resonance as no_metal_resonance,
 )
 from molgr.fallback.utils.tools import typed_lru_cache
+from molgr.process_guard import ensure_current_process
 
 
 _DEFAULT_NO_METAL_STATE_CACHE_MAXSIZE = 1024
@@ -299,6 +300,7 @@ def xyz_to_omol_no_metal_state(
 ) -> Optional[ReconstructionState]:
     """Return the best no-metal reconstruction state for the requested charge/radicals."""
 
+    ensure_current_process("molgr.fallback.xyz_to_omol_no_metal_state")
     seed_state = preparation._seed_state(
         xyz_block,
         total_charge,

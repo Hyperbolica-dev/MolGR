@@ -127,7 +127,7 @@ namespace
         {
             return nullptr;
         }
-        return std::make_unique<OpenBabel::MolgrForceFieldUFF>("MolGR-UFF", false);
+        return std::make_unique<OpenBabel::MolgrForceFieldUFF>();
     }
 
     struct ReusableForceField
@@ -241,6 +241,9 @@ namespace
     ReusableForceField &ThreadLocalForceField(
         const std::string &force_field)
     {
+        // Open Babel force-field destructors are not safe during external
+        // worker-thread teardown. Keep this bounded cache alive until process
+        // exit instead of invoking Open Babel destructors from TLS teardown.
         thread_local auto *force_fields = new std::unordered_map<std::string, ReusableForceField>();
         ReusableForceField &entry = (*force_fields)[force_field];
         if (entry.instance == nullptr)

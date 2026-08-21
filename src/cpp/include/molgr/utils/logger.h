@@ -15,6 +15,11 @@ namespace molgr
     extern LogLevel g_current_log_level;
 
     void SetLogLevel(LogLevel level);
+
+    // Emit a process-deduplicated warning for APIs that expose raw Open Babel
+    // objects. These objects are not safe to share across threads and have
+    // manual lifetime rules.
+    void WarnUnsafeOpenBabelUse(const char *api, const char *detail);
 }
 
 #define LOG_DEBUG(msg)                                            \

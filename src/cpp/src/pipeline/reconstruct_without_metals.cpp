@@ -1,6 +1,7 @@
 #include "molgr/pipeline/reconstruct_without_metals.h"
 
 #include "molgr/pipeline/resonance.h"
+#include "molgr/process_guard.h"
 #include "molgr/stages/clean.h"
 #include "molgr/stages/preprocess.h"
 #include "molgr/utils/conversions.h"
@@ -293,6 +294,7 @@ namespace molgr
                 int total_radical_electrons,
                 const molgr::config::MolGRConfig &config)
             {
+                molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_without_metals.xyz_to_omol_no_metal");
                 molgr::pipeline::perf::RunTimingScope timing_scope;
                 auto state = XyzToOmolNoMetalState(
                     xyz_block,

@@ -23,7 +23,8 @@ flowchart TD
     E --> G
     F --> G
 
-    G --> H{GitHub Release 事件}
+    G --> H{GitHub 事件}
+    H -->|手动 build_release_wheels=true| L[仅构建并测试正式 wheel]
     H -->|published + prerelease=false + target=main + 稳定标签 vX.Y.Z| I[GitHub CI: cibuildwheel + manylinux + sdist]
     H -->|prerelease 或非稳定标签| J[不发布 PyPI]
 
@@ -57,11 +58,18 @@ flowchart TD
 文件： [`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)
 
 - `build-and-test` 提供跨平台（Linux/macOS/Windows）验证，覆盖 `3.8` 到 `3.14`。
+- GitHub 托管测试 job 使用 `setup-python` 的工具缓存和 `setup-uv` 的依赖缓存，
+  并按操作系统与 Python 版本隔离。
+- lint 通过 `uvx` 运行固定版本 Ruff，不安装 MolGR 的 RDKit/Open Babel 运行时依赖；
+  测试 job 直接从 `pyproject.toml` 安装运行时依赖，不通过记录了本地镜像的 `uv.lock` 解析。
 - Benchmark 依赖位于 [`benchmarks/pyproject.toml`](../../benchmarks/pyproject.toml)，故意不纳入根项目包元数据和正式发布依赖解析。
 - 正式发布 wheel 使用 `cibuildwheel`，按平台分组构建：
   - Linux `cp38`-`cp312`：`manylinux2014` / glibc `>=2.17`，覆盖 `x86_64` 和 `aarch64`。
   - Linux `cp313`-`cp314`：`manylinux_2_28` / glibc `>=2.28`，覆盖 `x86_64` 和 `aarch64`。
-  - Windows：AMD64。
+  - Windows：AMD64；使用 `delvewheel` 修复原生依赖，但由已声明的 Open Babel
+    依赖包提供 `openbabel-3.dll`。CPython 3.8 使用 `delvewheel 1.10.0`，更高版本
+    Python 使用 `delvewheel 1.13.0`，因为 `delvewheel 1.11+` 要求 Python 3.9 或更高版本。
+    CMake 链接两个依赖包系列都提供的 `openbabel/bin/openbabel-3.lib` 导入库。
   - macOS：`macos-13` 原生 `x86_64`，`macos-14` 原生 `arm64`。
 - 运行时依赖中保持 `rdkit>=2023.9.6` 不锁死版本，让新系统可安装更新的 RDKit wheel，低 glibc 系统则由 pip 选择当前 Python/平台上最新的兼容 RDKit wheel。根目录 [`uv.lock`](../../uv.lock) 只是本地开发解析，可能在部分 Python 分支选择旧版 RDKit；它不是发布 wheel 的版本上限。
 - 仅在以下条件全部满足时发布 PyPI：
@@ -70,6 +78,9 @@ flowchart TD
   - `target_commitish == main`
   - 标签以 `v` 开头
   - 标签不包含 `rc` / `.dev`
+- 使用 `workflow_dispatch` 手动运行并设置 `build_release_wheels=true` 时，会构建并测试
+  完整的正式 wheel 矩阵，并上传 workflow artifact 供检查，但不会发布到 PyPI，
+  也不会向 GitHub Release 附加文件。
 
 ## 标签同步策略
 
@@ -110,8 +121,10 @@ Runner/action 解析配置：
 2. 合并到 `develop` 触发内网测试包持续发布。
 3. 验证通过后合并到 `main`。
 4. 需要内网预发布验证时，在 `main` 打 `vX.Y.ZrcN` 或 `vX.Y.Z.devN` 标签。
-5. 正式发布时，在 `main` 打稳定标签 `vX.Y.Z` 并创建非 prerelease 的 GitHub Release。
-6. 发布完成后检查 PyPI 与 GitHub Release 产物。
+5. 首次公开发布前，可在 GitHub Actions 手动运行工作流，设置
+   `build_release_wheels=true` 并检查全部 wheel artifact。
+6. 正式发布时，在 `main` 打稳定标签 `vX.Y.Z` 并创建非 prerelease 的 GitHub Release。
+7. 发布完成后检查 PyPI 与 GitHub Release 产物。
 
 ## 约束与守则
 

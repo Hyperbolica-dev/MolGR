@@ -553,12 +553,14 @@ namespace
 
     std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> &ThreadLocalFunctionalGroupPatterns()
     {
-        thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *patterns = nullptr;
-        if (patterns == nullptr)
+        // Do not invoke Open Babel SMARTS destructors from TLS teardown.
+        // This cache is bounded per worker and intentionally process-lived.
+        thread_local std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>> *patterns = []()
         {
-            patterns = new std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>>();
+            auto *compiled_patterns =
+                new std::vector<std::unique_ptr<OpenBabel::OBSmartsPattern>>();
             const auto &rules = FunctionalGroupBondRules();
-            patterns->reserve(rules.size());
+            compiled_patterns->reserve(rules.size());
             for (const FunctionalGroupBondRule &rule : rules)
             {
                 auto pattern = std::make_unique<OpenBabel::OBSmartsPattern>();
@@ -568,9 +570,10 @@ namespace
                         std::string("Invalid MolGR vendor functional-group SMARTS: ") +
                         rule.smarts);
                 }
-                patterns->push_back(std::move(pattern));
+                compiled_patterns->push_back(std::move(pattern));
             }
-        }
+            return compiled_patterns;
+        }();
         return *patterns;
     }
 

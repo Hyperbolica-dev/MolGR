@@ -490,6 +490,54 @@ def test_pre_clean_collapses_hyper_pi_bonds_for_python_and_cpp(
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(python_omol)
 
 
+def test_pre_clean_normalizes_aromatic_sulfur_oxygen_for_python_and_cpp() -> None:
+    from molgr import _core  # type: ignore
+
+    def make_omol() -> pybel.Molecule:
+        return pybel.readstring("smi", "COc1ns(=O)nc1OC")
+
+    python_omol = make_omol()
+    cpp_omol = make_omol()
+    sulfur_idx = next(atom.idx for atom in python_omol if atom.atomicnum == 16)
+    oxygen_idx = next(
+        neighbor.GetIdx()
+        for neighbor in ob.OBAtomAtomIter(python_omol.OBMol.GetAtom(sulfur_idx))
+        if neighbor.GetAtomicNum() == 8
+    )
+
+    assert python_omol.OBMol.GetAtom(sulfur_idx).IsAromatic()
+    assert python_omol.OBMol.GetBond(sulfur_idx, oxygen_idx).GetBondOrder() == 2
+
+    _, python_pre_clean_hit = pre_clean(python_omol)
+    python_omol, python_fresh_hit = fresh_omol_charge_radical(python_omol)
+    python_given_charge = -sum(atom.OBAtom.GetFormalCharge() for atom in python_omol)
+    python_omol, python_given_charge, python_eliminate_hit = eliminate_negative_charges(
+        python_omol,
+        python_given_charge,
+    )
+
+    cpp_pre_clean_hit = _core.dev.stages.preprocess.pre_clean_ptr(_get_ptr(cpp_omol.OBMol))
+    cpp_fresh_hit = _core.dev.stages.fresh.fresh_omol_charge_radical_ptr(_get_ptr(cpp_omol.OBMol))
+    cpp_given_charge = -sum(atom.OBAtom.GetFormalCharge() for atom in cpp_omol)
+    cpp_given_charge, cpp_eliminate_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        cpp_given_charge,
+    )
+
+    assert python_pre_clean_hit
+    assert python_fresh_hit
+    assert python_eliminate_hit
+    assert python_given_charge == 0
+    assert python_omol.OBMol.GetBond(sulfur_idx, oxygen_idx).GetBondOrder() == 1
+    assert python_omol.OBMol.GetAtom(sulfur_idx).GetFormalCharge() == 1
+    assert python_omol.OBMol.GetAtom(oxygen_idx).GetFormalCharge() == -1
+    assert cpp_pre_clean_hit == python_pre_clean_hit
+    assert cpp_fresh_hit == python_fresh_hit
+    assert cpp_eliminate_hit == python_eliminate_hit
+    assert cpp_given_charge == python_given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(python_omol)
+
+
 def test_eliminate_nnn_negative_produces_closed_shell_azide() -> None:
     omol = pybel.readstring("smi", "[N][N][N]")
 
@@ -1794,6 +1842,47 @@ def test_eliminate_high_positive_charge_atoms_skips_non_singlet_donor_for_python
     )
 
     assert not cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
+def test_eliminate_high_positive_charge_atoms_uses_electronegativity_and_stops_at_neutrality() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        center = obmol.NewAtom()
+        center.SetAtomicNum(16)
+        center.SetFormalCharge(1)
+        for atomic_num in (7, 8, 7):
+            neighbor = obmol.NewAtom()
+            neighbor.SetAtomicNum(atomic_num)
+            set_unpaired_electron_count(neighbor, 1)
+            obmol.AddBond(center.GetIdx(), neighbor.GetIdx(), 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol, given_charge, hit = eliminate_high_positive_charge_atoms(make_omol(), -1)
+
+    assert hit
+    assert given_charge == 0
+    assert [omol.OBMol.GetAtom(idx).GetFormalCharge() for idx in (2, 3, 4)] == [0, -1, 0]
+    assert [get_unpaired_electron_count(omol.OBMol.GetAtom(idx)) for idx in (2, 3, 4)] == [
+        1,
+        0,
+        1,
+    ]
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_high_positive_charge_atoms_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+    )
+
+    assert cpp_hit
     assert cpp_given_charge == given_charge
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 

@@ -38,6 +38,10 @@ Use the dedicated benchmark environment documented in [`../README.md`](../README
 The environment uses Python `>=3.10,<3.12` and keeps benchmark-only dependencies in
 [`../pyproject.toml`](../pyproject.toml).
 
+The default is serial row execution; `molgr_cpp` still keeps its internal target-bucket
+parallelism. Add `--jobs N` when measuring batch throughput so the native batch pool owns
+the C++ worker budget.
+
 Create or refresh it from the repository root:
 
 ```bash

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
@@ -23,7 +24,7 @@ class ResonanceConfig:
 
 @dataclass
 class CppBackendConfig:
-    max_threads: Optional[int] = None
+    max_threads: Optional[int] = 1 if sys.platform == "win32" else None
     enable_target_bucket_parallelism: bool = True
     enable_candidate_scoring_parallelism: bool = False
     enable_uff_atom_typing_cache: bool = False

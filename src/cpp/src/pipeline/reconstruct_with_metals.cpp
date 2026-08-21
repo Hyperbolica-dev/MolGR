@@ -1,6 +1,7 @@
 #include "molgr/pipeline/reconstruct_with_metals.h"
 
 #include "molgr/context.h"
+#include "molgr/process_guard.h"
 #include "molgr/pipeline/reconstruct_without_metals.h"
 #include "molgr/state.h"
 #include "molgr/utils/conversions.h"
@@ -164,8 +165,28 @@ namespace molgr
                 const std::string &xyz_block,
                 int total_charge,
                 int total_radical_electrons,
-                const molgr::config::MolGRConfig &config)
+                const molgr::config::MolGRConfig &config,
+                molgr::diagnostics::ReconstructionDiagnostics *diagnostics)
             {
+                molgr::EnsureCurrentProcess("molgr.pipeline.reconstruct_with_metals.xyz2omol");
+                if (diagnostics != nullptr)
+                {
+                    diagnostics->Reset();
+                    diagnostics->details["total_charge"] = std::to_string(total_charge);
+                    diagnostics->details["total_radical_electrons"] =
+                        std::to_string(total_radical_electrons);
+                }
+                const auto fail =
+                    [diagnostics](
+                        const std::string &code,
+                        const std::string &stage,
+                        const std::string &message)
+                {
+                    if (diagnostics != nullptr)
+                    {
+                        diagnostics->Fail(code, stage, message);
+                    }
+                };
                 const molgr::context::ReconstructionContext run_context{
                     xyz_block,
                     total_charge,
@@ -177,6 +198,10 @@ namespace molgr
                 auto &timing_reducer = timing_scope.Reducer();
                 if (!run_context.HasValidRadicalTarget())
                 {
+                    fail(
+                        "INVALID_ELECTRONIC_TARGET",
+                        "input.electronic_state",
+                        "The requested radical-electron count is invalid.");
                     return nullptr;
                 }
 
@@ -192,6 +217,10 @@ namespace molgr
                             false);
                     if (!no_metal_state.has_value())
                     {
+                        fail(
+                            "NO_VALID_ORGANIC_CANDIDATE",
+                            "no_metal.reconstruction",
+                            "No valid organic graph was produced for the requested target.");
                         return nullptr;
                     }
                     return std::make_unique<molgr::utils::MoleculeData>(
@@ -206,7 +235,16 @@ namespace molgr
                     run_config);
                 if (base_state.phase_history.empty())
                 {
+                    fail(
+                        "NO_REACHABLE_METAL_STATE",
+                        "metal.preparation",
+                        "Metal preparation produced no usable metal-state options.");
                     return nullptr;
+                }
+                if (diagnostics != nullptr)
+                {
+                    diagnostics->details["metal_atom_count"] =
+                        std::to_string(base_state.available_valence_radical_states.size());
                 }
 
                 const auto state_search_groups =
@@ -229,12 +267,28 @@ namespace molgr
                 for (std::size_t layer_index = 0; layer_index < layered_state_search_groups.size();
                      ++layer_index)
                 {
+                    if (diagnostics != nullptr)
+                    {
+                        diagnostics->Count("search_layers");
+                    }
                     auto grouped_candidates = molgr::metal::search::GroupCandidatesByTargetDp(
                         base_state.phase_history,
                         layered_state_search_groups[layer_index],
                         run_context.total_charge,
                         run_context.total_radical_electrons,
                         run_config);
+                    if (diagnostics != nullptr)
+                    {
+                        diagnostics->Count(
+                            "target_buckets",
+                            static_cast<long long>(grouped_candidates.size()));
+                        long long candidate_count = 0;
+                        for (const auto &entry : grouped_candidates)
+                        {
+                            candidate_count += static_cast<long long>(entry.second.size());
+                        }
+                        diagnostics->Count("metal_candidates_enumerated", candidate_count);
+                    }
                     auto target_bucket_tasks =
                         molgr::metal::search::BuildTargetBucketTasks(std::move(grouped_candidates));
                     if (target_bucket_tasks.empty())
@@ -249,6 +303,10 @@ namespace molgr
                                 base_state.no_metal_xyz_block);
                         if (!no_metal_seed_omol)
                         {
+                            fail(
+                                "INVALID_XYZ",
+                                "no_metal.parse",
+                                "The no-metal XYZ seed could not be parsed.");
                             return nullptr;
                         }
                     }
@@ -369,6 +427,19 @@ namespace molgr
                             std::make_move_iterator(scored_bucket.begin()),
                             std::make_move_iterator(scored_bucket.end()));
                     }
+                    if (diagnostics != nullptr)
+                    {
+                        diagnostics->Count(
+                            "no_metal_reconstruction_successes",
+                            static_cast<long long>(
+                                std::count_if(
+                                    prepared_buckets.begin(),
+                                    prepared_buckets.end(),
+                                    [](const auto &bucket) { return bucket.has_value(); })));
+                        diagnostics->Count(
+                            "metal_candidates_scored",
+                            static_cast<long long>(current_layer_scored_candidates.size()));
+                    }
                     if (current_layer_scored_candidates.empty())
                     {
                         continue;
@@ -381,6 +452,32 @@ namespace molgr
 
                 if (possible_candidates.empty())
                 {
+                    if (diagnostics != nullptr)
+                    {
+                        const auto target_count = diagnostics->counts["target_buckets"];
+                        const auto organic_count = diagnostics->counts["no_metal_reconstruction_successes"];
+                        if (target_count == 0)
+                        {
+                            fail(
+                                "NO_REACHABLE_METAL_STATE",
+                                "metal.search",
+                                "No metal-state assignment reached a valid charge/radical target.");
+                        }
+                        else if (organic_count == 0)
+                        {
+                            fail(
+                                "NO_VALID_ORGANIC_CANDIDATE",
+                                "no_metal.reconstruction",
+                                "Every reachable metal target failed organic graph reconstruction.");
+                        }
+                        else
+                        {
+                            fail(
+                                "ALL_METAL_CANDIDATES_REJECTED",
+                                "metal.scoring",
+                                "Organic targets were reconstructed, but every metal candidate was rejected.");
+                        }
+                    }
                     return nullptr;
                 }
 
@@ -393,6 +490,10 @@ namespace molgr
                     molgr::metal::scoring::SelectBestCandidate(possible_candidates, run_config);
                 if (!selected_candidate.has_value())
                 {
+                    fail(
+                        "ALL_METAL_CANDIDATES_REJECTED",
+                        "metal.selection",
+                        "No scored metal candidate could be selected.");
                     return nullptr;
                 }
 
@@ -407,6 +508,10 @@ namespace molgr
                 if (candidate_total_charge != run_context.total_charge ||
                     candidate_total_radicals != run_context.total_radical_electrons)
                 {
+                    fail(
+                        "OUTPUT_INVARIANT_BROKEN",
+                        "metal.selection",
+                        "The selected candidate does not satisfy the requested charge/radical budget.");
                     return nullptr;
                 }
                 if (!best_candidate.combined_omol)
@@ -435,6 +540,10 @@ namespace molgr
 
                 if (!best_candidate.combined_omol)
                 {
+                    fail(
+                        "OUTPUT_INVARIANT_BROKEN",
+                        "metal.materialization",
+                        "The selected candidate could not be materialized as an OBMol.");
                     return nullptr;
                 }
                 return std::make_unique<molgr::utils::MoleculeData>(
