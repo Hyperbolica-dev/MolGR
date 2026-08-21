@@ -57,12 +57,14 @@ def test_primary_structure_panels_are_fixed_and_legacy_switch_is_absent() -> Non
     parser = _IdTreeParser()
     parser.feed(html)
 
-    expected = ["viewerPanel", "primaryVisual", "secondaryVisual"]
+    expected = ["viewerPanel", "referenceXyzPanel", "primaryVisual", "secondaryVisual"]
     assert [node for node in expected if parser.nodes[node][0] == "primaryVisuals"] == expected
     assert "xyz-card" in parser.nodes["viewerPanel"][1]
+    assert "reference-xyz-card" in parser.nodes["referenceXyzPanel"][1]
     assert "candidate-card" in parser.nodes["primaryVisual"][1]
     assert "reference-card" in parser.nodes["secondaryVisual"][1]
-    assert html.index('id="viewerPanel"') < html.index('id="primaryVisual"')
+    assert html.index('id="viewerPanel"') < html.index('id="referenceXyzPanel"')
+    assert html.index('id="referenceXyzPanel"') < html.index('id="primaryVisual"')
     assert html.index('id="primaryVisual"') < html.index('id="secondaryVisual"')
     assert "render-kind" not in html
     assert "primaryKind" not in javascript
@@ -70,6 +72,48 @@ def test_primary_structure_panels_are_fixed_and_legacy_switch_is_absent() -> Non
     assert 'querySelectorAll(".render-kind")' not in javascript
     assert 'loadRender("candidate", "primary", token)' in javascript
     assert 'loadRender("reference", "secondary", token)' in javascript
+
+
+def test_review_history_ui_keeps_auto_next_and_restores_undone_case() -> None:
+    html = (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    javascript = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="undoReview"' in html
+    assert 'id="lastReviewSummary"' in html
+    assert 'id="recentReviewList"' in html
+    assert "state.reviewHistory = state.reviewHistory.slice(0, 20)" in javascript
+    assert "await loadCase(queuedNextCaseId)" in javascript
+    assert "await loadCase(result.case_id)" in javascript
+    assert '(event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z"' in javascript
+    assert '"X-MolGR-Review-Session": reviewSessionId' in javascript
+
+
+def test_optional_family_filter_hides_and_sidebar_counts_relocalize() -> None:
+    javascript = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert ".filters label[hidden] { display: none; }" in stylesheet
+    toggle_language = javascript.split("function toggleLanguage()", 1)[1].split("\n}", 1)[0]
+    assert "applyLanguage();" in toggle_language
+    assert "loadStats().catch" in toggle_language
+
+
+def test_mapped_comparison_has_no_persistent_atom_overlays() -> None:
+    javascript = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "function applyMappedComparison" not in javascript
+    assert "applyMappedComparison(viewer" not in javascript
+    assert "function renderMappedComparisonNote" in javascript
+
+
+def test_representative_reference_xyz_warns_without_hover_ui() -> None:
+    javascript = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "data.mapping_is_representative" in javascript
+    assert 'tr("representativeMappingWarning")' in javascript
+    assert 'tr("ambiguityType")' in javascript
+    assert 'tr("diagnosticReasonLabel")' in javascript
+    assert "mappingRepresentativeHover" not in javascript
 
 
 def test_reference_states_render_failures_and_stale_response_guard() -> None:

@@ -27,6 +27,7 @@ from benchmarks.tmqmg_xyz_benchmark.comparison_annotations import (  # noqa: E40
     ComparisonAnnotation,
     find_comparison_annotation,
 )
+from tools.molgr_review.reference_diagnostics import classify_reference_problem  # noqa: E402
 
 
 STATE_DIR = ROOT_DIR / ".local" / "molgr_review" / "tmqmg"
@@ -73,6 +74,8 @@ REVIEW_COLUMNS = (
     "total_radical_electrons_used",
     "spin_multiplicity_used",
     "reference_parse_status",
+    "reference_diagnostic_group",
+    "reference_diagnostic_reason",
     "reference_formula_check_status",
     "reference_formula_match",
     "xyz_atom_count",
@@ -866,30 +869,29 @@ def _build_review_rows(
         representative_timing = (
             representative.timing_ms_total if representative is not None else 0.0
         )
-        any_comparison_skip = any(_truthy(row.comparison_skipped) for row in rows_by_key.values())
-        first_skip_reason = next(
-            (
-                row.comparison_skip_reason
-                for row in rows_by_key.values()
-                if row.comparison_skip_reason
-            ),
-            "",
-        )
+        comparison_skip_reasons = [
+            row.comparison_skip_reason
+            for row in rows_by_key.values()
+            if _truthy(row.comparison_skipped) and row.comparison_skip_reason
+        ]
         any_ok = any(row.status == "ok" for row in rows_by_key.values())
         formula_fields = {
-            "reference_formula_check_status": (
-                "comparison_skipped" if any_comparison_skip else "ok"
-            ),
-            "reference_formula_match": "False" if any_comparison_skip else "True",
+            # Reference-vs-XYZ formula validation has already succeeded here.
+            # A later graph-equivalence timeout/reparse failure is not a formula failure.
+            "reference_formula_check_status": "ok",
+            "reference_formula_match": "True",
             "xyz_atom_count": meta.get("n_atoms", ""),
             "reference_atom_count_with_h": meta.get("n_atoms", ""),
             "xyz_formula": "",
             "reference_formula_with_h": "",
-            "reference_formula_mismatch_detail": first_skip_reason,
+            "reference_formula_mismatch_detail": "",
             "reference_answer_wrong": "False",
             "reference_answer_status": "not_flagged",
             "reference_answer_reason": "",
         }
+        if not reference_smiles:
+            formula_fields["reference_formula_check_status"] = "missing_reference_smiles"
+            formula_fields["reference_formula_match"] = ""
         if category == "reference_formula_mismatch":
             formula_fields = _reference_formula_mismatch_fields(
                 reference_smiles,
@@ -909,6 +911,11 @@ def _build_review_rows(
                 "reference_answer_reason": comparison_annotation.reason,
             }
             representative_equivalent = ""
+        diagnostic_group, diagnostic_reason = classify_reference_problem(
+            reference_smiles=reference_smiles,
+            skip_reasons=comparison_skip_reasons,
+            formula_status=formula_fields["reference_formula_check_status"],
+        )
         row = {
             "case_id": case_id,
             "source": "tmqmg",
@@ -945,6 +952,8 @@ def _build_review_rows(
             "total_radical_electrons_used": "",
             "spin_multiplicity_used": "",
             "reference_parse_status": "missing_reference_smiles" if not reference_smiles else "ok",
+            "reference_diagnostic_group": diagnostic_group,
+            "reference_diagnostic_reason": diagnostic_reason,
             "reference_formula_check_status": formula_fields["reference_formula_check_status"],
             "reference_formula_match": formula_fields["reference_formula_match"],
             "xyz_atom_count": formula_fields["xyz_atom_count"],

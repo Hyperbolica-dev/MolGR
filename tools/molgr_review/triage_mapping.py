@@ -330,6 +330,53 @@ def _signature(
     return tuple(sorted(differences, key=lambda item: json.dumps(item, sort_keys=True)))
 
 
+def _projection_overlong_rank(
+    mapping: dict[int, int],
+    candidate: Chem.Mol,
+    reference: Chem.Mol,
+    candidate_to_source: dict[int, int],
+    reference_to_source: dict[int, int],
+    candidate_to_xyz: dict[int, int],
+    xyz_atoms: list[tuple[str, tuple[float, float, float]]],
+) -> tuple[int, float]:
+    """Rank a mapping by how sanely its reference edges project onto XYZ geometry.
+
+    Prefers mappings whose reference covalent edges land at plausible bond lengths,
+    penalising representatives that would project a single graph edge as an
+    obviously over-long covalent bond. Lower is better.
+    """
+    positions = {index: (x, y, z) for index, (_, (x, y, z)) in enumerate(xyz_atoms)}
+    reference_edges = _edge_map(reference)
+    inverse = {
+        reference_index: candidate_index for candidate_index, reference_index in mapping.items()
+    }
+    pt = Chem.GetPeriodicTable()
+    overlong_count = 0
+    excess_sum = 0.0
+    for reference_index, candidate_index in inverse.items():
+        for neighbor_index in reference.GetAtomWithIdx(reference_index).GetNeighbors():
+            neighbor = neighbor_index.GetIdx()
+            if tuple(sorted((reference_index, neighbor))) not in reference_edges:
+                continue
+            if neighbor not in inverse:
+                continue
+            cand_i = candidate_index
+            cand_j = inverse[neighbor]
+            xyz_i = candidate_to_xyz[candidate_to_source[cand_i]]
+            xyz_j = candidate_to_xyz[candidate_to_source[cand_j]]
+            if xyz_i not in positions or xyz_j not in positions:
+                return (1 << 30, float("inf"))
+            d = math.dist(positions[xyz_i], positions[xyz_j])
+            covalent_max = (
+                pt.GetRcovalent(candidate.GetAtomWithIdx(cand_i).GetAtomicNum())
+                + pt.GetRcovalent(candidate.GetAtomWithIdx(cand_j).GetAtomicNum())
+            ) * 1.45
+            if d > covalent_max:
+                overlong_count += 1
+                excess_sum += d - covalent_max
+    return overlong_count, round(excess_sum, 3)
+
+
 @dataclass(frozen=True)
 class MappingResult:
     chosen_mapping: dict[int, int]
@@ -451,7 +498,22 @@ def map_candidate_reference_xyz(
             )
             for mapping in best_mappings.values()
         }
-        chosen = next(iter(best_mappings.values()))
+        if len(best_mappings) > 1:
+            ranked = sorted(
+                best_mappings.values(),
+                key=lambda mapping: _projection_overlong_rank(
+                    mapping,
+                    candidate_heavy,
+                    reference_heavy,
+                    candidate_to_source,
+                    reference_to_source,
+                    candidate_to_xyz,
+                    xyz_atoms,
+                ),
+            )
+            chosen = ranked[0]
+        else:
+            chosen = next(iter(best_mappings.values()))
         reference_to_candidate = {
             reference_to_source[reference_index]: candidate_to_source[candidate_index]
             for candidate_index, reference_index in chosen.items()

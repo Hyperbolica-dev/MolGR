@@ -7,11 +7,13 @@ import sys
 import threading
 from http.client import HTTPConnection
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Geometry import Point3D
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -130,6 +132,324 @@ def test_review_2d_render_omits_explicit_h_without_mutating_electronic_state(
         for atom in rendered.GetAtoms()  # pyright: ignore[reportCallIssue]
     ] == original_heavy_radicals
     assert sum(original_heavy_radicals) == 1
+
+
+def test_review_2d_render_localizes_only_requested_heavy_atom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    molecule = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    assert molecule is not None
+    captured: dict[str, object] = {}
+
+    class SvgResult:
+        data = "<svg>localized</svg>"
+
+    def capture_render(mol: Chem.Mol, **kwargs: object) -> SvgResult:
+        captured["mol"] = Chem.Mol(mol)
+        captured["highlight_atoms"] = kwargs.get("highlightAtoms")
+        return SvgResult()
+
+    import rdkit_dof
+
+    monkeypatch.setattr(rdkit_dof, "MolToDofImage", capture_render)
+    review_server._render_mol_svg(
+        molecule,
+        legend="test",
+        atom_notes={1: "XYZ #19 · H#20 attached here", 2: "H#20"},
+    )
+
+    rendered = captured["mol"]
+    assert isinstance(rendered, Chem.Mol)
+    assert rendered.GetNumAtoms() == 2
+    assert captured["highlight_atoms"] == [1]
+    assert rendered.GetAtomWithIdx(1).GetProp("atomNote") == "XYZ #19 · H#20 attached here"
+    assert not molecule.GetAtomWithIdx(1).HasProp("atomNote")
+
+
+def test_review_2d_hydrogen_mode_keeps_all_source_h_without_generating_h(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = Chem.MolFromSmiles("CN")
+    assert base is not None
+    molecule = Chem.AddHs(base)
+    source_atoms = molecule.GetNumAtoms()
+    disputed_h = next(
+        atom.GetIdx()
+        for atom in molecule.GetAtoms()
+        if atom.GetAtomicNum() == 1 and atom.GetNeighbors()[0].GetAtomicNum() == 6  # pyright: ignore[reportIndexIssue]
+    )
+    captured: dict[str, Chem.Mol] = {}
+
+    class SvgResult:
+        data = "<svg>hydrogen</svg>"
+
+    def capture_render(mol: Chem.Mol, **kwargs: object) -> SvgResult:
+        captured["mol"] = Chem.Mol(mol)
+        return SvgResult()
+
+    import rdkit_dof
+
+    monkeypatch.setattr(rdkit_dof, "MolToDofImage", capture_render)
+    review_server._render_mol_svg(
+        molecule,
+        legend="H",
+        atom_notes={disputed_h: f"H · #{disputed_h}"},
+        show_hydrogens=True,
+    )
+
+    assert molecule.GetNumAtoms() == source_atoms
+    assert captured["mol"].GetNumAtoms() == source_atoms
+    rendered_h = [
+        atom
+        for atom in captured["mol"].GetAtoms()  # pyright: ignore[reportCallIssue]
+        if atom.GetAtomicNum() == 1
+    ]
+    assert len(rendered_h) == sum(
+        atom.GetAtomicNum() == 1
+        for atom in molecule.GetAtoms()  # pyright: ignore[reportCallIssue]
+    )
+    assert any(
+        atom.HasProp("atomNote") and atom.GetProp("atomNote") == f"H · #{disputed_h}"
+        for atom in rendered_h
+    )
+
+
+def test_reference_xyz_uses_source_coordinates_and_requires_reliable_mapping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    editable = Chem.RWMol()
+    for symbol in ["C", "H", "H", "H", "H"]:
+        editable.AddAtom(Chem.Atom(symbol))
+    for hydrogen in range(1, 5):
+        editable.AddBond(0, hydrogen, Chem.BondType.SINGLE)
+    candidate = editable.GetMol()
+    coordinates = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (-1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, -1.0, 0.0),
+    ]
+    conformer = Chem.Conformer(5)
+    for index, coordinate in enumerate(coordinates):
+        conformer.SetAtomPosition(index, Point3D(*coordinate))
+    candidate.AddConformer(conformer)
+    candidate.UpdatePropertyCache(strict=False)
+    reference = Chem.MolFromSmiles("C")
+    assert reference is not None
+    xyz_path = tmp_path / "METHANE.xyz"
+    xyz_path.write_text(
+        "5\nMETHANE\n"
+        + "\n".join(
+            f"{symbol} {x} {y} {z}"
+            for symbol, (x, y, z) in zip(["C", "H", "H", "H", "H"], coordinates)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    case = {"xyz_path": str(xyz_path)}
+
+    result, confidence, error = review_server._reference_xyz_mol(
+        case,
+        {"mapping_confidence": "unique_graph_mapping"},
+        candidate,
+        reference,
+        None,
+    )
+    assert result is not None
+    assert confidence == "unique_graph_mapping"
+    assert error == ""
+    assert result.GetNumAtoms() == 5
+    assert result.GetNumBonds() == 4
+    assert tuple(result.GetConformer().GetAtomPosition(1)) == coordinates[1]
+
+    class AmbiguousMapping:
+        confidence = "ambiguous"
+        reference_to_candidate: dict[int, int] = {}
+
+    monkeypatch.setattr(
+        review_server,
+        "map_candidate_reference_xyz",
+        lambda *_args, **_kwargs: AmbiguousMapping(),
+    )
+    unavailable, ambiguous_confidence, reason = review_server._reference_xyz_mol(
+        case,
+        {"mapping_confidence": "unique_graph_mapping"},
+        candidate,
+        reference,
+        None,
+    )
+    assert unavailable is None
+    assert ambiguous_confidence == "ambiguous"
+    assert reason == "atom_correspondence_not_reliable"
+
+    class RepresentativeAmbiguousMapping:
+        confidence = "ambiguous"
+        reference_to_candidate = {0: 0}
+        enumeration_truncated = True
+
+    representative, representative_confidence, representative_error = (
+        review_server._reference_xyz_mol(
+            case,
+            None,
+            candidate,
+            reference,
+            None,
+            RepresentativeAmbiguousMapping(),
+        )
+    )
+    assert representative is not None
+    assert representative_confidence == "ambiguous"
+    assert representative_error == ""
+    assert representative.GetNumBonds() == 4
+    assert tuple(representative.GetConformer().GetAtomPosition(1)) == coordinates[1]
+
+
+def test_mapped_xyz_comparison_preserves_real_edges_and_exposes_donor_pair() -> None:
+    candidate_editable = Chem.RWMol()
+    for symbol in ["Mo", "C", "O", "O"]:
+        candidate_editable.AddAtom(Chem.Atom(symbol))
+    candidate_editable.AddBond(0, 2, Chem.BondType.DATIVE)
+    candidate_editable.AddBond(1, 2, Chem.BondType.SINGLE)
+    candidate_editable.AddBond(1, 3, Chem.BondType.DOUBLE)
+    candidate = candidate_editable.GetMol()
+    conformer = Chem.Conformer(4)
+    for index, point in enumerate([(0, 0, 0), (2, 0, 0), (1, 0, 0), (3, 0, 0)]):
+        conformer.SetAtomPosition(index, Point3D(*point))
+    candidate.AddConformer(conformer)
+    candidate.UpdatePropertyCache(strict=False)
+
+    reference_editable = Chem.RWMol()
+    for symbol in ["O", "C", "O", "Mo"]:
+        reference_editable.AddAtom(Chem.Atom(symbol))
+    reference_editable.AddBond(3, 0, Chem.BondType.DATIVE)
+    reference_editable.AddBond(1, 0, Chem.BondType.SINGLE)
+    reference_editable.AddBond(1, 2, Chem.BondType.DOUBLE)
+    reference = reference_editable.GetMol()
+    reference.UpdatePropertyCache(strict=False)
+
+    comparison = review_server._mapped_coordination_comparison(
+        candidate,
+        reference,
+        {3: 0, 1: 1, 0: 2, 2: 3},
+    )
+    assert candidate.GetBondBetweenAtoms(0, 2) is not None
+    assert candidate.GetBondBetweenAtoms(0, 3) is None
+    assert reference.GetBondBetweenAtoms(3, 0) is not None
+    assert reference.GetBondBetweenAtoms(3, 2) is None
+    assert comparison["coordination_edges"] == [
+        {
+            "presence": "common",
+            "metal_element": "Mo",
+            "donor_element": "O",
+            "candidate_metal_xyz_index": 0,
+            "candidate_donor_xyz_index": 2,
+            "reference_metal_atom_index": 3,
+            "reference_donor_atom_index": 0,
+            "distance": 1.0,
+            "mapped_ligand_group": [
+                {
+                    "element": "O",
+                    "candidate_xyz_index": 2,
+                    "reference_atom_index": 0,
+                    "role": "donor",
+                },
+                {
+                    "element": "O",
+                    "candidate_xyz_index": 3,
+                    "reference_atom_index": 2,
+                    "role": "mapped_equivalent",
+                },
+            ],
+            "interpretation": "mapped_donor_preserved",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        (
+            {
+                "timeout": False,
+                "enumeration_truncated": False,
+                "mapping_signature_count": 2,
+                "equal_best_mapping_count": 2,
+            },
+            ("multiple_valid_mappings", "multiple_equally_valid_atom_mappings"),
+        ),
+        (
+            {
+                "timeout": False,
+                "enumeration_truncated": True,
+                "mapping_signature_count": 1,
+                "equal_best_mapping_count": 8,
+            },
+            (
+                "mapping_enumeration_truncated",
+                "mapping_enumeration_truncated_before_unique_correspondence",
+            ),
+        ),
+        (
+            {
+                "timeout": True,
+                "enumeration_truncated": False,
+                "mapping_signature_count": 1,
+                "equal_best_mapping_count": 1,
+            },
+            ("mapping_timeout", "mapping_timeout_before_unique_correspondence"),
+        ),
+    ],
+)
+def test_reference_xyz_ambiguity_uses_existing_mapping_status(
+    attributes: dict[str, object], expected: tuple[str, str]
+) -> None:
+    mapping = SimpleNamespace(confidence="ambiguous", **attributes)
+    assert review_server._mapping_ambiguity_details(mapping) == expected
+
+
+def test_reference_xyz_ambiguity_reports_decision_relevant_xyz_location() -> None:
+    mapping = SimpleNamespace(
+        decision_relevant_signatures=(
+            (("metal_bond", (4, 9), True, False, "dative", "none"),),
+            (("metal_bond", (4, 10), True, False, "dative", "none"),),
+        ),
+        enumeration_truncated=False,
+        timeout=False,
+    )
+    assert review_server._mapping_ambiguity_locations(mapping) == {
+        "affected_xyz_atoms": [4, 9, 10],
+        "alternatives": [
+            {
+                "alternative": 1,
+                "differences": [
+                    {
+                        "kind": "metal_bond",
+                        "xyz_atoms": [4, 9],
+                        "candidate_present": True,
+                        "reference_present": False,
+                        "candidate_bond": "dative",
+                        "reference_bond": "none",
+                    }
+                ],
+            },
+            {
+                "alternative": 2,
+                "differences": [
+                    {
+                        "kind": "metal_bond",
+                        "xyz_atoms": [4, 10],
+                        "candidate_present": True,
+                        "reference_present": False,
+                        "candidate_bond": "dative",
+                        "reference_bond": "none",
+                    }
+                ],
+            },
+        ],
+        "location_proven": True,
+    }
 
 
 def test_review_2d_render_preserves_hydride_annotations() -> None:
@@ -793,6 +1113,174 @@ C 0.0 0.0 0.0
         thread.join(timeout=10)
 
 
+def test_review_undo_restores_unreviewed_filter_and_fixture_state(tmp_path: Path) -> None:
+    xyz_path = tmp_path / "UNDO.xyz"
+    xyz_path.write_text("1\ncarbon\nC 0 0 0\n", encoding="utf-8")
+    fixtures_dir = tmp_path / "reviewed"
+    db_path = tmp_path / "review.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript((APP_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.execute(
+            """
+            INSERT INTO cases(case_id, row_index, xyz_path, total_charge, reference_smiles,
+                              candidate_status, metadata_json)
+            VALUES('UNDO', 1, ?, 0, 'C', 'ok', ?)
+            """,
+            (
+                str(xyz_path),
+                json.dumps({"spin_multiplicity_used": "1", "total_radical_electrons_used": "0"}),
+            ),
+        )
+        conn.commit()
+
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
+    server.db_path = db_path
+    server.xyz_dir = None
+    server.fixtures_dir = fixtures_dir
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def request(path: str, *, method: str = "GET", body: dict[str, str] | None = None):
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        headers = {"X-MolGR-Review-Session": "undo-session"}
+        encoded = None
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            encoded = json.dumps(body)
+        connection.request(method, path, body=encoded, headers=headers)
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        connection.close()
+        return response.status, payload
+
+    try:
+        status, saved = request(
+            "/api/cases/UNDO/review",
+            method="POST",
+            body={
+                "status": "accept_reference",
+                "reviewer": "resonance-representation",
+                "notes": "evidence",
+            },
+        )
+        assert status == 200
+        assert saved["mutation"]["case_id"] == "UNDO"
+        assert load_fixture_records(fixtures_dir)["UNDO"]["kind"] == "reference_graph"
+        status, filtered = request("/api/cases?status=unreviewed")
+        assert status == 200
+        assert all(item["case_id"] != "UNDO" for item in filtered["items"])
+
+        status, undone = request(
+            "/api/review-undo",
+            method="POST",
+            body={"mutation_id": saved["mutation"]["mutation_id"]},
+        )
+        assert status == 200
+        assert undone["case_id"] == "UNDO"
+        assert undone["restored_review"] is None
+        assert load_fixture_records(fixtures_dir) == {}
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute("SELECT * FROM reviews WHERE case_id='UNDO'").fetchone() is None
+        status, filtered = request("/api/cases?status=unreviewed")
+        assert status == 200
+        assert [item["case_id"] for item in filtered["items"]] == ["UNDO"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def test_review_undo_restores_overwritten_review_and_exact_fixture(tmp_path: Path) -> None:
+    xyz_path = tmp_path / "OVERWRITE.xyz"
+    xyz_path.write_text("1\ncarbon\nC 0 0 0\n", encoding="utf-8")
+    fixtures_dir = tmp_path / "reviewed"
+    case = {
+        "case_id": "OVERWRITE",
+        "row_index": 2,
+        "xyz_path": str(xyz_path),
+        "total_charge": 0,
+        "reference_smiles": "C",
+        "metadata_json": json.dumps(
+            {"spin_multiplicity_used": "1", "total_radical_electrons_used": "0"}
+        ),
+    }
+    original_review = {
+        "status": "accept_reference",
+        "corrected_smiles": "",
+        "corrected_molblock": "",
+        "notes": "original evidence",
+        "reviewer": "original-reason",
+        "updated_at": "2026-08-17T00:00:00+00:00",
+    }
+    sync_review_fixture(case, original_review, fixtures_dir=fixtures_dir)
+    original_manifest = (fixtures_dir / "manifest.json").read_text(encoding="utf-8")
+    original_xyz = (fixtures_dir / "reference_graph/OVERWRITE.xyz").read_text(encoding="utf-8")
+    db_path = tmp_path / "review.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript((APP_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.execute(
+            """INSERT INTO cases(case_id,row_index,xyz_path,total_charge,reference_smiles,
+                                  candidate_status,metadata_json)
+               VALUES('OVERWRITE',2,?,0,'C','ok',?)""",
+            (str(xyz_path), case["metadata_json"]),
+        )
+        conn.execute(
+            """INSERT INTO reviews(case_id,status,corrected_smiles,corrected_molblock,
+                                    notes,reviewer,updated_at)
+               VALUES('OVERWRITE',?,?,?,?,?,?)""",
+            tuple(original_review[key] for key in review_server.REVIEW_COLUMNS),
+        )
+        conn.commit()
+
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
+    server.db_path = db_path
+    server.xyz_dir = None
+    server.fixtures_dir = fixtures_dir
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post(path: str, body: dict[str, str]):
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        connection.request(
+            "POST",
+            path,
+            body=json.dumps(body),
+            headers={
+                "Content-Type": "application/json",
+                "X-MolGR-Review-Session": "overwrite-session",
+            },
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        connection.close()
+        return response.status, payload
+
+    try:
+        status, saved = post(
+            "/api/cases/OVERWRITE/review",
+            {"status": "needs_followup", "reviewer": "new-reason", "notes": "new note"},
+        )
+        assert status == 200
+        assert load_fixture_records(fixtures_dir) == {}
+        status, undone = post("/api/review-undo", {"mutation_id": saved["mutation"]["mutation_id"]})
+        assert status == 200
+        assert undone["restored_review"] == original_review
+        with sqlite3.connect(db_path) as conn:
+            restored = conn.execute(
+                "SELECT status,corrected_smiles,corrected_molblock,notes,reviewer,updated_at "
+                "FROM reviews WHERE case_id='OVERWRITE'"
+            ).fetchone()
+        assert restored == tuple(original_review[key] for key in review_server.REVIEW_COLUMNS)
+        assert (fixtures_dir / "manifest.json").read_text(encoding="utf-8") == original_manifest
+        assert (fixtures_dir / "reference_graph/OVERWRITE.xyz").read_text(
+            encoding="utf-8"
+        ) == original_xyz
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
 def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -841,7 +1329,7 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     monkeypatch.setattr(
         review_server,
         "_render_mol_svg",
-        lambda mol, *, legend: "<svg>live</svg>",
+        lambda mol, *, legend, atom_notes=None, show_hydrogens=False: "<svg>live</svg>",
     )
 
     server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
@@ -922,7 +1410,13 @@ def test_reference_render_cache_is_scoped_to_renderer_version(
 
     render_calls = 0
 
-    def render_current(mol: Chem.Mol, *, legend: str) -> str:
+    def render_current(
+        mol: Chem.Mol,
+        *,
+        legend: str,
+        atom_notes: dict[int, str] | None = None,
+        show_hydrogens: bool = False,
+    ) -> str:
         nonlocal render_calls
         render_calls += 1
         assert mol.GetNumAtoms() == 2
@@ -938,9 +1432,9 @@ def test_reference_render_cache_is_scoped_to_renderer_version(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    def get_reference() -> dict[str, object]:
+    def get_reference(mode: str = "skeleton") -> dict[str, object]:
         connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
-        connection.request("GET", "/api/cases/CACHE/render?kind=reference")
+        connection.request("GET", f"/api/cases/CACHE/render?kind=reference&mode={mode}")
         response = connection.getresponse()
         assert response.status == 200
         payload = json.loads(response.read())
@@ -950,6 +1444,7 @@ def test_reference_render_cache_is_scoped_to_renderer_version(
     try:
         first = get_reference()
         second = get_reference()
+        hydrogen = get_reference("hydrogen")
     finally:
         server.shutdown()
         server.server_close()
@@ -957,12 +1452,17 @@ def test_reference_render_cache_is_scoped_to_renderer_version(
 
     assert first["svg"] == "<svg>review-2d-v2</svg>"
     assert second["svg"] == "<svg>review-2d-v2</svg>"
-    assert render_calls == 1
+    assert hydrogen["svg"] == "<svg>review-2d-v2</svg>"
+    assert render_calls == 2
     with sqlite3.connect(db_path) as conn:
         cache_kinds = {
             row[0] for row in conn.execute("SELECT kind FROM render_cache WHERE case_id = 'CACHE'")
         }
-    assert cache_kinds == {"reference", "review_2d_v2:reference"}
+    assert cache_kinds == {
+        "reference",
+        "review_2d_v2:reference:skeleton",
+        "review_2d_v2:reference:hydrogen",
+    }
 
 
 def test_case_payload_selects_candidate_snapshot_for_server_python() -> None:

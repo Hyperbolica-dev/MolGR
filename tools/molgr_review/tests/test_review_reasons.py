@@ -68,6 +68,10 @@ def test_review_reasons_are_distinct_counted_and_refresh_after_review(tmp_path: 
             {"reviewer": "auto-oxidative-addition", "count": 2},
             {"reviewer": "project-policy", "count": 1},
         ]
+        status, payload = request("/api/cases?reviewer=auto-oxidative-addition")
+        assert status == 200
+        assert payload["total"] == 2
+        assert [item["case_id"] for item in payload["items"]] == ["OLD_A", "OLD_B"]
 
         status, _ = request(
             "/api/cases/NEW/review",
@@ -122,11 +126,16 @@ def test_review_reason_control_is_editable_and_saves_only_its_value() -> None:
 
     assert 'data-i18n="reviewer">审核理由</span>' in html
     assert 'id="reviewer" type="text" list="reviewReasonOptions"' in html
+    assert 'id="reviewReasonFilter"' in html
     assert '<datalist id="reviewReasonOptions"></datalist>' in html
     assert 'data-i18n="notes">备注 / 证据</span>' in html
     assert 'reviewer: $("reviewer").value' in javascript
     assert 'notes: $("notes").value' in javascript
     assert 'value="${escapeHtml(reviewer)}"' in javascript
     assert "reviewer} (${count})" in javascript
+    assert 'params.set("reviewer", reviewReason)' in javascript
+    assert '$("reviewReasonFilter").addEventListener("change"' in javascript
+    assert '$("statusFilter").value === "unreviewed"' in javascript
+    assert '$("statusFilter").value = ""' in javascript
     assert "await Promise.all([loadStats(), loadReviewReasons()])" in javascript
     assert 'class="render-kind' not in html

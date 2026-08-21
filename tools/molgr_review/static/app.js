@@ -6,9 +6,15 @@ const state = {
   limit: 80,
   current: null,
   viewStyle: "stick",
+  twoDMode: "skeleton",
   caseRequestToken: 0,
   xyzViewer: null,
   candidateViewer: null,
+  referenceXyzViewer: null,
+  referenceXyzSdf: "",
+  referenceXyzFailure: "",
+  mappedComparison: {},
+  xyzComparisonMode: "raw",
   currentCandidateSdf: "",
   currentLiveCandidate: null,
   ketcherLoaded: false,
@@ -21,7 +27,22 @@ const state = {
   xyzLoadStatus: "unknown",
   xyzLoadError: "",
   savingReview: false,
+  undoingReview: false,
+  reviewHistory: [],
+  familyQa: { enabled: false, families: [], progress: {} },
+  activeFamilyId: "",
 };
+
+const reviewSessionId = (() => {
+  const key = "molgrReviewSessionId";
+  const storage = globalThis.sessionStorage;
+  let value = storage?.getItem(key);
+  if (!value) {
+    value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    storage?.setItem(key, value);
+  }
+  return value;
+})();
 
 const translations = {
   zh: {
@@ -30,7 +51,20 @@ const translations = {
     languageToggle: "English",
     category: "类别",
     reviewStatus: "审核状态",
+    reviewReasonFilter: "审核理由",
     triageBucket: "Triage bucket",
+    familyQueue: "Family QA queue",
+    calibrationRelation: "校准关系",
+    metalStateTransition: "金属状态",
+    repeatCount: "重复次数",
+    mappingSource: "映射来源",
+    transformation: "变换摘要",
+    matchesFamily: "符合 family",
+    outlierBlocker: "异常 / blocker",
+    approveResonance: "批准 · resonance representation",
+    approveRedox: "批准 · redox representation",
+    rejectSplit: "拒绝批量 / 拆分 family",
+    familyQaSafety: "只更新 pending manifest · 不修改正式审核结论。",
     search: "搜索",
     searchPlaceholder: "id 或 row_index",
     all: "全部",
@@ -42,8 +76,14 @@ const translations = {
     reloadCurrent: "重载当前",
     manualConclusion: "人工结论",
     shortcutHint: "快捷键 1–7 · 上一条/下一条 ← →",
+    undoReview: "撤回上一条审核",
+    recentReviews: "最近审核",
+    justReviewed: "刚刚审核: {caseId} → {status}",
+    noRecentReviews: "本次 session 尚无审核操作",
+    undoComplete: "已撤回 {caseId}",
     triageEvidence: "审核证据",
     mappingConfidence: "mapping",
+    fullTraceEvidence: "完整 Trace evidence",
     removeFixture: "移除 fixture",
     removeFixtureTitle: "移除 {file} 并将 {caseId} 标记为待复核",
     reviewer: "审核理由",
@@ -55,6 +95,39 @@ const translations = {
     needsFollowup: "待复核",
     skip: "跳过",
     xyz3d: "3D XYZ",
+    referenceXyz: "参考 XYZ",
+    referenceXyzHint: "Reference graph on source XYZ",
+    referenceXyzUnavailable: "Reference XYZ unavailable",
+    referenceXyzUnreliable: "原子对应关系不可靠。",
+    referenceXyzAmbiguous: "原子对应关系存在歧义。",
+    representativeMappingWarning: "代表性映射 — 原子对应关系不唯一。",
+    ambiguityType: "歧义类型",
+    unavailableReason: "不可用原因",
+    ambiguityLocation: "歧义位置",
+    ambiguityAlternatives: "可能对应",
+    ambiguityLocationUnknown: "无法可靠定位；映射枚举在确认唯一对应关系前已停止。",
+    mappingAlternative: "映射 {index}",
+    mappingAmbiguityTypes: {
+      multiple_valid_mappings: "多个有效映射",
+      symmetry_equivalent_atoms: "对称等价原子",
+      mapping_enumeration_truncated: "映射枚举被截断",
+      mapping_timeout: "映射计算超时",
+      ambiguous_mapping: "原子映射不唯一",
+    },
+    mappingAmbiguityReasons: {
+      multiple_equally_valid_atom_mappings: "存在多个同等有效的原子映射，因此无法构造唯一的 Reference XYZ。",
+      symmetry_equivalent_atoms_prevent_unique_correspondence: "对称等价原子导致对应关系不唯一，因此无法构造唯一的 Reference XYZ。",
+      mapping_enumeration_truncated_before_unique_correspondence: "在确认唯一对应关系之前映射枚举已被截断。",
+      mapping_timeout_before_unique_correspondence: "映射计算在确认唯一对应关系之前超时。",
+      unique_atom_correspondence_not_established: "无法建立唯一的 Candidate–Reference 原子对应关系。",
+    },
+    referenceXyzMissing: "Reference graph 缺失。",
+    rawXyz: "Raw XYZ",
+    mappedComparison: "Mapped comparison",
+    mappedDonorPreserved: "mapped donor preserved",
+    donorSwappedMappedLigand: "donor swapped within mapped ligand",
+    skeletonMode: "骨架",
+    hydrogenMode: "H 分配",
     inputXyz: "输入 XYZ",
     currentCandidateTopology3d: "当前候选重建 3D 拓扑",
     currentCandidateSdf: "当前候选重建 SDF",
@@ -113,6 +186,7 @@ const translations = {
     multiplicityTooltip: "自旋多重度",
     radicalsTooltip: "显式自由基电子总数",
     formulaTooltip: "XYZ 与 graph 分子式一致性",
+    electronStateRoundtripNote: "LONE_PAIR_COUNT_PROP 丢失可改变价态语义",
     caseDetails: "Developer details / 开发信息",
     assessmentDetails: "Assessment / Reference 详情",
     runtimeDetails: "Benchmark / Runtime",
@@ -132,6 +206,7 @@ const translations = {
     referenceRenderFailed: "Reference render failed",
     focusCandidateFailure: "重点检查：当前候选重建不可用。",
     focusReference: "重点检查：Reference 缺失、无效或渲染失败，优先核对 XYZ 与 Candidate。",
+    focusReferenceComparison: "重点检查：Reference 比较未完成；这不是分子式错误。",
     focusFormula: "重点检查：XYZ 与 Reference 的分子式状态异常。",
     focusAssessment: "重点检查：当前 case 的 assessability 受限。",
     focusSnapshot: "重点检查：当前重建与 candidate snapshot 不一致。",
@@ -169,6 +244,15 @@ const translations = {
     sameCompact: "same",
     differentCompact: "different",
     formulaLabel: "formula",
+    diagnosticLabel: "诊断",
+    diagnosticReasonLabel: "原因",
+    referenceDiagnostics: {
+      missing_reference: "缺少 Reference",
+      equivalence_timeout: "等价性比较超时",
+      candidate_reparse_failure: "Candidate 重新解析失败",
+      formula_mismatch: "分子式不匹配",
+      comparison_skipped: "比较未完成",
+    },
     structure: "结构图",
     close: "关闭",
     closeZoomedImage: "关闭放大图片",
@@ -239,6 +323,8 @@ const translations = {
       candidate_organic: "候选图 organic",
       reference_organic: "参考图 organic",
       reference_formula_status: "参考分子式状态",
+      reference_diagnostic_group: "Reference 诊断分类",
+      reference_diagnostic_reason: "Reference 诊断原因",
       xyz_formula: "XYZ 分子式",
       reference_formula_with_h: "参考分子式（含氢）",
       reference_formula_mismatch: "参考分子式差异",
@@ -277,7 +363,20 @@ const translations = {
     languageToggle: "中文",
     category: "Category",
     reviewStatus: "Review status",
+    reviewReasonFilter: "Review reason",
     triageBucket: "Triage bucket",
+    familyQueue: "Family QA queue",
+    calibrationRelation: "Calibration relation",
+    metalStateTransition: "Metal state",
+    repeatCount: "Repeat count",
+    mappingSource: "Mapping source",
+    transformation: "Transformation",
+    matchesFamily: "Matches family",
+    outlierBlocker: "Outlier / blocker",
+    approveResonance: "Approve · resonance representation",
+    approveRedox: "Approve · redox representation",
+    rejectSplit: "Reject batch / split family",
+    familyQaSafety: "Pending manifest only · authoritative reviews are unchanged.",
     search: "Search",
     searchPlaceholder: "id or row_index",
     all: "All",
@@ -289,8 +388,14 @@ const translations = {
     reloadCurrent: "Reload current",
     manualConclusion: "Manual decision",
     shortcutHint: "Shortcuts 1–7 · previous/next ← →",
+    undoReview: "Undo last review",
+    recentReviews: "Recent reviews",
+    justReviewed: "Just reviewed: {caseId} → {status}",
+    noRecentReviews: "No reviews in this session",
+    undoComplete: "Undid {caseId}",
     triageEvidence: "Review evidence",
     mappingConfidence: "mapping",
+    fullTraceEvidence: "Full Trace evidence",
     removeFixture: "Remove fixture",
     removeFixtureTitle: "Remove {file} and mark {caseId} for follow-up",
     reviewer: "Review reason",
@@ -302,6 +407,39 @@ const translations = {
     needsFollowup: "Needs follow-up",
     skip: "Skip",
     xyz3d: "3D XYZ",
+    referenceXyz: "Reference XYZ",
+    referenceXyzHint: "Reference graph on source XYZ",
+    referenceXyzUnavailable: "Reference XYZ unavailable",
+    referenceXyzUnreliable: "Atom correspondence is not reliable.",
+    referenceXyzAmbiguous: "Atom correspondence is ambiguous.",
+    representativeMappingWarning: "Representative mapping — atom correspondence is not unique.",
+    ambiguityType: "Ambiguity type",
+    unavailableReason: "Reason",
+    ambiguityLocation: "Ambiguous location",
+    ambiguityAlternatives: "Possible correspondences",
+    ambiguityLocationUnknown: "Not reliably localized; mapping search stopped before a unique correspondence was established.",
+    mappingAlternative: "Mapping {index}",
+    mappingAmbiguityTypes: {
+      multiple_valid_mappings: "multiple valid mappings",
+      symmetry_equivalent_atoms: "symmetry-equivalent atoms",
+      mapping_enumeration_truncated: "mapping enumeration truncated",
+      mapping_timeout: "mapping timeout",
+      ambiguous_mapping: "ambiguous atom mapping",
+    },
+    mappingAmbiguityReasons: {
+      multiple_equally_valid_atom_mappings: "Multiple equally valid atom mappings exist, so a unique Reference XYZ cannot be constructed.",
+      symmetry_equivalent_atoms_prevent_unique_correspondence: "Symmetry-equivalent atoms prevent a unique correspondence, so a unique Reference XYZ cannot be constructed.",
+      mapping_enumeration_truncated_before_unique_correspondence: "Mapping enumeration was truncated before a unique correspondence could be established.",
+      mapping_timeout_before_unique_correspondence: "Mapping timed out before a unique correspondence could be established.",
+      unique_atom_correspondence_not_established: "A unique Candidate–Reference atom correspondence could not be established.",
+    },
+    referenceXyzMissing: "Reference graph is missing.",
+    rawXyz: "Raw XYZ",
+    mappedComparison: "Mapped comparison",
+    mappedDonorPreserved: "mapped donor preserved",
+    donorSwappedMappedLigand: "donor swapped within mapped ligand",
+    skeletonMode: "Skeleton",
+    hydrogenMode: "Show H",
     inputXyz: "Input XYZ",
     currentCandidateTopology3d: "Current candidate 3D topology",
     currentCandidateSdf: "Current candidate SDF",
@@ -360,6 +498,7 @@ const translations = {
     multiplicityTooltip: "Spin multiplicity",
     radicalsTooltip: "Total explicit radical electrons",
     formulaTooltip: "XYZ / graph molecular formula consistency",
+    electronStateRoundtripNote: "LONE_PAIR_COUNT_PROP loss can change valence semantics",
     caseDetails: "Developer details",
     assessmentDetails: "Assessment / Reference details",
     runtimeDetails: "Benchmark / Runtime",
@@ -379,6 +518,7 @@ const translations = {
     referenceRenderFailed: "Reference render failed",
     focusCandidateFailure: "Focus: the current candidate reconstruction is unavailable.",
     focusReference: "Focus: reference is missing, invalid, or failed to render; compare XYZ and Candidate first.",
+    focusReferenceComparison: "Focus: Reference comparison did not complete; this is not a formula error.",
     focusFormula: "Focus: the XYZ and Reference formula status is abnormal.",
     focusAssessment: "Focus: assessability is limited for this case.",
     focusSnapshot: "Focus: current reconstruction differs from the candidate snapshot.",
@@ -416,6 +556,15 @@ const translations = {
     sameCompact: "same",
     differentCompact: "different",
     formulaLabel: "formula",
+    diagnosticLabel: "Diagnosis",
+    diagnosticReasonLabel: "Reason",
+    referenceDiagnostics: {
+      missing_reference: "Missing reference",
+      equivalence_timeout: "Equivalence comparison timeout",
+      candidate_reparse_failure: "Candidate reparse failure",
+      formula_mismatch: "Formula mismatch",
+      comparison_skipped: "Comparison incomplete",
+    },
     structure: "Structure",
     close: "Close",
     closeZoomedImage: "Close enlarged image",
@@ -486,6 +635,8 @@ const translations = {
       candidate_organic: "Candidate organic",
       reference_organic: "Reference organic",
       reference_formula_status: "Reference formula status",
+      reference_diagnostic_group: "Reference diagnostic group",
+      reference_diagnostic_reason: "Reference diagnostic reason",
       xyz_formula: "XYZ formula",
       reference_formula_with_h: "Reference formula with H",
       reference_formula_mismatch: "Reference formula mismatch",
@@ -556,7 +707,9 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
     element.setAttribute("aria-label", tr(element.dataset.i18nAriaLabel));
   });
+  localizeTriageFilterOptions();
   renderCaseList();
+  renderMappedComparisonNote();
   if (state.current) {
     renderCaseHeader();
     renderReviewerSummary();
@@ -573,6 +726,9 @@ function toggleLanguage() {
   state.language = state.language === "zh" ? "en" : "zh";
   localStorage.setItem("moleculeReviewLanguage", state.language);
   applyLanguage();
+  loadStats().catch((error) => {
+    console.error("Failed to localize sidebar counts", error);
+  });
 }
 
 function renderKetcherStatus() {
@@ -643,7 +799,7 @@ function queueViewerResize() {
   if (viewerResizeFrame) return;
   viewerResizeFrame = window.requestAnimationFrame(() => {
     viewerResizeFrame = 0;
-    [state.xyzViewer, state.candidateViewer].forEach((viewer) => {
+    [state.xyzViewer, state.referenceXyzViewer, state.candidateViewer].forEach((viewer) => {
       if (viewer && typeof viewer.resize === "function") {
         viewer.resize();
         viewer.render();
@@ -785,7 +941,7 @@ function bindLayoutResizers() {
 
 function observeViewerContainer() {
   if (!window.ResizeObserver) return;
-  const containers = [$("viewer3d"), $("viewerCandidate3d")].filter(Boolean);
+  const containers = [$("viewer3d"), $("referenceViewer3d"), $("viewerCandidate3d")].filter(Boolean);
   if (!containers.length) return;
   viewerResizeObserver = new ResizeObserver(() => queueViewerResize());
   containers.forEach((container) => viewerResizeObserver.observe(container));
@@ -793,8 +949,12 @@ function observeViewerContainer() {
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-MolGR-Review-Session": reviewSessionId,
+      ...(options.headers || {}),
+    },
   });
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json") ? await response.json() : await response.text();
@@ -900,17 +1060,23 @@ async function loadStats() {
         `<code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`,
     )
     .join("");
-  const triageBuckets = stats.triage_buckets || {};
+  renderTriageBucketOptions(stats.triage_buckets || {});
+}
+
+function renderTriageBucketOptions(triageBuckets) {
   const triageFilter = $("triageFilter");
   const selectedBucket = triageFilter.value;
   const triageEntries = Object.entries(triageBuckets).sort(([left], [right]) =>
     left.localeCompare(right),
   );
+  if (selectedBucket && !triageEntries.some(([bucket]) => bucket === selectedBucket)) {
+    triageEntries.push([selectedBucket, 0]);
+  }
   $("triageFilterField").hidden = triageEntries.length === 0;
   triageFilter.innerHTML = `<option value="">${escapeHtml(tr("all"))}</option>${triageEntries
     .map(
       ([bucket, count]) =>
-        `<option value="${escapeHtml(bucket)}">${escapeHtml(bucket)} (${count})</option>`,
+        `<option value="${escapeHtml(bucket)}" data-count="${count}">${escapeHtml(triageBucketLabel(bucket))} (${count})</option>`,
     )
     .join("")}`;
   if (triageEntries.some(([bucket]) => bucket === selectedBucket)) {
@@ -921,6 +1087,8 @@ async function loadStats() {
 async function loadReviewReasons() {
   const data = await api("/api/review-reasons");
   const items = Array.isArray(data.items) ? data.items : [];
+  const reasonFilter = $("reviewReasonFilter");
+  const selectedReason = reasonFilter.value;
   $("reviewReasonOptions").innerHTML = items
     .filter((item) => hasValue(item.reviewer))
     .map((item) => {
@@ -929,17 +1097,156 @@ async function loadReviewReasons() {
       return `<option value="${escapeHtml(reviewer)}">${escapeHtml(`${reviewer} (${count})`)}</option>`;
     })
     .join("");
+  reasonFilter.innerHTML = `<option value="">${escapeHtml(tr("all"))}</option>${items
+    .filter((item) => hasValue(item.reviewer))
+    .map((item) => {
+      const reviewer = String(item.reviewer).trim();
+      const count = Number(item.count) || 0;
+      return `<option value="${escapeHtml(reviewer)}">${escapeHtml(`${reviewer} (${count})`)}</option>`;
+    })
+    .join("")}`;
+  if (items.some((item) => String(item.reviewer).trim() === selectedReason)) {
+    reasonFilter.value = selectedReason;
+  }
+}
+
+function activeFamily() {
+  return state.familyQa.families.find((family) => family.family_id === state.activeFamilyId) || null;
+}
+
+function familyOptionLabel(family) {
+  return `${family.family_id} (${family.family_size} cases / ${family.representatives.length} reps)`;
+}
+
+function signedNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value ?? "—");
+  return number > 0 ? `+${number}` : String(number).replace("-", "−");
+}
+
+function bondSymbol(type) {
+  return { single: "–", double: "=", triple: "≡", aromatic: ":", dative: "→" }[type] || `(${type})`;
+}
+
+function transformationSummary(raw, repeatCount = 1) {
+  let value;
+  try {
+    value = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch (error) {
+    return tr("unknown");
+  }
+  if (!value || typeof value !== "object") return tr("unknown");
+  const lines = [];
+  const repeats = Math.max(1, Number(repeatCount) || 1);
+  if (hasValue(value.metal_charge_delta) && Number(value.metal_charge_delta) !== 0) {
+    lines.push(`metal Δq ${signedNumber(value.metal_charge_delta)}`);
+  }
+  (value.charge_transitions_per_unit || []).forEach(([element, before, after, count]) => {
+    const total = (Number(count) || 1) * repeats;
+    lines.push(`${total > 1 ? `${total} × ` : ""}${element} ${signedNumber(before)} → ${signedNumber(after)}`);
+  });
+  (value.bond_transitions_per_unit || []).forEach(([atoms, before, after, count]) => {
+    const [left, right] = atoms || ["?", "?"];
+    const total = (Number(count) || 1) * repeats;
+    lines.push(`${total > 1 ? `${total} × ` : ""}${left}${bondSymbol(before)}${right} → ${left}${bondSymbol(after)}${right}`);
+  });
+  if (hasValue(value.ligand_charge_compensation)) {
+    lines.push(`ligand charge compensation = ${signedNumber(value.ligand_charge_compensation)}`);
+  }
+  return lines.join(" · ") || tr("unknown");
+}
+
+function renderFamilyQueue() {
+  const field = $("familyQueueField");
+  const select = $("familyQueue");
+  field.hidden = !state.familyQa.enabled;
+  if (!state.familyQa.enabled) return;
+  select.innerHTML = state.familyQa.families.map((family) =>
+    `<option value="${escapeHtml(family.family_id)}">${escapeHtml(familyOptionLabel(family))}</option>`,
+  ).join("");
+  select.value = state.activeFamilyId;
+}
+
+function currentRepresentative() {
+  const family = activeFamily();
+  return family?.representatives.find((rep) => rep.case_id === state.current?.case_id) || null;
+}
+
+function renderFamilyQaCard() {
+  const card = $("familyQaCard");
+  const family = activeFamily();
+  const rep = currentRepresentative();
+  card.hidden = !family;
+  document.body.classList.toggle("family-qa-mode", Boolean(family));
+  if (!family) return;
+  const index = Math.max(0, family.representatives.findIndex((item) => item.case_id === rep?.case_id));
+  $("familyQaTitle").textContent = `${family.family_id} · ${family.family_size} cases`;
+  $("familyQaRep").textContent = `rep ${index + 1} / ${family.representatives.length}`;
+  const progress = state.familyQa.progress || {};
+  $("familyQaProgress").textContent = `${progress.reviewed_families || 0} / ${progress.total_families || 0} families reviewed · ${progress.approved_cases || 0} / ${progress.total_cases || 0} cases approved`;
+  $("familyCalibration").textContent = rep?.calibration_relation || family.calibration_relation || "—";
+  $("familyMetalState").textContent = `${rep?.candidate_metal_state || "—"} → ${rep?.reference_metal_state || "—"}`;
+  $("familyRepeat").textContent = rep?.repeat_count || "—";
+  $("familyMapping").textContent = rep?.mapping_source || "—";
+  $("familyTransformation").textContent = transformationSummary(
+    rep?.canonical_transformation || family.canonical_transformation,
+    rep?.repeat_count || family.repeat_count,
+  );
+  document.querySelectorAll("[data-rep-mark]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.repMark === rep?.qa_mark);
+  });
+  document.querySelectorAll("[data-family-decision]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.familyDecision === family.decision);
+  });
+}
+
+async function loadFamilyQa({ preserveFamily = true } = {}) {
+  const data = await api("/api/family-qa");
+  state.familyQa = data;
+  if (data.enabled && (!preserveFamily || !data.families.some((family) => family.family_id === state.activeFamilyId))) {
+    state.activeFamilyId = data.families.find((family) => !family.decision)?.family_id || data.families[0]?.family_id || "";
+  }
+  renderFamilyQueue();
+  renderFamilyQaCard();
+}
+
+async function mutateFamilyQa(action, value) {
+  const family = activeFamily();
+  const rep = currentRepresentative();
+  if (!family) return;
+  const result = await api("/api/family-qa", {
+    method: "POST",
+    body: JSON.stringify({ family_id: family.family_id, case_id: rep?.case_id || "", action, value }),
+  });
+  if (result.mutation) {
+    state.reviewHistory.unshift(result.mutation);
+    state.reviewHistory = state.reviewHistory.slice(0, 20);
+  }
+  state.familyQa = result.family_qa;
+  renderFamilyQueue();
+  renderFamilyQaCard();
+  renderReviewHistory();
 }
 
 async function loadCases(reset = false) {
+  const family = activeFamily();
+  if (family) {
+    state.offset = 0;
+    state.cases = family.representatives.map((rep) => ({ ...rep.case, family_rep: rep }));
+    state.total = state.cases.length;
+    renderCaseList();
+    return;
+  }
   if (reset) state.offset = 0;
   const params = new URLSearchParams();
   const category = $("categoryFilter").value;
   const status = $("statusFilter").value;
+  const reviewReason = $("reviewReasonFilter").value;
   const q = $("searchBox").value.trim();
   const triageBucket = $("triageFilter").value;
   if (category) params.set("category", category);
   if (status) params.set("status", status);
+  if (reviewReason) params.set("reviewer", reviewReason);
   if (q) params.set("q", q);
   if (triageBucket) params.set("triage_bucket", triageBucket);
   params.set("limit", state.limit);
@@ -947,10 +1254,12 @@ async function loadCases(reset = false) {
   const data = await api(`/api/cases?${params.toString()}`);
   state.cases = data.items || [];
   state.total = data.total || 0;
+  renderTriageBucketOptions(data.triage_bucket_counts || {});
   renderCaseList();
 }
 
 function renderCaseList() {
+  const filteredTriageBucket = $("triageFilter").value;
   $("caseList").innerHTML = state.cases
     .map((item) => {
       const selected = state.current && state.current.case_id === item.case_id ? "selected" : "";
@@ -961,9 +1270,10 @@ function renderCaseList() {
       const fixture = item.fixture
         ? badge(msg("fixture", { kind: item.fixture.kind }), "fixture-tag")
         : "";
-      const triage = item.triage_bucket
-        ? badge(item.triage_bucket, "triage-tag")
-        : "";
+      const triage =
+        item.triage_bucket && item.triage_bucket !== filteredTriageBucket
+          ? badge(triageBucketLabel(item.triage_bucket), "triage-tag")
+          : "";
       return `
         <button class="case-item ${selected}" data-case-id="${escapeHtml(item.case_id)}" type="button">
           <span class="row"><strong>${escapeHtml(item.case_id)}</strong><span>#${item.row_index}</span></span>
@@ -997,10 +1307,18 @@ async function loadCase(caseId) {
   }
   if (token !== state.caseRequestToken) return;
   state.current = item;
+  state.twoDMode = hasHydrogenAssignment(item) ? "hydrogen" : "skeleton";
+  syncTwoDModeButtons();
   const url = new URL(window.location.href);
   url.searchParams.set("case", item.case_id);
   window.history.replaceState({}, "", url);
   state.currentLiveCandidate = null;
+  state.xyzViewer = null;
+  state.referenceXyzViewer = null;
+  state.referenceXyzSdf = "";
+  state.referenceXyzFailure = "";
+  state.mappedComparison = {};
+  renderMappedComparisonNote();
   state.referenceRenderStatus = "render_failed";
   state.referenceRenderError = "";
   state.graphEvidence = {};
@@ -1013,13 +1331,33 @@ async function loadCase(caseId) {
   renderVersionComparison();
   renderDiagnostics();
   renderReviewerDetails();
-  await Promise.all([loadXyz(item, token), loadCandidateSdf(item, token)]);
+  renderFamilyQaCard();
+  await Promise.all([
+    loadXyz(item, token),
+    loadReferenceXyz(item, token),
+    loadCandidateSdf(item, token),
+  ]);
   if (!isCurrentCaseRequest(token, item.case_id)) return;
   await loadPair(token);
   if (!isCurrentCaseRequest(token, item.case_id)) return;
   if ($("reviewerDetails").open) await loadGraphEvidence(token);
   if (!isCurrentCaseRequest(token, item.case_id)) return;
   renderCaseList();
+}
+
+function hasHydrogenAssignment(item) {
+  const triage = item?.triage;
+  if (!triage) return false;
+  return parseJsonArray(triage.hydrogen_assignment_diff).length > 0
+    || String(triage.reason_tags || "").split(/[;,|]/).some((value) =>
+      ["h_assignment", "hydrogen_assignment", "hydrogen-assignment"].includes(value.trim()),
+    );
+}
+
+function syncTwoDModeButtons() {
+  document.querySelectorAll(".two-d-mode").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === state.twoDMode);
+  });
 }
 
 function renderCaseHeader() {
@@ -1037,7 +1375,7 @@ function renderCaseHeader() {
     headerItems.push(badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`));
   }
   if (hasValue(item.triage_bucket)) {
-    headerItems.push(badge(item.triage_bucket, "triage-tag"));
+    headerItems.push(badge(triageBucketLabel(item.triage_bucket), "triage-tag"));
   }
   headerItems.push(
     item.review_status
@@ -1095,7 +1433,7 @@ function summaryValue(value) {
 
 function formulaSummary(item) {
   const fields = [
-    item.reference_formula_check_status,
+    formulaDisplayStatus(item),
     item.reference_formula_match,
     item.xyz_formula,
     item.reference_formula_with_h,
@@ -1103,10 +1441,18 @@ function formulaSummary(item) {
   return fields.length ? fields.join(" · ") : tr("notProvided");
 }
 
+function formulaDisplayStatus(item) {
+  const status = String(item.reference_formula_check_status || "").toLowerCase();
+  if (status === "comparison_skipped" && ["equivalence_timeout", "candidate_reparse_failure"]
+    .includes(item.reference_diagnostic_group)) return "ok";
+  return item.reference_formula_check_status;
+}
+
 function formulaCompact(item) {
   const match = item.reference_formula_match;
   const status = String(item.reference_formula_check_status || "").toLowerCase();
   if (!hasValue(match) && !status) return tr("statusUnknownCompact");
+  if (status === "comparison_skipped") return tr("statusUnknownCompact");
   if (match === "True" || status === "ok") return tr("formulaOk");
   if (["not_applicable", "missing_reference_smiles"].includes(status)) return tr("statusUnknownCompact");
   return summaryValue(item.reference_formula_check_status || match);
@@ -1160,8 +1506,11 @@ function reviewFocusKey(item) {
     return "focusCandidateFailure";
   }
   if (["missing", "parse_invalid", "render_failed"].includes(referenceState(item))) return "focusReference";
+  if (["equivalence_timeout", "candidate_reparse_failure", "comparison_skipped"]
+    .includes(item.reference_diagnostic_group)) return "focusReferenceComparison";
   const formulaStatus = String(item.reference_formula_check_status || "").toLowerCase();
-  if (item.reference_formula_match === "False" || (formulaStatus && !["ok", "not_applicable"].includes(formulaStatus))) {
+  if ((item.reference_formula_match === "False" && formulaStatus !== "comparison_skipped")
+    || (formulaStatus && !["ok", "not_applicable", "comparison_skipped"].includes(formulaStatus))) {
     return "focusFormula";
   }
   const assessability = assessmentSummary(item).toLowerCase();
@@ -1220,6 +1569,159 @@ function parseJsonArray(value) {
   }
 }
 
+const TRIAGE_BUCKET_LABELS = {
+  zh: {
+    strong_xyz_candidate_evidence: "XYZ→候选",
+    strong_xyz_reference_evidence: "XYZ→参考",
+    possible_redox_representation: "氧化态/表示",
+    metal_coordination_ambiguous: "配位待判",
+    organic_topology_manual: "有机拓扑",
+    complex_multi_difference: "多重差异",
+    reference_integrity_issue: "参考问题",
+    unknown: "未分类",
+  },
+  en: {
+    strong_xyz_candidate_evidence: "XYZ→Candidate",
+    strong_xyz_reference_evidence: "XYZ→Reference",
+    possible_redox_representation: "Oxidation/representation",
+    metal_coordination_ambiguous: "Coordination review",
+    organic_topology_manual: "Organic topology",
+    complex_multi_difference: "Multiple differences",
+    reference_integrity_issue: "Reference issue",
+    unknown: "Unclassified",
+  },
+};
+
+function triageBucketLabel(bucket) {
+  return TRIAGE_BUCKET_LABELS[state.language]?.[bucket] || bucket;
+}
+
+function localizeTriageFilterOptions() {
+  document.querySelectorAll("#triageFilter option[value]").forEach((option) => {
+    if (!option.value) {
+      option.textContent = tr("all");
+      return;
+    }
+    const count = option.dataset.count;
+    option.textContent = `${triageBucketLabel(option.value)}${count ? ` (${count})` : ""}`;
+  });
+}
+
+function mappingLabel(confidence) {
+  if (confidence === "unique_graph_mapping") return "unique";
+  return confidence || "—";
+}
+
+function evidenceRow(label, value, mono = false) {
+  if (!hasValue(value)) return "";
+  const valueClass = mono ? ' class="mono"' : "";
+  return `<div class="triage-evidence-row"><span>${escapeHtml(label)}</span><strong${valueClass}>${escapeHtml(value)}</strong></div>`;
+}
+
+function metalEdgeEvidence(triage, edge) {
+  const elements = Array.isArray(edge.elements) ? edge.elements : [];
+  const atoms = Array.isArray(edge.candidate_atoms) ? edge.candidate_atoms : [];
+  const metalSymbols = String(triage.metal_elements || "")
+    .split(/[|,;\s]+/)
+    .filter(Boolean);
+  let metalIndex = elements.findIndex((element) => metalSymbols.includes(String(element)));
+  if (metalIndex < 0) metalIndex = 0;
+  const ligandIndex = metalIndex === 0 ? 1 : 0;
+  const side = edge.edge_present_in;
+  const difference = side === "reference"
+    ? "Reference-only coordination"
+    : side === "candidate"
+      ? "Candidate-only coordination"
+      : "Coordination difference";
+  const distance = Number(edge.distance);
+  const candidatePresence =
+    side === "candidate" ? "present" : side === "reference" ? "absent" : "—";
+  const referencePresence =
+    side === "reference" ? "present" : side === "candidate" ? "absent" : "—";
+  const cn =
+    side === "reference" ? edge.reference_coordination_number : edge.candidate_coordination_number;
+  const shell = edge.inside_agreed_shell_range === true ? "disputed atom in donor shell" : "";
+  return [
+    evidenceRow("差异", difference),
+    evidenceRow(
+      "原子",
+      `${elements[metalIndex] || "?"} · XYZ #${atoms[metalIndex] ?? "?"} ↔ ${elements[ligandIndex] || "?"} · XYZ #${atoms[ligandIndex] ?? "?"}`,
+      true,
+    ),
+    evidenceRow("XYZ 距离", Number.isFinite(distance) ? `${distance.toFixed(3)} Å` : "—", true),
+    evidenceRow("Candidate", candidatePresence),
+    evidenceRow("Reference", referencePresence),
+    evidenceRow("Mapping", mappingLabel(triage.mapping_confidence), true),
+    evidenceRow("Trace", [hasValue(cn) ? `CN=${cn}` : "", shell].filter(Boolean).join(" · ")),
+  ].join("");
+}
+
+function hydrogenEvidence(triage, hydrogen) {
+  const candidateDistance = Number(hydrogen.candidate_distance);
+  const referenceDistance = Number(hydrogen.reference_distance);
+  const margin = Number(hydrogen.distance_margin);
+  const distanceParts = [];
+  if (Number.isFinite(candidateDistance)) {
+    distanceParts.push(
+      `${hydrogen.candidate_center_element || "?"}-H ${candidateDistance.toFixed(3)} Å`,
+    );
+  }
+  if (Number.isFinite(referenceDistance)) {
+    distanceParts.push(
+      `${hydrogen.reference_center_element || "?"}-H ${referenceDistance.toFixed(3)} Å`,
+    );
+  }
+  return [
+    evidenceRow("差异", "H assignment"),
+    evidenceRow("H", `H · XYZ #${hydrogen.h_atom ?? "?"}`, true),
+    evidenceRow(
+      "Candidate",
+      `${hydrogen.candidate_center_element || "?"} #${hydrogen.candidate_center ?? "?"}`,
+      true,
+    ),
+    evidenceRow(
+      "Reference",
+      `${hydrogen.reference_center_element || "?"} #${hydrogen.reference_center ?? "?"}`,
+      true,
+    ),
+    evidenceRow("XYZ 距离", distanceParts.join(" · "), true),
+    evidenceRow("Margin", Number.isFinite(margin) ? `${margin.toFixed(3)} Å` : "—", true),
+    evidenceRow("Mapping", mappingLabel(triage.mapping_confidence), true),
+  ].join("");
+}
+
+function redoxEvidence(triage) {
+  const coordination = parseJsonArray(triage.metal_coordination_diff);
+  const coordinationText = coordination.length
+    ? `${coordination.length} disputed edge${coordination.length === 1 ? "" : "s"}`
+    : "none";
+  return [
+    evidenceRow("差异", "Metal oxidation state / representation"),
+    evidenceRow("Metal", triage.metal_elements, true),
+    evidenceRow("Candidate metal", triage.candidate_metal_state, true),
+    evidenceRow("Reference metal", triage.reference_metal_state, true),
+    evidenceRow("Metal Δ", triage.metal_charge_delta, true),
+    evidenceRow(
+      "Ligand compensation",
+      hasValue(triage.ligand_charge_delta)
+        ? `Δ ${triage.ligand_charge_delta} · Candidate ${triage.candidate_ligand_charge_sum || "—"} · Reference ${triage.reference_ligand_charge_sum || "—"}`
+        : "—",
+      true,
+    ),
+    evidenceRow("Coordination Δ", coordinationText),
+    evidenceRow("Mapping", mappingLabel(triage.mapping_confidence), true),
+  ].join("");
+}
+
+function referenceProblemEvidence(item) {
+  const group = item.reference_diagnostic_group || item.triage?.reference_diagnostic_group;
+  const reason = item.reference_diagnostic_reason || item.triage?.reference_diagnostic_reason;
+  return [
+    evidenceRow(tr("diagnosticLabel"), tr(`referenceDiagnostics.${group}`, group)),
+    evidenceRow(tr("diagnosticReasonLabel"), reason),
+  ].join("");
+}
+
 function renderTriageEvidence(item) {
   const panel = $("triageEvidence");
   const triage = item?.triage;
@@ -1228,51 +1730,34 @@ function renderTriageEvidence(item) {
     panel.innerHTML = "";
     return;
   }
-  const evidence = [];
-  parseJsonArray(triage.metal_coordination_diff).forEach((edge) => {
-    const side = edge.edge_present_in;
-    const pair = (edge.candidate_atoms || []).join("–");
-    const distance = Number(edge.distance);
-    evidence.push(
-      `${(edge.elements || []).join("–")} · XYZ ${pair || "—"} · ` +
-        `${Number.isFinite(distance) ? `${distance.toFixed(3)} Å` : "distance —"} · ` +
-        `Candidate ${side === "candidate" ? "yes" : "no"} · Reference ${side === "reference" ? "yes" : "no"}`,
-    );
-  });
-  parseJsonArray(triage.hydrogen_assignment_diff).forEach((hydrogen) => {
-    evidence.push(
-      `H#${hydrogen.h_atom} · ${hydrogen.candidate_center_element}#${hydrogen.candidate_center} ` +
-        `${hydrogen.candidate_distance} Å vs ${hydrogen.reference_center_element}#${hydrogen.reference_center} ` +
-        `${hydrogen.reference_distance} Å · nearest ${hydrogen.nearest_assignment}`,
-    );
-  });
-  if (!evidence.length && hasValue(triage.xyz_evidence_summary)) {
-    evidence.push(triage.xyz_evidence_summary);
+  const metalEdges = parseJsonArray(triage.metal_coordination_diff);
+  const hydrogenAssignments = parseJsonArray(triage.hydrogen_assignment_diff);
+  let evidence = "";
+  if (triage.triage_bucket === "reference_integrity_issue") {
+    evidence = referenceProblemEvidence(item);
+  } else if (triage.triage_bucket === "possible_redox_representation") {
+    evidence = redoxEvidence(triage);
+  } else if (hydrogenAssignments.length) {
+    evidence = hydrogenAssignments
+      .map((entry) => hydrogenEvidence(triage, entry))
+      .join('<div class="triage-evidence-separator"></div>');
+    if (metalEdges.length) {
+      evidence += metalEdges.map((edge) => metalEdgeEvidence(triage, edge)).join("");
+    }
+  } else if (metalEdges.length) {
+    evidence = metalEdges
+      .map((edge) => metalEdgeEvidence(triage, edge))
+      .join('<div class="triage-evidence-separator"></div>');
+  } else {
+    evidence = evidenceRow("Evidence", triage.xyz_evidence_summary || triage.machine_reason || "—");
   }
   panel.hidden = false;
   panel.innerHTML = `
     <div class="triage-evidence-head"><strong>${escapeHtml(tr("triageEvidence"))}</strong>
-      <span>${escapeHtml(triage.triage_bucket || "")} · ${escapeHtml(tr("mappingConfidence"))} ${escapeHtml(triage.mapping_confidence || "—")}</span>
+      <span>${escapeHtml(triageBucketLabel(triage.triage_bucket || ""))}</span>
     </div>
-    ${evidence.slice(0, 3).map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
-    ${hasValue(triage.trace_evidence_summary) ? `<div class="triage-trace" title="${escapeHtml(triage.trace_evidence_summary)}">Trace · ${escapeHtml(triage.trace_evidence_summary)}</div>` : ""}`;
-}
-
-function suggestedReviewReason(item) {
-  const triage = item?.triage;
-  if (!triage) return "";
-  const text = `${triage.reason_tags || ""} ${triage.machine_reason || ""}`.toLowerCase();
-  if (triage.triage_bucket === "reference_integrity_issue") return "reference-metal-scan";
-  if (text.includes("hydrogen-assignment") || text.includes("h assignment")) {
-    return "xyz-hydrogen-assignment";
-  }
-  if (text.includes("metal-coordination") || text.includes("metal edge")) {
-    return "xyz-metal-coordination";
-  }
-  if (triage.triage_bucket === "possible_redox_representation") {
-    return "auto-oxidative-addition";
-  }
-  return "";
+    <div class="triage-evidence-grid">${evidence}</div>
+    ${hasValue(triage.trace_evidence_summary) ? `<details class="triage-trace"><summary>${escapeHtml(tr("fullTraceEvidence"))}</summary><div>${escapeHtml(triage.trace_evidence_summary)}</div></details>` : ""}`;
 }
 
 function compactProvenanceReason(reason) {
@@ -1299,8 +1784,7 @@ function populateReviewForm() {
   $("correctedSmiles").value = item.corrected_smiles || "";
   $("correctedMolblock").value = item.corrected_molblock || "";
   $("notes").value = item.notes || "";
-  $("reviewer").value =
-    item.reviewer || suggestedReviewReason(item) || localStorage.getItem("moleculeReviewReviewer") || "";
+  $("reviewer").value = item.reviewer || "";
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
@@ -1501,7 +1985,9 @@ function renderDiagnostics() {
     ["reference_organic", item.reference_organic_smiles],
   ];
   const assessmentPairs = [
-    ["reference_formula_status", item.reference_formula_check_status],
+    ["reference_formula_status", formulaDisplayStatus(item)],
+    ["reference_diagnostic_group", item.reference_diagnostic_group],
+    ["reference_diagnostic_reason", item.reference_diagnostic_reason],
     ["xyz_formula", item.xyz_formula],
     ["reference_formula_with_h", item.reference_formula_with_h],
     ["reference_formula_mismatch", item.reference_formula_mismatch_detail],
@@ -1518,6 +2004,7 @@ function renderDiagnostics() {
     ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
     ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
     ["live_candidate_reason", item.live_candidate_equivalence_reason],
+    ["reference_xyz_failure", state.referenceXyzFailure],
   ];
   renderDiagnosticList("assessmentDiagnostics", assessmentPairs);
   renderDiagnosticList("runtimeDiagnostics", runtimePairs);
@@ -1532,6 +2019,7 @@ function renderDiagnostics() {
     "live_candidate_smiles_exact_match", "live_matches_candidate_snapshot",
     "live_candidate_equivalence_method", "live_candidate_equivalence_reason",
     "reference_formula_check_status", "xyz_formula", "reference_formula_with_h",
+    "reference_diagnostic_group", "reference_diagnostic_reason",
     "reference_formula_mismatch_detail", "reference_answer_status", "reference_answer_reason",
     "accuracy_assessment_status", "accuracy_assessment_reason", "tmqmg_answer_assessment",
     "molgr_answer_assessment", "error",
@@ -1675,7 +2163,9 @@ async function loadCandidateSdf(item, token) {
   technical.hidden = true;
   technical.textContent = "";
   try {
-    const data = await api(`/api/cases/${encodeURIComponent(item.case_id)}/candidate-sdf`);
+    const data = await api(
+      `/api/cases/${encodeURIComponent(item.case_id)}/candidate-sdf?mode=${encodeURIComponent(state.twoDMode)}`,
+    );
     if (!isCurrentCaseRequest(token, item.case_id)) return;
     state.currentLiveCandidate = data;
     item.live_candidate_status = data.live_candidate_status || "";
@@ -1727,6 +2217,110 @@ async function loadCandidateSdf(item, token) {
   }
 }
 
+function mappingAmbiguityEvidence(data) {
+  const locations = data.mapping_ambiguity_locations || {};
+  const affected = Array.isArray(locations.affected_xyz_atoms)
+    ? locations.affected_xyz_atoms.filter((index) => Number.isInteger(Number(index)))
+    : [];
+  const alternatives = Array.isArray(locations.alternatives) ? locations.alternatives : [];
+  if (!locations.location_proven || !affected.length) {
+    return {
+      location: tr("ambiguityLocationUnknown"),
+      alternatives: "",
+    };
+  }
+  const formatDifference = (difference) => {
+    if (difference.kind === "hydrogen_assignment") {
+      const hydrogens = (difference.hydrogen_xyz_atoms || []).map((index) => `H/XYZ #${index}`).join(", ") || "H";
+      const candidate = difference.candidate_center_xyz == null ? "—" : `XYZ #${difference.candidate_center_xyz}`;
+      const reference = (difference.reference_center_xyz || []).map((index) => `XYZ #${index}`).join(", ") || "—";
+      return `${hydrogens}: Candidate ${candidate} / Reference ${reference}`;
+    }
+    const atoms = (difference.xyz_atoms || []).map((index) => `XYZ #${index}`).join("–");
+    const kind = difference.kind === "metal_bond" ? "metal coordination" : "organic bond";
+    return `${kind} ${atoms}: Candidate ${difference.candidate_bond || "none"} / Reference ${difference.reference_bond || "none"}`;
+  };
+  const alternativeLines = alternatives
+    .map((alternative) => {
+      const descriptions = (alternative.differences || []).map(formatDifference).join("; ");
+      return descriptions ? `${msg("mappingAlternative", { index: alternative.alternative })}: ${descriptions}` : "";
+    })
+    .filter(Boolean);
+  return {
+    location: affected.map((index) => `XYZ #${index}`).join(", "),
+    alternatives: alternativeLines.join("\n"),
+  };
+}
+
+async function loadReferenceXyz(item, token) {
+  const container = $("referenceViewer3d");
+  const technical = $("referenceXyzTechnicalError");
+  state.referenceXyzSdf = "";
+  state.referenceXyzFailure = "";
+  technical.hidden = true;
+  technical.textContent = "";
+  technical.classList.remove("representative-mapping-warning");
+  container.innerHTML = `<div class="empty">${escapeHtml(tr("statusLoading"))}</div>`;
+  try {
+    const data = await api(`/api/cases/${encodeURIComponent(item.case_id)}/reference-xyz`);
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
+    if (!data.available || !data.sdf) {
+      const failure = String(data.failure_code || data.error || "atom_correspondence_not_reliable");
+      state.referenceXyzFailure = data.error && data.error !== failure
+        ? `${failure}: ${data.error}`
+        : failure;
+      const reviewerMessage = failure === "reference_missing_or_invalid"
+        ? tr("referenceXyzMissing")
+        : failure.includes("ambiguous") || failure === "atom_correspondence_not_reliable"
+          ? tr("referenceXyzAmbiguous")
+          : tr("referenceXyzUnreliable");
+      const ambiguityEvidence = mappingAmbiguityEvidence(data);
+      const ambiguity = data.mapping_confidence === "ambiguous"
+        ? `<dl class="reference-xyz-ambiguity">
+            <dt>${escapeHtml(tr("ambiguityType"))}</dt>
+            <dd>${escapeHtml(tr(`mappingAmbiguityTypes.${data.mapping_ambiguity_type}`, data.mapping_ambiguity_type || "ambiguous"))}</dd>
+            <dt>${escapeHtml(tr("unavailableReason"))}</dt>
+            <dd>${escapeHtml(tr(`mappingAmbiguityReasons.${data.mapping_ambiguity_reason}`, reviewerMessage))}</dd>
+            <dt>${escapeHtml(tr("ambiguityLocation"))}</dt>
+            <dd><code>${escapeHtml(ambiguityEvidence.location)}</code></dd>
+            ${ambiguityEvidence.alternatives ? `<dt>${escapeHtml(tr("ambiguityAlternatives"))}</dt><dd class="mapping-alternatives">${escapeHtml(ambiguityEvidence.alternatives)}</dd>` : ""}
+          </dl>`
+        : `<span>${escapeHtml(reviewerMessage)}</span>`;
+      container.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("referenceXyzUnavailable"))}</strong>${ambiguity}</div>`;
+      technical.hidden = true;
+      technical.textContent = "";
+      state.referenceXyzViewer = null;
+      renderDiagnostics();
+      return;
+    }
+    state.referenceXyzSdf = data.sdf;
+    state.mappedComparison = data.mapped_comparison || {};
+    if (data.mapping_is_representative) {
+      const ambiguityType = tr(
+        `mappingAmbiguityTypes.${data.mapping_ambiguity_type}`,
+        data.mapping_ambiguity_type || "ambiguous",
+      );
+      const ambiguityReason = tr(
+        `mappingAmbiguityReasons.${data.mapping_ambiguity_reason}`,
+        data.mapping_ambiguity_reason || tr("referenceXyzAmbiguous"),
+      );
+      technical.classList.add("representative-mapping-warning");
+      technical.hidden = false;
+      technical.innerHTML = `<strong>${escapeHtml(tr("representativeMappingWarning"))}</strong><span>${escapeHtml(tr("ambiguityType"))}: ${escapeHtml(ambiguityType)} · ${escapeHtml(tr("diagnosticReasonLabel"))}: ${escapeHtml(ambiguityReason)}</span>`;
+    }
+    renderMappedComparisonNote();
+    renderReferenceXyz3d(data.sdf, token, item.case_id);
+  } catch (error) {
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
+    container.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("referenceXyzUnavailable"))}</strong><span>${escapeHtml(tr("referenceXyzUnreliable"))}</span></div>`;
+    state.referenceXyzFailure = error.message;
+    technical.hidden = true;
+    technical.textContent = "";
+    state.referenceXyzViewer = null;
+    renderDiagnostics();
+  }
+}
+
 function applyViewerStyle(viewer) {
   if (state.viewStyle === "sphere") {
     viewer.setStyle({}, { sphere: { scale: 0.28 } });
@@ -1735,6 +2329,36 @@ function applyViewerStyle(viewer) {
   } else {
     viewer.setStyle({}, { stick: { radius: 0.16 }, sphere: { scale: 0.22 } });
   }
+}
+
+function mappedCoordinationEdges() {
+  const edges = state.mappedComparison?.coordination_edges;
+  return Array.isArray(edges)
+    ? edges.filter((edge) => edge.presence !== "common" || (edge.mapped_ligand_group || []).length > 1)
+    : [];
+}
+
+function renderMappedComparisonNote() {
+  const note = $("mappedComparisonNote");
+  if (state.xyzComparisonMode !== "mapped" || !mappedCoordinationEdges().length) {
+    note.hidden = true;
+    note.textContent = "";
+    return;
+  }
+  const lines = mappedCoordinationEdges().map((edge) => {
+    const pair = `${edge.metal_element} C/XYZ #${edge.candidate_metal_xyz_index} ↔ ${edge.donor_element} C/XYZ #${edge.candidate_donor_xyz_index}`;
+    const distance = Number.isFinite(Number(edge.distance)) ? ` · ${Number(edge.distance).toFixed(3)} Å` : "";
+    if (edge.presence === "common") {
+      const group = edge.mapped_ligand_group || [];
+      const correspondence = group.length > 1
+        ? ` · ligand mapping ${group.map((atom) => `${atom.element} C/XYZ #${atom.candidate_xyz_index} ↔ R #${atom.reference_atom_index}`).join(", ")}`
+        : "";
+      return `${tr("mappedDonorPreserved")} · ${pair}${distance}${correspondence}`;
+    }
+    return `${edge.presence === "candidate_only" ? "Candidate-only" : "Reference-only"} coordination after mapped comparison · ${pair}${distance}`;
+  });
+  note.textContent = lines.join("\n");
+  note.hidden = false;
 }
 
 function copyViewerPose(sourceViewer, targetViewer) {
@@ -1758,7 +2382,8 @@ function render3d(xyz, token = state.caseRequestToken, caseId = state.current?.c
   requestAnimationFrame(() => {
     if (!isCurrentCaseRequest(token, caseId)) return;
     const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
-    viewer.addModel(xyz, "xyz");
+    const useMappedCandidate = state.xyzComparisonMode === "mapped" && state.currentCandidateSdf;
+    viewer.addModel(useMappedCandidate ? state.currentCandidateSdf : xyz, useMappedCandidate ? "sdf" : "xyz");
     applyViewerStyle(viewer);
     viewer.zoomTo();
     if (typeof viewer.resize === "function") {
@@ -1766,6 +2391,10 @@ function render3d(xyz, token = state.caseRequestToken, caseId = state.current?.c
     }
     viewer.render();
     state.xyzViewer = viewer;
+    if (state.referenceXyzViewer) {
+      copyViewerPose(viewer, state.referenceXyzViewer);
+      state.referenceXyzViewer.render();
+    }
     if (state.currentCandidateSdf) {
       renderCandidate3d(state.currentCandidateSdf, token, caseId);
     }
@@ -1797,6 +2426,31 @@ function renderCandidate3d(sdf, token = state.caseRequestToken, caseId = state.c
     }
     viewer.render();
     state.candidateViewer = viewer;
+  });
+}
+
+function renderReferenceXyz3d(
+  sdf,
+  token = state.caseRequestToken,
+  caseId = state.current?.case_id,
+) {
+  const container = $("referenceViewer3d");
+  container.innerHTML = "";
+  if (!sdf || !window.$3Dmol) {
+    container.innerHTML = `<div class="empty">${escapeHtml(tr("referenceXyzUnavailable"))}</div>`;
+    state.referenceXyzViewer = null;
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (!isCurrentCaseRequest(token, caseId)) return;
+    const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
+    viewer.addModel(sdf, "sdf");
+    applyViewerStyle(viewer);
+    viewer.zoomTo();
+    copyViewerPose(state.xyzViewer, viewer);
+    if (typeof viewer.resize === "function") viewer.resize();
+    viewer.render();
+    state.referenceXyzViewer = viewer;
   });
 }
 
@@ -1863,7 +2517,7 @@ async function loadRender(kind, slot, token = state.caseRequestToken) {
       kind === "candidate"
         ? state.currentLiveCandidate
         : await api(
-            `/api/cases/${encodeURIComponent(item.case_id)}/render?kind=${encodeURIComponent(kind)}`,
+            `/api/cases/${encodeURIComponent(item.case_id)}/render?kind=${encodeURIComponent(kind)}&mode=${encodeURIComponent(state.twoDMode)}&localize=1`,
           );
     if (!isCurrentCaseRequest(token, item.case_id)) return;
     const renderError = kind === "candidate" ? data?.render_error || data?.error : data?.error;
@@ -1931,8 +2585,68 @@ async function loadRender(kind, slot, token = state.caseRequestToken) {
   }
 }
 
+function renderReviewHistory() {
+  const list = $("recentReviewList");
+  const active = state.reviewHistory.find((item) => !item.undone);
+  $("undoReview").disabled = !active || state.savingReview || state.undoingReview;
+  $("lastReviewSummary").textContent = active
+    ? (active.mutation_type === "family_qa"
+      ? `${active.family_id} → ${active.status}`
+      : msg("justReviewed", { caseId: active.case_id, status: active.status }))
+    : "";
+  if (!state.reviewHistory.length) {
+    list.innerHTML = `<p class="muted">${escapeHtml(tr("noRecentReviews"))}</p>`;
+    return;
+  }
+  list.innerHTML = state.reviewHistory.map((item) => `
+    <button class="recent-review-item${item.undone ? " undone" : ""}" data-case-id="${escapeHtml(item.case_id)}" type="button">
+      <strong>${escapeHtml(item.case_id)}</strong>
+      <span>${escapeHtml(item.status)}</span>
+      <span>${escapeHtml(item.reviewer || "—")}</span>
+      <time>${escapeHtml(new Date(item.timestamp).toLocaleTimeString())}</time>
+    </button>
+  `).join("");
+  list.querySelectorAll(".recent-review-item").forEach((button) => {
+    button.addEventListener("click", () => loadCase(button.dataset.caseId));
+  });
+}
+
+async function loadReviewHistory() {
+  const data = await api("/api/review-history");
+  state.reviewHistory = data.items || [];
+  renderReviewHistory();
+}
+
+async function undoLastReview() {
+  if (state.undoingReview || state.savingReview) return;
+  const latest = state.reviewHistory.find((item) => !item.undone);
+  if (!latest) return;
+  state.undoingReview = true;
+  renderReviewHistory();
+  try {
+    const result = await api("/api/review-undo", {
+      method: "POST",
+      body: JSON.stringify({ mutation_id: latest.mutation_id }),
+    });
+    $("saveState").textContent = msg("undoComplete", { caseId: result.case_id });
+    await Promise.all([loadStats(), loadReviewReasons(), loadReviewHistory(), loadFamilyQa()]);
+    await loadCases();
+    if (result.case_id) await loadCase(result.case_id);
+    else {
+      const targetCase = activeFamily()?.representatives[0]?.case_id;
+      if (targetCase) await loadCase(targetCase);
+    }
+  } catch (error) {
+    $("saveState").textContent = error.message;
+    await loadReviewHistory();
+  } finally {
+    state.undoingReview = false;
+    renderReviewHistory();
+  }
+}
+
 async function saveReview(status) {
-  if (!state.current || state.savingReview) return;
+  if (!state.current || state.savingReview || activeFamily()) return;
   state.savingReview = true;
   const currentIndex = state.cases.findIndex((item) => item.case_id === state.current.case_id);
   const queuedNextCaseId = currentIndex >= 0 ? state.cases[currentIndex + 1]?.case_id : "";
@@ -1948,11 +2662,15 @@ async function saveReview(status) {
       notes: $("notes").value,
       reviewer: $("reviewer").value,
     };
-    localStorage.setItem("moleculeReviewReviewer", payload.reviewer);
     const result = await api(`/api/cases/${encodeURIComponent(state.current.case_id)}/review`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    if (result.mutation) {
+      state.reviewHistory.unshift(result.mutation);
+      state.reviewHistory = state.reviewHistory.slice(0, 20);
+      renderReviewHistory();
+    }
     $("saveState").textContent = result.fixture
       ? msg("savedFixture", { file: result.fixture.structure_file })
       : tr("savedNoFixture");
@@ -1996,6 +2714,11 @@ async function navigateCase(delta) {
 function reviewShortcut(event) {
   const target = event.target;
   if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    undoLastReview();
+    return;
+  }
   const statusByKey = {
     1: "accept_candidate",
     2: "accept_reference",
@@ -2006,6 +2729,7 @@ function reviewShortcut(event) {
     7: "skip",
   };
   if (statusByKey[event.key]) {
+    if (activeFamily()) return;
     event.preventDefault();
     saveReview(statusByKey[event.key]);
     return;
@@ -2128,6 +2852,9 @@ function bindEvents() {
     if (window.$3Dmol && $("xyzText").textContent) {
       render3d($("xyzText").textContent);
     }
+    if (window.$3Dmol && state.referenceXyzSdf) {
+      renderReferenceXyz3d(state.referenceXyzSdf);
+    }
   });
   $("ketcherFrame").addEventListener("load", () => {
     waitForKetcher(30000)
@@ -2155,7 +2882,18 @@ function bindEvents() {
   });
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
+  $("reviewReasonFilter").addEventListener("change", () => {
+    if ($("reviewReasonFilter").value && $("statusFilter").value === "unreviewed") {
+      $("statusFilter").value = "";
+    }
+    loadCases(true);
+  });
   $("triageFilter").addEventListener("change", () => loadCases(true));
+  $("familyQueue").addEventListener("change", async () => {
+    state.activeFamilyId = $("familyQueue").value;
+    await loadCases(true);
+    if (state.cases.length) await loadCase(state.cases[0].case_id);
+  });
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));
   $("prevPage").addEventListener("click", () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -2179,6 +2917,7 @@ function bindEvents() {
     );
   });
   $("removeFixture").addEventListener("click", removeCurrentFixture);
+  $("undoReview").addEventListener("click", undoLastReview);
   $("closeImageLightbox").addEventListener("click", closeImageLightbox);
   $("imageLightbox").addEventListener("click", (event) => {
     if (event.target === $("imageLightbox")) closeImageLightbox();
@@ -2202,11 +2941,41 @@ function bindEvents() {
       button.classList.add("active");
       state.viewStyle = button.dataset.style;
       if ($("xyzText").textContent) render3d($("xyzText").textContent);
+      if (state.referenceXyzSdf) renderReferenceXyz3d(state.referenceXyzSdf);
       if (state.currentCandidateSdf) renderCandidate3d(state.currentCandidateSdf);
+    });
+  });
+  document.querySelectorAll(".xyz-comparison-mode").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.mode === state.xyzComparisonMode) return;
+      state.xyzComparisonMode = button.dataset.mode;
+      document.querySelectorAll(".xyz-comparison-mode").forEach((item) => {
+        item.classList.toggle("active", item.dataset.mode === state.xyzComparisonMode);
+      });
+      renderMappedComparisonNote();
+      if ($("xyzText").textContent) render3d($("xyzText").textContent);
+      if (state.referenceXyzSdf) renderReferenceXyz3d(state.referenceXyzSdf);
+    });
+  });
+  document.querySelectorAll(".two-d-mode").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!state.current || button.dataset.mode === state.twoDMode) return;
+      document.querySelectorAll(".two-d-mode").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      state.twoDMode = button.dataset.mode;
+      const token = state.caseRequestToken;
+      await loadCandidateSdf(state.current, token);
+      if (isCurrentCaseRequest(token, state.current.case_id)) await loadPair(token);
     });
   });
   document.querySelectorAll(".decision").forEach((button) => {
     button.addEventListener("click", () => saveReview(button.dataset.status));
+  });
+  document.querySelectorAll("[data-rep-mark]").forEach((button) => {
+    button.addEventListener("click", () => mutateFamilyQa("representative_mark", button.dataset.repMark));
+  });
+  document.querySelectorAll("[data-family-decision]").forEach((button) => {
+    button.addEventListener("click", () => mutateFamilyQa("decision", button.dataset.familyDecision));
   });
   document.addEventListener("keydown", reviewShortcut);
 }
@@ -2225,6 +2994,8 @@ async function init() {
   if (requestedCaseId) $("searchBox").value = requestedCaseId;
   await loadStats();
   await loadReviewReasons();
+  await loadReviewHistory();
+  await loadFamilyQa({ preserveFamily: false });
   await loadCases(true);
   if (requestedCaseId) {
     await loadCase(requestedCaseId);

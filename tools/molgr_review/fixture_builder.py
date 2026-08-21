@@ -56,6 +56,50 @@ FIXTURE_RECORD_KEYS = {
 _FIXTURE_LOCK = threading.Lock()
 
 
+def snapshot_review_fixture(fixtures_dir: Path, case_id: str) -> dict[str, Any]:
+    """Capture one case's managed fixture state without touching other cases."""
+
+    with _FIXTURE_LOCK:
+        manifest = _load_manifest(fixtures_dir)
+        record = next(
+            (dict(item) for item in manifest["fixtures"] if item.get("case_id") == case_id),
+            None,
+        )
+        files: dict[str, str] = {}
+        for directory, suffix in (
+            ("accepted_both", ".sdf"),
+            ("approved_graph", ".sdf"),
+            ("reference_graph", ".xyz"),
+            ("manual_reference", ".xyz"),
+        ):
+            relative = Path(directory) / f"{case_id}{suffix}"
+            path = fixtures_dir / relative
+            if path.is_file():
+                files[relative.as_posix()] = path.read_text(encoding="utf-8")
+        return {"record": record, "files": files}
+
+
+def restore_review_fixture_snapshot(
+    fixtures_dir: Path,
+    case_id: str,
+    snapshot: Mapping[str, Any],
+) -> None:
+    """Restore one case's fixture record and files from an in-memory snapshot."""
+
+    with _FIXTURE_LOCK:
+        manifest = _load_manifest(fixtures_dir)
+        records = [item for item in manifest["fixtures"] if item.get("case_id") != case_id]
+        record = snapshot.get("record")
+        if isinstance(record, Mapping):
+            records.append(dict(record))
+        _remove_case_files(fixtures_dir, case_id)
+        files = snapshot.get("files") or {}
+        if isinstance(files, Mapping):
+            for relative, contents in files.items():
+                _atomic_write_text(fixtures_dir / str(relative), str(contents))
+        _write_manifest(fixtures_dir, records, existing=manifest)
+
+
 def resolve_xyz_path(stored_path: str, xyz_dir: Path | None) -> Path:
     path = Path(stored_path)
     if path.exists() or xyz_dir is None:
@@ -404,5 +448,7 @@ __all__ = [
     "remove_review_fixtures",
     "reconstruct_case_mol",
     "resolve_xyz_path",
+    "restore_review_fixture_snapshot",
+    "snapshot_review_fixture",
     "sync_review_fixture",
 ]
