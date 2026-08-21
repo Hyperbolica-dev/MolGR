@@ -92,10 +92,11 @@ bash scripts/benchmark_env.sh run python benchmarks/tmqmg_xyz_benchmark/run.py \
   --methods molgr_cpp,molgr_fallback
 ```
 
-`tmqmg_xyz_benchmark` also supports `--process-workers N`. Each method is split
-across worker subprocesses, while the C++ backend can still use its internal
-target-bucket threads. High process counts can compete for CPU with C++ threads, so
-measure the target machine instead of assuming the largest value is fastest.
+`tmqmg_xyz_benchmark` defaults to `--process-workers 1` and runs rows serially; the
+C++ single-molecule path still keeps internal target-bucket parallelism. For
+`molgr_cpp` with a larger value, one subprocess passes the worker count to the
+native batch pool instead of stacking external processes. Measure batch worker
+counts on the target machine rather than assuming the largest value is fastest.
 
 For repeated commands, switch the current shell to the benchmark project:
 
@@ -140,7 +141,8 @@ Shared flags:
 - `--limit`: cap the number of cases for quick checks.
 - `--out`: output run directory.
 - `--methods`: for tmQMg, restrict the shared method registry by method id.
-- `--process-workers`: for tmQMg, split each method across worker subprocesses.
+- `--process-workers`: tmQMg serial/native-batch worker budget; `1` is the serial
+  single-molecule path, and larger C++ values use one native batch pool.
 - `--cpp-accelerations`: for tmQMg, choose the C++ acceleration preset.
 
 ## Outputs

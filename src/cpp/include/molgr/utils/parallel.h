@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -54,14 +55,32 @@ namespace molgr
                 public:
                     static ParallelExecutor &Instance()
                     {
-                        static ParallelExecutor instance(
-                            HardwareParallelism() > 1 ? HardwareParallelism() - 1 : 0);
-                        return instance;
+                        // Keep one fixed native worker budget for both single-
+                        // molecule helper work and asynchronous batch items.
+                        // A synchronous Run still counts its calling thread,
+                        // so it uses at most worker_count - 1 helpers.
+                        static ParallelExecutor *instance =
+                            new ParallelExecutor(HardwareParallelism());
+                        return *instance;
                     }
 
                     std::size_t HelperCapacity() const
                     {
                         return workers_.size();
+                    }
+
+                    void Submit(std::function<void()> task)
+                    {
+                        {
+                            std::lock_guard<std::mutex> lock(queue_mutex_);
+                            if (shutting_down_)
+                            {
+                                throw std::runtime_error(
+                                    "The MolGR native executor is shutting down.");
+                            }
+                            queue_.push_back(std::move(task));
+                        }
+                        queue_cv_.notify_one();
                     }
 
                     template <typename Func>
@@ -94,7 +113,11 @@ namespace molgr
                             std::lock_guard<std::mutex> lock(queue_mutex_);
                             for (std::size_t worker_idx = 0; worker_idx < helper_count; ++worker_idx)
                             {
-                                queue_.push_back(job);
+                                queue_.push_back(
+                                    [job]()
+                                    {
+                                        ExecuteJob(job);
+                                    });
                             }
                         }
                         queue_cv_.notify_all();
@@ -172,7 +195,7 @@ namespace molgr
                     {
                         while (true)
                         {
-                            std::shared_ptr<Job> job;
+                            std::function<void()> task;
                             {
                                 std::unique_lock<std::mutex> lock(queue_mutex_);
                                 queue_cv_.wait(
@@ -185,10 +208,20 @@ namespace molgr
                                 {
                                     return;
                                 }
-                                job = queue_.front();
+                                task = std::move(queue_.front());
                                 queue_.pop_front();
                             }
-                            ExecuteJob(job);
+                            // Executor-owned tasks are required to contain
+                            // their own exception propagation. Keep the pool
+                            // alive if an unexpected task violates that
+                            // contract instead of terminating the process.
+                            try
+                            {
+                                task();
+                            }
+                            catch (...)
+                            {
+                            }
                         }
                     }
 
@@ -227,7 +260,7 @@ namespace molgr
 
                     std::mutex queue_mutex_;
                     std::condition_variable queue_cv_;
-                    std::deque<std::shared_ptr<Job>> queue_;
+                    std::deque<std::function<void()>> queue_;
                     std::vector<std::thread> workers_;
                     bool shutting_down_ = false;
                 };

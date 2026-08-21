@@ -2,6 +2,19 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml/badge.svg)](https://github.com/gentle1999/MolGR/actions/workflows/ci.yaml)
+[![PyPI](https://img.shields.io/pypi/v/molgr.svg)](https://pypi.org/project/molgr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/molgr.svg)](https://pypi.org/project/molgr/)
+[![Wheel](https://img.shields.io/pypi/wheel/molgr.svg)](https://pypi.org/project/molgr/)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-4C8BF5)
+![Python](https://img.shields.io/badge/python-3.8--3.14-3776AB?logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Development status](https://img.shields.io/badge/status-active%20development-F59E0B)
+![Typing](https://img.shields.io/badge/typing-PEP%20561%20typed-2F74C0)
+![Languages](https://img.shields.io/badge/languages-Python%20%7C%20C%2B%2B-00599C)
+![Ruff](https://img.shields.io/badge/lint%20%26%20format-Ruff-D7FF64?logo=ruff&logoColor=261230)
+[![License](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+
 MolGR stands for Moleculer Graph Reconstructor.
 
 MolGR is a Python package for reconstructing molecular graphs from XYZ coordinates.
@@ -63,10 +76,75 @@ CONFIG.cpp_backend.target_bucket_parallel_threshold = 1
 CONFIG.cpp_backend.target_bucket_parallel_max_threads = None
 ```
 
+On Windows, `CONFIG.cpp_backend.max_threads` defaults to `1`. Enabling C++
+backend thread parallelism on Windows is not recommended: concurrent Open Babel
+reconstruction can cause native access violations that Python cannot catch. Keep
+`max_threads=1` unless the complete workload has been validated locally. Linux
+and macOS keep the automatic `None` default.
+
 The C++ backend is the default accelerated implementation of the Python fallback
 semantics. C++-only switches may change scheduling, caching, or thread-safe vendor
 implementations, but they must not change the selected molecule for the same
 `MolGRConfig`.
+
+### Dangerous-use warnings
+
+Low-level APIs that still expose raw `OBMol*` pointers emit one
+`[UNSAFE_OPENBABEL]` warning per API name on first use. These pointers have manual
+ownership, must not be shared across threads, and must be freed exactly once after
+all access has finished. Prefer `xyz_to_rdmol()`, `MoleculeData`, and the native
+batch API. Raising the C++ log threshold hides the message but does not change
+Open Babel's thread-safety or lifetime constraints. Use process isolation for
+untrusted inputs or code that must call other raw Open Babel/Pybel APIs.
+
+MolGR rejects calls from a POSIX child created by `fork` after MolGR/Open Babel
+was imported. Such a child inherits inconsistent native mutex, worker-pool, and
+Open Babel global state. Use `multiprocessing.get_context("spawn")` on Linux and
+macOS; Windows already uses `spawn` and is unaffected. Forking before the child
+first imports MolGR, or immediately executing a fresh program after `fork`, does
+not inherit initialized MolGR state.
+
+Calling `molgr.interface.xyz_to_rdmol()` directly inside a `spawn` worker is
+also supported. When the process pool owns cross-molecule parallelism, use
+`max_threads=1` and disable single-molecule native parallelism in each worker
+so process count and native worker count do not multiply unexpectedly.
+
+## Advanced Usage
+
+### Parallel execution
+
+For low-latency or benchmark runs, call `xyz_to_rdmol()` serially. Each C++ call
+may still parallelize the metal target buckets internally, so an outer Python
+worker pool is not needed.
+
+For high-throughput workloads, use the native batch API. It accepts any finite
+iterable, runs reconstruction in a bounded C++ worker pool, and streams
+`(input, result, status)` triples. The input is included even when
+`ordered=False`, so completion-order results remain associated with the correct
+XYZ request.
+
+```python
+from molgr import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
+
+requests = (
+    ReconstructionBatchRequest(xyz, total_charge=0, spin_multiplicity=1)
+    for xyz in xyz_blocks
+)
+
+for request, molecule, status in iter_xyz_to_rdmol_batch(
+    requests,
+    backend="cpp",
+    max_workers=None,  # select the native worker count automatically
+):
+    consume(request, molecule, status)
+```
+
+When the batch uses more than one worker, MolGR disables per-molecule target-bucket
+and candidate-scoring parallelism to avoid nested oversubscription. A one-worker
+batch retains the normal per-molecule parallel strategy. Do not wrap the native
+batch API in `joblib`, a thread pool, or a process pool; set `max_workers` on the
+batch call instead. The `python` backend remains sequential as the semantic
+reference implementation.
 
 ## Installation
 

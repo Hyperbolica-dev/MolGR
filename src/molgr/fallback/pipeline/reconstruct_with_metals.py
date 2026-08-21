@@ -13,14 +13,17 @@ The production path is:
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import List, Optional, cast
 
 from openbabel import pybel
 
 from molgr.config import MolGRConfig
+from molgr.diagnostics import ReconstructionDiagnosticCollector, ReconstructionFailureCode
 from molgr.fallback.state import MetalCandidateState, MetalCandidateStateMachine
 from molgr.fallback.utils.metals import preparation, scoring, search
 from molgr.fallback.utils.no_metals import preparation as no_metal_preparation
+from molgr.process_guard import ensure_current_process
 
 from . import reconstruct_without_metals
 
@@ -46,15 +49,37 @@ def xyz2omol_state(
     total_radical_electrons: int = 0,
     *,
     config: MolGRConfig | None = None,
+    _diagnostics: ReconstructionDiagnosticCollector | None = None,
 ) -> Optional[MetalCandidateState]:
     """Return the best scored metal candidate state for the input XYZ block."""
 
-    base_state = preparation.prepare_metal_state(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        config=config,
-    )
+    ensure_current_process("molgr.fallback.xyz2omol_state")
+    diagnostics = _diagnostics
+    if diagnostics is not None:
+        diagnostics.set("total_charge", int(total_charge))
+        diagnostics.set("total_radical_electrons", int(total_radical_electrons))
+    try:
+        base_state = preparation.prepare_metal_state(
+            xyz_block,
+            total_charge,
+            total_radical_electrons,
+            config=config,
+        )
+    except (OSError, ValueError) as exc:
+        if diagnostics is not None:
+            diagnostics.fail(
+                ReconstructionFailureCode.INVALID_XYZ,
+                "input.parse",
+                "The XYZ block could not be parsed by Open Babel.",
+                cause=exc,
+            )
+        raise
+    if diagnostics is not None:
+        diagnostics.set("metal_atom_count", int(base_state.metadata.get("metal_atom_count", 0)))
+        diagnostics.set(
+            "metal_state_options_per_site",
+            [len(options) for options in base_state.available_valence_radical_states],
+        )
     state_search_groups = search._build_metal_state_search_groups(
         base_state.available_valence_radical_states,
         config=config,
@@ -68,6 +93,8 @@ def xyz2omol_state(
     scored_candidates: List[MetalCandidateState] = []
     winning_layer_index = 0
     for layer_index, available_valence_radical_states in enumerate(layered_state_search_groups):
+        if diagnostics is not None:
+            diagnostics.count("search_layers")
         grouped_candidates = search._group_candidates_by_target_dp(
             base_state.phase_history,
             available_valence_radical_states,
@@ -75,7 +102,15 @@ def xyz2omol_state(
             total_radical_electrons,
             config=config,
         )
+        if diagnostics is not None:
+            diagnostics.count("target_buckets", len(grouped_candidates))
+            diagnostics.count(
+                "metal_candidates_enumerated",
+                sum(len(candidates) for candidates in grouped_candidates.values()),
+            )
         if not grouped_candidates:
+            if diagnostics is not None:
+                diagnostics.count("layers_without_target_buckets")
             continue
 
         if no_metal_seed_omol is None:
@@ -83,7 +118,14 @@ def xyz2omol_state(
                 no_metal_seed_omol = no_metal_preparation._seed_omol_from_xyz(
                     base_state.no_metal_xyz_block
                 )
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                if diagnostics is not None:
+                    diagnostics.fail(
+                        ReconstructionFailureCode.INVALID_XYZ,
+                        "no_metal.parse",
+                        "The no-metal XYZ seed could not be parsed.",
+                        cause=exc,
+                    )
                 return None
 
         current_layer_scored_candidates: list[MetalCandidateState] = []
@@ -99,9 +141,15 @@ def xyz2omol_state(
                     config=config,
                 )
             except (OSError, ValueError):
+                if diagnostics is not None:
+                    diagnostics.count("no_metal_reconstruction_exceptions")
                 continue
             if no_metal_state is None:
+                if diagnostics is not None:
+                    diagnostics.count("no_metal_reconstruction_none")
                 continue
+            if diagnostics is not None:
+                diagnostics.count("no_metal_reconstruction_successes")
 
             for candidate in candidates:
                 try:
@@ -111,9 +159,15 @@ def xyz2omol_state(
                         config=config,
                     )
                 except ValueError:
+                    if diagnostics is not None:
+                        diagnostics.count("metal_candidate_scoring_rejections")
                     continue
                 if cast(Optional[float], scored_candidate.score) is None:
+                    if diagnostics is not None:
+                        diagnostics.count("metal_candidate_missing_scores")
                     continue
+                if diagnostics is not None:
+                    diagnostics.count("metal_candidates_scored")
                 current_layer_scored_candidates.append(scored_candidate)
 
         if not current_layer_scored_candidates:
@@ -123,6 +177,25 @@ def xyz2omol_state(
         break
 
     if not scored_candidates:
+        if diagnostics is not None:
+            if diagnostics.counts.get("target_buckets", 0) == 0:
+                diagnostics.fail(
+                    ReconstructionFailureCode.NO_REACHABLE_METAL_STATE,
+                    "metal.search",
+                    "No metal-state assignment reached a valid charge/radical target.",
+                )
+            elif diagnostics.counts.get("no_metal_reconstruction_successes", 0) == 0:
+                diagnostics.fail(
+                    ReconstructionFailureCode.NO_VALID_ORGANIC_CANDIDATE,
+                    "no_metal.reconstruction",
+                    "Every reachable metal target failed organic graph reconstruction.",
+                )
+            else:
+                diagnostics.fail(
+                    ReconstructionFailureCode.ALL_METAL_CANDIDATES_REJECTED,
+                    "metal.scoring",
+                    "Organic targets were reconstructed, but every metal candidate was rejected.",
+                )
         return None
 
     for scored_candidate in scored_candidates:
@@ -130,12 +203,32 @@ def xyz2omol_state(
 
     best_candidate = scoring.select_best_candidate(scored_candidates, config=config)
     if best_candidate is None:
+        if diagnostics is not None:
+            diagnostics.fail(
+                ReconstructionFailureCode.ALL_METAL_CANDIDATES_REJECTED,
+                "metal.selection",
+                "No scored metal candidate could be selected.",
+            )
         return None
     if not _candidate_matches_global_electronic_state(
         best_candidate,
         total_charge,
         total_radical_electrons,
     ):
+        if diagnostics is not None:
+            diagnostics.fail(
+                ReconstructionFailureCode.OUTPUT_INVARIANT_BROKEN,
+                "metal.selection",
+                "The selected candidate does not satisfy the requested charge/radical budget.",
+                candidate_total_charge=(
+                    best_candidate.no_metal_charge_target
+                    + sum(int(state.valence) for state in best_candidate.metal_states)
+                ),
+                candidate_total_radicals=(
+                    best_candidate.no_metal_radical_target
+                    + sum(int(state.radical_num) for state in best_candidate.metal_states)
+                ),
+            )
         return None
     if best_candidate.combined_omol is None:
         best_candidate.materialize_combined_omol(preparation.combine_metal_with_omol)
@@ -154,16 +247,39 @@ def xyz2omol(
     total_radical_electrons: int = 0,
     *,
     config: MolGRConfig | None = None,
+    _diagnostics: MutableMapping[str, object] | None = None,
 ) -> Optional[pybel.Molecule]:
     """Materialize the winning metal-aware reconstruction."""
 
-    candidate = xyz2omol_state(
-        xyz_block,
-        total_charge,
-        total_radical_electrons,
-        config=config,
-    )
+    collector = ReconstructionDiagnosticCollector() if _diagnostics is not None else None
+    try:
+        candidate = xyz2omol_state(
+            xyz_block,
+            total_charge,
+            total_radical_electrons,
+            config=config,
+            _diagnostics=collector,
+        )
+    except Exception as exc:
+        if collector is not None:
+            assert _diagnostics is not None
+            diagnostic = collector.fail(
+                ReconstructionFailureCode.BACKEND_EXCEPTION,
+                "reconstruction",
+                "The Python reconstruction pipeline raised an exception.",
+                cause=exc,
+            )
+            _diagnostics.update(diagnostic.as_dict())
+        raise
     if candidate is None:
+        if collector is not None:
+            assert _diagnostics is not None
+            diagnostic = collector.failure or collector.finish(
+                code=ReconstructionFailureCode.NO_VALID_RECONSTRUCTION,
+                stage="reconstruction",
+                message="The Python reconstruction pipeline produced no candidate.",
+            )
+            _diagnostics.update(diagnostic.as_dict())
         return None
     return candidate.combined_omol
 

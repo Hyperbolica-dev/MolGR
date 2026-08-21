@@ -48,21 +48,32 @@ set(OB_INCLUDE_DIR "${OB_ROOT}/include/openbabel3")
 
 
 # 2.3 设置库文件路径
-find_library(OB_LIBRARY 
-    NAMES openbabel
-    PATHS 
-        "${OB_ROOT}/lib" 
-        "${OB_ROOT}"
+if(WIN32)
+    set(OB_LIBRARY_NAMES openbabel-3 openbabel)
+    set(OB_LIBRARY_PATHS "${OB_ROOT}/bin" "${OB_ROOT}/lib" "${OB_ROOT}")
+else()
+    set(OB_LIBRARY_NAMES openbabel)
+    set(OB_LIBRARY_PATHS "${OB_ROOT}/lib" "${OB_ROOT}")
+endif()
+
+find_library(OB_LIBRARY
+    NAMES ${OB_LIBRARY_NAMES}
+    PATHS ${OB_LIBRARY_PATHS}
     NO_DEFAULT_PATH
 )
 
 message(STATUS "OpenBabel library: ${OB_LIBRARY}")
+
+if(NOT OB_LIBRARY)
+    message(FATAL_ERROR "Could not find the Open Babel library under ${OB_ROOT}")
+endif()
 
 # ==============================================================================
 # 3. 构建目标
 # ==============================================================================
 
 add_library(molgr STATIC
+    src/cpp/src/process_guard.cpp
     src/cpp/src/state.cpp
     src/cpp/src/utils/consts.cpp
     src/cpp/src/utils/utils.cpp
@@ -71,6 +82,7 @@ add_library(molgr STATIC
     src/cpp/src/utils/force_field.cpp
     src/cpp/src/utils/metal_radical_inference.cpp
     src/cpp/src/vendor/forcefielduff.cpp
+    src/cpp/src/vendor/openbabel_conversion.cpp
     src/cpp/src/vendor/openbabel_threading.cpp
     src/cpp/src/utils/metals/preparation.cpp
     src/cpp/src/utils/metals/scoring.cpp
@@ -87,6 +99,7 @@ add_library(molgr STATIC
     src/cpp/src/utils/scoring.cpp
     src/cpp/src/utils/logger.cpp
     src/cpp/src/pipeline/reconstruct_with_metals.cpp
+    src/cpp/src/pipeline/reconstruct_batch.cpp
     src/cpp/src/pipeline/reconstruct_without_metals.cpp
     src/cpp/src/pipeline/resonance.cpp
     src/cpp/src/stages/preprocess.cpp
@@ -97,6 +110,12 @@ add_library(molgr STATIC
 )
 
 set_target_properties(molgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+if(MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
+    target_compile_options(molgr PUBLIC
+        "/FImolgr/compat/msvc_openbabel_stl.h"
+    )
+endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_definitions(molgr PUBLIC _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
@@ -135,3 +154,4 @@ elseif(UNIX)
 endif()
 
 install(TARGETS _core DESTINATION molgr)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/molgr/data/UFF.prm" DESTINATION molgr/data)

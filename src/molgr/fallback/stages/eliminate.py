@@ -403,39 +403,63 @@ def _negative_charge_assignment_actions(
 def eliminate_high_positive_charge_atoms(
     omol: pybel.Molecule, given_charge: int
 ) -> tuple[pybel.Molecule, int, bool]:
-    """Convert one neighboring monoradical into a one-electron anionic center.
+    """Neutralize positive centers from their most electronegative neighbors.
 
-    The motif only selects the site. The electronic operation consumes exactly
-    one real unpaired electron on the neighbor and replaces it with
-    ``formal_charge -= 1``; lone pairs and unresolved centers are not consumed.
+    Eligible neighboring monoradicals are considered in descending
+    electronegativity order. Each accepted neighbor consumes one real unpaired
+    electron and becomes ``-1``. Assignment stops as soon as the existing and
+    newly assigned neighboring negative charges balance the center's positive
+    formal charge. Lone pairs and unresolved centers are not consumed.
     """
 
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
-    res = smarts.ELIM_HIGH_POSITIVE.findall(omol)
-    while len(res):
-        idxs = cast(List[Tuple[int, int]], res.pop(0))
-        atom1 = cast(ob.OBAtom, obmol.GetAtom(idxs[0]))
-        atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
-        atom2_neighbor_has_pending_electrons = any(
-            neighbor.GetIdx() != atom1.GetIdx()
-            and (
-                get_unpaired_electron_count(cast(ob.OBAtom, neighbor)) > 0
-                or has_unresolved_two_electron_center(cast(ob.OBAtom, neighbor))
-            )
-            for neighbor in ob.OBAtomAtomIter(atom2)
+    neighbors_by_center: dict[int, set[int]] = {}
+    for center_idx, neighbor_idx in cast(
+        List[Tuple[int, int]], smarts.ELIM_HIGH_POSITIVE.findall(omol)
+    ):
+        neighbors_by_center.setdefault(center_idx, set()).add(neighbor_idx)
+
+    for center_idx in sorted(neighbors_by_center):
+        center = cast(ob.OBAtom, obmol.GetAtom(center_idx))
+        remaining_positive_charge = center.GetFormalCharge() + sum(
+            min(0, cast(ob.OBAtom, neighbor).GetFormalCharge())
+            for neighbor in ob.OBAtomAtomIter(center)
         )
-        if (
-            -sum(cast(ob.OBAtom, atom).GetFormalCharge() for atom in ob.OBAtomAtomIter(atom1))
-            > atom1.GetFormalCharge()
-            or get_unpaired_electron_count(atom2) != 1
-            or atom2_neighbor_has_pending_electrons
-        ):
+        if remaining_positive_charge <= 0:
             continue
-        set_unpaired_electron_count(atom2, get_unpaired_electron_count(atom2) - 1)
-        atom2.SetFormalCharge(atom2.GetFormalCharge() - 1)
-        given_charge += 1
-        hit = True
+
+        neighbor_indices = sorted(
+            neighbors_by_center[center_idx],
+            key=lambda idx: (
+                -float(ob.GetElectroNeg(cast(ob.OBAtom, obmol.GetAtom(idx)).GetAtomicNum())),
+                idx,
+            ),
+        )
+        for neighbor_idx in neighbor_indices:
+            if remaining_positive_charge <= 0:
+                break
+            neighbor = cast(ob.OBAtom, obmol.GetAtom(neighbor_idx))
+            neighbor_has_pending_electrons = any(
+                adjacent.GetIdx() != center_idx
+                and (
+                    get_unpaired_electron_count(cast(ob.OBAtom, adjacent)) > 0
+                    or has_unresolved_two_electron_center(cast(ob.OBAtom, adjacent))
+                )
+                for adjacent in ob.OBAtomAtomIter(neighbor)
+            )
+            if (
+                neighbor.GetFormalCharge() != 0
+                or get_unpaired_electron_count(neighbor) != 1
+                or has_unresolved_two_electron_center(neighbor)
+                or neighbor_has_pending_electrons
+            ):
+                continue
+            set_unpaired_electron_count(neighbor, 0)
+            neighbor.SetFormalCharge(-1)
+            given_charge += 1
+            remaining_positive_charge -= 1
+            hit = True
     return omol, given_charge, hit
 
 

@@ -22,17 +22,15 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import multiprocessing as mp
 import os
 import sys
 import time
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, Optional, Tuple, cast
 
-from typing_extensions import Literal
+from typing_extensions import Literal, TypeAlias
 
 
 if __package__ in (None, ""):
@@ -42,6 +40,7 @@ from openbabel import openbabel as ob
 from openbabel import pybel
 from rdkit import Chem, RDLogger
 
+from molgr.batch import ReconstructionBatchRequest, iter_xyz_to_rdmol_batch
 from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.fallback.utils.electrons import set_unpaired_electron_count
 from molgr.fallback.utils.force_field import force_field_evaluation
@@ -53,11 +52,8 @@ RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
 
 NON_METAL_ATOMIC_NUMBERS = frozenset(NON_METAL_DICT)
 _DEFAULT_MAX_AUTO_JOBS = 8
-_WORKER_XYZ_DIR: Path | None = None
 BackendName = Literal["cpp", "python"]
-_WORKER_BACKEND: BackendName | None = None
-_WORKER_SPIN_SOURCE: str | None = None
-_WORKER_MANUAL_WHITELIST: dict[str, dict[str, str]] | None = None
+PrecomputedReconstruction: TypeAlias = Tuple[Any, Optional[str], Optional[str]]
 
 RESULT_FIELDNAMES = (
     "row_index",
@@ -195,15 +191,10 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help=(
-            "Number of worker processes for row reconstruction. Use 1 for serial execution. "
-            f"Default 0 auto-selects up to {_DEFAULT_MAX_AUTO_JOBS} processes."
+            "Number of native C++ batch workers. The C++ backend owns this worker pool; "
+            "the Python reference backend remains serial. "
+            f"Default 0 auto-selects up to {_DEFAULT_MAX_AUTO_JOBS} workers."
         ),
-    )
-    parser.add_argument(
-        "--chunksize",
-        type=int,
-        default=1,
-        help="Process-pool map chunksize. Larger values reduce overhead for many small rows.",
     )
     args = parser.parse_args()
     if args.start_row < 1:
@@ -216,8 +207,6 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--jobs must be >= 0")
     if args.jobs == 0:
         args.jobs = max(1, min(args.limit, os.cpu_count() or 1, _DEFAULT_MAX_AUTO_JOBS))
-    if args.chunksize < 1:
-        parser.error("--chunksize must be >= 1")
     return args
 
 
@@ -658,6 +647,20 @@ def _reference_total_radical_electrons(reference_mol: Chem.Mol) -> int:
     return sum(atom.GetNumRadicalElectrons() for atom in reference_mol.GetAtoms())
 
 
+def _resolve_total_radical_electrons(row: dict[str, str], *, spin_source: str) -> int:
+    if spin_source == "closed_shell":
+        return 0
+    if spin_source == "reference_smiles":
+        reference_smiles = row.get("smiles", "").strip()
+        if not reference_smiles:
+            raise ValueError("missing_reference_smiles")
+        reference_mol = Chem.MolFromSmiles(reference_smiles)
+        if reference_mol is None:
+            raise ValueError("reference_parse_failed")
+        return _reference_total_radical_electrons(Chem.AddHs(reference_mol))
+    raise ValueError(f"Unsupported spin source: {spin_source!r}")
+
+
 def _process_row(
     row_index: int,
     row: dict[str, str],
@@ -666,6 +669,7 @@ def _process_row(
     backend: BackendName,
     spin_source: str,
     manual_whitelist: dict[str, dict[str, str]],
+    precomputed_reconstruction: PrecomputedReconstruction | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     xyz_path = xyz_dir / f"{row['id']}.xyz"
@@ -756,21 +760,32 @@ def _process_row(
                 result["reference_formula_mismatch_detail"]
             )
 
-    try:
-        molgr_mol = xyz_to_rdmol(
-            xyz_block,
-            total_charge=int(row["charge"]),
-            spin_multiplicity=total_radical_electrons + 1,
-            backend=backend,
-        )
-    except Exception as exc:  # noqa: BLE001
-        result["molgr_status"] = f"failed:{type(exc).__name__}"
-        result["molgr_organic_uff_status"] = "skipped_missing_molgr_result"
-        result["reference_organic_mapping_status"] = "skipped_missing_molgr_result"
-        result["reference_organic_uff_status"] = "skipped_missing_molgr_result"
-        result["error"] = str(exc)
-        result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
-        return result
+    if precomputed_reconstruction is None:
+        try:
+            molgr_mol = xyz_to_rdmol(
+                xyz_block,
+                total_charge=int(row["charge"]),
+                spin_multiplicity=total_radical_electrons + 1,
+                backend=backend,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result["molgr_status"] = f"failed:{type(exc).__name__}"
+            result["molgr_organic_uff_status"] = "skipped_missing_molgr_result"
+            result["reference_organic_mapping_status"] = "skipped_missing_molgr_result"
+            result["reference_organic_uff_status"] = "skipped_missing_molgr_result"
+            result["error"] = str(exc)
+            result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
+            return result
+    else:
+        molgr_mol, reconstruction_error, reconstruction_status = precomputed_reconstruction
+        if reconstruction_error is not None or molgr_mol is None:
+            result["molgr_status"] = f"failed:{reconstruction_status or 'native_batch'}"
+            result["molgr_organic_uff_status"] = "skipped_missing_molgr_result"
+            result["reference_organic_mapping_status"] = "skipped_missing_molgr_result"
+            result["reference_organic_uff_status"] = "skipped_missing_molgr_result"
+            result["error"] = reconstruction_error or "native batch returned no molecule"
+            result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
+            return result
 
     result["molgr_status"] = "ok"
     result["molgr_smiles_canonical"] = _safe_canonical_smiles(molgr_mol)
@@ -910,24 +925,6 @@ def _select_input_rows(
     return selected_rows
 
 
-def _worker_init(
-    xyz_dir: str,
-    backend: BackendName,
-    spin_source: str,
-    manual_whitelist: dict[str, dict[str, str]],
-) -> None:
-    global _WORKER_XYZ_DIR
-    global _WORKER_BACKEND
-    global _WORKER_SPIN_SOURCE
-    global _WORKER_MANUAL_WHITELIST
-
-    _WORKER_XYZ_DIR = Path(xyz_dir)
-    _WORKER_BACKEND = backend
-    _WORKER_SPIN_SOURCE = spin_source
-    _WORKER_MANUAL_WHITELIST = manual_whitelist
-    RDLogger.DisableLog("rdApp.*")  # type: ignore[arg-type]
-
-
 def _unexpected_row_error_result(
     row_index: int,
     row: dict[str, str],
@@ -941,45 +938,15 @@ def _unexpected_row_error_result(
     result = _empty_result(row_index, row, xyz_path)
     result["spin_source"] = spin_source
     result["molgr_status"] = f"failed:{type(exc).__name__}"
-    result["molgr_organic_uff_status"] = "skipped_worker_error"
-    result["reference_organic_mapping_status"] = "skipped_worker_error"
-    result["reference_organic_uff_status"] = "skipped_worker_error"
+    result["molgr_organic_uff_status"] = "skipped_unexpected_error"
+    result["reference_organic_mapping_status"] = "skipped_unexpected_error"
+    result["reference_organic_uff_status"] = "skipped_unexpected_error"
     result["error"] = str(exc)
     result["elapsed_seconds"] = round(time.perf_counter() - started_at, 6)
     return result
 
 
-def _process_row_task(task: tuple[int, dict[str, str]]) -> dict[str, Any]:
-    row_index, row = task
-    started_at = time.perf_counter()
-    if (
-        _WORKER_XYZ_DIR is None
-        or _WORKER_BACKEND is None
-        or _WORKER_SPIN_SOURCE is None
-        or _WORKER_MANUAL_WHITELIST is None
-    ):
-        raise RuntimeError("tmQMg regression worker was not initialized")
-    try:
-        return _process_row(
-            row_index,
-            row,
-            xyz_dir=_WORKER_XYZ_DIR,
-            backend=_WORKER_BACKEND,
-            spin_source=_WORKER_SPIN_SOURCE,
-            manual_whitelist=_WORKER_MANUAL_WHITELIST,
-        )
-    except Exception as exc:
-        return _unexpected_row_error_result(
-            row_index,
-            row,
-            xyz_dir=_WORKER_XYZ_DIR,
-            spin_source=_WORKER_SPIN_SOURCE,
-            started_at=started_at,
-            exc=exc,
-        )
-
-
-def _process_row_serial_task(
+def _process_row_safe(
     task: tuple[int, dict[str, str]],
     *,
     xyz_dir: Path,
@@ -1009,34 +976,128 @@ def _process_row_serial_task(
         )
 
 
+def _native_batch_reconstructions(
+    row_tasks: list[tuple[int, dict[str, str]]],
+    *,
+    xyz_dir: Path,
+    spin_source: str,
+    max_workers: int,
+) -> dict[int, PrecomputedReconstruction]:
+    """Reconstruct rows in one native batch and retain row correspondence."""
+
+    prepared: dict[int, PrecomputedReconstruction] = {}
+    requests: list[ReconstructionBatchRequest] = []
+    request_row_indices: list[int] = []
+    for row_index, row in row_tasks:
+        xyz_path = xyz_dir / f"{row.get('id', '').strip()}.xyz"
+        try:
+            xyz_block = xyz_path.read_text(encoding="utf-8")
+            total_charge = int(row.get("charge", "0").strip() or 0)
+            total_radical_electrons = _resolve_total_radical_electrons(
+                row,
+                spin_source=spin_source,
+            )
+        except Exception as exc:  # noqa: BLE001
+            prepared[row_index] = (
+                None,
+                f"{type(exc).__name__}: {exc}",
+                type(exc).__name__,
+            )
+            continue
+        requests.append(
+            ReconstructionBatchRequest(
+                xyz_block=xyz_block,
+                total_charge=total_charge,
+                spin_multiplicity=total_radical_electrons + 1,
+            )
+        )
+        request_row_indices.append(row_index)
+
+    if not requests:
+        return prepared
+
+    try:
+        batch_results = iter_xyz_to_rdmol_batch(
+            requests,
+            backend="cpp",
+            max_workers=max_workers,
+            ordered=True,
+        )
+        for row_index, batch_result in zip(request_row_indices, batch_results):
+            diagnostics = batch_result.diagnostics
+            error = None
+            failure_code = None
+            if diagnostics is not None:
+                failure_code = diagnostics.code.value
+                error = f"{diagnostics.code.value} at {diagnostics.stage}: {diagnostics.message}"
+            prepared[row_index] = (batch_result.molecule, error, failure_code)
+    except Exception as exc:  # noqa: BLE001
+        error = f"native batch execution failed: {type(exc).__name__}: {exc}"
+        for row_index in request_row_indices:
+            prepared[row_index] = (None, error, "BatchExecution")
+    return prepared
+
+
 def _iter_processed_rows(
     row_tasks: list[tuple[int, dict[str, str]]],
     *,
     jobs: int,
-    chunksize: int,
     xyz_dir: Path,
     backend: BackendName,
     spin_source: str,
     manual_whitelist: dict[str, dict[str, str]],
 ) -> Iterator[dict[str, Any]]:
-    if jobs <= 1 or len(row_tasks) <= 1:
+    if backend == "cpp":
+        precomputed = _native_batch_reconstructions(
+            row_tasks,
+            xyz_dir=xyz_dir,
+            spin_source=spin_source,
+            max_workers=jobs,
+        )
         for task in row_tasks:
-            yield _process_row_serial_task(
-                task,
-                xyz_dir=xyz_dir,
-                backend=backend,
-                spin_source=spin_source,
-                manual_whitelist=manual_whitelist,
-            )
+            row_index, row = task
+            if row_index not in precomputed:
+                yield _unexpected_row_error_result(
+                    row_index,
+                    row,
+                    xyz_dir=xyz_dir,
+                    spin_source=spin_source,
+                    started_at=time.perf_counter(),
+                    exc=RuntimeError("native batch returned no result for row"),
+                )
+                continue
+            try:
+                yield _process_row(
+                    row_index,
+                    row,
+                    xyz_dir=xyz_dir,
+                    backend=backend,
+                    spin_source=spin_source,
+                    manual_whitelist=manual_whitelist,
+                    precomputed_reconstruction=precomputed[row_index],
+                )
+            except Exception as exc:
+                yield _unexpected_row_error_result(
+                    row_index,
+                    row,
+                    xyz_dir=xyz_dir,
+                    spin_source=spin_source,
+                    started_at=time.perf_counter(),
+                    exc=exc,
+                )
         return
 
-    with ProcessPoolExecutor(
-        max_workers=jobs,
-        mp_context=mp.get_context("spawn"),
-        initializer=_worker_init,
-        initargs=(str(xyz_dir), backend, spin_source, manual_whitelist),
-    ) as executor:
-        yield from executor.map(_process_row_task, row_tasks, chunksize=chunksize)
+    # The Python reference backend is intentionally serial; it does not own
+    # an executor and must not be wrapped in an outer process pool.
+    del jobs
+    for task in row_tasks:
+        yield _process_row_safe(
+            task,
+            xyz_dir=xyz_dir,
+            backend=backend,
+            spin_source=spin_source,
+            manual_whitelist=manual_whitelist,
+        )
 
 
 def _normalize_backend(backend: str) -> BackendName:
@@ -1093,7 +1154,6 @@ def main() -> int:
         for result in _iter_processed_rows(
             row_tasks,
             jobs=args.jobs,
-            chunksize=args.chunksize,
             xyz_dir=args.xyz_dir,
             backend=backend,
             spin_source=args.spin_source,
@@ -1148,7 +1208,8 @@ def main() -> int:
         "backend": backend,
         "spin_source": args.spin_source,
         "jobs": args.jobs,
-        "chunksize": args.chunksize,
+        "native_workers": args.jobs if backend == "cpp" else 1,
+        "parallel_execution": "native_batch" if backend == "cpp" else "serial",
         "limit": args.limit,
         "start_row": args.start_row,
         "end_row": args.end_row,

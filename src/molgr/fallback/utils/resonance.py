@@ -184,8 +184,8 @@ def _run_process_resonance(
     )
     hit = (
         machine.run_omol_stage(
-            "process_resonance_clean_neighbor_radicals",
-            clean_neighbor_radicals,
+            "process_resonance_clean_1_4_radicals",
+            clean_1_4_radicals,
             machine.given_charge,
             machine.total_radical_electrons,
         )
@@ -193,8 +193,8 @@ def _run_process_resonance(
     )
     hit = (
         machine.run_omol_stage(
-            "process_resonance_clean_1_4_radicals",
-            clean_1_4_radicals,
+            "process_resonance_clean_neighbor_radicals",
+            clean_neighbor_radicals,
             machine.given_charge,
             machine.total_radical_electrons,
         )

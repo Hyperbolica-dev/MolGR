@@ -1,6 +1,7 @@
 #pragma once
 
 #include "molgr/config.h"
+#include "molgr/diagnostics.h"
 #include "molgr/utils/utils.h"
 
 #include <memory>
@@ -16,7 +17,8 @@ namespace molgr
                 const std::string &xyz_block,
                 int total_charge,
                 int total_radical_electrons,
-                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig());
+                const molgr::config::MolGRConfig &config = molgr::config::GetDefaultConfig(),
+                molgr::diagnostics::ReconstructionDiagnostics *diagnostics = nullptr);
         }
     }
 }
