@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 from typing import Optional, Tuple
@@ -19,6 +19,44 @@ class EquivalenceMethod(str, Enum):
     INCHI_KEY = "inchi_key"
     CARBENE_ZWITTERION = "carbene_zwitterion"
     RESONANCE = "resonance"
+
+
+class EquivalenceDecision(str, Enum):
+    EQUIVALENT = "equivalent"
+    NOT_EQUIVALENT = "not_equivalent"
+    INCONCLUSIVE = "inconclusive"
+
+
+class EquivalenceRelation(str, Enum):
+    NORMALIZED_GRAPH_IDENTITY = "normalized_graph_identity"
+    IDENTIFIER_EQUIVALENCE = "identifier_equivalence"
+    CARBENE_ZWITTERION_EQUIVALENCE = "carbene_zwitterion_equivalence"
+    RESONANCE_EQUIVALENCE = "resonance_equivalence"
+    NONE = "none"
+
+
+class InvariantStatus(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    NOT_EVALUATED = "not_evaluated"
+
+
+@dataclass
+class InvariantResult:
+    status: InvariantStatus
+    mol1: object | None = None
+    mol2: object | None = None
+    reason: str = ""
+
+
+@dataclass
+class BoundedSearchMetadata:
+    attempted: bool = False
+    limit: int | None = None
+    mol1_count: int = 0
+    mol2_count: int = 0
+    limit_reached: bool = False
+    exhaustive: bool | None = None
 
 
 @dataclass
@@ -60,14 +98,23 @@ class EquivalenceChecks:
 
 
 @dataclass
-class EquivalenceInfo:
+class EquivalenceResult:
+    decision: EquivalenceDecision = EquivalenceDecision.INCONCLUSIVE
+    relation: EquivalenceRelation = EquivalenceRelation.NONE
     equivalent: bool = False
     method: Optional[EquivalenceMethod] = None
     reason: str = ""
+    invariants: dict[str, InvariantResult] = field(default_factory=dict)
+    contradictions: list[str] = field(default_factory=list)
+    bounded_search: BoundedSearchMetadata | None = None
     checks: Optional[EquivalenceChecks] = None
     canonical_smiles: Optional[CanonicalSmilesDetail] = None
     carbene_zwitterion: Optional[CarbeneZwitterionDetail] = None
     resonance: Optional[ResonanceDetail] = None
+
+
+# Compatibility name retained for callers that imported the former detail type.
+EquivalenceInfo = EquivalenceResult
 
 
 _NON_METAL_ATOMIC_NUMBERS = frozenset({1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 34, 35, 51, 52, 53})
@@ -172,9 +219,13 @@ def _resonance_form_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
         return _canon_smiles(mol, use_chirality)
 
 
-def _inchi_key(mol: Chem.Mol) -> str | None:
+def _inchi_key(mol: Chem.Mol, *, use_chirality: bool = True) -> str | None:
     try:
-        key = inchi.MolToInchiKey(_safe_copy(mol))
+        clone = _safe_copy(mol)
+        if not use_chirality:
+            Chem.RemoveStereochemistry(clone)
+            clone.UpdatePropertyCache(strict=False)
+        key = inchi.MolToInchiKey(clone)
     except TimeoutError:
         raise
     except Exception:  # noqa: BLE001
@@ -680,14 +731,21 @@ def _resonance_match(
     return cached_resonance_sets(normalized_target_1, normalized_target_2)
 
 
-def _check_equivalence_impl(
+def evaluate_equivalence(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
     use_chirality: bool = True,
     max_resonance: int = 50,
     resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
     | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
-) -> Tuple[bool, EquivalenceInfo]:
+) -> EquivalenceResult:
+    """Evaluate molecular equivalence and retain the proof and invariant state.
+
+    The result separates the comparison decision from the relation that supplied
+    positive evidence.  Identifier equality is evidence only after the shared
+    graph/electronic invariants have passed.
+    """
+
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
 
@@ -734,89 +792,149 @@ def _check_equivalence_impl(
             explicit_h_formula_1 == explicit_h_formula_2,
         ),
     )
-    info = EquivalenceInfo(checks=checks)
-    topology_matches: bool | None = None
-    component_electrons_match: bool | None = None
+    invariants = {
+        "heavy_atom_formula": InvariantResult(
+            InvariantStatus.PASSED if checks.heavy_atom_formula.passed else InvariantStatus.FAILED,
+            checks.heavy_atom_formula.mol1,
+            checks.heavy_atom_formula.mol2,
+        ),
+        "explicit_h_formula": InvariantResult(
+            InvariantStatus.PASSED if checks.explicit_h_formula.passed else InvariantStatus.FAILED,
+            checks.explicit_h_formula.mol1,
+            checks.explicit_h_formula.mol2,
+        ),
+        "atom_count": InvariantResult(
+            InvariantStatus.PASSED if checks.num_atoms.passed else InvariantStatus.FAILED,
+            checks.num_atoms.mol1,
+            checks.num_atoms.mol2,
+        ),
+        "formal_charge": InvariantResult(
+            InvariantStatus.PASSED if checks.formal_charge.passed else InvariantStatus.FAILED,
+            checks.formal_charge.mol1,
+            checks.formal_charge.mol2,
+        ),
+        "radical_electrons": InvariantResult(
+            InvariantStatus.PASSED if checks.radical_electrons.passed else InvariantStatus.FAILED,
+            checks.radical_electrons.mol1,
+            checks.radical_electrons.mol2,
+        ),
+        "metal_state": InvariantResult(InvariantStatus.NOT_EVALUATED),
+        "nonmetal_connectivity": InvariantResult(InvariantStatus.NOT_EVALUATED),
+        "component_electrons": InvariantResult(InvariantStatus.NOT_EVALUATED),
+        "stereochemistry": InvariantResult(InvariantStatus.NOT_EVALUATED),
+    }
+    info = EquivalenceResult(
+        checks=checks,
+        invariants=invariants,
+        contradictions=[],
+        bounded_search=BoundedSearchMetadata(limit=max_resonance),
+    )
+
+    def finish(
+        decision: EquivalenceDecision,
+        reason: str,
+        *,
+        relation: EquivalenceRelation = EquivalenceRelation.NONE,
+        method: EquivalenceMethod | None = None,
+    ) -> EquivalenceResult:
+        info.decision = decision
+        info.relation = relation
+        info.equivalent = decision == EquivalenceDecision.EQUIVALENT
+        info.method = method
+        info.reason = reason
+        return info
 
     if not checks.heavy_atom_formula.passed:
-        info.reason = "Not equivalent: heavy-atom element counts differ."
-        return False, info
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: heavy-atom element counts differ.",
+        )
 
-    if _metal_signature_key(standardized_1) != _metal_signature_key(standardized_2):
-        info.reason = "Not equivalent: metal valence assignment differs."
-        return False, info
+    metal_signature_1 = _metal_signature_key(standardized_1)
+    metal_signature_2 = _metal_signature_key(standardized_2)
+    invariants["metal_state"] = InvariantResult(
+        InvariantStatus.PASSED
+        if metal_signature_1 == metal_signature_2
+        else InvariantStatus.FAILED,
+        metal_signature_1,
+        metal_signature_2,
+    )
+    if metal_signature_1 != metal_signature_2:
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: metal valence assignment differs.",
+        )
 
     if not checks.explicit_h_formula.passed:
-        info.reason = "Not equivalent: explicit-hydrogen element counts differ."
-        return False, info
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: explicit-hydrogen element counts differ.",
+        )
 
     if not checks.num_atoms.passed:
-        info.reason = "Not equivalent: explicit-hydrogen atom counts differ."
-        return False, info
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: explicit-hydrogen atom counts differ.",
+        )
 
     try:
         smiles_1 = _canon_smiles(organic_1, use_chirality)
         smiles_2 = _canon_smiles(organic_2, use_chirality)
         info.canonical_smiles = CanonicalSmilesDetail(smiles_1, smiles_2, use_chirality)
-        if smiles_1 == smiles_2:
-            info.equivalent = True
-            info.method = EquivalenceMethod.IDEAL
-            info.reason = "Equivalent: canonical SMILES are identical after standardization."
-            return True, info
-
-        # RDKit releases can switch between aromatic, kekulized, and explicit-
-        # hydrogen forms while preserving the same stereochemical structure.
-        # Compare the pre-octet-normalization organic graphs through InChI in
-        # that case.  This is deliberately after the charge, radical, formula,
-        # and atom-count checks above, and InChI still distinguishes E/Z and
-        # enantiomeric stereochemistry.
-        prepared_inchi_key_1 = _inchi_key(prepared_organic_1)
-        prepared_inchi_key_2 = _inchi_key(prepared_organic_2)
-        if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
-            _is_metal_atom(atom) for atom in mol2.GetAtoms()
-        ):
-            # Standardization itself may materialize hydrogens differently on
-            # the two RDKit versions.  For metal-free inputs the original
-            # graphs are already the correct coordination-free source.
-            prepared_inchi_key_1 = _inchi_key(mol1)
-            prepared_inchi_key_2 = _inchi_key(mol2)
-        if (
-            use_chirality
-            and prepared_inchi_key_1 is not None
-            and prepared_inchi_key_1 == prepared_inchi_key_2
-        ):
-            info.equivalent = True
-            info.method = EquivalenceMethod.INCHI_KEY
-            info.reason = "Equivalent: prepared organic InChIKey matches after standardization."
-            return True, info
-
-        if use_chirality and _canon_smiles(organic_1, False) == _canon_smiles(organic_2, False):
-            info.reason = "Not equivalent: stereochemistry differs."
-            return False, info
-
         topology_1 = _resonance_topology_key(organic_1)
         topology_2 = _resonance_topology_key(organic_2)
         topology_matches = topology_1 == topology_2
+        invariants["nonmetal_connectivity"] = InvariantResult(
+            InvariantStatus.PASSED if topology_matches else InvariantStatus.FAILED,
+            topology_1,
+            topology_2,
+        )
         if not topology_matches:
-            info.reason = "Not equivalent: non-metal connectivity differs."
-            return False, info
-        component_electrons_match = _component_electron_signature(
-            organic_1
-        ) == _component_electron_signature(organic_2)
+            return finish(
+                EquivalenceDecision.NOT_EQUIVALENT,
+                "Not equivalent: non-metal connectivity differs.",
+            )
+
+        component_signature_1 = _component_electron_signature(organic_1)
+        component_signature_2 = _component_electron_signature(organic_2)
+        component_electrons_match = component_signature_1 == component_signature_2
+        invariants["component_electrons"] = InvariantResult(
+            InvariantStatus.PASSED if component_electrons_match else InvariantStatus.FAILED,
+            component_signature_1,
+            component_signature_2,
+        )
+
+        achiral_smiles_match = _canon_smiles(organic_1, False) == _canon_smiles(organic_2, False)
+        stereo_matches = not use_chirality or not achiral_smiles_match or smiles_1 == smiles_2
+        invariants["stereochemistry"] = InvariantResult(
+            InvariantStatus.PASSED if stereo_matches else InvariantStatus.FAILED,
+            smiles_1,
+            smiles_2,
+        )
     except TimeoutError:
         raise
     except Exception as exc:  # noqa: BLE001
-        info.reason = (
-            f"Not equivalent: canonical SMILES comparison failed: {type(exc).__name__}: {exc}"
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            f"Inconclusive: canonical comparison failed: {type(exc).__name__}: {exc}",
         )
 
-    inchi_key_1 = _inchi_key(organic_1)
-    inchi_key_2 = _inchi_key(organic_2)
-    if inchi_key_1 is not None and inchi_key_1 == inchi_key_2:
-        info.equivalent = True
-        info.method = EquivalenceMethod.INCHI_KEY
-        info.reason = "Equivalent: full InChIKey matches after standardization."
-        return True, info
+    prepared_inchi_source_1 = prepared_organic_1
+    prepared_inchi_source_2 = prepared_organic_2
+    if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
+        _is_metal_atom(atom) for atom in mol2.GetAtoms()
+    ):
+        prepared_inchi_source_1 = mol1
+        prepared_inchi_source_2 = mol2
+    prepared_inchi_key_1 = _inchi_key(prepared_inchi_source_1, use_chirality=use_chirality)
+    prepared_inchi_key_2 = _inchi_key(prepared_inchi_source_2, use_chirality=use_chirality)
+    full_inchi_key_1 = _inchi_key(organic_1, use_chirality=use_chirality)
+    full_inchi_key_2 = _inchi_key(organic_2, use_chirality=use_chirality)
+    prepared_identifier_match = (
+        prepared_inchi_key_1 is not None and prepared_inchi_key_1 == prepared_inchi_key_2
+    )
+    full_identifier_match = full_inchi_key_1 is not None and full_inchi_key_1 == full_inchi_key_2
+    identifier_match = prepared_identifier_match or full_identifier_match
 
     try:
         normalized_1 = _carbene_zwitterion_normalized_smiles(organic_1, use_chirality=use_chirality)
@@ -825,22 +943,66 @@ def _check_equivalence_impl(
             mol1_normalized=normalized_1,
             mol2_normalized=normalized_2,
         )
-        if normalized_1 == normalized_2:
-            info.equivalent = True
-            info.method = EquivalenceMethod.CARBENE_ZWITTERION
-            info.reason = "Equivalent: carbene/zwitterion normalization matched."
-            return True, info
+        carbene_match = normalized_1 == normalized_2
     except TimeoutError:
         raise
     except Exception:
-        pass
+        carbene_match = False
+
+    if not component_electrons_match:
+        if identifier_match:
+            info.contradictions.append("identifier_match_despite_component_electron_mismatch")
+        if carbene_match:
+            info.contradictions.append(
+                "carbene_normalization_match_despite_component_electron_mismatch"
+            )
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: charge or radical count differs within a component.",
+        )
+
+    if use_chirality and not stereo_matches:
+        if identifier_match:
+            info.contradictions.append("identifier_match_despite_stereochemistry_mismatch")
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: stereochemistry differs.",
+        )
+
+    if smiles_1 == smiles_2:
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            "Equivalent: canonical SMILES are identical after standardization.",
+            relation=EquivalenceRelation.NORMALIZED_GRAPH_IDENTITY,
+            method=EquivalenceMethod.IDEAL,
+        )
+
+    if identifier_match:
+        reason = (
+            "Equivalent: prepared organic InChIKey matches after standardization."
+            if prepared_identifier_match
+            else "Equivalent: full InChIKey matches after standardization."
+        )
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            reason,
+            relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
+            method=EquivalenceMethod.INCHI_KEY,
+        )
+
+    if carbene_match:
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            "Equivalent: carbene/zwitterion normalization matched.",
+            relation=EquivalenceRelation.CARBENE_ZWITTERION_EQUIVALENCE,
+            method=EquivalenceMethod.CARBENE_ZWITTERION,
+        )
 
     # Resonance preserves the explicit-hydrogen sigma graph and the electron
     # totals of every disconnected component.  For radical resonance this
     # invariant covers migrations RDKit does not enumerate.
     if (
-        topology_matches
-        and component_electrons_match
+        component_electrons_match
         and checks.formal_charge.passed
         and checks.radical_electrons.passed
         and radical_electrons_1 > 0
@@ -852,21 +1014,21 @@ def _check_equivalence_impl(
             )
         )
     ):
-        info.equivalent = True
-        info.method = EquivalenceMethod.RESONANCE
         info.resonance = ResonanceDetail(
             max_resonance=max_resonance,
             resonance_flags=int(resonance_flags),
             mol1_resonance_count=0,
             mol2_resonance_count=0,
         )
-        info.reason = "Equivalent: resonance topology and component electron counts match."
-        return True, info
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            "Equivalent: resonance topology and component electron counts match.",
+            relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
+            method=EquivalenceMethod.RESONANCE,
+        )
 
-    if topology_matches and component_electrons_match is False:
-        info.reason = "Not equivalent: charge or radical count differs within a component."
-        return False, info
-
+    assert info.bounded_search is not None
+    info.bounded_search.attempted = True
     resonance_matched, mol1_count, mol2_count, hit_smiles = _resonance_match(
         organic_1,
         organic_2,
@@ -874,9 +1036,13 @@ def _check_equivalence_impl(
         max_resonance=max_resonance,
         resonance_flags=resonance_flags,
     )
+    info.bounded_search.mol1_count = mol1_count
+    info.bounded_search.mol2_count = mol2_count
+    info.bounded_search.limit_reached = not resonance_matched and (
+        mol1_count >= max_resonance or mol2_count >= max_resonance
+    )
+    info.bounded_search.exhaustive = not info.bounded_search.limit_reached
     if resonance_matched:
-        info.equivalent = True
-        info.method = EquivalenceMethod.RESONANCE
         info.resonance = ResonanceDetail(
             max_resonance=max_resonance,
             resonance_flags=int(resonance_flags),
@@ -884,11 +1050,23 @@ def _check_equivalence_impl(
             mol2_resonance_count=mol2_count,
             hit_smiles=hit_smiles,
         )
-        info.reason = "Equivalent: resonance normalization matched."
-        return True, info
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            "Equivalent: resonance normalization matched.",
+            relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
+            method=EquivalenceMethod.RESONANCE,
+        )
 
-    info.reason = "Not equivalent: no standardized comparison path matched."
-    return False, info
+    if info.bounded_search.limit_reached:
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            "Inconclusive: bounded resonance search reached its configured limit.",
+        )
+
+    return finish(
+        EquivalenceDecision.NOT_EQUIVALENT,
+        "Not equivalent: no standardized comparison path matched.",
+    )
 
 
 def check_equivalence(
@@ -900,10 +1078,11 @@ def check_equivalence(
     | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
 ) -> Tuple[bool, EquivalenceInfo]:
     with rdBase.BlockLogs():
-        return _check_equivalence_impl(
+        result = evaluate_equivalence(
             mol1,
             mol2,
             use_chirality=use_chirality,
             max_resonance=max_resonance,
             resonance_flags=resonance_flags,
         )
+    return result.decision == EquivalenceDecision.EQUIVALENT, result
