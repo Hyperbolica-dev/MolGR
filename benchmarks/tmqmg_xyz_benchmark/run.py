@@ -31,6 +31,7 @@ from benchmarks.tmqmg_xyz_benchmark.schema import BenchmarkResult
 from benchmarks.smiles_xyz_benchmark.methods.base import MethodRunOutput
 
 from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
 
 
 try:
@@ -49,6 +50,118 @@ def _tqdm(*args, **kwargs):
 class TmqmgBenchmarkInput:
     row_index: int
     row: dict[str, str]
+
+
+def _roundtrip_molecule_snapshot(mol: Chem.Mol) -> dict[str, Any]:
+    """Return cheap electronic/formula diagnostics without modifying ``mol``."""
+
+    from molgr.utils.converter import get_atom_lone_pair_count
+
+    def safe_value(callback) -> Any:
+        try:
+            return callback()
+        except Exception as exc:  # noqa: BLE001
+            return f"unavailable: {type(exc).__name__}: {exc}"
+
+    return {
+        "formula": safe_value(lambda: rdMolDescriptors.CalcMolFormula(mol)),
+        "total_h": safe_value(
+            lambda: sum(
+                int(atom.GetTotalNumHs(includeNeighbors=True))
+                for atom in mol.GetAtoms()
+                if atom.GetAtomicNum() != 1
+            )
+        ),
+        "formal_charge": safe_value(
+            lambda: sum(int(atom.GetFormalCharge()) for atom in mol.GetAtoms())
+        ),
+        "radical_electrons": safe_value(
+            lambda: sum(int(atom.GetNumRadicalElectrons()) for atom in mol.GetAtoms())
+        ),
+        "active_lone_pairs": safe_value(
+            lambda: sum(get_atom_lone_pair_count(atom) for atom in mol.GetAtoms())
+        ),
+    }
+
+
+def _roundtrip_deltas(
+    internal: dict[str, Any],
+    reparsed: dict[str, Any],
+) -> dict[str, Any]:
+    deltas: dict[str, Any] = {}
+    for key in ("total_h", "formal_charge", "radical_electrons", "active_lone_pairs"):
+        left = internal.get(key)
+        right = reparsed.get(key)
+        if isinstance(left, int) and isinstance(right, int):
+            deltas[key] = right - left
+    deltas["formula_changed"] = internal.get("formula") != reparsed.get("formula")
+    return deltas
+
+
+def _smiles_roundtrip_diagnostic(
+    internal_mol: Chem.Mol,
+    predicted_smiles: str,
+    *,
+    timeout_seconds: float | None,
+    method_id: str,
+    case_idx: int,
+) -> dict[str, Any]:
+    """Diagnose I -> SMILES -> S independently of reference accuracy."""
+
+    from molgr.utils.equivalence import check_equivalence
+
+    internal_snapshot = _roundtrip_molecule_snapshot(internal_mol)
+    try:
+        reparsed = Chem.MolFromSmiles(predicted_smiles)
+    except Exception as exc:  # noqa: BLE001
+        reparsed = None
+        parse_reason = f"{type(exc).__name__}: {exc}"
+    else:
+        parse_reason = ""
+    if reparsed is None:
+        return {
+            "status": "reparse_failed",
+            "parse_success": False,
+            "equivalent": None,
+            "equivalence_method": None,
+            "reason": parse_reason or "predicted_smiles could not be reparsed",
+            "diagnostics": {"internal": internal_snapshot, "reparsed": None},
+        }
+
+    reparsed_snapshot = _roundtrip_molecule_snapshot(reparsed)
+    diagnostics = {
+        "internal": internal_snapshot,
+        "reparsed": reparsed_snapshot,
+        "delta": _roundtrip_deltas(internal_snapshot, reparsed_snapshot),
+    }
+    try:
+        with case_timeout(
+            timeout_seconds,
+            f"{method_id} SMILES roundtrip {case_idx}",
+        ):
+            equivalent, info = check_equivalence(
+                internal_mol,
+                reparsed,
+                use_chirality=False,
+                max_resonance=100,
+            )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "check_failed",
+            "parse_success": True,
+            "equivalent": None,
+            "equivalence_method": None,
+            "reason": f"roundtrip equivalence check failed: {type(exc).__name__}: {exc}",
+            "diagnostics": diagnostics,
+        }
+    return {
+        "status": "preserved" if equivalent else "roundtrip_changed",
+        "parse_success": True,
+        "equivalent": equivalent,
+        "equivalence_method": info.method.value if info.method is not None else None,
+        "reason": info.reason,
+        "diagnostics": diagnostics,
+    }
 
 
 def _build_cpp_backend_config_payload(
@@ -388,6 +501,17 @@ def _run_case_method(
     error = output.error
     equivalent = output.equivalent
     equivalence_method = output.equivalence_method
+    roundtrip: dict[str, Any] | None = None
+    if output.rdkit_mol is not None and output.predicted_smiles:
+        roundtrip_started = time.perf_counter()
+        roundtrip = _smiles_roundtrip_diagnostic(
+            output.rdkit_mol,
+            output.predicted_smiles,
+            timeout_seconds=case_timeout_seconds,
+            method_id=method_id,
+            case_idx=int(case["case_idx"]),
+        )
+        breakdown["roundtrip_ms"] = (time.perf_counter() - roundtrip_started) * 1000.0
     ground_truth_rdmol = case.get("ground_truth_rdmol")
     reference_error = case.get("reference_error")
     if comparison_skipped:
@@ -402,14 +526,9 @@ def _run_case_method(
         eq_started = time.perf_counter()
         try:
             with case_timeout(case_timeout_seconds, f"{method_id} equivalence {case['case_idx']}"):
-                comparison_mol = output.rdkit_mol
-                if output.predicted_smiles:
-                    comparison_mol = Chem.MolFromSmiles(output.predicted_smiles)
-                    if comparison_mol is None:
-                        raise ValueError("predicted_smiles could not be reparsed")
                 is_equivalent, info = check_equivalence(
                     ground_truth_rdmol,
-                    comparison_mol,
+                    output.rdkit_mol,
                     # tmQMg reference SMILES do not consistently encode stereochemistry.
                     use_chirality=False,
                     max_resonance=100,
@@ -444,6 +563,14 @@ def _run_case_method(
         case_id=case.get("id"),
         comparison_skipped=comparison_skipped,
         comparison_skip_reason=comparison_skip_reason,
+        smiles_roundtrip_status=roundtrip["status"] if roundtrip else None,
+        smiles_roundtrip_parse_success=roundtrip["parse_success"] if roundtrip else None,
+        smiles_roundtrip_equivalent=roundtrip["equivalent"] if roundtrip else None,
+        smiles_roundtrip_equivalence_method=(
+            roundtrip["equivalence_method"] if roundtrip else None
+        ),
+        smiles_roundtrip_reason=roundtrip["reason"] if roundtrip else None,
+        smiles_roundtrip_diagnostics=roundtrip["diagnostics"] if roundtrip else None,
     )
 
 
