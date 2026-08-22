@@ -30,6 +30,7 @@ from benchmarks.tmqmg_xyz_benchmark.run import (
     run,
 )
 from benchmarks.tmqmg_xyz_benchmark.schema import BenchmarkResult
+from molgr.utils.converter import LONE_PAIR_COUNT_PROP
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -627,7 +628,7 @@ def test_benchmark_hydrogen_removal_does_not_require_kekulization() -> None:
     assert Chem.MolToSmiles(mol_no_h) == "c1cccc1"
 
 
-def test_equivalence_reparses_recorded_smiles_instead_of_using_backend_object() -> None:
+def test_equivalence_uses_internal_candidate_not_recorded_smiles() -> None:
     ground_truth = Chem.MolFromSmiles("C")
     backend_object = Chem.MolFromSmiles("N")
     assert ground_truth is not None
@@ -658,20 +659,22 @@ def test_equivalence_reparses_recorded_smiles_instead_of_using_backend_object() 
     )
 
     assert result.status == "ok"
-    assert result.equivalent is True
+    assert result.equivalent is False
+    assert result.comparison_skipped is False
+    assert result.smiles_roundtrip_status == "roundtrip_changed"
+    assert result.smiles_roundtrip_parse_success is True
+    assert result.smiles_roundtrip_equivalent is False
 
 
-def test_equivalence_reparse_failure_does_not_mark_reconstruction_failed() -> None:
-    unsanitized = Chem.MolFromSmiles("c1cccc1", sanitize=False)
+def test_smiles_reparse_failure_does_not_override_correct_internal_equivalence() -> None:
     ground_truth = Chem.MolFromSmiles("C")
-    assert unsanitized is not None
     assert ground_truth is not None
 
     class _Output:
         status = "ok"
         error = None
-        predicted_smiles = "c1cccc1"
-        rdkit_mol = unsanitized
+        predicted_smiles = "not valid smiles"
+        rdkit_mol = ground_truth
         equivalent = None
         equivalence_method = None
         timing_ms_breakdown = {"method_ms": 1.0}
@@ -693,12 +696,159 @@ def test_equivalence_reparse_failure_does_not_mark_reconstruction_failed() -> No
 
     assert result.status == "ok"
     assert result.error is None
-    assert result.predicted_smiles == "c1cccc1"
-    assert result.equivalent is None
-    assert result.comparison_skipped is True
-    assert result.comparison_skip_reason == (
-        "equivalence check failed: predicted_smiles could not be reparsed"
+    assert result.predicted_smiles == "not valid smiles"
+    assert result.equivalent is True
+    assert result.equivalence_method == "ideal"
+    assert result.comparison_skipped is False
+    assert result.comparison_skip_reason is None
+    assert result.smiles_roundtrip_status == "reparse_failed"
+    assert result.smiles_roundtrip_parse_success is False
+    assert result.smiles_roundtrip_equivalent is None
+
+
+def test_low_valence_internal_candidate_can_match_reference_despite_lossy_smiles() -> None:
+    reference = Chem.MolFromSmiles("C[C]C")
+    assert reference is not None
+    internal = Chem.Mol(reference)
+    center = internal.GetAtomWithIdx(1)
+    center.SetNumRadicalElectrons(0)
+    center.SetIntProp(LONE_PAIR_COUNT_PROP, 1)
+    internal.UpdatePropertyCache(strict=False)
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = Chem.MolToSmiles(internal)
+        rdkit_mol = internal
+        equivalent = None
+        equivalence_method = None
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "LOW_VALENCE",
+            "input_smiles": "C[C]C",
+            "ground_truth_smiles": "C[C]C",
+            "ground_truth_rdmol": reference,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
     )
+
+    assert result.equivalent is True
+    assert result.equivalence_method == "ideal"
+    assert result.smiles_roundtrip_status == "roundtrip_changed"
+    assert result.smiles_roundtrip_parse_success is True
+    assert result.smiles_roundtrip_equivalent is False
+    assert result.smiles_roundtrip_diagnostics is not None
+    assert result.smiles_roundtrip_diagnostics["delta"] == {
+        "total_h": 2,
+        "formal_charge": 0,
+        "radical_electrons": 0,
+        "active_lone_pairs": -1,
+        "formula_changed": True,
+    }
+
+
+def test_internal_mismatch_remains_failure_when_smiles_reparse_also_fails() -> None:
+    reference = Chem.MolFromSmiles("C")
+    internal = Chem.MolFromSmiles("N")
+    assert reference is not None
+    assert internal is not None
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = "not valid smiles"
+        rdkit_mol = internal
+        equivalent = None
+        equivalence_method = None
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "INTERNAL_MISMATCH",
+            "input_smiles": "C",
+            "ground_truth_smiles": "C",
+            "ground_truth_rdmol": reference,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
+    )
+
+    assert result.equivalent is False
+    assert result.comparison_skipped is False
+    assert result.smiles_roundtrip_status == "reparse_failed"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "candidate_smiles", "reference_smiles", "roundtrip_status"),
+    [
+        (
+            "WEXMIW_PATTERN",
+            "CCOC(=O)[C@H]1CSC(=[Cr@OH27](<-[C-]#[O+])(<-[C-]#[O+])"
+            "(<-[C-]#[O+])(<-[C-]#[O+])<-[C-]#[O+])C=C(c2ccccc2)N1",
+            "CCOC(=O)C1CS#C(->[Cr](<-[C-]#[O+])(<-[C-]#[O+])(<-[C-]#[O+])"
+            "(<-[C-]#[O+])<-[C-]#[O+])C=C(c2ccccc2)N1",
+            "preserved",
+        ),
+        (
+            "NON_KEKULIZABLE_PATTERN",
+            "O=C=C=Cc12->[Pt](<-P(c3ccccc3)(c3ccccc3)c3ccccc3)"
+            "(<-P(c3ccccc3)(c3ccccc3)c3ccccc3)<-c1c(=O)co2",
+            "[O-]C#C[CH-]c12->[Pt+4](<-c1c([O-])[c-]o2)"
+            "(<-P(c1ccccc1)(c1ccccc1)c1ccccc1)<-P(c1ccccc1)(c1ccccc1)c1ccccc1",
+            "reparse_failed",
+        ),
+    ],
+)
+def test_genuine_internal_mismatch_is_not_hidden_by_roundtrip_status(
+    case_id: str,
+    candidate_smiles: str,
+    reference_smiles: str,
+    roundtrip_status: str,
+) -> None:
+    internal = Chem.MolFromSmiles(candidate_smiles, sanitize=False)
+    reference = Chem.MolFromSmiles(reference_smiles)
+    assert internal is not None
+    assert reference is not None
+    internal.UpdatePropertyCache(strict=False)
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = Chem.MolToSmiles(internal)
+        rdkit_mol = internal
+        equivalent = None
+        equivalence_method = None
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": case_id,
+            "input_smiles": reference_smiles,
+            "ground_truth_smiles": reference_smiles,
+            "ground_truth_rdmol": reference,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
+    )
+
+    assert result.equivalent is False
+    assert result.comparison_skipped is False
+    assert result.smiles_roundtrip_status == roundtrip_status
 
 
 def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(

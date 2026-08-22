@@ -33,6 +33,12 @@ RESULT_COLUMNS: tuple[str, ...] = (
     "equivalence_method",
     "comparison_skipped",
     "comparison_skip_reason",
+    "smiles_roundtrip_status",
+    "smiles_roundtrip_parse_success",
+    "smiles_roundtrip_equivalent",
+    "smiles_roundtrip_equivalence_method",
+    "smiles_roundtrip_reason",
+    "smiles_roundtrip_diagnostics_json",
     "timing_ms_total",
 )
 
@@ -121,6 +127,22 @@ def write_results_csv(path: Path, results: list[BenchmarkResult]) -> None:
                 "equivalence_method": result.equivalence_method,
                 "comparison_skipped": getattr(result, "comparison_skipped", False),
                 "comparison_skip_reason": getattr(result, "comparison_skip_reason", None),
+                "smiles_roundtrip_status": getattr(result, "smiles_roundtrip_status", None),
+                "smiles_roundtrip_parse_success": getattr(
+                    result, "smiles_roundtrip_parse_success", None
+                ),
+                "smiles_roundtrip_equivalent": getattr(result, "smiles_roundtrip_equivalent", None),
+                "smiles_roundtrip_equivalence_method": (
+                    getattr(result, "smiles_roundtrip_equivalence_method", None)
+                ),
+                "smiles_roundtrip_reason": getattr(result, "smiles_roundtrip_reason", None),
+                "smiles_roundtrip_diagnostics_json": json.dumps(
+                    getattr(result, "smiles_roundtrip_diagnostics", None),
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+                if getattr(result, "smiles_roundtrip_diagnostics", None) is not None
+                else None,
                 "timing_ms_total": result.timing_ms_total,
                 "timing_ms_breakdown_json": json.dumps(breakdown, ensure_ascii=True),
             }
