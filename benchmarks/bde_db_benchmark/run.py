@@ -62,6 +62,7 @@ class BDEResult:
     charge_consistent: bool | None
     radical_electron_consistent: bool | None
     atom_order_preserved: bool | None
+    atom_identity_guard_reason: str | None
     formal_radical_atom_index_match: bool | None
     reference_bonds: str
     predicted_bonds: str | None
@@ -95,11 +96,25 @@ def _atom_identity_mapping(
     *,
     coordinate_tolerance: float = 1e-6,
 ) -> tuple[bool, dict[int, int]]:
+    preserved, mapping, _ = _atom_identity_mapping_with_reason(
+        reference_mol,
+        predicted_mol,
+        coordinate_tolerance=coordinate_tolerance,
+    )
+    return preserved, mapping
+
+
+def _atom_identity_mapping_with_reason(
+    reference_mol: Chem.Mol,
+    predicted_mol: Chem.Mol,
+    *,
+    coordinate_tolerance: float = 1e-6,
+) -> tuple[bool, dict[int, int], str]:
     reference_indices = _retained_reference_atom_indices(reference_mol)
     if predicted_mol.GetNumAtoms() != len(reference_indices):
-        return False, {}
+        return False, {}, "retained atom count differs"
     if reference_mol.GetNumConformers() != 1 or predicted_mol.GetNumConformers() != 1:
-        return False, {}
+        return False, {}, "expected exactly one conformer on candidate and reference"
     reference_conf = reference_mol.GetConformer()
     predicted_conf = predicted_mol.GetConformer()
     mapping: dict[int, int] = {}
@@ -107,7 +122,7 @@ def _atom_identity_mapping(
         reference_atom = reference_mol.GetAtomWithIdx(reference_index)
         predicted_atom = predicted_mol.GetAtomWithIdx(predicted_index)
         if reference_atom.GetAtomicNum() != predicted_atom.GetAtomicNum():
-            return False, {}
+            return False, {}, f"element differs at retained atom position {predicted_index}"
         reference_position = reference_conf.GetAtomPosition(reference_index)
         predicted_position = predicted_conf.GetAtomPosition(predicted_index)
         distance = math.sqrt(
@@ -116,9 +131,9 @@ def _atom_identity_mapping(
             + (reference_position.z - predicted_position.z) ** 2
         )
         if distance > coordinate_tolerance:
-            return False, {}
+            return False, {}, f"coordinate differs at retained atom position {predicted_index}"
         mapping[predicted_index] = reference_index
-    return True, mapping
+    return True, mapping, "passed"
 
 
 def _bonds(mol: Chem.Mol) -> str:
@@ -167,6 +182,7 @@ def _error_result(
         charge_consistent=None,
         radical_electron_consistent=None,
         atom_order_preserved=None,
+        atom_identity_guard_reason=None,
         formal_radical_atom_index_match=None,
         reference_bonds=_bonds(case.reference_mol),
         predicted_bonds=None,
@@ -259,7 +275,9 @@ def _run_case(
         equivalence_method = None
         evaluator_inconclusive = None
         bounded_search = None
-    atom_order_preserved, atom_mapping = _atom_identity_mapping(case.reference_mol, predicted_mol)
+    atom_order_preserved, atom_mapping, atom_identity_guard_reason = (
+        _atom_identity_mapping_with_reason(case.reference_mol, predicted_mol)
+    )
     reference_radicals = _radical_electrons(case.reference_mol)
     predicted_radicals = _radical_electrons(predicted_mol)
     mapped_predicted_radical_sites = sorted(
@@ -300,6 +318,7 @@ def _run_case(
         charge_consistent=_total_charge(predicted_mol) == case.total_charge,
         radical_electron_consistent=predicted_radicals == reference_radicals,
         atom_order_preserved=atom_order_preserved,
+        atom_identity_guard_reason=atom_identity_guard_reason,
         formal_radical_atom_index_match=formal_radical_atom_index_match,
         reference_bonds=_bonds(case.reference_mol),
         predicted_bonds=_bonds(predicted_mol),

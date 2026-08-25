@@ -201,6 +201,40 @@ def _iter_sdf(path: Path) -> Iterator[tuple[int, Chem.Mol | None]]:
         yield from enumerate(supplier, start=1)
 
 
+def iter_bde_cases(input_path: Path) -> Iterator[tuple[BDECase | None, dict[str, str | int] | None]]:
+    if not input_path.is_file():
+        raise FileNotFoundError(f"BDE-db SDF does not exist: {input_path}")
+    for record_index, mol in _iter_sdf(input_path):
+        if mol is None:
+            yield None, {
+                "record_index": record_index,
+                "error": "RDKit failed to parse SDF record",
+            }
+            continue
+        try:
+            case = _case_from_mol(mol, record_index)
+        except Exception as exc:
+            yield None, {
+                "record_index": record_index,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            continue
+        yield BDECase(
+            case_idx=record_index,
+            case_id=case.case_id,
+            source_record_index=case.source_record_index,
+            xyz=case.xyz,
+            total_charge=case.total_charge,
+            spin_multiplicity=case.spin_multiplicity,
+            reference_mol=case.reference_mol,
+            reference_smiles=case.reference_smiles,
+            parent_id=case.parent_id,
+            radical_site=case.radical_site,
+            source_metadata=case.source_metadata,
+            stratum=case.stratum,
+        ), None
+
+
 def _quota(limit: int) -> dict[str, int]:
     if limit <= 0:
         return dict.fromkeys(STRATUM_POPULATIONS, 0)
