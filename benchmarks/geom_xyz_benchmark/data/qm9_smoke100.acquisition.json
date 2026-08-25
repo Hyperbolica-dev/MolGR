@@ -1,0 +1,19 @@
+{
+  "counts": {
+    "electronic_state_excluded": 12053,
+    "eligible": 120691,
+    "quota_total": 100,
+    "reference_parse_failure": 727,
+    "seed": 20260825,
+    "selected_molecules": 100,
+    "source_molecules": 133471
+  },
+  "stratum_quotas": {
+    "aromatic": 20,
+    "flexible": 15,
+    "hetero_rich": 20,
+    "other": 15,
+    "small": 10,
+    "stereo": 20
+  }
+}

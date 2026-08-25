@@ -446,6 +446,9 @@ test.ipynb
 # Agent context files
 AGENTS.md
 **/AGENTS.md
+
+# Local benchmark source archives (immutable, large, and independently checksummed)
+benchmarks/_data/
 .codex
 
 

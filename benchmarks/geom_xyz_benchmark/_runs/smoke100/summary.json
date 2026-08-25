@@ -1,0 +1,11 @@
+{
+  "protocol": "geom-molecule-one-conformer-v1",
+  "seed": 20260825,
+  "case_count": 100,
+  "reconstruction_success": 100,
+  "graph_equivalent": 100,
+  "exact_smiles": 97,
+  "stereo_equivalent": 100,
+  "failures": 0,
+  "runtime_ms_total": 693.1579519985007
+}

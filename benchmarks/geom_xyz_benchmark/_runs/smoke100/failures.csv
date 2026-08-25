@@ -1,0 +1,1 @@
+case_idx,case_id,molecule_id,conformer_id,status,error,evaluator_decision,evaluator_relation,graph_equivalent,exact_smiles,stereo_equivalent,charge_consistent,radical_consistent,predicted_smiles,runtime_ms
