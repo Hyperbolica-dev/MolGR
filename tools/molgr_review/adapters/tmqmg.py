@@ -68,6 +68,7 @@ REVIEW_COLUMNS = (
     "molgr_smiles_canonical",
     "equivalent",
     "strict_equivalent",
+    "equivalence_decision",
     "equivalence_method",
     "equivalence_reason",
     "spin_source",
@@ -138,6 +139,7 @@ class BenchmarkRow:
     error: str
     predicted_smiles: str
     equivalent: str
+    equivalence_decision: str
     equivalence_method: str
     comparison_skipped: str
     comparison_skip_reason: str
@@ -162,6 +164,7 @@ class BenchmarkRow:
             error=row.get("error", ""),
             predicted_smiles=row.get("predicted_smiles", ""),
             equivalent=row.get("equivalent", ""),
+            equivalence_decision=row.get("equivalence_decision", ""),
             equivalence_method=row.get("equivalence_method", ""),
             comparison_skipped=row.get("comparison_skipped", ""),
             comparison_skip_reason=row.get("comparison_skip_reason", ""),
@@ -502,17 +505,17 @@ def _results_equivalent(left: BenchmarkRow | None, right: BenchmarkRow | None) -
     try:
         from rdkit import Chem
 
-        from molgr.utils.equivalence import check_equivalence
+        from molgr.utils.equivalence import evaluate_equivalence
 
         left_mol = Chem.MolFromSmiles(left.predicted_smiles)
         right_mol = Chem.MolFromSmiles(right.predicted_smiles)
         if left_mol is None or right_mol is None:
             return False, "predicted_smiles_parse_failed"
-        equivalent, info = check_equivalence(
+        info = evaluate_equivalence(
             left_mol, right_mol, use_chirality=False, max_resonance=100
         )
         reason = info.reason if info is not None else ""
-        return bool(equivalent), reason or "molgr_equivalence"
+        return bool(info.equivalent), reason or "molgr_equivalence"
     except Exception as exc:  # noqa: BLE001
         return False, f"{type(exc).__name__}: {exc}"
 
@@ -652,6 +655,7 @@ def _case_issue(
                     "error": row.error,
                     "predicted_smiles": row.predicted_smiles,
                     "equivalent": row.equivalent,
+                    "equivalence_decision": row.equivalence_decision,
                     "comparison_skipped": row.comparison_skipped,
                     "comparison_skip_reason": row.comparison_skip_reason,
                     "timing_ms_total": row.timing_ms_total,
@@ -757,6 +761,7 @@ def _case_issue(
                 "error": row.error,
                 "predicted_smiles": row.predicted_smiles,
                 "equivalent": row.equivalent,
+                "equivalence_decision": row.equivalence_decision,
                 "comparison_skipped": row.comparison_skipped,
                 "comparison_skip_reason": row.comparison_skip_reason,
                 "timing_ms_total": row.timing_ms_total,
@@ -939,6 +944,11 @@ def _build_review_rows(
             "molgr_smiles_canonical": molgr_smiles,
             "equivalent": representative_equivalent,
             "strict_equivalent": representative_equivalent,
+            "equivalence_decision": (
+                ""
+                if comparison_annotation is not None
+                else ("equivalent" if _truthy(representative_equivalent) else "")
+            ),
             "equivalence_method": (
                 ""
                 if comparison_annotation is not None

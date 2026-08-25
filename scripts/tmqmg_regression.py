@@ -66,6 +66,7 @@ RESULT_FIELDNAMES = (
     "molgr_smiles_canonical",
     "equivalent",
     "strict_equivalent",
+    "equivalence_decision",
     "equivalence_method",
     "equivalence_reason",
     "spin_source",
@@ -240,6 +241,7 @@ def _empty_result(row_index: int, row: dict[str, str], xyz_path: Path) -> dict[s
         "molgr_status": "",
         "equivalent": "",
         "strict_equivalent": "",
+        "equivalence_decision": "",
         "equivalence_method": "",
         "equivalence_reason": "",
         "reference_answer_wrong": "",
@@ -795,11 +797,13 @@ def _process_row(
             equivalent, info = check_equivalence(molgr_mol, reference_mol, use_chirality=False)
             result["strict_equivalent"] = equivalent
             result["equivalent"] = equivalent
+            result["equivalence_decision"] = info.decision.value
             result["equivalence_method"] = info.method.value if info.method is not None else ""
             result["equivalence_reason"] = info.reason
         except Exception as exc:  # noqa: BLE001
             result["equivalent"] = ""
             result["strict_equivalent"] = ""
+            result["equivalence_decision"] = ""
             result["equivalence_method"] = ""
             result["equivalence_reason"] = f"equivalence_failed: {type(exc).__name__}: {exc}"
 
@@ -1122,6 +1126,7 @@ def main() -> int:
     reference_formula_check_counter: Counter[str] = Counter()
     molgr_status_counter: Counter[str] = Counter()
     equivalence_method_counter: Counter[str] = Counter()
+    equivalence_decision_counter: Counter[str] = Counter()
     equivalence_display_counter: Counter[str] = Counter()
     manual_whitelist_counter: Counter[str] = Counter()
     reference_answer_status_counter: Counter[str] = Counter()
@@ -1182,6 +1187,8 @@ def main() -> int:
                 equivalence_display_counter.update([str(result["equivalent"])])
             if result["equivalence_method"]:
                 equivalence_method_counter.update([str(result["equivalence_method"])])
+            if result["equivalence_decision"]:
+                equivalence_decision_counter.update([str(result["equivalence_decision"])])
             if result["manual_whitelist_status"]:
                 manual_whitelist_counter.update([str(result["manual_whitelist_status"])])
             if result["reference_answer_status"]:
@@ -1237,6 +1244,7 @@ def main() -> int:
         "reference_formula_check_status_counts": _counter_to_dict(reference_formula_check_counter),
         "molgr_status_counts": _counter_to_dict(molgr_status_counter),
         "equivalence_method_counts": _counter_to_dict(equivalence_method_counter),
+        "equivalence_decision_counts": _counter_to_dict(equivalence_decision_counter),
         "molgr_organic_uff_status_counts": _counter_to_dict(molgr_uff_status_counter),
         "reference_organic_mapping_status_counts": _counter_to_dict(reference_mapping_counter),
         "reference_organic_uff_status_counts": _counter_to_dict(reference_uff_status_counter),
