@@ -1,0 +1,28 @@
+{
+  "protocol": "geom-molecule-one-conformer-v1",
+  "seed": 20260825,
+  "case_count": 100,
+  "heavy_atom_distribution": {
+    "01_15": 15,
+    "16_25": 25,
+    "26_35": 25,
+    "36_50": 20,
+    "51_plus": 15
+  },
+  "reconstruction_success": 100,
+  "reconstruction_failure": 0,
+  "decision_equivalent": 97,
+  "decision_not_equivalent": 3,
+  "decision_inconclusive": 0,
+  "relation_normalized_graph_identity": 97,
+  "relation_resonance_equivalence": 0,
+  "graph_equivalent": 97,
+  "exact_smiles": 85,
+  "exact_smiles_mismatch": 15,
+  "stereo_equivalent": 56,
+  "stereo_not_equivalent": 44,
+  "timeout": 0,
+  "exception": 0,
+  "failures": 3,
+  "runtime_ms_total": 2221.6884229910647
+}

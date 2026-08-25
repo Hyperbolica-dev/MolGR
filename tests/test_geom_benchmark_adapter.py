@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from rdkit import Chem
+
+from benchmarks.geom_xyz_benchmark.acquire_smoke import _drugs_stratum, _fixture_record
 from benchmarks.geom_xyz_benchmark.adapter import load_cases, stable_molecule_id
 
 
@@ -47,3 +50,43 @@ def test_geom_adapter_records_invalid_reference_without_repair(tmp_path: Path) -
     case = load_cases(path)[0]
     assert case["ground_truth_rdmol"] is None
     assert "failed to parse" in case["provider_error"]
+
+
+def test_drugs_fixture_selects_lowest_energy_not_source_order() -> None:
+    xyz_high = [
+        [6, 0.0, 0.0, 0.0],
+        [1, 1.0, 0.0, 0.0],
+        [1, 0.0, 1.0, 0.0],
+        [1, 0.0, 0.0, 1.0],
+        [1, -1.0, 0.0, 0.0],
+    ]
+    xyz_low = [[row[0], row[1] + 0.1, row[2], row[3]] for row in xyz_high]
+    record, reason = _fixture_record(
+        "C",
+        {
+            "conformers": [
+                {"xyz": xyz_high, "relativeenergy": 2.0},
+                {"xyz": xyz_low, "relativeenergy": 0.0},
+            ]
+        },
+        dataset="drugs",
+    )
+    assert reason == "eligible"
+    assert record is not None
+    assert record["conformer_id"] == "1"
+    assert record["source_metadata"]["relativeenergy_kcal_mol"] == 0.0
+    assert record["source_metadata"]["dataset"] == "GEOM-DRUGS"
+
+
+def test_drugs_size_strata_boundaries() -> None:
+    expected = {
+        15: "heavy_01_15",
+        16: "heavy_16_25",
+        26: "heavy_26_35",
+        36: "heavy_36_50",
+        51: "heavy_51_plus",
+    }
+    for heavy_atoms, stratum in expected.items():
+        mol = Chem.MolFromSmiles("C" * heavy_atoms)
+        assert mol is not None
+        assert _drugs_stratum(mol) == stratum

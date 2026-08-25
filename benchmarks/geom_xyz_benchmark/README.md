@@ -39,6 +39,15 @@ uv run python benchmarks/geom_xyz_benchmark/run.py \
   --limit 100 --seed 20260825 --out benchmarks/geom_xyz_benchmark/_runs/smoke100
 ```
 
+For GEOM-Drugs, use the separately frozen representative size-stratified fixture:
+
+```bash
+uv run python benchmarks/geom_xyz_benchmark/run.py \
+  --input benchmarks/geom_xyz_benchmark/data/drugs_smoke100.jsonl \
+  --limit 100 --seed 20260825 \
+  --out benchmarks/geom_xyz_benchmark/_runs/drugs_smoke100
+```
+
 Outputs are `summary.json`, `results.csv`, and `failures.csv`.
 
 Rebuild the fixture only from the checksummed official archive (the source archive remains
@@ -49,3 +58,8 @@ uv run --with msgpack python -m benchmarks.geom_xyz_benchmark.acquire_smoke \
   --archive benchmarks/_data/geom/qm9_crude.msgpack.tar.gz \
   --output benchmarks/geom_xyz_benchmark/data/qm9_smoke100.jsonl --seed 20260825
 ```
+
+The Drugs fixture is rebuilt with `--dataset drugs` and the corresponding
+`drugs_crude.msgpack.tar.gz` archive/output path. Its acquisition record contains the official
+file identifier and checksum, full-scan eligibility counts, quotas, and deterministic selection
+rules.

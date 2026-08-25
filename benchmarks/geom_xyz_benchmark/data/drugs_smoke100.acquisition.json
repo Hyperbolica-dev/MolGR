@@ -1,0 +1,37 @@
+{
+  "counts": {
+    "duplicate_canonical_reference": 311,
+    "electronic_state_excluded": 15,
+    "eligible": 291709,
+    "fragmented_reference": 0,
+    "missing_relativeenergy": 0,
+    "missing_xyz": 0,
+    "quota_total": 100,
+    "reference_parse_failure": 0,
+    "reference_xyz_atom_count_mismatch": 0,
+    "seed": 20260825,
+    "selected_molecules": 100,
+    "source_molecules": 292035
+  },
+  "dataset": "drugs",
+  "selection": {
+    "conformer": "minimum_relativeenergy_then_source_index",
+    "molecule": "lowest_sha256(seed:source_smiles)_within_size_stratum",
+    "primary_unit": "molecule"
+  },
+  "source": {
+    "dataverse_file_id": 4360331,
+    "doi": "10.7910/DVN/JNGTDF",
+    "filename": "drugs_crude.msgpack.tar.gz",
+    "md5": "7778e84c50b7cde755cca670d1f75091",
+    "release": "Harvard Dataverse v4 (2022-02-11)"
+  },
+  "stratum_quotas": {
+    "heavy_01_15": 15,
+    "heavy_16_25": 25,
+    "heavy_26_35": 25,
+    "heavy_36_50": 20,
+    "heavy_51_plus": 15
+  },
+  "xyz2mol_provenance": "unavailable_in_crude_artifact"
+}
