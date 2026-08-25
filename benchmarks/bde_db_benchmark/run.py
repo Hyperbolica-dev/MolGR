@@ -27,7 +27,8 @@ from benchmarks.bde_db_benchmark.adapter import (
 )
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod
 from benchmarks.smiles_xyz_benchmark.methods.molgr_cpp import MolGRCppMethod
-from molgr.utils.equivalence import check_equivalence
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import remove_hs_without_sanitize
+from molgr.utils.equivalence import EquivalenceDecision, evaluate_equivalence
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,17 @@ class BDEResult:
     failure_kind: str | None
     error: str | None
     equivalent: bool | None
+    evaluator_decision: str | None
+    evaluator_relation: str | None
+    evaluator_reason: str | None
     equivalence_method: str | None
+    evaluator_inconclusive: bool | None
+    bounded_search_attempted: bool | None
+    bounded_search_limit: int | None
+    bounded_search_limit_reached: bool | None
+    bounded_search_exhaustive: bool | None
+    bounded_search_candidate_count: int | None
+    bounded_search_reference_count: int | None
     exact_smiles_match: bool | None
     charge_consistent: bool | None
     radical_electron_consistent: bool | None
@@ -141,7 +152,17 @@ def _error_result(
         failure_kind=failure_kind,
         error=error,
         equivalent=None,
+        evaluator_decision=None,
+        evaluator_relation=None,
+        evaluator_reason=None,
         equivalence_method=None,
+        evaluator_inconclusive=None,
+        bounded_search_attempted=None,
+        bounded_search_limit=None,
+        bounded_search_limit_reached=None,
+        bounded_search_exhaustive=None,
+        bounded_search_candidate_count=None,
+        bounded_search_reference_count=None,
         exact_smiles_match=None,
         charge_consistent=None,
         radical_electron_consistent=None,
@@ -190,23 +211,54 @@ def _run_case(
         )
 
     try:
+        evaluator_reference_mol = remove_hs_without_sanitize(case.reference_mol)
         with case_timeout(timeout_seconds, f"equivalence case {case.case_id}"):
-            equivalent, equivalence_info = check_equivalence(
-                case.reference_mol,
+            equivalence_info = evaluate_equivalence(
                 predicted_mol,
+                evaluator_reference_mol,
                 use_chirality=False,
                 max_resonance=100,
             )
+        equivalent = (
+            True
+            if equivalence_info.decision == EquivalenceDecision.EQUIVALENT
+            else False
+            if equivalence_info.decision == EquivalenceDecision.NOT_EQUIVALENT
+            else None
+        )
         status = "ok"
         error = None
+        evaluator_failure_kind = None
+        evaluator_decision = equivalence_info.decision.value
+        evaluator_relation = equivalence_info.relation.value
+        evaluator_reason = equivalence_info.reason
         equivalence_method = (
             equivalence_info.method.value if equivalence_info.method is not None else None
         )
+        evaluator_inconclusive = equivalence_info.decision == EquivalenceDecision.INCONCLUSIVE
+        bounded_search = equivalence_info.bounded_search
+    except CaseTimeoutError as exc:
+        equivalent = None
+        status = "error"
+        error = str(exc)
+        evaluator_failure_kind = "evaluator_timeout"
+        evaluator_decision = None
+        evaluator_relation = None
+        evaluator_reason = None
+        equivalence_method = None
+        evaluator_inconclusive = None
+        bounded_search = None
     except Exception as exc:
         equivalent = None
         status = "error"
         error = f"equivalence check failed: {type(exc).__name__}: {exc}"
+        evaluator_failure_kind = "evaluator_exception"
+        evaluator_decision = None
+        evaluator_relation = None
+        evaluator_reason = None
         equivalence_method = None
+        evaluator_inconclusive = None
+        bounded_search = None
     atom_order_preserved, atom_mapping = _atom_identity_mapping(case.reference_mol, predicted_mol)
     reference_radicals = _radical_electrons(case.reference_mol)
     predicted_radicals = _radical_electrons(predicted_mol)
@@ -230,10 +282,20 @@ def _run_case(
         radical_site=case.radical_site,
         reconstruction_success=True,
         status=status,
-        failure_kind="equivalence_error" if status == "error" else None,
+        failure_kind=evaluator_failure_kind,
         error=error,
         equivalent=equivalent,
+        evaluator_decision=evaluator_decision,
+        evaluator_relation=evaluator_relation,
+        evaluator_reason=evaluator_reason,
         equivalence_method=equivalence_method,
+        evaluator_inconclusive=evaluator_inconclusive,
+        bounded_search_attempted=(bounded_search.attempted if bounded_search else None),
+        bounded_search_limit=(bounded_search.limit if bounded_search else None),
+        bounded_search_limit_reached=(bounded_search.limit_reached if bounded_search else None),
+        bounded_search_exhaustive=(bounded_search.exhaustive if bounded_search else None),
+        bounded_search_candidate_count=(bounded_search.mol1_count if bounded_search else None),
+        bounded_search_reference_count=(bounded_search.mol2_count if bounded_search else None),
         exact_smiles_match=case.reference_smiles == output.predicted_smiles,
         charge_consistent=_total_charge(predicted_mol) == case.total_charge,
         radical_electron_consistent=predicted_radicals == reference_radicals,
@@ -270,17 +332,19 @@ def _percentile(values: list[float], percentile: float) -> float:
 def _review_reason(result: BDEResult) -> tuple[int, str]:
     if not result.reconstruction_success:
         return 0, "reconstruction_failure"
+    if result.evaluator_inconclusive:
+        return 1, "inconclusive"
     if result.equivalent is False:
-        return 1, "non_equivalent"
+        return 2, "non_equivalent"
     if result.equivalence_method == "resonance":
-        return 2, "resonance_equivalent"
+        return 3, "resonance_equivalent"
     if result.formal_radical_atom_index_match is False:
-        return 3, "formal_radical_atom_index_mismatch"
+        return 4, "formal_radical_atom_index_mismatch"
     if result.charge_consistent is False or result.radical_electron_consistent is False:
-        return 4, "charge_or_radical_electron_mismatch"
+        return 5, "charge_or_radical_electron_mismatch"
     if result.exact_smiles_match is False:
-        return 5, "exact_smiles_mismatch"
-    return 6, "representative_success"
+        return 6, "exact_smiles_mismatch"
+    return 7, "representative_success"
 
 
 def _select_review_cases(
@@ -314,6 +378,12 @@ def _summary(
     reconstruction_successes = [result for result in results if result.reconstruction_success]
     reconstruction_failures = [result for result in results if not result.reconstruction_success]
     equivalent = sum(result.equivalent is True for result in results)
+    decisions = Counter(
+        result.evaluator_decision for result in results if result.evaluator_decision is not None
+    )
+    relations = Counter(
+        result.evaluator_relation for result in results if result.evaluator_relation is not None
+    )
     equivalence_methods = Counter(
         result.equivalence_method for result in results if result.equivalence_method is not None
     )
@@ -350,6 +420,8 @@ This report is a pilot diagnostic and is not a final accuracy claim.
 - Reconstruction success: {len(reconstruction_successes)}
 - Reconstruction failures: {len(reconstruction_failures)}
 - Resonance-aware graph equivalence: {equivalent}
+- Evaluator decisions: `{json.dumps(dict(sorted(decisions.items())), sort_keys=True)}`
+- Evaluator relations: `{json.dumps(dict(sorted(relations.items())), sort_keys=True)}`
 - Equivalence methods: `{json.dumps(dict(sorted(equivalence_methods.items())), sort_keys=True)}`
 - Formal radical-electron agreement: {sum(result.radical_electron_consistent is True for result in results)}
 - Exact formal-radical atom-index agreement: {sum(result.formal_radical_atom_index_match is True for result in results)}
@@ -360,7 +432,8 @@ This report is a pilot diagnostic and is not a final accuracy claim.
 - Timeouts: {sum(result.failure_kind == "timeout" for result in results)}
 - Ordinary exceptions: {sum(result.failure_kind == "exception" for result in results)}
 - Method-returned errors: {sum(result.failure_kind == "method_error" for result in results)}
-- Equivalence errors: {sum(result.failure_kind == "equivalence_error" for result in results)}
+- Evaluator timeouts: {sum(result.failure_kind == "evaluator_timeout" for result in results)}
+- Evaluator exceptions: {sum(result.failure_kind == "evaluator_exception" for result in results)}
 - Selected strata: `{json.dumps(strata, sort_keys=True)}`
 - Loader failures encountered: {len(diagnostics.failures)}
 
@@ -404,6 +477,25 @@ def run(
         end=end,
         seed=seed,
     )
+    return run_cases(
+        cases,
+        diagnostics,
+        input_path,
+        out_dir,
+        timeout_seconds=timeout_seconds,
+        review_limit=review_limit,
+    )
+
+
+def run_cases(
+    cases: list[BDECase],
+    diagnostics: LoadDiagnostics,
+    input_path: Path,
+    out_dir: Path,
+    *,
+    timeout_seconds: float | None = 5.0,
+    review_limit: int = 100,
+) -> list[BDEResult]:
     initialization_started = time.perf_counter()
     method = MolGRCppMethod()
     method_initialization_ms = (time.perf_counter() - initialization_started) * 1000.0

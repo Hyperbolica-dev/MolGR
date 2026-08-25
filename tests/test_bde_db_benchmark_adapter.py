@@ -4,12 +4,17 @@ import gzip
 import shutil
 from pathlib import Path
 
+import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from benchmarks.bde_db_benchmark.adapter import load_bde_cases
+from benchmarks.bde_db_benchmark.adapter import (
+    load_bde_cases,
+    load_bde_cases_by_record_index,
+)
 from benchmarks.bde_db_benchmark.run import _atom_identity_mapping, _run_case
 from benchmarks.smiles_xyz_benchmark.methods.base import BenchmarkMethod, MethodRunOutput
+from benchmarks.smiles_xyz_benchmark.methods.postprocess import remove_hs_without_sanitize
 
 
 def _write_sdf(path: Path, smiles: list[str]) -> None:
@@ -47,6 +52,24 @@ def test_loader_respects_inclusive_record_range(tmp_path: Path) -> None:
 
     assert [case.source_record_index for case in cases] == [2, 3]
     assert diagnostics.scanned_records == 4
+
+
+def test_exact_record_replay_preserves_old_order_and_appends_required_smiles(
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "test.sdf.gz"
+    _write_sdf(input_path, ["C", "[H]", "[CH3]", "CC"])
+
+    cases, diagnostics = load_bde_cases_by_record_index(
+        input_path,
+        [4, 1, 3],
+        required_smiles=["[H]"],
+    )
+
+    assert [case.source_record_index for case in cases] == [4, 1, 3, 2]
+    assert [case.case_idx for case in cases] == [1, 2, 3, 4]
+    assert cases[-1].reference_smiles == "[H]"
+    assert diagnostics.selected_records == 4
 
 
 def test_loader_records_ambiguous_multiradical_multiplicity(tmp_path: Path) -> None:
@@ -87,7 +110,7 @@ class _ThrowingMethod(BenchmarkMethod):
 
 class _IdentityMethod(BenchmarkMethod):
     def run(self, case: dict) -> MethodRunOutput:
-        mol = Chem.RemoveHs(case["ground_truth_rdmol"], sanitize=False)
+        mol = remove_hs_without_sanitize(case["ground_truth_rdmol"])
         return MethodRunOutput(
             status="ok",
             predicted_smiles=Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True),
@@ -116,3 +139,30 @@ def test_runner_checks_formal_radical_atom_identity(tmp_path: Path) -> None:
 
     assert result.atom_order_preserved is True
     assert result.formal_radical_atom_index_match is True
+    assert result.evaluator_decision == "equivalent"
+    assert result.evaluator_relation == "normalized_graph_identity"
+    assert result.evaluator_inconclusive is False
+    assert result.equivalent is True
+    assert result.evaluator_reason
+
+
+def test_runner_records_evaluator_exception_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = tmp_path / "test.sdf.gz"
+    _write_sdf(input_path, ["[CH3]"])
+    cases, _ = load_bde_cases(input_path, limit=1, seed=0)
+
+    def fail_evaluation(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise RuntimeError("expected evaluator exception")
+
+    monkeypatch.setattr("benchmarks.bde_db_benchmark.run.evaluate_equivalence", fail_evaluation)
+    result = _run_case(cases[0], _IdentityMethod("identity"), None)
+
+    assert result.reconstruction_success is True
+    assert result.status == "error"
+    assert result.failure_kind == "evaluator_exception"
+    assert result.equivalent is None
+    assert result.evaluator_decision is None
+    assert "expected evaluator exception" in str(result.error)

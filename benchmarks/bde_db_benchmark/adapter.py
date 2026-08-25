@@ -337,3 +337,84 @@ def load_bde_cases(
     ]
     diagnostics.selected_records = len(indexed)
     return indexed, diagnostics
+
+
+def load_bde_cases_by_record_index(
+    input_path: Path,
+    record_indices: list[int],
+    *,
+    required_smiles: list[str] | None = None,
+) -> tuple[list[BDECase], LoadDiagnostics]:
+    if not input_path.is_file():
+        raise FileNotFoundError(f"BDE-db SDF does not exist: {input_path}")
+    if not record_indices:
+        raise ValueError("record_indices must not be empty")
+    if any(index < 1 for index in record_indices):
+        raise ValueError("record indices must be at least 1")
+    if len(record_indices) != len(set(record_indices)):
+        raise ValueError("record indices must be unique")
+
+    requested_indices = set(record_indices)
+    requested_smiles = set(required_smiles or [])
+    found_by_index: dict[int, BDECase] = {}
+    found_by_smiles: dict[str, BDECase] = {}
+    diagnostics = LoadDiagnostics()
+    for record_index, mol in _iter_sdf(input_path):
+        diagnostics.scanned_records += 1
+        if record_index not in requested_indices and not requested_smiles:
+            if len(found_by_index) == len(requested_indices):
+                break
+            continue
+        if mol is None:
+            if record_index in requested_indices:
+                diagnostics.failures.append(
+                    {"record_index": record_index, "error": "RDKit failed to parse SDF record"}
+                )
+            continue
+        try:
+            case = _case_from_mol(mol, record_index)
+        except Exception as exc:
+            if record_index in requested_indices:
+                diagnostics.failures.append(
+                    {"record_index": record_index, "error": f"{type(exc).__name__}: {exc}"}
+                )
+            continue
+        diagnostics.eligible_records += 1
+        diagnostics.strata_seen[case.stratum] = diagnostics.strata_seen.get(case.stratum, 0) + 1
+        if record_index in requested_indices:
+            found_by_index[record_index] = case
+        if case.reference_smiles in requested_smiles:
+            found_by_smiles[case.reference_smiles] = case
+            requested_smiles.remove(case.reference_smiles)
+        if len(found_by_index) == len(requested_indices) and not requested_smiles:
+            break
+
+    missing_indices = [index for index in record_indices if index not in found_by_index]
+    if missing_indices:
+        raise ValueError(f"requested SDF record indices were not loaded: {missing_indices}")
+    if requested_smiles:
+        raise ValueError(f"required SMILES were not found: {sorted(requested_smiles)}")
+    selected = [found_by_index[index] for index in record_indices]
+    for smiles in required_smiles or []:
+        case = found_by_smiles[smiles]
+        if case.source_record_index not in requested_indices:
+            selected.append(case)
+    indexed = [
+        BDECase(
+            case_idx=index,
+            case_id=case.case_id,
+            source_record_index=case.source_record_index,
+            xyz=case.xyz,
+            total_charge=case.total_charge,
+            spin_multiplicity=case.spin_multiplicity,
+            reference_mol=case.reference_mol,
+            reference_smiles=case.reference_smiles,
+            parent_id=case.parent_id,
+            radical_site=case.radical_site,
+            source_metadata=case.source_metadata,
+            stratum=case.stratum,
+        )
+        for index, case in enumerate(selected, start=1)
+    ]
+    diagnostics.selected_records = len(indexed)
+    return indexed, diagnostics
