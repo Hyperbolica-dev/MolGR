@@ -43,7 +43,13 @@ def run(
     for case in load_cases(input_path, limit=limit, seed=seed):
         started = time.perf_counter()
         row = {key: case.get(key) for key in ("case_idx", "case_id", "molecule_id", "conformer_id")}
+        source_metadata = case.get("source_metadata", {})
+        reference = case.get("ground_truth_rdmol")
         row.update(
+            reference_smiles=case.get("ground_truth_smiles"),
+            heavy_atom_count=reference.GetNumHeavyAtoms() if reference is not None else None,
+            source_conformer_count=source_metadata.get("source_conformer_count"),
+            relativeenergy_kcal_mol=source_metadata.get("relativeenergy_kcal_mol"),
             status="loader_failure" if case.get("provider_error") else "pending",
             error=case.get("provider_error"),
             evaluator_decision=None,
@@ -63,8 +69,8 @@ def run(
                 row["predicted_smiles"] = output.predicted_smiles
                 if output.rdkit_mol is not None:
                     reference = case["ground_truth_rdmol"]
-                    primary = evaluate_equivalence(reference, output.rdkit_mol, use_chirality=False)
-                    stereo = evaluate_equivalence(reference, output.rdkit_mol, use_chirality=True)
+                    primary = evaluate_equivalence(output.rdkit_mol, reference, use_chirality=False)
+                    stereo = evaluate_equivalence(output.rdkit_mol, reference, use_chirality=True)
                     row["evaluator_decision"] = primary.decision.value
                     row["evaluator_relation"] = primary.relation.value
                     row["graph_equivalent"] = primary.equivalent
@@ -91,14 +97,37 @@ def run(
             writer.writeheader()
             writer.writerows(payload)
     successful = [row for row in rows if row["status"] == "ok"]
+    decisions = ("equivalent", "not_equivalent", "inconclusive")
+    relations = ("normalized_graph_identity", "resonance_equivalence")
+    heavy_atom_distribution = {
+        "01_15": sum(1 <= int(row["heavy_atom_count"]) <= 15 for row in rows),
+        "16_25": sum(16 <= int(row["heavy_atom_count"]) <= 25 for row in rows),
+        "26_35": sum(26 <= int(row["heavy_atom_count"]) <= 35 for row in rows),
+        "36_50": sum(36 <= int(row["heavy_atom_count"]) <= 50 for row in rows),
+        "51_plus": sum(int(row["heavy_atom_count"]) >= 51 for row in rows),
+    }
     summary = {
         "protocol": "geom-molecule-one-conformer-v1",
         "seed": seed,
         "case_count": len(rows),
+        "heavy_atom_distribution": heavy_atom_distribution,
         "reconstruction_success": len(successful),
+        "reconstruction_failure": len(rows) - len(successful),
+        **{
+            f"decision_{decision}": sum(row["evaluator_decision"] == decision for row in rows)
+            for decision in decisions
+        },
+        **{
+            f"relation_{relation}": sum(row["evaluator_relation"] == relation for row in rows)
+            for relation in relations
+        },
         "graph_equivalent": sum(row["graph_equivalent"] is True for row in rows),
         "exact_smiles": sum(row["exact_smiles"] is True for row in rows),
+        "exact_smiles_mismatch": sum(row["exact_smiles"] is False for row in rows),
         "stereo_equivalent": sum(row["stereo_equivalent"] is True for row in rows),
+        "stereo_not_equivalent": sum(row["stereo_equivalent"] is False for row in rows),
+        "timeout": sum(row["status"] == "timeout" for row in rows),
+        "exception": sum(row["status"] == "exception" for row in rows),
         "failures": len(failures),
         "runtime_ms_total": sum(float(row["runtime_ms"]) for row in rows),
     }
