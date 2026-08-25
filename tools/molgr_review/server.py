@@ -52,7 +52,7 @@ from fixture_builder import (
     sync_review_fixture,
 )
 from molgr.fallback.utils.consts import NON_METAL_DICT
-from molgr.utils.equivalence import check_equivalence
+from molgr.utils.equivalence import evaluate_equivalence
 from project_runtime import validate_project_runtime
 from reference_diagnostics import classify_reference_problem, comparison_skip_reasons
 from scripts.reconstruction_trace import TraceInputCase, render_trace_report
@@ -404,6 +404,8 @@ def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str,
         ),
         "live_matches_candidate_snapshot": None,
         "live_candidate_equivalence_method": "",
+        "live_candidate_equivalence_decision": "",
+        "live_candidate_equivalence_relation": "",
         "live_candidate_equivalence_reason": "",
     }
     if not snapshot_smiles:
@@ -415,8 +417,10 @@ def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str,
         comparison["live_candidate_equivalence_reason"] = "candidate_snapshot_smiles_invalid"
         return comparison
 
-    equivalent, info = check_equivalence(mol, snapshot, use_chirality=False)
-    comparison["live_matches_candidate_snapshot"] = equivalent
+    info = evaluate_equivalence(mol, snapshot, use_chirality=False)
+    comparison["live_matches_candidate_snapshot"] = info.equivalent
+    comparison["live_candidate_equivalence_decision"] = info.decision.value
+    comparison["live_candidate_equivalence_relation"] = info.relation.value
     comparison["live_candidate_equivalence_method"] = info.method.value if info.method else ""
     comparison["live_candidate_equivalence_reason"] = info.reason
     return comparison
