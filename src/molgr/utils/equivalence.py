@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
@@ -88,6 +89,30 @@ class ResonanceDetail:
     hit_smiles: Optional[str] = None
 
 
+UNKNOWN_ELECTRON_METADATA = "unknown"
+
+
+@dataclass
+class RawMoleculeDiagnostics:
+    """Read-only diagnostics captured before equivalence normalization.
+
+    The three MolGR-specific fields deliberately use ``"unknown"`` when the
+    source molecule does not carry the corresponding property.  A missing
+    property is not evidence for a zero-valued electronic state, especially
+    for ordinary reference RDKit molecules.
+    """
+
+    formula: str
+    hydrogen_count: int
+    explicit_hydrogen_count: int
+    formal_charge: int
+    rdkit_radical_electrons: int
+    metal_formal_state: tuple[tuple[int, str, int], ...]
+    molgr_metal_unpaired_electrons: object = UNKNOWN_ELECTRON_METADATA
+    active_lone_pair_properties: object = UNKNOWN_ELECTRON_METADATA
+    unresolved_two_electron_center_properties: object = UNKNOWN_ELECTRON_METADATA
+
+
 @dataclass
 class EquivalenceChecks:
     formal_charge: PropertyCheck
@@ -111,6 +136,13 @@ class EquivalenceResult:
     canonical_smiles: Optional[CanonicalSmilesDetail] = None
     carbene_zwitterion: Optional[CarbeneZwitterionDetail] = None
     resonance: Optional[ResonanceDetail] = None
+    # ``mol1``/``mol2`` are the evaluator's positional inputs.  The candidate
+    # and reference aliases make the same evidence convenient for reviewer
+    # callers without changing the historical positional API.
+    raw_mol1: Optional[RawMoleculeDiagnostics] = None
+    raw_mol2: Optional[RawMoleculeDiagnostics] = None
+    raw_diagnostics: dict[str, RawMoleculeDiagnostics] = field(default_factory=dict)
+    normalization_electronic_effects: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 # Compatibility name retained for callers that imported the former detail type.
@@ -157,6 +189,106 @@ def _formula_key(mol: Chem.Mol, *, include_hydrogen: bool) -> str:
     ordered_symbols.extend(symbol for symbol in sorted(counts) if symbol not in ordered_symbols)
     return "".join(
         f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols
+    )
+
+
+def _raw_hydrogen_count(mol: Chem.Mol) -> tuple[int, int]:
+    """Return explicit and total hydrogen counts without normalizing ``mol``."""
+
+    explicit = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 1)
+    total = explicit
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 1:
+            continue
+        with suppress(Exception):
+            # Do not count explicit hydrogen neighbors here: they are already
+            # included in ``explicit``.  ``includeNeighbors=True`` would count
+            # those neighbors a second time for molecules passed through
+            # ``Chem.AddHs``.
+            total += int(atom.GetTotalNumHs(includeNeighbors=False))
+    return explicit, total
+
+
+def _raw_formula_key(mol: Chem.Mol, hydrogen_count: int) -> str:
+    counts = Counter(
+        atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1
+    )
+    if hydrogen_count:
+        counts["H"] = hydrogen_count
+    ordered_symbols: list[str] = []
+    if "C" in counts:
+        ordered_symbols.append("C")
+    if "H" in counts:
+        ordered_symbols.append("H")
+    ordered_symbols.extend(symbol for symbol in sorted(counts) if symbol not in ordered_symbols)
+    return "".join(
+        f"{symbol}{counts[symbol] if counts[symbol] != 1 else ''}" for symbol in ordered_symbols
+    )
+
+
+def _raw_atom_property_entries(
+    mol: Chem.Mol,
+    property_name: str,
+    *,
+    metals_only: bool = False,
+    boolean: bool = False,
+) -> object:
+    """Collect only present atom properties, preserving missing metadata."""
+
+    entries: list[tuple[int, object]] = []
+    for atom in mol.GetAtoms():
+        if metals_only and not _is_metal_atom(atom):
+            continue
+        if not atom.HasProp(property_name):
+            continue
+        try:
+            value: object = atom.GetBoolProp(property_name) if boolean else atom.GetIntProp(property_name)
+        except (RuntimeError, TypeError, ValueError):
+            try:
+                raw_value = atom.GetProp(property_name)
+                value = raw_value.lower() in {"1", "true"} if boolean else int(raw_value)
+            except (RuntimeError, TypeError, ValueError):
+                value = UNKNOWN_ELECTRON_METADATA
+        entries.append((int(atom.GetIdx()), value))
+    return tuple(entries) if entries else UNKNOWN_ELECTRON_METADATA
+
+
+def _raw_molecule_diagnostics(mol: Chem.Mol) -> RawMoleculeDiagnostics:
+    """Capture source-state evidence before metal or octet normalization."""
+
+    explicit_h, total_h = _raw_hydrogen_count(mol)
+    metal_formal_state = tuple(
+        sorted(
+            (
+                int(atom.GetIdx()),
+                atom.GetSymbol(),
+                int(atom.GetFormalCharge()),
+            )
+            for atom in mol.GetAtoms()
+            if _is_metal_atom(atom)
+        )
+    )
+    return RawMoleculeDiagnostics(
+        formula=_raw_formula_key(mol, total_h),
+        hydrogen_count=total_h,
+        explicit_hydrogen_count=explicit_h,
+        formal_charge=_total_formal_charge(mol),
+        rdkit_radical_electrons=_total_radical_electrons(mol),
+        metal_formal_state=metal_formal_state,
+        molgr_metal_unpaired_electrons=_raw_atom_property_entries(
+            mol,
+            "MOLGR_METAL_UNPAIRED_ELECTRONS",
+            metals_only=True,
+        ),
+        active_lone_pair_properties=_raw_atom_property_entries(
+            mol,
+            "MOLGR_LONE_PAIR_COUNT",
+        ),
+        unresolved_two_electron_center_properties=_raw_atom_property_entries(
+            mol,
+            "MOLGR_UNRESOLVED_TWO_ELECTRON_CENTER",
+            boolean=True,
+        ),
     )
 
 
@@ -212,6 +344,17 @@ def _resonance_form_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
     try:
         # ResonanceMolSupplier returns sanitized molecules. Avoid copying and
         # sanitizing every form in the hot loop, but retain the safe fallback.
+        if not use_chirality:
+            # ``isomericSmiles=False`` suppresses most stereo output, but an
+            # explicit copy also removes directional bond/stereo state before
+            # resonance forms are cached and compared.
+            achiral = Chem.Mol(mol)
+            Chem.RemoveStereochemistry(achiral)
+            for bond in achiral.GetBonds():
+                bond.SetBondDir(Chem.BondDir.NONE)
+                bond.SetStereo(Chem.BondStereo.STEREONONE)
+            achiral.UpdatePropertyCache(strict=False)
+            mol = achiral
         return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=use_chirality)
     except TimeoutError:
         raise
@@ -746,8 +889,31 @@ def evaluate_equivalence(
     graph/electronic invariants have passed.
     """
 
+    # Capture the source molecules before any graph normalization.  In
+    # particular, _standardize_metal_bonds intentionally creates bookkeeping
+    # radicals for metal double bonds; those generated labels must never be
+    # presented as the source molecule's physical open-shell state.
+    raw_mol1 = _raw_molecule_diagnostics(mol1)
+    raw_mol2 = _raw_molecule_diagnostics(mol2)
+
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
+    normalization_electronic_effects = {
+        "mol1": {
+            "raw_formal_charge": raw_mol1.formal_charge,
+            "standardized_formal_charge": _total_formal_charge(standardized_1),
+            "raw_rdkit_radical_electrons": raw_mol1.rdkit_radical_electrons,
+            "standardized_rdkit_radical_electrons": _total_radical_electrons(standardized_1),
+        },
+        "mol2": {
+            "raw_formal_charge": raw_mol2.formal_charge,
+            "standardized_formal_charge": _total_formal_charge(standardized_2),
+            "raw_rdkit_radical_electrons": raw_mol2.rdkit_radical_electrons,
+            "standardized_rdkit_radical_electrons": _total_radical_electrons(standardized_2),
+        },
+    }
+    normalization_electronic_effects["candidate"] = normalization_electronic_effects["mol1"]
+    normalization_electronic_effects["reference"] = normalization_electronic_effects["mol2"]
 
     prepared_organic_1 = _prepare_organic_mol(standardized_1, already_standardized=True)
     prepared_organic_2 = _prepare_organic_mol(standardized_2, already_standardized=True)
@@ -828,6 +994,18 @@ def evaluate_equivalence(
         invariants=invariants,
         contradictions=[],
         bounded_search=BoundedSearchMetadata(limit=max_resonance),
+        raw_mol1=raw_mol1,
+        raw_mol2=raw_mol2,
+        raw_diagnostics={
+            "mol1": raw_mol1,
+            "mol2": raw_mol2,
+            # Positional aliases are intentional: callers that label the
+            # inputs Candidate/Reference can consume the same snapshot without
+            # a second normalization pass.
+            "candidate": raw_mol1,
+            "reference": raw_mol2,
+        },
+        normalization_electronic_effects=normalization_electronic_effects,
     )
 
     def finish(
@@ -977,19 +1155,6 @@ def evaluate_equivalence(
             method=EquivalenceMethod.IDEAL,
         )
 
-    if identifier_match:
-        reason = (
-            "Equivalent: prepared organic InChIKey matches after standardization."
-            if prepared_identifier_match
-            else "Equivalent: full InChIKey matches after standardization."
-        )
-        return finish(
-            EquivalenceDecision.EQUIVALENT,
-            reason,
-            relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
-            method=EquivalenceMethod.INCHI_KEY,
-        )
-
     if carbene_match:
         return finish(
             EquivalenceDecision.EQUIVALENT,
@@ -998,9 +1163,10 @@ def evaluate_equivalence(
             method=EquivalenceMethod.CARBENE_ZWITTERION,
         )
 
-    # Resonance preserves the explicit-hydrogen sigma graph and the electron
-    # totals of every disconnected component.  For radical resonance this
-    # invariant covers migrations RDKit does not enumerate.
+    # A matching topology plus matching component electron totals is the
+    # evaluator's existing stronger radical-resonance evidence.  It is not an
+    # InChI-only result, so it remains valid even when identifier generation is
+    # unavailable.  Closed-shell cases still require the bounded enumerator.
     if (
         component_electrons_match
         and checks.formal_charge.passed
@@ -1055,6 +1221,21 @@ def evaluate_equivalence(
             "Equivalent: resonance normalization matched.",
             relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
             method=EquivalenceMethod.RESONANCE,
+        )
+
+    if identifier_match:
+        reason = (
+            "Inconclusive: identifier_equivalence (prepared organic InChIKey agreement) "
+            "has no independent stronger structural evidence."
+            if prepared_identifier_match
+            else "Inconclusive: identifier_equivalence (full InChIKey agreement) "
+            "has no independent stronger structural evidence."
+        )
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            reason,
+            relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
+            method=EquivalenceMethod.INCHI_KEY,
         )
 
     if info.bounded_search.limit_reached:
