@@ -1,0 +1,64 @@
+case_id,molecule_id,reference_smiles,predicted_smiles,reference_preparation,molgr_reconstruction,rdkit_output_finalization,primary_evaluator,secondary_chirality_evaluator,diagnostic_canonicalization,primary_decision,primary_relation,primary_reason,exception_type_message,corrected_classification
+geom-drugs-18babf3a1656d0c8-c0,18babf3a1656d0c8,Cc1ccc(N/C(N)=N/c2nc(C)cc(N3CCCCC3)n2)c(C)c1,Cc1ccc(NC(=[NH2+])[N-]c2nc(C)cc(N3CCCCC3)n2)c(C)c1,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-27a368a098961569-c0,27a368a098961569,CO/N=C(/CS(=O)Cc1ccc(Cl)cc1)c1ccc(Cl)cc1,CON=C(C[S@+]([O-])Cc1ccc(Cl)cc1)c1ccc(Cl)cc1,success,success,success,success,exception,not reached in original runner,inconclusive,none,Inconclusive: bounded resonance search reached its configured limit.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom2
+	Violation occurred on line 223 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom2
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-4b9079af403576cd-c0,4b9079af403576cd,NC(=NCCCCCCN=C(N)/N=C(\N)Nc1ccc(Cl)cc1)/N=C(\N)Nc1ccc(Cl)cc1,NC(=NCCCCCCN=C(N)[N-]C(=[NH2+])Nc1ccc(Cl)cc1)N=C(N)Nc1ccc(Cl)cc1,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-5388ff9719f660cf-c0,5388ff9719f660cf,CN=C1C=C/C(=N/N=c2\ccn(O)cc2C)C=C1C,C[N-]c1ccc(N=[N+]=c2ccn(O)cc2C)cc1C,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-8481f2ce23fcc485-c3,8481f2ce23fcc485,CO/C([O-])=N/c1c[n+](-c2ccc(Cl)cc2)no1,COC([O-])=Nc1cn(-c2ccc(Cl)cc2)n[o+]1,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-9933ea29005ac77d-c6,9933ea29005ac77d,C/C(=N/O)c1no[n+]([O-])c1/C(C)=N\O,CC(=NO)c1n[o+]n([O-])c1C(C)=NO,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom2
+	Violation occurred on line 223 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom2
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-b5f4d91e855903ab-c0,b5f4d91e855903ab,[O-][N+]1=C2CCC/C(=N\O)C2=NC12CCCCC2,O=[N+]1C2=C([N-]C13CCCCC3)C(=NO)CCC2,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-d5633f3063595382-c0,d5633f3063595382,O=S1CC/C(=N\O)c2ccccc21,[O-][S@+]1CCC(=NO)c2ccccc21,success,success,success,success,exception,not reached in original runner,not_equivalent,none,Not equivalent: no standardized comparison path matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception
+geom-drugs-e1106d269c3bd36c-c0,e1106d269c3bd36c,CCCC[n+]1cc(/N=C(\[O-])OC)on1,CCCCn1cc(N=C([O-])OC)[o+]n1,success,success,success,success,exception,not reached in original runner,equivalent,resonance_equivalence,Equivalent: resonance normalization matched.,"stereo evaluator: RuntimeError: Invariant Violation
+	could not find atom1
+	Violation occurred on line 222 in file Code/GraphMol/Canon.cpp
+	Failed Expression: firstFromAtom1
+	RDKIT: 2024.03.5
+	BOOST: 1_85
+",secondary_chirality_diagnostic_exception

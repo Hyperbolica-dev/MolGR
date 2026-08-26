@@ -48,6 +48,7 @@ RESULT_COLUMNS = (
     "reason_family",
     "exact_smiles",
     "stereo_equivalent",
+    "diagnostic_error",
     "charge_consistent",
     "radical_consistent",
     "runtime_ms",
@@ -228,6 +229,7 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
             "radical_inconsistent": 0,
             "timeout": 0,
             "exception": 0,
+            "diagnostic_exception": 0,
         }
     )
     evaluator_reasons: Counter[str] = Counter()
@@ -260,8 +262,12 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
     with gzip.open(
         results_path, "wt", newline="", encoding="utf-8", compresslevel=6
     ) as results_handle, failures_path.open("w", newline="", encoding="utf-8") as failures_handle:
-        results_writer = csv.DictWriter(results_handle, fieldnames=RESULT_COLUMNS)
-        failures_writer = csv.DictWriter(failures_handle, fieldnames=FAILURE_COLUMNS)
+        results_writer = csv.DictWriter(
+            results_handle, fieldnames=RESULT_COLUMNS, lineterminator="\n"
+        )
+        failures_writer = csv.DictWriter(
+            failures_handle, fieldnames=FAILURE_COLUMNS, lineterminator="\n"
+        )
         results_writer.writeheader()
         failures_writer.writeheader()
         for source_smiles, payload in _entries(archive):
@@ -294,6 +300,7 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
             predicted_smiles = ""
             exact_smiles: bool | None = None
             stereo_equivalent: bool | None = None
+            diagnostic_error = ""
             charge_consistent: bool | None = None
             radical_consistent: bool | None = None
             try:
@@ -304,14 +311,12 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
                 predicted_smiles = output.predicted_smiles or ""
                 if output.rdkit_mol is not None:
                     primary = evaluate_equivalence(output.rdkit_mol, reference, use_chirality=False)
-                    stereo = evaluate_equivalence(output.rdkit_mol, reference, use_chirality=True)
                     decision = primary.decision.value
                     relation = primary.relation.value
                     evaluator_reason = primary.reason
                     exact_smiles = Chem.MolToSmiles(
                         reference, isomericSmiles=False
                     ) == Chem.MolToSmiles(output.rdkit_mol, isomericSmiles=False)
-                    stereo_equivalent = stereo.equivalent
                     if primary.checks is not None:
                         charge_consistent = primary.checks.formal_charge.passed
                         radical_consistent = primary.checks.radical_electrons.passed
@@ -323,6 +328,13 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
                         reference_smiles,
                         predicted_smiles,
                     )
+                    try:
+                        stereo = evaluate_equivalence(
+                            output.rdkit_mol, reference, use_chirality=True
+                        )
+                        stereo_equivalent = stereo.equivalent
+                    except Exception as exc:  # noqa: BLE001
+                        diagnostic_error = f"stereo evaluator: {type(exc).__name__}: {exc}"
             except CaseTimeoutError as exc:
                 status, error = "timeout", str(exc)
             except Exception as exc:  # noqa: BLE001
@@ -335,6 +347,8 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
                 totals["timeout"] += 1
             if status == "exception":
                 totals["exception"] += 1
+            if diagnostic_error:
+                totals["diagnostic_exception"] += 1
             if decision:
                 totals[decision] += 1
                 strata[stratum][decision] += 1
@@ -370,6 +384,7 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
                 "reason_family": family,
                 "exact_smiles": exact_smiles,
                 "stereo_equivalent": stereo_equivalent,
+                "diagnostic_error": diagnostic_error,
                 "charge_consistent": charge_consistent,
                 "radical_consistent": radical_consistent,
                 "runtime_ms": runtime_ms,
@@ -424,7 +439,7 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
     for _, _, row in runtime_heap:
         review_by_id.setdefault(str(row["case_id"]), (set(), row))[0].add("runtime_outlier_top50")
     with (out_dir / "review_cases.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=REVIEW_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=REVIEW_COLUMNS, lineterminator="\n")
         writer.writeheader()
         for case_id in sorted(review_by_id):
             flags, row = review_by_id[case_id]
