@@ -82,3 +82,16 @@ uv run python benchmarks/geom_xyz_benchmark/build_review_cases.py \
 
 Population sampling applies one uniform deterministic hash ranking over all eligible unique
 molecules. Heavy-atom strata are report-only and do not reweight overall accuracy.
+
+The formal full run streams directly from the official archive and freezes each evaluator result
+once:
+
+```bash
+.venv/bin/python benchmarks/geom_xyz_benchmark/formal_run.py \
+  --archive benchmarks/_data/geom/drugs_crude.msgpack.tar.gz \
+  --out benchmarks/geom_xyz_benchmark/_runs/drugs_formal_full \
+  --expected-eligible 291709 --case-timeout-seconds 10
+```
+
+Its compact `results.csv.gz` omits XYZ and molecule objects. Detailed inputs are retained only in
+the failure table and bounded manual-review queue.
