@@ -63,3 +63,22 @@ The Drugs fixture is rebuilt with `--dataset drugs` and the corresponding
 `drugs_crude.msgpack.tar.gz` archive/output path. Its acquisition record contains the official
 file identifier and checksum, full-scan eligibility counts, quotas, and deterministic selection
 rules.
+
+Build and run the population-representative deterministic 5k pilot with:
+
+```bash
+uv run --with msgpack python -m benchmarks.geom_xyz_benchmark.acquire_smoke \
+  --archive benchmarks/_data/geom/drugs_crude.msgpack.tar.gz \
+  --output benchmarks/geom_xyz_benchmark/data/drugs_pilot5k.jsonl \
+  --dataset drugs --sample-size 5000 --sampling population --seed 20260825
+uv run python benchmarks/geom_xyz_benchmark/run.py \
+  --input benchmarks/geom_xyz_benchmark/data/drugs_pilot5k.jsonl \
+  --limit 5000 --seed 20260825 \
+  --out benchmarks/geom_xyz_benchmark/_runs/drugs_pilot5k
+uv run python benchmarks/geom_xyz_benchmark/build_review_cases.py \
+  --results benchmarks/geom_xyz_benchmark/_runs/drugs_pilot5k/results.csv \
+  --output benchmarks/geom_xyz_benchmark/_runs/drugs_pilot5k/review_cases.csv
+```
+
+Population sampling applies one uniform deterministic hash ranking over all eligible unique
+molecules. Heavy-atom strata are report-only and do not reweight overall accuracy.

@@ -1,0 +1,68 @@
+{
+  "protocol": "geom-molecule-one-conformer-v1",
+  "seed": 20260825,
+  "case_count": 5000,
+  "heavy_atom_strata": {
+    "01_15": {
+      "n": 164,
+      "reconstruction_failure": 0,
+      "equivalent": 163,
+      "not_equivalent": 1,
+      "inconclusive": 0
+    },
+    "16_25": {
+      "n": 2652,
+      "reconstruction_failure": 0,
+      "equivalent": 2624,
+      "not_equivalent": 23,
+      "inconclusive": 5
+    },
+    "26_35": {
+      "n": 2070,
+      "reconstruction_failure": 0,
+      "equivalent": 2043,
+      "not_equivalent": 20,
+      "inconclusive": 7
+    },
+    "36_50": {
+      "n": 110,
+      "reconstruction_failure": 0,
+      "equivalent": 109,
+      "not_equivalent": 1,
+      "inconclusive": 0
+    },
+    "51_plus": {
+      "n": 4,
+      "reconstruction_failure": 0,
+      "equivalent": 3,
+      "not_equivalent": 1,
+      "inconclusive": 0
+    }
+  },
+  "reconstruction_success": 5000,
+  "reconstruction_failure": 0,
+  "decision_equivalent": 4942,
+  "decision_not_equivalent": 46,
+  "decision_inconclusive": 12,
+  "relation_normalized_graph_identity": 4940,
+  "relation_resonance_equivalence": 2,
+  "graph_equivalent": 4942,
+  "exact_smiles": 4070,
+  "exact_smiles_mismatch": 930,
+  "stereo_equivalent": 3206,
+  "stereo_not_equivalent": 1794,
+  "charge_consistent": 5000,
+  "charge_inconsistent": 0,
+  "radical_consistent": 5000,
+  "radical_inconsistent": 0,
+  "timeout": 0,
+  "exception": 0,
+  "failures": 58,
+  "runtime_ms_total": 99115.83889913163,
+  "runtime_ms": {
+    "p50": 19.29374899918912,
+    "p95": 26.779106098183547,
+    "p99": 30.316745583695596,
+    "max": 239.37241800012998
+  }
+}

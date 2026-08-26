@@ -7,6 +7,7 @@ from rdkit import Chem
 
 from benchmarks.geom_xyz_benchmark.acquire_smoke import _drugs_stratum, _fixture_record
 from benchmarks.geom_xyz_benchmark.adapter import load_cases, stable_molecule_id
+from benchmarks.geom_xyz_benchmark.run import _percentile, _size_stratum
 
 
 def test_geom_adapter_is_deterministic_and_preserves_state(tmp_path: Path) -> None:
@@ -90,3 +91,17 @@ def test_drugs_size_strata_boundaries() -> None:
         mol = Chem.MolFromSmiles("C" * heavy_atoms)
         assert mol is not None
         assert _drugs_stratum(mol) == stratum
+
+
+def test_pilot_size_strata_and_percentile() -> None:
+    assert [_size_stratum(value) for value in (15, 16, 25, 26, 35, 36, 50, 51)] == [
+        "01_15",
+        "16_25",
+        "16_25",
+        "26_35",
+        "26_35",
+        "36_50",
+        "36_50",
+        "51_plus",
+    ]
+    assert _percentile([1.0, 2.0, 3.0, 4.0], 0.5) == 2.5

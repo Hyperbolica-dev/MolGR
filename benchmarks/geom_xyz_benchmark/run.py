@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -32,6 +34,30 @@ def _args() -> argparse.Namespace:
 
 def _canonical(mol: Chem.Mol, *, stereo: bool) -> str:
     return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=stereo)
+
+
+def _size_stratum(heavy_atoms: int) -> str:
+    if heavy_atoms <= 15:
+        return "01_15"
+    if heavy_atoms <= 25:
+        return "16_25"
+    if heavy_atoms <= 35:
+        return "26_35"
+    if heavy_atoms <= 50:
+        return "36_50"
+    return "51_plus"
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return math.nan
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
 def run(
@@ -99,18 +125,22 @@ def run(
     successful = [row for row in rows if row["status"] == "ok"]
     decisions = ("equivalent", "not_equivalent", "inconclusive")
     relations = ("normalized_graph_identity", "resonance_equivalence")
-    heavy_atom_distribution = {
-        "01_15": sum(1 <= int(row["heavy_atom_count"]) <= 15 for row in rows),
-        "16_25": sum(16 <= int(row["heavy_atom_count"]) <= 25 for row in rows),
-        "26_35": sum(26 <= int(row["heavy_atom_count"]) <= 35 for row in rows),
-        "36_50": sum(36 <= int(row["heavy_atom_count"]) <= 50 for row in rows),
-        "51_plus": sum(int(row["heavy_atom_count"]) >= 51 for row in rows),
-    }
+    strata: dict[str, dict[str, int]] = {}
+    for name in ("01_15", "16_25", "26_35", "36_50", "51_plus"):
+        members = [row for row in rows if _size_stratum(int(row["heavy_atom_count"])) == name]
+        strata[name] = {
+            "n": len(members),
+            "reconstruction_failure": sum(row["status"] != "ok" for row in members),
+            "equivalent": sum(row["evaluator_decision"] == "equivalent" for row in members),
+            "not_equivalent": sum(row["evaluator_decision"] == "not_equivalent" for row in members),
+            "inconclusive": sum(row["evaluator_decision"] == "inconclusive" for row in members),
+        }
+    runtimes = [float(row["runtime_ms"]) for row in rows]
     summary = {
         "protocol": "geom-molecule-one-conformer-v1",
         "seed": seed,
         "case_count": len(rows),
-        "heavy_atom_distribution": heavy_atom_distribution,
+        "heavy_atom_strata": strata,
         "reconstruction_success": len(successful),
         "reconstruction_failure": len(rows) - len(successful),
         **{
@@ -126,10 +156,20 @@ def run(
         "exact_smiles_mismatch": sum(row["exact_smiles"] is False for row in rows),
         "stereo_equivalent": sum(row["stereo_equivalent"] is True for row in rows),
         "stereo_not_equivalent": sum(row["stereo_equivalent"] is False for row in rows),
+        "charge_consistent": sum(row["charge_consistent"] is True for row in rows),
+        "charge_inconsistent": sum(row["charge_consistent"] is False for row in rows),
+        "radical_consistent": sum(row["radical_consistent"] is True for row in rows),
+        "radical_inconsistent": sum(row["radical_consistent"] is False for row in rows),
         "timeout": sum(row["status"] == "timeout" for row in rows),
         "exception": sum(row["status"] == "exception" for row in rows),
         "failures": len(failures),
         "runtime_ms_total": sum(float(row["runtime_ms"]) for row in rows),
+        "runtime_ms": {
+            "p50": statistics.median(runtimes) if runtimes else math.nan,
+            "p95": _percentile(runtimes, 0.95),
+            "p99": _percentile(runtimes, 0.99),
+            "max": max(runtimes, default=math.nan),
+        },
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return rows
