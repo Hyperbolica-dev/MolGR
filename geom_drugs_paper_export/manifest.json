@@ -6,24 +6,24 @@
   "evaluator": "molgr evaluator v1, Candidate=predicted, Reference=reference, use_chirality=False",
   "files": {
     "failures.csv": {
-      "bytes": 7719578,
-      "sha256": "1abf78722f14b81c21b9ba3ab290118ce70e3e2e6d2577184fc7a08a4d9da5b3"
+      "bytes": 7705830,
+      "sha256": "fde9f2385f701c4675fb5da7bb5fde4062edc8293fbf2256570bd29050476832"
     },
     "provenance.md": {
-      "bytes": 1889,
-      "sha256": "a03d4700508b6bb70d12b546d1957b79975b4e389e34b1df9572e37e0feddce1"
+      "bytes": 2667,
+      "sha256": "0e25ba938f4bd052c54c87c1c968b36fdf7a99e1bd469ad0ed15fe61c08c6833"
     },
     "results.csv.gz": {
-      "bytes": 9454108,
-      "sha256": "a757a32642127f2379472e0fb88d2600733950be40e9675d0a6cced227431361"
+      "bytes": 9225807,
+      "sha256": "1fc5c2bcfa938b07ceff7029a5d9714f2474ce0bbf0d3f4400935f43006448f2"
     },
     "review_cases.csv": {
-      "bytes": 1269493,
-      "sha256": "e7251977982787c104a004efbefb758fbb61bb5dcf7591231b1509c1b5ee31b1"
+      "bytes": 1271065,
+      "sha256": "0eed64167a4edd72b942a247632fa092d73fe469eab6871a812ce2e5d7f30b50"
     },
     "summary.json": {
-      "bytes": 3485,
-      "sha256": "3323987ad4d63672b170b900216c51896e0bf9f8caa496dd05f7d4decebc4a63"
+      "bytes": 3851,
+      "sha256": "4528657c59665c2c03a4f538456ec93323a84ac4c7157b1a155e219b25e54a78"
     }
   },
   "molgr_git_sha": "e2d3b19afd2f459bc84cd6f40061f709584bd6a8",

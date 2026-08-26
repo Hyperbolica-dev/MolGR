@@ -64,6 +64,17 @@ def freeze(run_dir: Path, export_dir: Path, *, molgr_git_sha: str) -> None:
 - Exact SMILES and chirality are diagnostics only.
 - No permissive sulfoxide `S=O` / `[S+][O-]` rule was added.
 
+The case-level `radical_consistent` field is evaluator v1's prepared/normalized organic-graph
+check; it is not the raw formal radical-electron count. Bounded replay in the final audit confirmed
+that all 17 false values have raw Candidate/Reference counts 0/0 and normalized counts 2/0.
+
+Nine initially reported `reconstruction_failure` cases were audit-reclassified after bounded
+case-only replay: reference preparation, reconstruction, output finalization, and primary
+evaluation succeeded; only the secondary `use_chirality=True` evaluator raised an RDKit
+canonicalization invariant violation. Their recovered primary decisions are frozen as seven
+equivalent, one not-equivalent, and one inconclusive, with `diagnostic_exception=9`. No chemistry
+or evaluator policy changed.
+
 Exact command:
 
 ```bash
