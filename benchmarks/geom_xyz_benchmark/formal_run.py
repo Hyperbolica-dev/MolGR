@@ -208,7 +208,28 @@ def run(archive: Path, out_dir: Path, *, timeout: float, expected_eligible: int)
             "duplicate_canonical_reference": 0,
         }
     )
-    totals: Counter[str] = Counter()
+    totals: Counter[str] = Counter(
+        {
+            "total": 0,
+            "reconstruction_success": 0,
+            "reconstruction_failure": 0,
+            "equivalent": 0,
+            "not_equivalent": 0,
+            "inconclusive": 0,
+            "relation_normalized_graph_identity": 0,
+            "relation_resonance_equivalence": 0,
+            "exact_smiles_match": 0,
+            "exact_smiles_mismatch": 0,
+            "chirality_equivalent": 0,
+            "chirality_not_equivalent": 0,
+            "charge_consistent": 0,
+            "charge_inconsistent": 0,
+            "radical_consistent": 0,
+            "radical_inconsistent": 0,
+            "timeout": 0,
+            "exception": 0,
+        }
+    )
     evaluator_reasons: Counter[str] = Counter()
     reason_families: Counter[str] = Counter()
     strata = {

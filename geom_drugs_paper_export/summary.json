@@ -1,0 +1,107 @@
+{
+  "protocol": "geom-drugs-formal-molecule-one-conformer-v1",
+  "started_unix": 1787755227.2689717,
+  "finished_unix": 1787763365.9654012,
+  "wall_time_seconds": 8138.696426585004,
+  "acquisition_counts": {
+    "source_molecules": 292035,
+    "eligible": 291709,
+    "reference_parse_failure": 0,
+    "electronic_state_excluded": 15,
+    "fragmented_reference": 0,
+    "missing_xyz": 0,
+    "missing_relativeenergy": 0,
+    "reference_xyz_atom_count_mismatch": 0,
+    "duplicate_canonical_reference": 311
+  },
+  "statistics": {
+    "total": 291709,
+    "reconstruction_success": 291700,
+    "equivalent": 288336,
+    "relation_normalized_graph_identity": 288018,
+    "exact_smiles_match": 237102,
+    "chirality_equivalent": 186426,
+    "charge_consistent": 291700,
+    "radical_consistent": 291683,
+    "exact_smiles_mismatch": 54598,
+    "chirality_not_equivalent": 105274,
+    "not_equivalent": 2491,
+    "relation_none": 3303,
+    "inconclusive": 873,
+    "relation_resonance_equivalence": 318,
+    "relation_identifier_equivalence": 61,
+    "reconstruction_failure": 9,
+    "exception": 9,
+    "radical_inconsistent": 17,
+    "charge_inconsistent": 0,
+    "timeout": 0
+  },
+  "heavy_atom_strata": {
+    "01_15": {
+      "n": 10168,
+      "reconstruction_failure": 3,
+      "equivalent": 10093,
+      "not_equivalent": 60,
+      "inconclusive": 12
+    },
+    "16_25": {
+      "n": 153096,
+      "reconstruction_failure": 5,
+      "equivalent": 151439,
+      "not_equivalent": 1354,
+      "inconclusive": 298
+    },
+    "26_35": {
+      "n": 120791,
+      "reconstruction_failure": 1,
+      "equivalent": 119253,
+      "not_equivalent": 1013,
+      "inconclusive": 524
+    },
+    "36_50": {
+      "n": 7329,
+      "reconstruction_failure": 0,
+      "equivalent": 7243,
+      "not_equivalent": 47,
+      "inconclusive": 39
+    },
+    "51_plus": {
+      "n": 325,
+      "reconstruction_failure": 0,
+      "equivalent": 308,
+      "not_equivalent": 17,
+      "inconclusive": 0
+    }
+  },
+  "evaluator_reason_distribution": {
+    "Equivalent: canonical SMILES are identical after standardization.": 288018,
+    "Not equivalent: non-metal connectivity differs.": 2397,
+    "Inconclusive: bounded resonance search reached its configured limit.": 812,
+    "Equivalent: resonance normalization matched.": 318,
+    "Not equivalent: no standardized comparison path matched.": 80,
+    "Inconclusive: identifier_equivalence (prepared organic InChIKey agreement) has no independent stronger structural evidence.": 61,
+    "Not equivalent: charge or radical count differs within a component.": 14
+  },
+  "reason_family_distribution": {
+    "equivalent": 288336,
+    "suspected_tautomer_protomer": 1676,
+    "sulfoxide_neutral_vs_charge_separated": 801,
+    "Not equivalent: non-metal connectivity differs.": 721,
+    "Not equivalent: no standardized comparison path matched.": 80,
+    "Inconclusive: identifier_equivalence (prepared organic InChIKey agreement) has no independent stronger structural evidence.": 56,
+    "Inconclusive: bounded resonance search reached its configured limit.": 16,
+    "Not equivalent: charge or radical count differs within a component.": 14
+  },
+  "runtime_ms": {
+    "p50": 22.0670299968333,
+    "p95": 33.57647900120354,
+    "p99": 43.81101808248777,
+    "max": 1764.2168160018628
+  },
+  "review_case_count": 460,
+  "environment": {
+    "python": "3.8.20",
+    "platform": "Linux-7.0.11-76070011-generic-x86_64-with-glibc2.2.5",
+    "rdkit": "2024.03.5"
+  }
+}
