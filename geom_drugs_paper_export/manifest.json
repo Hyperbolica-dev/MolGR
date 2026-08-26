@@ -1,0 +1,39 @@
+{
+  "dataset": "GEOM-Drugs",
+  "dataverse_file_id": 4360331,
+  "doi": "10.7910/DVN/JNGTDF",
+  "eligible_unique_molecules": 291709,
+  "evaluator": "molgr evaluator v1, Candidate=predicted, Reference=reference, use_chirality=False",
+  "files": {
+    "failures.csv": {
+      "bytes": 7719578,
+      "sha256": "1abf78722f14b81c21b9ba3ab290118ce70e3e2e6d2577184fc7a08a4d9da5b3"
+    },
+    "provenance.md": {
+      "bytes": 1889,
+      "sha256": "a03d4700508b6bb70d12b546d1957b79975b4e389e34b1df9572e37e0feddce1"
+    },
+    "results.csv.gz": {
+      "bytes": 9454108,
+      "sha256": "a757a32642127f2379472e0fb88d2600733950be40e9675d0a6cced227431361"
+    },
+    "review_cases.csv": {
+      "bytes": 1269493,
+      "sha256": "e7251977982787c104a004efbefb758fbb61bb5dcf7591231b1509c1b5ee31b1"
+    },
+    "summary.json": {
+      "bytes": 3485,
+      "sha256": "3323987ad4d63672b170b900216c51896e0bf9f8caa496dd05f7d4decebc4a63"
+    }
+  },
+  "molgr_git_sha": "e2d3b19afd2f459bc84cd6f40061f709584bd6a8",
+  "release": "Harvard Dataverse v4 (2022-02-11)",
+  "run_command": ".venv/bin/python benchmarks/geom_xyz_benchmark/formal_run.py --archive benchmarks/_data/geom/drugs_crude.msgpack.tar.gz --out benchmarks/geom_xyz_benchmark/_runs/drugs_formal_full --expected-eligible 291709 --case-timeout-seconds 10",
+  "schema_version": 1,
+  "source_archive": {
+    "filename": "drugs_crude.msgpack.tar.gz",
+    "md5": "7778e84c50b7cde755cca670d1f75091",
+    "verified": true
+  },
+  "source_molecules": 292035
+}
