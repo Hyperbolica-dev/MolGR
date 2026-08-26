@@ -156,9 +156,25 @@ def _fixture_record(
     }, "eligible"
 
 
-def acquire(archive: Path, output: Path, *, seed: int, dataset: str = "qm9") -> None:
+def acquire(
+    archive: Path,
+    output: Path,
+    *,
+    seed: int,
+    dataset: str = "qm9",
+    sample_size: int = 100,
+    sampling: str = "representative_smoke",
+) -> None:
+    if sample_size <= 0:
+        raise ValueError("sample_size must be positive")
+    if sampling not in ("representative_smoke", "population"):
+        raise ValueError(f"unsupported sampling mode: {sampling}")
+    if sampling == "representative_smoke" and sample_size != 100:
+        raise ValueError("representative_smoke uses the fixed 100-molecule quotas")
     quotas = DRUGS_QUOTAS if dataset == "drugs" else QM9_QUOTAS
-    heaps: dict[str, list[tuple[int, str, dict[str, Any]]]] = {key: [] for key in quotas}
+    heap_keys = ("population",) if sampling == "population" else tuple(quotas)
+    heap_limits = {"population": sample_size} if sampling == "population" else quotas
+    heaps: dict[str, list[tuple[int, str, dict[str, Any]]]] = {key: [] for key in heap_keys}
     audit: dict[str, int] = {
         "source_molecules": 0,
         "eligible": 0,
@@ -185,23 +201,27 @@ def acquire(archive: Path, output: Path, *, seed: int, dataset: str = "qm9") -> 
         seen_reference_smiles.add(reference_smiles)
         mol = Chem.MolFromSmiles(record["reference_smiles"])
         assert mol is not None
-        stratum = _drugs_stratum(mol) if dataset == "drugs" else _qm9_stratum(mol)
+        stratum = (
+            "population"
+            if sampling == "population"
+            else (_drugs_stratum(mol) if dataset == "drugs" else _qm9_stratum(mol))
+        )
         score = int.from_bytes(hashlib.sha256(f"{seed}:{smiles}".encode()).digest()[:8], "big")
         item = (-score, smiles, record)
         heap = heaps[stratum]
-        if len(heap) < quotas[stratum]:
+        if len(heap) < heap_limits[stratum]:
             heapq.heappush(heap, item)
         elif item > heap[0]:
             heapq.heapreplace(heap, item)
     records = [item[2] for heap in heaps.values() for item in heap]
-    if len(records) != sum(quotas.values()):
+    if len(records) != sample_size:
         raise RuntimeError(f"insufficient eligible records: selected {len(records)}")
     records.sort(key=lambda row: row["case_id"])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8"
     )
-    audit.update(selected_molecules=len(records), seed=seed, quota_total=sum(quotas.values()))
+    audit.update(selected_molecules=len(records), seed=seed, sample_size=sample_size)
     output.with_suffix(".acquisition.json").write_text(
         json.dumps(
             {
@@ -212,11 +232,16 @@ def acquire(archive: Path, output: Path, *, seed: int, dataset: str = "qm9") -> 
                     "release": "Harvard Dataverse v4 (2022-02-11)",
                     "doi": "10.7910/DVN/JNGTDF",
                 },
-                "stratum_quotas": quotas,
+                "stratum_quotas": quotas if sampling == "representative_smoke" else None,
                 "selection": {
                     "conformer": "minimum_relativeenergy_then_source_index",
-                    "molecule": "lowest_sha256(seed:source_smiles)_within_size_stratum",
+                    "molecule": (
+                        "lowest_sha256(seed:source_smiles)_over_all_eligible_unique_molecules"
+                        if sampling == "population"
+                        else "lowest_sha256(seed:source_smiles)_within_size_stratum"
+                    ),
                     "primary_unit": "molecule",
+                    "sampling": sampling,
                 },
                 "xyz2mol_provenance": "unavailable_in_crude_artifact",
             },
@@ -234,8 +259,19 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20260825)
     parser.add_argument("--dataset", choices=("qm9", "drugs"), default="qm9")
+    parser.add_argument("--sample-size", type=int, default=100)
+    parser.add_argument(
+        "--sampling", choices=("representative_smoke", "population"), default="representative_smoke"
+    )
     args = parser.parse_args()
-    acquire(args.archive, args.output, seed=args.seed, dataset=args.dataset)
+    acquire(
+        args.archive,
+        args.output,
+        seed=args.seed,
+        dataset=args.dataset,
+        sample_size=args.sample_size,
+        sampling=args.sampling,
+    )
     return 0
 
 
