@@ -7,6 +7,15 @@ from rdkit import Chem
 
 from benchmarks.geom_xyz_benchmark.acquire_smoke import _drugs_stratum, _fixture_record
 from benchmarks.geom_xyz_benchmark.adapter import load_cases, stable_molecule_id
+from benchmarks.geom_xyz_benchmark.formal_run import (
+    BoundedReview,
+)
+from benchmarks.geom_xyz_benchmark.formal_run import (
+    _percentile as _formal_percentile,
+)
+from benchmarks.geom_xyz_benchmark.formal_run import (
+    _size_stratum as _formal_size_stratum,
+)
 from benchmarks.geom_xyz_benchmark.run import _percentile, _size_stratum
 
 
@@ -105,3 +114,18 @@ def test_pilot_size_strata_and_percentile() -> None:
         "51_plus",
     ]
     assert _percentile([1.0, 2.0, 3.0, 4.0], 0.5) == 2.5
+    assert _formal_size_stratum(51) == "51_plus"
+    assert _formal_percentile([1.0, 2.0, 3.0, 4.0], 0.95) == 3.8499999999999996
+
+
+def test_formal_review_reservoir_is_bounded_and_order_independent() -> None:
+    rows = [{"case_id": f"case-{index}"} for index in range(10)]
+    first = BoundedReview({"non_equivalent": 3})
+    second = BoundedReview({"non_equivalent": 3})
+    for row in rows:
+        first.add("non_equivalent", row)
+    for row in reversed(rows):
+        second.add("non_equivalent", row)
+    assert sorted(row["case_id"] for _, row in first.rows()) == sorted(
+        row["case_id"] for _, row in second.rows()
+    )
