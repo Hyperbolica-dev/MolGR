@@ -29,9 +29,9 @@ def test_review_reasons_are_distinct_counted_and_refresh_after_review(tmp_path: 
             VALUES(?, 'reference_answer_wrong', ?, '')
             """,
             [
-                ("OLD_A", "auto-oxidative-addition"),
-                ("OLD_B", "auto-oxidative-addition"),
-                ("OLD_C", "project-policy"),
+                ("OLD_A", "automated-rule-a"),
+                ("OLD_B", "automated-rule-a"),
+                ("OLD_C", "automated-rule-b"),
                 ("EMPTY", ""),
                 ("SPACE", "   "),
             ],
@@ -65,27 +65,27 @@ def test_review_reasons_are_distinct_counted_and_refresh_after_review(tmp_path: 
         status, payload = request("/api/review-reasons")
         assert status == 200
         assert payload["items"] == [
-            {"reviewer": "auto-oxidative-addition", "count": 2},
-            {"reviewer": "project-policy", "count": 1},
+            {"reviewer": "automated-rule-a", "count": 2},
+            {"reviewer": "automated-rule-b", "count": 1},
         ]
 
         status, _ = request(
             "/api/cases/NEW/review",
             {
                 "status": "reference_answer_wrong",
-                "reviewer": "auto-oxidative-addition",
+                "reviewer": "automated-rule-a",
                 "notes": "existing reason evidence",
             },
         )
         assert status == 200
         status, payload = request("/api/review-reasons")
         assert status == 200
-        assert payload["items"][0] == {"reviewer": "auto-oxidative-addition", "count": 3}
+        assert payload["items"][0] == {"reviewer": "automated-rule-a", "count": 3}
 
         with sqlite3.connect(db_path) as conn:
             assert conn.execute(
                 "SELECT reviewer, notes FROM reviews WHERE case_id = 'NEW'"
-            ).fetchone() == ("auto-oxidative-addition", "existing reason evidence")
+            ).fetchone() == ("automated-rule-a", "existing reason evidence")
 
         status, _ = request(
             "/api/cases/NEW/review",
@@ -99,8 +99,8 @@ def test_review_reasons_are_distinct_counted_and_refresh_after_review(tmp_path: 
         status, payload = request("/api/review-reasons")
         assert status == 200
         assert {item["reviewer"]: item["count"] for item in payload["items"]} == {
-            "auto-oxidative-addition": 2,
-            "project-policy": 1,
+            "automated-rule-a": 2,
+            "automated-rule-b": 1,
             "xyz-hydrogen-assignment": 1,
         }
         with sqlite3.connect(db_path) as conn:

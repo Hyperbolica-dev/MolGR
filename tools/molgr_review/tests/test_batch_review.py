@@ -28,7 +28,7 @@ def test_manifest_is_dry_run_by_default(tmp_path: Path) -> None:
                     {
                         "case_id": "CASE_A",
                         "proposed_status": "reference_answer_wrong",
-                        "proposed_reason": "reference-metal-scan",
+                        "proposed_reason": "automated-reference-check",
                         "evidence": "reference parse failed",
                     }
                 ]
@@ -49,7 +49,7 @@ def test_manifest_is_dry_run_by_default(tmp_path: Path) -> None:
     assert lines[1] == {
         "case_id": "CASE_A",
         "status": "reference_answer_wrong",
-        "reason": "reference-metal-scan",
+        "reason": "automated-reference-check",
         "notes": "reference parse failed",
     }
 
@@ -57,14 +57,14 @@ def test_manifest_is_dry_run_by_default(tmp_path: Path) -> None:
 def test_manifest_normalizes_reason_without_changing_notes(tmp_path: Path) -> None:
     manifest = tmp_path / "reviews.csv"
     manifest.write_text(
-        "case_id,status,reviewer,notes\nCASE_A,accept_both,auto-oxidative-addition,specific evidence\n",
+        "case_id,status,reviewer,notes\nCASE_A,accept_both,automated-rule-a,specific evidence\n",
         encoding="utf-8",
     )
 
     assert load_manifest(manifest)[0] == {
         "case_id": "CASE_A",
         "status": "accept_both",
-        "reviewer": "auto-oxidative-addition",
+        "reviewer": "automated-rule-a",
         "notes": "specific evidence",
         "corrected_smiles": "",
         "corrected_molblock": "",
@@ -109,7 +109,7 @@ def test_explicit_apply_backs_up_and_writes_through_review_api(tmp_path: Path) -
                     {
                         "case_id": "A",
                         "status": "reference_answer_wrong",
-                        "reviewer": "reference-metal-scan",
+                        "reviewer": "automated-reference-check",
                         "notes": "verified evidence",
                     }
                 ]
@@ -156,6 +156,6 @@ def test_explicit_apply_backs_up_and_writes_through_review_api(tmp_path: Path) -
             "SELECT status, reviewer, notes FROM reviews WHERE case_id = 'A'"
         ).fetchone() == (
             "reference_answer_wrong",
-            "reference-metal-scan",
+            "automated-reference-check",
             "verified evidence",
         )

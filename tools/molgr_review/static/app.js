@@ -1258,23 +1258,6 @@ function renderTriageEvidence(item) {
     ${hasValue(triage.trace_evidence_summary) ? `<div class="triage-trace" title="${escapeHtml(triage.trace_evidence_summary)}">Trace · ${escapeHtml(triage.trace_evidence_summary)}</div>` : ""}`;
 }
 
-function suggestedReviewReason(item) {
-  const triage = item?.triage;
-  if (!triage) return "";
-  const text = `${triage.reason_tags || ""} ${triage.machine_reason || ""}`.toLowerCase();
-  if (triage.triage_bucket === "reference_integrity_issue") return "reference-metal-scan";
-  if (text.includes("hydrogen-assignment") || text.includes("h assignment")) {
-    return "xyz-hydrogen-assignment";
-  }
-  if (text.includes("metal-coordination") || text.includes("metal edge")) {
-    return "xyz-metal-coordination";
-  }
-  if (triage.triage_bucket === "possible_redox_representation") {
-    return "auto-oxidative-addition";
-  }
-  return "";
-}
-
 function compactProvenanceReason(reason) {
   return String(reason || "")
     .replace(/^Not equivalent:\s*/i, "")
@@ -1299,8 +1282,7 @@ function populateReviewForm() {
   $("correctedSmiles").value = item.corrected_smiles || "";
   $("correctedMolblock").value = item.corrected_molblock || "";
   $("notes").value = item.notes || "";
-  $("reviewer").value =
-    item.reviewer || suggestedReviewReason(item) || localStorage.getItem("moleculeReviewReviewer") || "";
+  $("reviewer").value = item.reviewer || localStorage.getItem("moleculeReviewReviewer") || "";
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
