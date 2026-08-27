@@ -153,24 +153,27 @@ namespace molgr
         }
 
         // Electron bookkeeping: resolve adjacent radical-compatible states.
-        // Two real radicals consume one electron at each endpoint and require
-        // two excess electrons. A real radical next to an unresolved two-
-        // electron center transfers the radical location to that center while
-        // preserving the total real-radical count, so it needs no excess pair.
-        // Two adjacent unresolved centers consume their deferred electron pairs
-        // together: a single bond becomes a triple bond without changing the
-        // real-radical budget.
+        // Each endpoint contributes either its real unpaired electrons or the
+        // two electrons represented by an unresolved center. A matched pair
+        // consumes one electron at each endpoint and raises the bond order by
+        // one. The operation is limited by the excess-electron budget, so an
+        // unresolved/unresolved pair may stop at a double bond and leave real
+        // unpaired electrons to be classified later.
         bool CleanNeighborRadicals(
             OBMol &mol,
             int given_charge,
             int total_radical_electrons)
         {
-            const auto available_unpaired_electrons = [&]()
+            const auto available_electron_budget = [&]()
             {
                 int count = 0;
                 FOR_ATOMS_OF_MOL(atom_iter, mol)
                 {
                     count += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                    if (molgr::utils::HasUnresolvedTwoElectronCenter(*atom_iter))
+                    {
+                        count += 2;
+                    }
                 }
                 return count - total_radical_electrons - std::abs(given_charge);
             };
@@ -185,56 +188,50 @@ namespace molgr
                 int r2 = molgr::utils::GetUnpairedElectronCount(*a2);
                 const bool u1 = molgr::utils::HasUnresolvedTwoElectronCenter(*a1);
                 const bool u2 = molgr::utils::HasUnresolvedTwoElectronCenter(*a2);
-                if (u1 && u2 && bond->GetBondOrder() == 1)
+                const int capacity1 = u1 ? 2 : r1;
+                const int capacity2 = u2 ? 2 : r2;
+                if (capacity1 <= 0 || capacity2 <= 0)
                 {
-                    bond->SetBondOrder(bond->GetBondOrder() + 2);
-                    for (OBAtom *atom : {a1, a2})
-                    {
-                        molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
-                        molgr::utils::SetLonePairCount(*atom, 0);
-                        molgr::utils::SetUnpairedElectronCount(*atom, 0);
-                        AssignChargeRadicalForAtom(*atom);
-                    }
-                    hit = true;
                     continue;
                 }
-                if (r1 > 0 && u2 && !u1)
-                {
-                    bond->SetBondOrder(bond->GetBondOrder() + 1);
-                    molgr::utils::SetUnpairedElectronCount(*a1, r1 - 1);
-                    molgr::utils::SetUnresolvedTwoElectronCenter(*a2, false);
-                    molgr::utils::SetLonePairCount(*a2, 0);
-                    molgr::utils::SetUnpairedElectronCount(*a2, 1);
-                    AssignChargeRadicalForAtom(*a1);
-                    hit = true;
-                    continue;
-                }
-                if (r2 > 0 && u1 && !u2)
-                {
-                    bond->SetBondOrder(bond->GetBondOrder() + 1);
-                    molgr::utils::SetUnpairedElectronCount(*a2, r2 - 1);
-                    molgr::utils::SetUnresolvedTwoElectronCenter(*a1, false);
-                    molgr::utils::SetLonePairCount(*a1, 0);
-                    molgr::utils::SetUnpairedElectronCount(*a1, 1);
-                    AssignChargeRadicalForAtom(*a2);
-                    hit = true;
-                    continue;
-                }
-                const int available = available_unpaired_electrons();
+
+                const int available = available_electron_budget();
                 if (available < 2)
                 {
                     continue;
                 }
-                if (r1 > 0 && r2 > 0)
+                const int to_add = std::min({capacity1, capacity2, available / 2});
+                if (to_add <= 0)
                 {
-                    int to_add = std::min({r1, r2, available / 2});
-                    bond->SetBondOrder(bond->GetBondOrder() + to_add);
-                    molgr::utils::SetUnpairedElectronCount(*a1, r1 - to_add);
-                    molgr::utils::SetUnpairedElectronCount(*a2, r2 - to_add);
-                    AssignChargeRadicalForAtom(*a1);
-                    AssignChargeRadicalForAtom(*a2);
-                    hit = true;
+                    continue;
                 }
+
+                bond->SetBondOrder(bond->GetBondOrder() + to_add);
+                const auto consume_endpoint = [&](OBAtom *atom, bool unresolved, int capacity)
+                {
+                    const int remaining = capacity - to_add;
+                    if (unresolved)
+                    {
+                        molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
+                        molgr::utils::SetLonePairCount(*atom, 0);
+                        molgr::utils::SetUnpairedElectronCount(*atom, remaining);
+                        // Do not reclassify a partial unresolved center: its
+                        // post-bond deficit would immediately recreate the
+                        // unresolved marker.
+                        if (remaining == 0)
+                        {
+                            AssignChargeRadicalForAtom(*atom);
+                        }
+                    }
+                    else
+                    {
+                        molgr::utils::SetUnpairedElectronCount(*atom, remaining);
+                        AssignChargeRadicalForAtom(*atom);
+                    }
+                };
+                consume_endpoint(a1, u1, capacity1);
+                consume_endpoint(a2, u2, capacity2);
+                hit = true;
             }
             return hit;
         }
