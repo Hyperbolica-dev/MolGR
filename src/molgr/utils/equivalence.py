@@ -210,9 +210,7 @@ def _raw_hydrogen_count(mol: Chem.Mol) -> tuple[int, int]:
 
 
 def _raw_formula_key(mol: Chem.Mol, hydrogen_count: int) -> str:
-    counts = Counter(
-        atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1
-    )
+    counts = Counter(atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1)
     if hydrogen_count:
         counts["H"] = hydrogen_count
     ordered_symbols: list[str] = []
@@ -242,7 +240,9 @@ def _raw_atom_property_entries(
         if not atom.HasProp(property_name):
             continue
         try:
-            value: object = atom.GetBoolProp(property_name) if boolean else atom.GetIntProp(property_name)
+            value: object = (
+                atom.GetBoolProp(property_name) if boolean else atom.GetIntProp(property_name)
+            )
         except (RuntimeError, TypeError, ValueError):
             try:
                 raw_value = atom.GetProp(property_name)
@@ -467,8 +467,8 @@ def _prepare_organic_mol(mol: Chem.Mol, *, already_standardized: bool = False) -
     return standardized
 
 
-# These elements are allowed to appear in tmQMg in hypervalent, multiple-bond
-# forms.  Equivalence comparison uses their charge-separated octet form only;
+# These elements can appear in hypervalent, multiple-bond forms in molecular datasets.
+# Equivalence comparison uses their charge-separated octet form only;
 # reconstruction output and stored reference graphs are left untouched.
 _OCTET_NORMALIZED_ATOMIC_NUMS = frozenset({7, 8, 9, 15, 16, 17, 33, 34, 35, 53})
 _OCTET_VALENCE_LIMITS = {

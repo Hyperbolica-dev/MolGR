@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Local molecule graph review server."""
 # ruff: noqa: E402, I001
 
