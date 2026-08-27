@@ -1,3 +1,4 @@
+# pyright: reportCallIssue=false, reportArgumentType=false
 from __future__ import annotations
 
 import json
