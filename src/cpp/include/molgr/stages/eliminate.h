@@ -20,6 +20,9 @@ namespace molgr
             OpenBabel::OBMol &mol,
             int &current_charge_deficit,
             int total_radical_electrons);
-        bool EliminateNegativeCharges(OpenBabel::OBMol &mol, int &current_charge_deficit);
+        bool EliminateNegativeCharges(
+            OpenBabel::OBMol &mol,
+            int &current_charge_deficit,
+            int total_radical_electrons = -1);
     }
 }

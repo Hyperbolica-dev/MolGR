@@ -141,7 +141,10 @@ def clean_neighbor_radicals(
     bond by one order. A real radical adjacent to an unresolved two-electron
     center instead consumes the radical electron, increases the bond by one
     order, and resolves the marker as one real radical. The latter preserves the
-    total real-radical count, so it does not require two excess electrons.
+    total real-radical count, so it does not require two excess electrons. Two
+    adjacent unresolved two-electron centers consume their deferred electron
+    pairs together: a single bond becomes a triple bond and both markers are
+    resolved without changing the real-radical budget.
     """
 
     obmol = cast(ob.OBMol, omol.OBMol)
@@ -164,6 +167,16 @@ def clean_neighbor_radicals(
         end_unpaired = get_unpaired_electron_count(end_atom)
         begin_unresolved = has_unresolved_two_electron_center(begin_atom)
         end_unresolved = has_unresolved_two_electron_center(end_atom)
+
+        if begin_unresolved and end_unresolved and bond.GetBondOrder() == 1:
+            bond.SetBondOrder(bond.GetBondOrder() + 2)
+            for atom in (begin_atom, end_atom):
+                set_unresolved_two_electron_center(atom, False)
+                set_lone_pair_count(atom, 0)
+                set_unpaired_electron_count(atom, 0)
+                assign_charge_radical_for_atom(atom)
+            hit = True
+            continue
 
         if begin_unpaired > 0 and end_unresolved and not begin_unresolved:
             bond.SetBondOrder(bond.GetBondOrder() + 1)
@@ -870,6 +883,54 @@ def clean_resonances_17(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     return omol, hit
 
 
+def clean_resonances_18(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
+    """Convert an unresolved terminal diazene fragment to a charge-separated azide.
+
+    ``[*]-N=N-[N]`` becomes ``[*]-N=[N+]=[N-]`` when the terminal nitrogen is
+    an unresolved two-electron center. The transformation consumes that deferred
+    pair as the additional N-N pi bond and does not alter the system radical
+    budget.
+    """
+
+    obmol = cast(ob.OBMol, omol.OBMol)
+    res: List[Tuple[int, int, int, int]] = list(smarts.CLEAN_RESONANCE_18.findall(omol))
+    hit = False
+    while len(res):
+        idxs = res.pop(0)
+        atom2 = cast(ob.OBAtom, obmol.GetAtom(idxs[1]))
+        atom3 = cast(ob.OBAtom, obmol.GetAtom(idxs[2]))
+        atom4 = cast(ob.OBAtom, obmol.GetAtom(idxs[3]))
+        bond1 = cast(ob.OBBond, obmol.GetBond(idxs[0], idxs[1]))
+        bond2 = cast(ob.OBBond, obmol.GetBond(idxs[1], idxs[2]))
+        bond3 = cast(ob.OBBond, obmol.GetBond(idxs[2], idxs[3]))
+        if not all((atom2, atom3, atom4, bond1, bond2, bond3)):
+            continue
+        if (
+            atom2.GetFormalCharge() != 0
+            or atom3.GetFormalCharge() != 0
+            or atom4.GetFormalCharge() != 0
+            or get_unpaired_electron_count(atom2) != 0
+            or get_unpaired_electron_count(atom3) != 0
+            or get_unpaired_electron_count(atom4) != 0
+            or has_unresolved_two_electron_center(atom2)
+            or has_unresolved_two_electron_center(atom3)
+            or not has_unresolved_two_electron_center(atom4)
+            or bond1.GetBondOrder() != 1
+            or bond2.GetBondOrder() != 2
+            or bond3.GetBondOrder() != 1
+        ):
+            continue
+
+        bond3.SetBondOrder(bond3.GetBondOrder() + 1)
+        atom3.SetFormalCharge(1)
+        atom4.SetFormalCharge(-1)
+        set_unresolved_two_electron_center(atom4, False)
+        set_lone_pair_count(atom4, 0)
+        set_unpaired_electron_count(atom4, 0)
+        hit = True
+    return omol, hit
+
+
 def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     """Run the ordered resonance normalization rule set after candidate generation."""
 
@@ -910,6 +971,8 @@ def clean_resonances(omol: pybel.Molecule) -> tuple[pybel.Molecule, bool]:
     hit = stage_hit or hit
     omol, stage_hit = clean_resonances_17(omol)
     hit = stage_hit or hit
+    omol, stage_hit = clean_resonances_18(omol)
+    hit = stage_hit or hit
     return omol, hit
 
 
@@ -920,4 +983,5 @@ __all__ = [
     "clean_neighbor_radicals",
     "clean_possible_1_3_dipole",
     "clean_resonances",
+    "clean_resonances_18",
 ]

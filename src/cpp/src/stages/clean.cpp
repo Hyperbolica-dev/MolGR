@@ -157,6 +157,9 @@ namespace molgr
         // two excess electrons. A real radical next to an unresolved two-
         // electron center transfers the radical location to that center while
         // preserving the total real-radical count, so it needs no excess pair.
+        // Two adjacent unresolved centers consume their deferred electron pairs
+        // together: a single bond becomes a triple bond without changing the
+        // real-radical budget.
         bool CleanNeighborRadicals(
             OBMol &mol,
             int given_charge,
@@ -182,6 +185,19 @@ namespace molgr
                 int r2 = molgr::utils::GetUnpairedElectronCount(*a2);
                 const bool u1 = molgr::utils::HasUnresolvedTwoElectronCenter(*a1);
                 const bool u2 = molgr::utils::HasUnresolvedTwoElectronCenter(*a2);
+                if (u1 && u2 && bond->GetBondOrder() == 1)
+                {
+                    bond->SetBondOrder(bond->GetBondOrder() + 2);
+                    for (OBAtom *atom : {a1, a2})
+                    {
+                        molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
+                        molgr::utils::SetLonePairCount(*atom, 0);
+                        molgr::utils::SetUnpairedElectronCount(*atom, 0);
+                        AssignChargeRadicalForAtom(*atom);
+                    }
+                    hit = true;
+                    continue;
+                }
                 if (r1 > 0 && u2 && !u1)
                 {
                     bond->SetBondOrder(bond->GetBondOrder() + 1);
@@ -1061,6 +1077,58 @@ namespace molgr
                 }
                 return hit;
             }
+
+            // Electron bookkeeping: resolve an unresolved terminal diazene as
+            // the charge-separated azide resonance form.
+            bool CleanResonances18Impl(OBMol &mol)
+            {
+                bool hit = false;
+                auto matches = molgr::smarts::FindAll(mol, molgr::smarts::PatternId::CLEAN_RESONANCE_18);
+                while (!matches.empty())
+                {
+                    auto idxs = matches.front();
+                    matches.erase(matches.begin());
+                    if (idxs.size() != 4)
+                    {
+                        continue;
+                    }
+
+                    OBAtom *atom2 = mol.GetAtom(idxs[1]);
+                    OBAtom *atom3 = mol.GetAtom(idxs[2]);
+                    OBAtom *atom4 = mol.GetAtom(idxs[3]);
+                    OBBond *bond1 = mol.GetBond(idxs[0], idxs[1]);
+                    OBBond *bond2 = mol.GetBond(idxs[1], idxs[2]);
+                    OBBond *bond3 = mol.GetBond(idxs[2], idxs[3]);
+                    if (!atom2 || !atom3 || !atom4 || !bond1 || !bond2 || !bond3)
+                    {
+                        continue;
+                    }
+                    if (atom2->GetFormalCharge() != 0 ||
+                        atom3->GetFormalCharge() != 0 ||
+                        atom4->GetFormalCharge() != 0 ||
+                        molgr::utils::GetUnpairedElectronCount(*atom2) != 0 ||
+                        molgr::utils::GetUnpairedElectronCount(*atom3) != 0 ||
+                        molgr::utils::GetUnpairedElectronCount(*atom4) != 0 ||
+                        molgr::utils::HasUnresolvedTwoElectronCenter(*atom2) ||
+                        molgr::utils::HasUnresolvedTwoElectronCenter(*atom3) ||
+                        !molgr::utils::HasUnresolvedTwoElectronCenter(*atom4) ||
+                        bond1->GetBondOrder() != 1 ||
+                        bond2->GetBondOrder() != 2 ||
+                        bond3->GetBondOrder() != 1)
+                    {
+                        continue;
+                    }
+
+                    bond3->SetBondOrder(bond3->GetBondOrder() + 1);
+                    atom3->SetFormalCharge(1);
+                    atom4->SetFormalCharge(-1);
+                    molgr::utils::SetUnresolvedTwoElectronCenter(*atom4, false);
+                    molgr::utils::SetLonePairCount(*atom4, 0);
+                    molgr::utils::SetUnpairedElectronCount(*atom4, 0);
+                    hit = true;
+                }
+                return hit;
+            }
         }
 
         bool CleanResonances14(OBMol &mol)
@@ -1076,6 +1144,11 @@ namespace molgr
         bool CleanResonances17(OBMol &mol)
         {
             return CleanResonances17Impl(mol);
+        }
+
+        bool CleanResonances18(OBMol &mol)
+        {
+            return CleanResonances18Impl(mol);
         }
 
         bool CleanResonances(OBMol &mol)
@@ -1099,6 +1172,7 @@ namespace molgr
             hit = CleanResonances14(mol) || hit;
             hit = CleanResonances16(mol) || hit;
             hit = CleanResonances17(mol) || hit;
+            hit = CleanResonances18(mol) || hit;
             return hit;
         }
     }

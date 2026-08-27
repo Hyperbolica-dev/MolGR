@@ -26,6 +26,7 @@ namespace molgr
         bool CleanResonances14(OpenBabel::OBMol &mol);
         bool CleanResonances16(OpenBabel::OBMol &mol);
         bool CleanResonances17(OpenBabel::OBMol &mol);
+        bool CleanResonances18(OpenBabel::OBMol &mol);
         bool CleanResonances(OpenBabel::OBMol &mol);
     }
 }

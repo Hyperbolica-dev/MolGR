@@ -75,6 +75,7 @@ CLEAN_RESONANCE_13 = _smarts("[*-]:[*]=[#7+0,#8+0]")
 CLEAN_RESONANCE_14 = _smarts("[#15-,#16-,#17-,#35-,#53-]#[#7+1,#8+1,#16+1]")
 CLEAN_RESONANCE_16 = _smarts("[*-1]-,:[*]=,:[*]-,:[*]=,:[*+1]")
 CLEAN_RESONANCE_17 = _smarts("[*-]-[*R]=[*R]=[*R]")
+CLEAN_RESONANCE_18 = _smarts("[*]-[#7+0]=[#7+0]-[#7+0]")
 
 
 BREAK_DEFORMED_ENE_A = _smarts("[*]~[*+0]=,:[*+0]~[*]")
@@ -106,6 +107,7 @@ __all__ = [
     "CLEAN_RESONANCE_14",
     "CLEAN_RESONANCE_16",
     "CLEAN_RESONANCE_17",
+    "CLEAN_RESONANCE_18",
     "CLEAN_RESONANCE_2",
     "CLEAN_RESONANCE_3",
     "CLEAN_RESONANCE_4",

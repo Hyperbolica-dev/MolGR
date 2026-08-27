@@ -890,11 +890,24 @@ namespace molgr
         // Electron bookkeeping: encode real radical actions or a pure unresolved
         // 2e center as negative charge. The latter requires at least two remaining
         // charge units and becomes -2; zero-budget separation remains radical-only.
-        bool EliminateNegativeCharges(OBMol &mol, int &charge)
+        bool EliminateNegativeCharges(OBMol &mol, int &charge, int total_radical_electrons)
         {
             bool hit = false;
             while (charge <= 0)
             {
+                if (total_radical_electrons >= 0 && charge == 0)
+                {
+                    int real_unpaired = 0;
+                    FOR_ATOMS_OF_MOL(atom_iter, mol)
+                    {
+                        real_unpaired += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                    }
+                    if (real_unpaired <= total_radical_electrons)
+                    {
+                        break;
+                    }
+                }
+
                 const auto actions = NegativeChargeAssignmentActions(mol, charge);
                 if (actions.empty())
                 {

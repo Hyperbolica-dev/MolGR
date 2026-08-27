@@ -197,9 +197,11 @@ def test_xyz2omol_state_prunes_open_shell_multimetal_state_space_for_monnmo(
     assert result is not None
     assert [len(options) for options in raw_state.available_valence_radical_states] == [17, 17]
     assert captured["option_counts"] == [7, 7]
+    # The no-metal target (-4, 2) is now reachable because negative-charge
+    # elimination rechecks the radical target after its charge budget reaches 0.
     assert [(state.symbol, state.valence, state.radical_num) for state in result.metal_states] == [
-        ("Mo", 3, 1),
-        ("Mo", 3, 1),
+        ("Mo", 2, 0),
+        ("Mo", 2, 0),
     ]
 
 

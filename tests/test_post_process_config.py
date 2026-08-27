@@ -11,6 +11,7 @@ pytest.importorskip("rdkit")
 
 from rdkit import Chem, RDLogger
 
+from molgr import make_dative_bond as public_make_dative_bond
 from molgr.config import MolGRConfig
 from molgr.fallback.utils.electrons import (
     LONE_PAIR_COUNT_PROP,
@@ -21,6 +22,10 @@ from molgr.utils.post_process import make_dative_bond
 
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore
+
+
+def test_make_dative_bond_is_available_from_public_api() -> None:
+    assert public_make_dative_bond is make_dative_bond
 
 
 def _zinc_nitrogen_pair(distance: float) -> Chem.Mol:

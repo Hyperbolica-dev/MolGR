@@ -154,19 +154,10 @@ namespace
             "process_resonance_eliminate_negative_charges",
             [target_radical_electrons](OpenBabel::OBMol &mol, int &charge)
             {
-                if (charge == 0)
-                {
-                    int real_unpaired = 0;
-                    FOR_ATOMS_OF_MOL(atom_iter, mol)
-                    {
-                        real_unpaired += molgr::utils::GetUnpairedElectronCount(*atom_iter);
-                    }
-                    if (real_unpaired <= target_radical_electrons)
-                    {
-                        return false;
-                    }
-                }
-                return molgr::reconstruct::EliminateNegativeCharges(mol, charge);
+                return molgr::reconstruct::EliminateNegativeCharges(
+                    mol,
+                    charge,
+                    target_radical_electrons);
             });
         machine.RunOmolChargeStage(
             "process_resonance_eliminate_positive_charges_2",

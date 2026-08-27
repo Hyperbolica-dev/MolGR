@@ -1000,7 +1000,16 @@ namespace molgr
                               mol, charge, total_radical_electrons);
                       }) ||
                   hit;
-            hit = machine.RunOmolChargeStage(std::nullopt, molgr::reconstruct::EliminateNegativeCharges) || hit;
+            hit = machine.RunOmolChargeStage(
+                      std::nullopt,
+                      [total_radical_electrons](OpenBabel::OBMol &mol, int &charge)
+                      {
+                          return molgr::reconstruct::EliminateNegativeCharges(
+                              mol,
+                              charge,
+                              total_radical_electrons);
+                      }) ||
+                  hit;
             hit = machine.RunOmolChargeStage(
                       std::nullopt,
                       [total_radical_electrons](OpenBabel::OBMol &mol, int &charge)

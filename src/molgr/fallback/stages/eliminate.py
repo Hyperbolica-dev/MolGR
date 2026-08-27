@@ -733,7 +733,8 @@ def eliminate_negative_charges(
 
     At zero budget this may intentionally generate a charge-separated resonance
     contributor from a real radical. When the optional global radical target is
-    supplied, the target count is reserved before doing so. A pure unresolved
+    supplied, the target count is checked before every action so that a charge
+    assignment cannot consume a radical needed by the target. A pure unresolved
     center is eligible only when at least two negative charge units remain and is
     consumed directly as ``-2``. Active lone pairs are not consumed.
     """
@@ -741,14 +742,15 @@ def eliminate_negative_charges(
     obmol = cast(ob.OBMol, omol.OBMol)
     hit = False
 
-    if total_radical_electrons is not None and given_charge == 0:
-        real_unpaired = sum(
-            get_unpaired_electron_count(cast(ob.OBAtom, atom)) for atom in ob.OBMolAtomIter(obmol)
-        )
-        if real_unpaired <= total_radical_electrons:
-            return omol, given_charge, hit
-
     while given_charge <= 0:
+        if total_radical_electrons is not None and given_charge == 0:
+            real_unpaired = sum(
+                get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                for atom in ob.OBMolAtomIter(obmol)
+            )
+            if real_unpaired <= total_radical_electrons:
+                break
+
         actions = _negative_charge_assignment_actions(omol, obmol, given_charge)
         if not actions:
             break
