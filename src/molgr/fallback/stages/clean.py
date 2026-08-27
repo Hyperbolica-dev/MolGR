@@ -137,22 +137,23 @@ def clean_neighbor_radicals(
 ) -> tuple[pybel.Molecule, bool]:
     """Resolve adjacent radical-compatible electron states.
 
-    Two real radicals consume one electron at each endpoint and increase the
-    bond by one order. A real radical adjacent to an unresolved two-electron
-    center instead consumes the radical electron, increases the bond by one
-    order, and resolves the marker as one real radical. The latter preserves the
-    total real-radical count, so it does not require two excess electrons. Two
-    adjacent unresolved two-electron centers consume their deferred electron
-    pairs together: a single bond becomes a triple bond and both markers are
-    resolved without changing the real-radical budget.
+    Each endpoint contributes either its real unpaired electrons or the two
+    electrons represented by an unresolved center. A matched pair consumes one
+    electron from each endpoint and increases the bond by one order. The
+    operation is limited by the excess-electron budget, so two unresolved
+    centers can consume one pair and become a double bond while their remaining
+    electrons are classified on the next pass. A real radical adjacent to an
+    unresolved center therefore preserves the real-radical count after one
+    pair is consumed, while two real radicals require two excess electrons.
     """
 
     obmol = cast(ob.OBMol, omol.OBMol)
 
-    def available_unpaired_electrons() -> int:
+    def available_electron_budget() -> int:
         return (
             sum(
                 get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                + (2 if has_unresolved_two_electron_center(cast(ob.OBAtom, atom)) else 0)
                 for atom in ob.OBMolAtomIter(obmol)
             )
             - total_radical_electrons
@@ -168,56 +169,37 @@ def clean_neighbor_radicals(
         begin_unresolved = has_unresolved_two_electron_center(begin_atom)
         end_unresolved = has_unresolved_two_electron_center(end_atom)
 
-        if begin_unresolved and end_unresolved and bond.GetBondOrder() == 1:
-            bond.SetBondOrder(bond.GetBondOrder() + 2)
-            for atom in (begin_atom, end_atom):
-                set_unresolved_two_electron_center(atom, False)
-                set_lone_pair_count(atom, 0)
-                set_unpaired_electron_count(atom, 0)
-                assign_charge_radical_for_atom(atom)
-            hit = True
+        begin_capacity = 2 if begin_unresolved else begin_unpaired
+        end_capacity = 2 if end_unresolved else end_unpaired
+        if begin_capacity <= 0 or end_capacity <= 0:
             continue
 
-        if begin_unpaired > 0 and end_unresolved and not begin_unresolved:
-            bond.SetBondOrder(bond.GetBondOrder() + 1)
-            set_unpaired_electron_count(begin_atom, begin_unpaired - 1)
-            set_unresolved_two_electron_center(end_atom, False)
-            set_lone_pair_count(end_atom, 0)
-            set_unpaired_electron_count(end_atom, 1)
-            assign_charge_radical_for_atom(begin_atom)
-            hit = True
-            continue
-
-        if end_unpaired > 0 and begin_unresolved and not end_unresolved:
-            bond.SetBondOrder(bond.GetBondOrder() + 1)
-            set_unpaired_electron_count(end_atom, end_unpaired - 1)
-            set_unresolved_two_electron_center(begin_atom, False)
-            set_lone_pair_count(begin_atom, 0)
-            set_unpaired_electron_count(begin_atom, 1)
-            assign_charge_radical_for_atom(end_atom)
-            hit = True
-            continue
-
-        available = available_unpaired_electrons()
+        available = available_electron_budget()
         if available < 2:
             continue
-        if begin_unpaired > 0 and end_unpaired > 0:
-            bond_to_add = min(
-                begin_unpaired,
-                end_unpaired,
-                available // 2,
-            )
-            bond.SetBondOrder(bond.GetBondOrder() + bond_to_add)
-            set_unpaired_electron_count(
-                begin_atom, get_unpaired_electron_count(begin_atom) - bond_to_add
-            )
-            set_unpaired_electron_count(
-                end_atom, get_unpaired_electron_count(end_atom) - bond_to_add
-            )
-            assign_charge_radical_for_atom(begin_atom)
-            assign_charge_radical_for_atom(end_atom)
-            if bond_to_add > 0:
-                hit = True
+        bond_to_add = min(begin_capacity, end_capacity, available // 2)
+        if bond_to_add <= 0:
+            continue
+
+        bond.SetBondOrder(bond.GetBondOrder() + bond_to_add)
+        for atom, unresolved, capacity in (
+            (begin_atom, begin_unresolved, begin_capacity),
+            (end_atom, end_unresolved, end_capacity),
+        ):
+            remaining = capacity - bond_to_add
+            if unresolved:
+                set_unresolved_two_electron_center(atom, False)
+                set_lone_pair_count(atom, 0)
+                set_unpaired_electron_count(atom, remaining)
+                # A partial consumption leaves one real radical at this
+                # endpoint. Re-running the local classifier would see the
+                # post-bond two-electron deficit and mark it unresolved again.
+                if remaining == 0:
+                    assign_charge_radical_for_atom(atom)
+            else:
+                set_unpaired_electron_count(atom, remaining)
+                assign_charge_radical_for_atom(atom)
+        hit = True
     return omol, hit
 
 

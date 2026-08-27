@@ -2346,7 +2346,19 @@ def test_clean_neighbor_radicals_resolves_radical_next_to_unresolved_center_for_
     assert not has_unresolved_two_electron_center(cpp_omol.OBMol.GetAtom(2))
 
 
-def test_clean_neighbor_radicals_closes_adjacent_unresolved_centers_for_python_and_cpp() -> None:
+@pytest.mark.parametrize(
+    ("total_radical_electrons", "expected_bond_order", "expected_unpaired"),
+    [
+        (0, 3, (0, 0)),
+        (1, 2, (1, 1)),
+        (4, 1, (0, 0)),
+    ],
+)
+def test_clean_neighbor_radicals_uses_unresolved_center_budget_for_python_and_cpp(
+    total_radical_electrons: int,
+    expected_bond_order: int,
+    expected_unpaired: tuple[int, int],
+) -> None:
     def make_omol() -> pybel.Molecule:
         omol = pybel.readstring("smi", "CC")
         for atom in omol:
@@ -2355,13 +2367,13 @@ def test_clean_neighbor_radicals_closes_adjacent_unresolved_centers_for_python_a
             set_unresolved_two_electron_center(atom.OBAtom, True)
         return omol
 
-    omol, hit = clean_neighbor_radicals(make_omol(), 0, 1)
-    assert hit
-    assert omol.OBMol.GetBond(1, 2).GetBondOrder() == 3
+    omol, hit = clean_neighbor_radicals(make_omol(), 0, total_radical_electrons)
+    assert hit is (total_radical_electrons != 4)
+    assert omol.OBMol.GetBond(1, 2).GetBondOrder() == expected_bond_order
+    assert tuple(get_unpaired_electron_count(atom.OBAtom) for atom in omol) == expected_unpaired
     for atom in omol:
-        assert get_unpaired_electron_count(atom.OBAtom) == 0
         assert get_lone_pair_count(atom.OBAtom) == 0
-        assert not has_unresolved_two_electron_center(atom.OBAtom)
+        assert has_unresolved_two_electron_center(atom.OBAtom) is (total_radical_electrons == 4)
 
     from molgr import _core  # type: ignore
 
@@ -2369,14 +2381,15 @@ def test_clean_neighbor_radicals_closes_adjacent_unresolved_centers_for_python_a
     cpp_hit = _core.dev.stages.clean.clean_neighbor_radicals_ptr(
         _get_ptr(cpp_omol.OBMol),
         0,
-        1,
+        total_radical_electrons,
     )
-    assert cpp_hit
+    assert cpp_hit is (total_radical_electrons != 4)
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
-    assert cpp_omol.OBMol.GetBond(1, 2).GetBondOrder() == 3
+    assert cpp_omol.OBMol.GetBond(1, 2).GetBondOrder() == expected_bond_order
+    assert tuple(get_unpaired_electron_count(atom.OBAtom) for atom in cpp_omol) == expected_unpaired
     for atom in cpp_omol:
         assert get_lone_pair_count(atom.OBAtom) == 0
-        assert not has_unresolved_two_electron_center(atom.OBAtom)
+        assert has_unresolved_two_electron_center(atom.OBAtom) is (total_radical_electrons == 4)
 
 
 @pytest.mark.parametrize(
