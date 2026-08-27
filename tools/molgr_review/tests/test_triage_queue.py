@@ -98,9 +98,8 @@ def test_frontend_has_compact_triage_queue_and_shortcuts() -> None:
     assert 'id="triageEvidence"' in html
     assert 'params.set("triage_bucket", triageBucket)' in javascript
     assert "function renderTriageEvidence(item)" in javascript
-    assert "function suggestedReviewReason(item)" in javascript
-    assert 'return "xyz-hydrogen-assignment"' in javascript
-    assert 'return "xyz-metal-coordination"' in javascript
+    assert "function suggestedReviewReason(item)" not in javascript
+    assert 'item.reviewer || localStorage.getItem("moleculeReviewReviewer")' in javascript
     assert "function navigateCase(delta)" in javascript
     assert "function reviewShortcut(event)" in javascript
     assert 'document.addEventListener("keydown", reviewShortcut)' in javascript
