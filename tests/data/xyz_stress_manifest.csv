@@ -20,3 +20,6 @@ AGODEG,0,1,xyz/AGODEG.xyz
 AKUFIV,0,1,xyz/AKUFIV.xyz
 aromatic_sulfur_oxide,0,1,xyz/aromatic_sulfur_oxide.xyz
 test,0,1,xyz/test.xyz
+geometry-01a03dd8-a5ef-7c30-901a-3c8c4442b2f9,1,2,xyz/geometry-01a03dd8-a5ef-7c30-901a-3c8c4442b2f9.xyz
+geometry-01a03dd9-c120-7324-96e0-e15c30992417,1,2,xyz/geometry-01a03dd9-c120-7324-96e0-e15c30992417.xyz
+geometry-01a03dd9-afc5-76b3-b1b1-7e777d5c708c,0,1,xyz/geometry-01a03dd9-afc5-76b3-b1b1-7e777d5c708c.xyz

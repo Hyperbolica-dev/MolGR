@@ -71,6 +71,7 @@ namespace molgr
             CLEAN_RESONANCE_14,
             CLEAN_RESONANCE_16,
             CLEAN_RESONANCE_17,
+            CLEAN_RESONANCE_18,
             BREAK_DEFORMED_ENE_A,
             BREAK_DEFORMED_ENE_B,
             BREAK_ONE_BOND_MULTIPLE,

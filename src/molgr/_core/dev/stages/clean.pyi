@@ -15,6 +15,7 @@ __all__: list[str] = [
     "clean_resonances_14_ptr",
     "clean_resonances_16_ptr",
     "clean_resonances_17_ptr",
+    "clean_resonances_18_ptr",
     "clean_resonances_ptr",
 ]
 
@@ -66,3 +67,6 @@ def clean_resonances_16_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) 
 
 def clean_resonances_17_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
     """Apply clean.clean_resonances_17 to an existing OBMol."""
+
+def clean_resonances_18_ptr(mol_ptr: typing.SupportsInt | typing.SupportsIndex) -> bool:
+    """Apply clean.clean_resonances_18 to an existing OBMol."""

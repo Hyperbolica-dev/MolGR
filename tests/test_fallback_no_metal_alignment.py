@@ -36,6 +36,7 @@ from molgr.fallback.stages.clean import (
     clean_resonances_14,
     clean_resonances_16,
     clean_resonances_17,
+    clean_resonances_18,
 )
 from molgr.fallback.stages.eliminate import (
     eliminate_1_3_dipole_postive,
@@ -1341,6 +1342,48 @@ def test_eliminate_negative_charges_prefers_single_radical_heteroatom_even_at_ze
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
 
 
+def test_eliminate_negative_charges_rechecks_radical_target_after_reaching_zero_for_python_and_cpp() -> (
+    None
+):
+    def make_omol() -> pybel.Molecule:
+        obmol = ob.OBMol()
+        obmol.BeginModify()
+        for _ in range(2):
+            atom = obmol.NewAtom()
+            atom.SetAtomicNum(8)
+            atom.SetFormalCharge(0)
+            set_unpaired_electron_count(atom, 1)
+        obmol.EndModify()
+        return pybel.Molecule(obmol)
+
+    omol = make_omol()
+    omol, given_charge, hit = eliminate_negative_charges(
+        omol,
+        -1,
+        total_radical_electrons=1,
+    )
+
+    assert hit
+    assert given_charge == 0
+    assert _pybel_stage_signature(omol) == (
+        ((1, -1, 0), (2, 0, 1)),
+        (),
+    )
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_given_charge, cpp_hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        -1,
+        1,
+    )
+
+    assert cpp_hit
+    assert cpp_given_charge == given_charge
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
 def test_eliminate_negative_charges_uses_ordered_smarts_before_atom_order_for_python_and_cpp() -> (
     None
 ):
@@ -2078,6 +2121,34 @@ def test_clean_resonances_17_converts_only_ring_allene_for_python_and_cpp() -> N
     assert _pybel_stage_signature(cpp_acyclic) == cpp_acyclic_before
 
 
+def test_clean_resonances_18_converts_unresolved_diazene_to_azide_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        omol = pybel.readstring("smi", "C[N]=N[N]")
+        terminal = omol.OBMol.GetAtom(4)
+        set_unpaired_electron_count(terminal, 0)
+        set_lone_pair_count(terminal, 0)
+        set_unresolved_two_electron_center(terminal, True)
+        return omol
+
+    expected_signature = (
+        ((1, 0, 0), (2, 0, 0), (3, 1, 0), (4, -1, 0)),
+        ((1, 2, 1), (2, 3, 2), (3, 4, 2)),
+    )
+
+    omol, hit = clean_resonances_18(make_omol())
+    assert hit
+    assert _pybel_stage_signature(omol) == expected_signature
+    assert not has_unresolved_two_electron_center(omol.OBMol.GetAtom(4))
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_hit = _core.dev.stages.clean.clean_resonances_18_ptr(_get_ptr(cpp_omol.OBMol))
+    assert cpp_hit
+    assert _pybel_stage_signature(cpp_omol) == expected_signature
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+
+
 def test_clean_resonances_0_does_not_reuse_stale_symmetric_match() -> None:
     def make_omol() -> pybel.Molecule:
         return pybel.readstring("smi", "[O-]C(=C([O+])[O-])[O+]")
@@ -2273,6 +2344,39 @@ def test_clean_neighbor_radicals_resolves_radical_next_to_unresolved_center_for_
     assert cpp_hit
     assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
     assert not has_unresolved_two_electron_center(cpp_omol.OBMol.GetAtom(2))
+
+
+def test_clean_neighbor_radicals_closes_adjacent_unresolved_centers_for_python_and_cpp() -> None:
+    def make_omol() -> pybel.Molecule:
+        omol = pybel.readstring("smi", "CC")
+        for atom in omol:
+            set_unpaired_electron_count(atom.OBAtom, 0)
+            set_lone_pair_count(atom.OBAtom, 0)
+            set_unresolved_two_electron_center(atom.OBAtom, True)
+        return omol
+
+    omol, hit = clean_neighbor_radicals(make_omol(), 0, 1)
+    assert hit
+    assert omol.OBMol.GetBond(1, 2).GetBondOrder() == 3
+    for atom in omol:
+        assert get_unpaired_electron_count(atom.OBAtom) == 0
+        assert get_lone_pair_count(atom.OBAtom) == 0
+        assert not has_unresolved_two_electron_center(atom.OBAtom)
+
+    from molgr import _core  # type: ignore
+
+    cpp_omol = make_omol()
+    cpp_hit = _core.dev.stages.clean.clean_neighbor_radicals_ptr(
+        _get_ptr(cpp_omol.OBMol),
+        0,
+        1,
+    )
+    assert cpp_hit
+    assert _pybel_stage_signature(cpp_omol) == _pybel_stage_signature(omol)
+    assert cpp_omol.OBMol.GetBond(1, 2).GetBondOrder() == 3
+    for atom in cpp_omol:
+        assert get_lone_pair_count(atom.OBAtom) == 0
+        assert not has_unresolved_two_electron_center(atom.OBAtom)
 
 
 @pytest.mark.parametrize(

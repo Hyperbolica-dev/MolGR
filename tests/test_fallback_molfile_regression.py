@@ -42,6 +42,6 @@ def test_fallback_monnmo_molfile_regression() -> None:
         )
     if not equivalent:
         pytest.xfail(
-            "Metal-state ranking now recovers the Mo(III)/Mo(III) assignment, but the fallback combined omol still omits explicit coordination bonds before RDKit post-processing."
+            "The fallback combined omol can still differ from the SDF because explicit coordination bonds are omitted before RDKit post-processing."
         )
     assert equivalent, info.reason

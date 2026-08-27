@@ -55,6 +55,7 @@ from .diagnostics import (  # noqa: E402
     ReconstructionError,
     ReconstructionFailureCode,
 )
+from .utils.post_process import make_dative_bond  # noqa: E402
 
 
 try:
@@ -97,6 +98,7 @@ __all__ = [
     "ResonanceTraversalScore",
     "config",
     "iter_xyz_to_rdmol_batch",
+    "make_dative_bond",
     "set_log_level",
     "pipeline",
 ]

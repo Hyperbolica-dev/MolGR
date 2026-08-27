@@ -82,6 +82,7 @@ def eliminate_high_positive_charge_atoms_ptr(
 def eliminate_negative_charges_ptr(
     mol_ptr: typing.SupportsInt | typing.SupportsIndex,
     given_charge: typing.SupportsInt | typing.SupportsIndex,
+    total_radical_electrons: typing.SupportsInt | typing.SupportsIndex = -1,
 ) -> tuple:
     """
     Apply eliminate.eliminate_negative_charges to an existing OBMol.
@@ -89,6 +90,8 @@ def eliminate_negative_charges_ptr(
     Args:
         mol_ptr: int address of OpenBabel::OBMol
         given_charge: charge deficit to be updated in place and returned
+        total_radical_electrons: optional target number of radical electrons to preserve;
+            use -1 to disable target preservation
     """
 
 def eliminate_nnn_ptr(

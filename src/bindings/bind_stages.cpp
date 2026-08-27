@@ -90,10 +90,16 @@ void bind_stages(py::module_ &m)
         return py::make_tuple(given_charge, hit);
     };
 
-    const auto eliminate_negative_charges_ptr = [](intptr_t mol_ptr, int given_charge) -> py::tuple
+    const auto eliminate_negative_charges_ptr = [](
+        intptr_t mol_ptr,
+        int given_charge,
+        int total_radical_electrons) -> py::tuple
     {
         auto *mol = require_obmol_ptr(mol_ptr);
-        const bool hit = molgr::reconstruct::EliminateNegativeCharges(*mol, given_charge);
+        const bool hit = molgr::reconstruct::EliminateNegativeCharges(
+            *mol,
+            given_charge,
+            total_radical_electrons);
         return py::make_tuple(given_charge, hit);
     };
 
@@ -160,6 +166,12 @@ void bind_stages(py::module_ &m)
     {
         auto *mol = require_obmol_ptr(mol_ptr);
         return molgr::reconstruct::CleanResonances17(*mol);
+    };
+
+    const auto clean_resonances_18_ptr = [](intptr_t mol_ptr)
+    {
+        auto *mol = require_obmol_ptr(mol_ptr);
+        return molgr::reconstruct::CleanResonances18(*mol);
     };
 
     const auto clean_neighbor_radicals_ptr = [](
@@ -340,9 +352,12 @@ Apply eliminate.eliminate_negative_charges to an existing OBMol.
 Args:
     mol_ptr: int address of OpenBabel::OBMol
     given_charge: charge deficit to be updated in place and returned
+    total_radical_electrons: optional target number of radical electrons to preserve;
+        use -1 to disable target preservation
 )pbdoc",
         py::arg("mol_ptr"),
-        py::arg("given_charge"));
+        py::arg("given_charge"),
+        py::arg("total_radical_electrons") = -1);
 
     m_eliminate.def(
         "eliminate_possible_cp_like_radical_anion_ptr",
@@ -442,6 +457,14 @@ Apply clean.clean_resonances_16 to an existing OBMol.
         clean_resonances_17_ptr,
         R"pbdoc(
 Apply clean.clean_resonances_17 to an existing OBMol.
+)pbdoc",
+        py::arg("mol_ptr"));
+
+    m_clean.def(
+        "clean_resonances_18_ptr",
+        clean_resonances_18_ptr,
+        R"pbdoc(
+Apply clean.clean_resonances_18 to an existing OBMol.
 )pbdoc",
         py::arg("mol_ptr"));
 
