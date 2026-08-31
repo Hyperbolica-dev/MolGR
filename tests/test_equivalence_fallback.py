@@ -1,3 +1,4 @@
+# pyright: reportCallIssue=false
 from __future__ import annotations
 
 import pytest
@@ -342,3 +343,85 @@ def test_equivalence_rejects_local_charge_mismatch_after_standardization() -> No
     assert equivalent is False
     assert info.method is None
     assert info.reason
+
+
+def test_structured_result_records_normalized_graph_identity() -> None:
+    mol1 = Chem.MolFromSmiles("CCO")
+    mol2 = Chem.MolFromSmiles("CCO")
+    assert mol1 is not None
+    assert mol2 is not None
+
+    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.relation == equivalence.EquivalenceRelation.NORMALIZED_GRAPH_IDENTITY
+    assert result.method == equivalence.EquivalenceMethod.IDEAL
+    assert result.invariants["nonmetal_connectivity"].status == equivalence.InvariantStatus.PASSED
+    assert result.contradictions == []
+
+
+def test_inchi_respects_disabled_chirality() -> None:
+    trans = Chem.MolFromSmiles("C/C=C/C")
+    cis = Chem.MolFromSmiles("C/C=C\\C")
+    assert trans is not None
+    assert cis is not None
+
+    assert equivalence._inchi_key(trans, use_chirality=True) != equivalence._inchi_key(
+        cis, use_chirality=True
+    )
+    assert equivalence._inchi_key(trans, use_chirality=False) == equivalence._inchi_key(
+        cis, use_chirality=False
+    )
+
+
+def test_identifier_match_cannot_override_component_electron_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mol1 = Chem.MolFromSmiles("[OH+].[SH-]")
+    mol2 = Chem.MolFromSmiles("[OH-].[SH+]")
+    assert mol1 is not None
+    assert mol2 is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: "same-key")
+
+    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.NOT_EQUIVALENT
+    assert result.relation == equivalence.EquivalenceRelation.NONE
+    assert result.method is None
+    assert result.invariants["component_electrons"].status == equivalence.InvariantStatus.FAILED
+    assert result.contradictions == ["identifier_match_despite_component_electron_mismatch"]
+
+
+def test_bounded_resonance_limit_is_inconclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mol1 = Chem.MolFromSmiles("S=C(N)N=N[CH-]c1ccccc1.[S-]C(=NN=Cc1ccccc1)N")
+    mol2 = Chem.MolFromSmiles("[S-]C(=NN=Cc1ccccc1)N.[S-]C(=NN=Cc1ccccc1)N")
+    assert mol1 is not None
+    assert mol2 is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 10, 10, None),
+    )
+
+    result = equivalence.evaluate_equivalence(
+        mol1,
+        mol2,
+        use_chirality=False,
+        max_resonance=10,
+    )
+    compatible, wrapper_result = equivalence.check_equivalence(
+        mol1,
+        mol2,
+        use_chirality=False,
+        max_resonance=10,
+    )
+
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
+    assert result.bounded_search is not None
+    assert result.bounded_search.limit_reached is True
+    assert result.bounded_search.exhaustive is False
+    assert compatible is False
+    assert wrapper_result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
