@@ -159,6 +159,7 @@ class EquivalenceResult:
     raw_mol2: Optional[RawMoleculeDiagnostics] = None
     raw_diagnostics: dict[str, RawMoleculeDiagnostics] = field(default_factory=dict)
     normalization_electronic_effects: dict[str, dict[str, int]] = field(default_factory=dict)
+    open_shell_heuristic_triggered: bool = False
 
 
 # Compatibility name retained for callers that imported the former detail type.
@@ -720,6 +721,46 @@ def _component_electron_signature(mol: Chem.Mol) -> tuple[tuple[str, int, int], 
     return tuple(sorted(signature))
 
 
+def _open_shell_heuristic_applies(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    *,
+    use_chirality: bool,
+) -> bool:
+    """Return whether only open-shell components differ in representation.
+
+    This is ambiguity evidence, not proof of resonance reachability. Grouping by
+    topology and component electron totals prevents an unrelated radical fragment
+    from qualifying a representation change in a closed-shell component.
+    """
+
+    def component_representations(mol: Chem.Mol) -> dict[tuple[str, int, int], Counter[str]]:
+        representations: dict[tuple[str, int, int], Counter[str]] = {}
+        for fragment in Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False):
+            key = (
+                _resonance_topology_key(fragment),
+                _total_formal_charge(fragment),
+                _total_radical_electrons(fragment),
+            )
+            representations.setdefault(key, Counter())[_canon_smiles(fragment, use_chirality)] += 1
+        return representations
+
+    representations_1 = component_representations(mol1)
+    representations_2 = component_representations(mol2)
+    if representations_1.keys() != representations_2.keys():
+        return False
+
+    representation_changed = False
+    for key, forms_1 in representations_1.items():
+        forms_2 = representations_2[key]
+        if forms_1 == forms_2:
+            continue
+        representation_changed = True
+        if key[2] == 0:
+            return False
+    return representation_changed
+
+
 def _metal_signature_key(mol: Chem.Mol) -> tuple[tuple[int, int], ...]:
     signature = []
     for atom in mol.GetAtoms():
@@ -1189,11 +1230,11 @@ def evaluate_equivalence(
             method=EquivalenceMethod.CARBENE_ZWITTERION,
         )
 
-    # A matching topology plus matching component electron totals is the
-    # evaluator's existing stronger radical-resonance evidence.  It is not an
-    # InChI-only result, so it remains valid even when identifier generation is
-    # unavailable.  Closed-shell cases still require the bounded enumerator.
-    if (
+    # Matching topology and component electron totals can identify an ambiguous
+    # open-shell representation, but do not prove resonance reachability. Keep
+    # the heuristic as structured evidence and require the bounded matcher to
+    # produce an explicit common form before returning EQUIVALENT.
+    open_shell_predicates_match = (
         component_electrons_match
         and checks.formal_charge.passed
         and checks.radical_electrons.passed
@@ -1205,18 +1246,12 @@ def evaluate_equivalence(
                 and not _has_defined_stereochemistry(organic_2)
             )
         )
-    ):
-        info.resonance = ResonanceDetail(
-            max_resonance=max_resonance,
-            resonance_flags=int(resonance_flags),
-            mol1_resonance_count=0,
-            mol2_resonance_count=0,
-        )
-        return finish(
-            EquivalenceDecision.EQUIVALENT,
-            "Equivalent: resonance topology and component electron counts match.",
-            relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
-            method=EquivalenceMethod.RESONANCE,
+    )
+    if open_shell_predicates_match:
+        info.open_shell_heuristic_triggered = _open_shell_heuristic_applies(
+            organic_1,
+            organic_2,
+            use_chirality=use_chirality,
         )
 
     assert info.bounded_search is not None
@@ -1262,6 +1297,13 @@ def evaluate_equivalence(
             reason,
             relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
             method=EquivalenceMethod.INCHI_KEY,
+        )
+
+    if info.open_shell_heuristic_triggered:
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            "Inconclusive: open-shell topology and component electron counts match, "
+            "but no explicit resonance witness was found.",
         )
 
     if info.bounded_search.limit_reached:
