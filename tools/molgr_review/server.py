@@ -108,6 +108,24 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional read-only triage CSV used for queue filtering and reviewer evidence.",
     )
+    parser.add_argument(
+        "--frozen-candidate-only",
+        action="store_true",
+        help=(
+            "Render Candidate evidence from the stored candidate_smiles snapshot and disable "
+            "live reconstruction/trace execution."
+        ),
+    )
+    parser.add_argument(
+        "--required-reviewer",
+        default="",
+        help="Reject verdict writes unless the reviewer/source field exactly matches this value.",
+    )
+    parser.add_argument(
+        "--restrict-to-triage",
+        action="store_true",
+        help="Restrict case listing, evidence endpoints, and verdict writes to triage CSV case IDs.",
+    )
     return parser.parse_args()
 
 
@@ -542,6 +560,9 @@ class ReviewServer(ThreadingHTTPServer):
     fixtures_dir: Path
     runtime_info: dict[str, Any]
     triage_records: dict[str, dict[str, str]]
+    frozen_candidate_only: bool = False
+    required_reviewer: str = ""
+    restrict_to_triage: bool = False
 
 
 def load_triage_records(path: Path | None) -> dict[str, dict[str, str]]:
@@ -562,6 +583,17 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         sys.stderr.write("[molgr-review] " + format % args + "\n")
+
+    def _queue_allows(self, case_id: str) -> bool:
+        return not self.server.restrict_to_triage or case_id in self.server.triage_records
+
+    def _require_queue_case(self, case_id: str) -> bool:
+        if self._queue_allows(case_id):
+            return True
+        _json_response(
+            self, {"error": "case_outside_restricted_queue"}, status=HTTPStatus.NOT_FOUND
+        )
+        return False
 
     def do_GET(self) -> None:  # noqa: N802
         try:
@@ -626,6 +658,18 @@ class ReviewHandler(BaseHTTPRequestHandler):
     def _trace_page(self, case_id: str) -> None:
         if not case_id:
             _text_response(self, "case_id is required", status=HTTPStatus.BAD_REQUEST)
+            return
+        if not self._require_queue_case(case_id):
+            return
+        if self.server.frozen_candidate_only:
+            _text_response(
+                self,
+                "<!doctype html><meta charset='utf-8'><title>Frozen review mode</title>"
+                "<h1>Live trace disabled</h1>"
+                "<p>This review session uses frozen Candidate snapshots and precomputed trace "
+                "evidence from its triage queue. No reconstruction was run.</p>",
+                content_type="text/html; charset=utf-8",
+            )
             return
         with _connect(self.server.db_path) as conn:
             row = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
@@ -833,7 +877,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
         triage_records = getattr(self.server, "triage_records", {})
         with _connect(self.server.db_path) as conn:
-            if triage_bucket:
+            if triage_bucket or self.server.restrict_to_triage:
                 matching = conn.execute(
                     _case_query() + where_sql + " ORDER BY c.row_index",
                     params,
@@ -841,8 +885,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 matching = [
                     row
                     for row in matching
-                    if triage_records.get(str(row["case_id"]), {}).get("triage_bucket")
-                    == triage_bucket
+                    if str(row["case_id"]) in triage_records
+                    and (
+                        not triage_bucket
+                        or triage_records[str(row["case_id"])].get("triage_bucket") == triage_bucket
+                    )
                 ]
                 total = len(matching)
                 rows = matching[offset : offset + limit]
@@ -877,6 +924,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         )
 
     def _api_case(self, case_id: str) -> None:
+        if not self._require_queue_case(case_id):
+            return
         with _connect(self.server.db_path) as conn:
             row = conn.execute(_case_query() + " WHERE c.case_id = ?", (case_id,)).fetchone()
         fixture_records = load_fixture_records(self.server.fixtures_dir)
@@ -891,6 +940,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         _json_response(self, payload)
 
     def _api_xyz(self, case_id: str) -> None:
+        if not self._require_queue_case(case_id):
+            return
         with _connect(self.server.db_path) as conn:
             row = conn.execute(
                 "SELECT xyz_path FROM cases WHERE case_id = ?", (case_id,)
@@ -909,6 +960,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         _text_response(self, path.read_text(encoding="utf-8"), content_type="chemical/x-xyz")
 
     def _api_candidate_sdf(self, case_id: str) -> None:
+        if not self._require_queue_case(case_id):
+            return
         with _connect(self.server.db_path) as conn:
             row = conn.execute(
                 """
@@ -925,6 +978,50 @@ class ReviewHandler(BaseHTTPRequestHandler):
         case = _row_dict(row)
         assert case is not None
         snapshot_smiles = str(case["candidate_snapshot_smiles"] or "")
+
+        if self.server.frozen_candidate_only:
+            candidate_mol = _render_mol_from_smiles(snapshot_smiles)
+            if candidate_mol is None:
+                _json_response(
+                    self,
+                    {
+                        "sdf": "",
+                        "svg": "",
+                        "smiles": snapshot_smiles,
+                        "available": False,
+                        "source": "frozen_candidate_snapshot",
+                        "live_candidate_status": "disabled",
+                        "live_candidate_smiles": "",
+                        "live_candidate_smiles_exact_match": None,
+                        "live_matches_candidate_snapshot": None,
+                        "candidate_snapshot_smiles": snapshot_smiles,
+                        "live_candidate_equivalence_decision": "",
+                        "live_candidate_equivalence_reason": "live_reconstruction_disabled",
+                        "error": "candidate_snapshot_missing_or_invalid",
+                        "render_error": "",
+                    },
+                )
+                return
+            _json_response(
+                self,
+                {
+                    "sdf": _mol_to_sdf_block(candidate_mol),
+                    "svg": _render_mol_svg(candidate_mol, legend=f"{case_id} candidate snapshot"),
+                    "smiles": snapshot_smiles,
+                    "available": True,
+                    "source": "frozen_candidate_snapshot",
+                    "live_candidate_status": "disabled",
+                    "live_candidate_smiles": "",
+                    "live_candidate_smiles_exact_match": None,
+                    "live_matches_candidate_snapshot": None,
+                    "candidate_snapshot_smiles": snapshot_smiles,
+                    "live_candidate_equivalence_decision": "",
+                    "live_candidate_equivalence_reason": "live_reconstruction_disabled",
+                    "error": "",
+                    "render_error": "",
+                },
+            )
+            return
 
         try:
             reconstructed_mol = reconstruct_case_mol(dict(row), xyz_dir=self.server.xyz_dir)
@@ -979,6 +1076,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         )
 
     def _api_graph(self, case_id: str, query: dict[str, list[str]]) -> None:
+        if not self._require_queue_case(case_id):
+            return
         kind = query.get("kind", ["candidate"])[0]
         if kind not in {"candidate", "reference"}:
             _json_response(self, {"error": "invalid_graph_kind"}, status=HTTPStatus.BAD_REQUEST)
@@ -989,8 +1088,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
             _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
             return
         if kind == "candidate":
-            mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
-            smiles = _safe_smiles(mol)
+            if self.server.frozen_candidate_only:
+                smiles = str(case["candidate_smiles"] or "")
+                mol = _render_mol_from_smiles(smiles)
+                if mol is None:
+                    _json_response(
+                        self,
+                        {"error": "candidate_snapshot_missing_or_invalid"},
+                        status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    )
+                    return
+            else:
+                mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
+                smiles = _safe_smiles(mol)
         else:
             source_smiles = str(case["reference_smiles"] or "")
             mol = _render_mol_from_smiles(source_smiles)
@@ -1005,6 +1115,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         _json_response(self, _review_graph_payload(mol, kind=kind, smiles=smiles))
 
     def _api_render(self, case_id: str, query: dict[str, list[str]]) -> None:
+        if not self._require_queue_case(case_id):
+            return
         kind = query.get("kind", ["candidate"])[0]
         if kind not in {"candidate", "reference", "candidate_organic", "reference_organic"}:
             _json_response(self, {"error": "invalid_render_kind"}, status=HTTPStatus.BAD_REQUEST)
@@ -1031,9 +1143,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
             error = ""
             try:
                 if kind == "candidate":
-                    mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
-                    smiles = _safe_smiles(mol)
-                    svg = _render_mol_svg(mol, legend=f"{case_id} candidate")
+                    if self.server.frozen_candidate_only:
+                        smiles = str(case["candidate_smiles"] or "")
+                        mol = _render_mol_from_smiles(smiles)
+                        if mol is None:
+                            raise ValueError("candidate_snapshot_missing_or_invalid")
+                        svg = _render_mol_svg(mol, legend=f"{case_id} candidate snapshot")
+                    else:
+                        mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
+                        smiles = _safe_smiles(mol)
+                        svg = _render_mol_svg(mol, legend=f"{case_id} candidate")
                 elif kind == "reference":
                     mol = _render_mol_from_smiles(case["reference_smiles"] or "")
                     if mol is None:
@@ -1076,6 +1195,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
         _json_response(self, {"kind": kind, "svg": svg, "smiles": smiles, "error": error})
 
     def _api_review(self, case_id: str) -> None:
+        if not self._require_queue_case(case_id):
+            return
         payload = self._read_json_body()
         status = str(payload.get("status", "")).strip()
         if status not in ALLOWED_STATUSES:
@@ -1105,6 +1226,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
             "reviewer": str(payload.get("reviewer", "")).strip(),
             "updated_at": updated_at,
         }
+        if self.server.required_reviewer and review["reviewer"] != self.server.required_reviewer:
+            _json_response(
+                self,
+                {
+                    "error": "required_reviewer_mismatch",
+                    "required_reviewer": self.server.required_reviewer,
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
         with _connect(self.server.db_path) as conn:
             case = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
             if case is None:
@@ -1169,6 +1300,9 @@ def main() -> None:
     server.xyz_dir = args.xyz_dir
     server.fixtures_dir = args.fixtures_dir
     server.triage_records = load_triage_records(args.triage_csv)
+    server.frozen_candidate_only = args.frozen_candidate_only
+    server.required_reviewer = args.required_reviewer.strip()
+    server.restrict_to_triage = args.restrict_to_triage
     server.runtime_info = runtime_info
     server.fixtures_dir.mkdir(parents=True, exist_ok=True)
     print(f"Molecule review server: http://{args.host}:{args.port}")

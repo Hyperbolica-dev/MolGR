@@ -897,6 +897,64 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     assert reconstruct_calls == 3
 
 
+def test_frozen_candidate_mode_never_runs_reconstruction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "review.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript((APP_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.execute(
+            """
+            INSERT INTO cases(case_id, row_index, xyz_path, candidate_smiles, candidate_status)
+            VALUES('FROZEN', 1, '', '[O-]->[Co+3]<-N', 'ok')
+            """
+        )
+        conn.commit()
+
+    def fail_reconstruction(*args: object, **kwargs: object) -> Chem.Mol:
+        raise AssertionError("frozen Candidate mode must not reconstruct")
+
+    monkeypatch.setattr(review_server, "reconstruct_case_mol", fail_reconstruction)
+    monkeypatch.setattr(
+        review_server, "_render_mol_svg", lambda mol, *, legend: "<svg>snapshot</svg>"
+    )
+
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
+    server.db_path = db_path
+    server.xyz_dir = None
+    server.fixtures_dir = tmp_path / "reviewed"
+    server.frozen_candidate_only = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def get_json(path: str) -> dict[str, object]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        connection.request("GET", path)
+        response = connection.getresponse()
+        assert response.status == 200
+        payload = json.loads(response.read())
+        connection.close()
+        return payload
+
+    try:
+        sdf_payload = get_json("/api/cases/FROZEN/candidate-sdf")
+        render_payload = get_json("/api/cases/FROZEN/render?kind=candidate")
+        graph_payload = get_json("/api/cases/FROZEN/graph?kind=candidate")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+    assert sdf_payload["source"] == "frozen_candidate_snapshot"
+    assert sdf_payload["live_candidate_status"] == "disabled"
+    assert sdf_payload["live_candidate_equivalence_reason"] == "live_reconstruction_disabled"
+    assert render_payload["smiles"] == "[O-]->[Co+3]<-N"
+    assert graph_payload["smiles"] == "[O-]->[Co+3]<-N"
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM reviews").fetchone()[0] == 0
+
+
 def test_reference_render_cache_is_scoped_to_renderer_version(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
