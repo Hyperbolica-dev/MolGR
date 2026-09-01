@@ -112,6 +112,18 @@ class OpenShellThreeCenterDetail:
 
     mol1_atoms: tuple[int, int, int]
     mol2_atoms: tuple[int, int, int]
+    mol1_radical_electrons: tuple[int, int, int]
+    mol2_radical_electrons: tuple[int, int, int]
+    mol1_bond_orders: tuple[float, float]
+    mol2_bond_orders: tuple[float, float]
+
+
+@dataclass
+class TopologyMappingSearchMetadata:
+    attempted: bool = False
+    limit: int = 10000
+    mappings_examined: int = 0
+    limit_reached: bool = False
 
 
 UNKNOWN_ELECTRON_METADATA = "unknown"
@@ -162,6 +174,7 @@ class EquivalenceResult:
     carbene_zwitterion: Optional[CarbeneZwitterionDetail] = None
     resonance: Optional[ResonanceDetail] = None
     open_shell_three_center: Optional[OpenShellThreeCenterDetail] = None
+    open_shell_three_center_mapping_search: TopologyMappingSearchMetadata | None = None
     # ``mol1``/``mol2`` are the evaluator's positional inputs.  The candidate
     # and reference aliases make the same evidence convenient for reviewer
     # callers without changing the historical positional API.
@@ -798,7 +811,7 @@ def _elementary_open_shell_resonance_witness(
     mol2: Chem.Mol,
     *,
     use_chirality: bool,
-) -> OpenShellThreeCenterDetail | None:
+) -> tuple[OpenShellThreeCenterDetail | None, TopologyMappingSearchMetadata]:
     """Find an explicit elementary ``A radical-B=C <-> A=B-C radical`` witness.
 
     A positive result requires a topology-preserving atom mapping and exactly
@@ -808,16 +821,20 @@ def _elementary_open_shell_resonance_witness(
     it is not evidence of non-equivalence.
     """
 
+    search = TopologyMappingSearchMetadata()
     if mol1.GetNumAtoms() != mol2.GetNumAtoms() or mol1.GetNumBonds() != mol2.GetNumBonds():
-        return None
+        return None, search
 
+    search.attempted = True
     mappings = mol2.GetSubstructMatches(
         _topology_query(mol1),
         uniquify=False,
         useChirality=False,
         maxMatches=10000,
     )
-    for mapping in mappings:
+    search.limit_reached = len(mappings) >= search.limit
+    for mapping_index, mapping in enumerate(mappings):
+        search.mappings_examined = mapping_index + 1
         if len(mapping) != mol1.GetNumAtoms():
             continue
 
@@ -907,15 +924,31 @@ def _elementary_open_shell_resonance_witness(
             continue
 
         ordered_endpoints = sorted(endpoints)
+        mol1_atoms = (ordered_endpoints[0], center, ordered_endpoints[1])
+        mol2_atoms = tuple(mapping[idx] for idx in mol1_atoms)
         return OpenShellThreeCenterDetail(
-            mol1_atoms=(ordered_endpoints[0], center, ordered_endpoints[1]),
-            mol2_atoms=(
-                mapping[ordered_endpoints[0]],
-                mapping[center],
-                mapping[ordered_endpoints[1]],
+            mol1_atoms=mol1_atoms,
+            mol2_atoms=mol2_atoms,
+            mol1_radical_electrons=(
+                int(mol1.GetAtomWithIdx(mol1_atoms[0]).GetNumRadicalElectrons()),
+                int(mol1.GetAtomWithIdx(mol1_atoms[1]).GetNumRadicalElectrons()),
+                int(mol1.GetAtomWithIdx(mol1_atoms[2]).GetNumRadicalElectrons()),
             ),
-        )
-    return None
+            mol2_radical_electrons=(
+                int(mol2.GetAtomWithIdx(mol2_atoms[0]).GetNumRadicalElectrons()),
+                int(mol2.GetAtomWithIdx(mol2_atoms[1]).GetNumRadicalElectrons()),
+                int(mol2.GetAtomWithIdx(mol2_atoms[2]).GetNumRadicalElectrons()),
+            ),
+            mol1_bond_orders=(
+                float(mol1.GetBondBetweenAtoms(mol1_atoms[0], mol1_atoms[1]).GetBondTypeAsDouble()),
+                float(mol1.GetBondBetweenAtoms(mol1_atoms[1], mol1_atoms[2]).GetBondTypeAsDouble()),
+            ),
+            mol2_bond_orders=(
+                float(mol2.GetBondBetweenAtoms(mol2_atoms[0], mol2_atoms[1]).GetBondTypeAsDouble()),
+                float(mol2.GetBondBetweenAtoms(mol2_atoms[1], mol2_atoms[2]).GetBondTypeAsDouble()),
+            ),
+        ), search
+    return None, search
 
 
 def _metal_signature_key(mol: Chem.Mol) -> tuple[tuple[int, int], ...]:
@@ -1441,11 +1474,12 @@ def evaluate_equivalence(
             method=EquivalenceMethod.RESONANCE,
         )
 
-    elementary_open_shell_witness = _elementary_open_shell_resonance_witness(
+    elementary_open_shell_witness, mapping_search = _elementary_open_shell_resonance_witness(
         organic_1,
         organic_2,
         use_chirality=use_chirality,
     )
+    info.open_shell_three_center_mapping_search = mapping_search
     if elementary_open_shell_witness is not None:
         info.open_shell_three_center = elementary_open_shell_witness
         return finish(
@@ -1453,6 +1487,12 @@ def evaluate_equivalence(
             "Equivalent: explicit elementary three-center open-shell electron shift matched.",
             relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
             method=EquivalenceMethod.OPEN_SHELL_THREE_CENTER,
+        )
+
+    if mapping_search.limit_reached:
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            "Inconclusive: elementary open-shell topology mapping search reached its limit.",
         )
 
     if identifier_match:

@@ -440,7 +440,7 @@ def test_open_shell_heuristic_without_resonance_witness_is_inconclusive(
     monkeypatch.setattr(
         equivalence,
         "_elementary_open_shell_resonance_witness",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: (None, equivalence.TopologyMappingSearchMetadata()),
     )
     monkeypatch.setattr(equivalence, "_resonance_match", no_resonance_witness)
 
@@ -488,6 +488,16 @@ def test_elementary_open_shell_three_center_witness_is_explicit(
     assert result.relation == equivalence.EquivalenceRelation.RESONANCE_EQUIVALENCE
     assert result.method == equivalence.EquivalenceMethod.OPEN_SHELL_THREE_CENTER
     assert result.open_shell_three_center is not None
+    assert result.open_shell_three_center.mol1_bond_orders in {(1.0, 2.0), (2.0, 1.0)}
+    assert result.open_shell_three_center.mol2_bond_orders in {(1.0, 2.0), (2.0, 1.0)}
+    assert result.open_shell_three_center.mol1_bond_orders != (
+        result.open_shell_three_center.mol2_bond_orders
+    )
+    assert sorted(result.open_shell_three_center.mol1_radical_electrons) == [0, 0, 1]
+    assert sorted(result.open_shell_three_center.mol2_radical_electrons) == [0, 0, 1]
+    assert result.open_shell_three_center_mapping_search is not None
+    assert result.open_shell_three_center_mapping_search.mappings_examined >= 1
+    assert result.open_shell_three_center_mapping_search.limit_reached is False
     assert result.bounded_search is not None
     assert result.bounded_search.attempted is True
 
@@ -511,6 +521,40 @@ def test_nonconjugated_radical_cation_relocation_is_not_equivalent(
     assert result.open_shell_heuristic_triggered is True
     assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.equivalent is False
+
+
+def test_elementary_mapping_search_exhaustion_is_inconclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles("[CH2]C=CO")
+    reference = Chem.MolFromSmiles("C=C[CH]O")
+    assert candidate is not None
+    assert reference is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+    monkeypatch.setattr(
+        equivalence,
+        "_elementary_open_shell_resonance_witness",
+        lambda *args, **kwargs: (
+            None,
+            equivalence.TopologyMappingSearchMetadata(
+                attempted=True,
+                mappings_examined=10000,
+                limit_reached=True,
+            ),
+        ),
+    )
+
+    result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
+    assert result.open_shell_three_center_mapping_search is not None
+    assert result.open_shell_three_center_mapping_search.limit_reached is True
+    assert "topology mapping search reached its limit" in result.reason
 
 
 def test_saturated_chain_radical_relocation_has_no_elementary_witness(
@@ -613,7 +657,7 @@ def test_open_shell_explicit_resonance_witness_is_equivalent(
     monkeypatch.setattr(
         equivalence,
         "_elementary_open_shell_resonance_witness",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: (None, equivalence.TopologyMappingSearchMetadata()),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
