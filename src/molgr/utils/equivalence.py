@@ -36,6 +36,7 @@ class EquivalenceMethod(str, Enum):
     INCHI_KEY = "inchi_key"
     CARBENE_ZWITTERION = "carbene_zwitterion"
     RESONANCE = "resonance"
+    OPEN_SHELL_THREE_CENTER = "open_shell_three_center"
 
 
 class EquivalenceDecision(str, Enum):
@@ -105,6 +106,14 @@ class ResonanceDetail:
     hit_smiles: Optional[str] = None
 
 
+@dataclass
+class OpenShellThreeCenterDetail:
+    """Mapped ``A radical-B=C <-> A=B-C radical`` structural witness."""
+
+    mol1_atoms: tuple[int, int, int]
+    mol2_atoms: tuple[int, int, int]
+
+
 UNKNOWN_ELECTRON_METADATA = "unknown"
 
 
@@ -152,6 +161,7 @@ class EquivalenceResult:
     canonical_smiles: Optional[CanonicalSmilesDetail] = None
     carbene_zwitterion: Optional[CarbeneZwitterionDetail] = None
     resonance: Optional[ResonanceDetail] = None
+    open_shell_three_center: Optional[OpenShellThreeCenterDetail] = None
     # ``mol1``/``mol2`` are the evaluator's positional inputs.  The candidate
     # and reference aliases make the same evidence convenient for reviewer
     # callers without changing the historical positional API.
@@ -761,6 +771,153 @@ def _open_shell_heuristic_applies(
     return representation_changed
 
 
+def _topology_query(mol: Chem.Mol) -> Chem.Mol:
+    """Build an element/connectivity query without electronic-state constraints."""
+
+    query = Chem.RWMol(mol)
+    for atom in mol.GetAtoms():
+        query.ReplaceAtom(
+            atom.GetIdx(),
+            Chem.AtomFromSmarts(f"[#{atom.GetAtomicNum()}]"),
+        )
+    for bond in mol.GetBonds():
+        query.ReplaceBond(bond.GetIdx(), Chem.BondFromSmarts("~"))
+    return query.GetMol()
+
+
+def _mapped_hydrogen_count(atom: Chem.Atom) -> int:
+    return int(atom.GetTotalNumHs(includeNeighbors=True))
+
+
+def _bond_order_sum(atom: Chem.Atom) -> float:
+    return sum(float(bond.GetBondTypeAsDouble()) for bond in atom.GetBonds())
+
+
+def _elementary_open_shell_resonance_witness(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    *,
+    use_chirality: bool,
+) -> OpenShellThreeCenterDetail | None:
+    """Find an explicit elementary ``A radical-B=C <-> A=B-C radical`` witness.
+
+    A positive result requires a topology-preserving atom mapping and exactly
+    one three-center electron shift.  It deliberately excludes charge motion,
+    proton motion, aromatic/non-integral bond changes, and any additional atom
+    or bond change.  Failure to find a mapping is only absence of this proof;
+    it is not evidence of non-equivalence.
+    """
+
+    if mol1.GetNumAtoms() != mol2.GetNumAtoms() or mol1.GetNumBonds() != mol2.GetNumBonds():
+        return None
+
+    mappings = mol2.GetSubstructMatches(
+        _topology_query(mol1),
+        uniquify=False,
+        useChirality=False,
+        maxMatches=10000,
+    )
+    for mapping in mappings:
+        if len(mapping) != mol1.GetNumAtoms():
+            continue
+
+        radical_deltas: dict[int, int] = {}
+        atom_mapping_valid = True
+        for atom1 in mol1.GetAtoms():
+            idx1 = atom1.GetIdx()
+            atom2 = mol2.GetAtomWithIdx(mapping[idx1])
+            if (
+                atom1.GetAtomicNum() != atom2.GetAtomicNum()
+                or atom1.GetIsotope() != atom2.GetIsotope()
+                or atom1.GetFormalCharge() != atom2.GetFormalCharge()
+                or _mapped_hydrogen_count(atom1) != _mapped_hydrogen_count(atom2)
+                or (use_chirality and atom1.GetChiralTag() != atom2.GetChiralTag())
+            ):
+                atom_mapping_valid = False
+                break
+            radical_delta = int(atom2.GetNumRadicalElectrons()) - int(
+                atom1.GetNumRadicalElectrons()
+            )
+            if radical_delta:
+                radical_deltas[idx1] = radical_delta
+        if not atom_mapping_valid or sorted(radical_deltas.values()) != [-1, 1]:
+            continue
+
+        changed_bonds: list[tuple[int, int, int]] = []
+        bond_mapping_valid = True
+        for bond1 in mol1.GetBonds():
+            begin1, end1 = bond1.GetBeginAtomIdx(), bond1.GetEndAtomIdx()
+            bond2 = mol2.GetBondBetweenAtoms(mapping[begin1], mapping[end1])
+            if bond2 is None:
+                bond_mapping_valid = False
+                break
+            order1 = float(bond1.GetBondTypeAsDouble())
+            order2 = float(bond2.GetBondTypeAsDouble())
+            if order1 == order2:
+                if use_chirality and bond1.GetStereo() != bond2.GetStereo():
+                    bond_mapping_valid = False
+                    break
+                continue
+            if bond1.GetIsAromatic() or bond2.GetIsAromatic():
+                bond_mapping_valid = False
+                break
+            delta = order2 - order1
+            if delta not in (-1.0, 1.0):
+                bond_mapping_valid = False
+                break
+            if use_chirality and (
+                bond1.GetStereo() != Chem.BondStereo.STEREONONE
+                or bond2.GetStereo() != Chem.BondStereo.STEREONONE
+            ):
+                bond_mapping_valid = False
+                break
+            changed_bonds.append((begin1, end1, int(delta)))
+        if not bond_mapping_valid or len(changed_bonds) != 2:
+            continue
+        if changed_bonds[0][2] == changed_bonds[1][2]:
+            continue
+
+        adjacency: dict[int, list[int]] = {}
+        for begin, end, _ in changed_bonds:
+            adjacency.setdefault(begin, []).append(end)
+            adjacency.setdefault(end, []).append(begin)
+        centers = [idx for idx, neighbors in adjacency.items() if len(neighbors) == 2]
+        endpoints = {idx for idx, neighbors in adjacency.items() if len(neighbors) == 1}
+        if len(centers) != 1 or endpoints != set(radical_deltas):
+            continue
+        center = centers[0]
+
+        # Local Lewis-electron bookkeeping: the change in bond-order sum is
+        # exactly balanced by the opposite change in radical count at every
+        # atom touched by the shift.
+        if any(
+            abs(
+                (
+                    _bond_order_sum(mol1.GetAtomWithIdx(idx))
+                    + mol1.GetAtomWithIdx(idx).GetNumRadicalElectrons()
+                )
+                - (
+                    _bond_order_sum(mol2.GetAtomWithIdx(mapping[idx]))
+                    + mol2.GetAtomWithIdx(mapping[idx]).GetNumRadicalElectrons()
+                )
+            )
+            > 1e-8
+            for idx in adjacency
+        ):
+            continue
+
+        ordered_endpoints = sorted(endpoints)
+        return OpenShellThreeCenterDetail(
+            mol1_atoms=(ordered_endpoints[0], center, ordered_endpoints[1]),
+            mol2_atoms=(
+                mapping[ordered_endpoints[0]],
+                mapping[center],
+                mapping[ordered_endpoints[1]],
+            ),
+        )
+    return None
+
+
 def _metal_signature_key(mol: Chem.Mol) -> tuple[tuple[int, int], ...]:
     signature = []
     for atom in mol.GetAtoms():
@@ -1282,6 +1439,20 @@ def evaluate_equivalence(
             "Equivalent: resonance normalization matched.",
             relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
             method=EquivalenceMethod.RESONANCE,
+        )
+
+    elementary_open_shell_witness = _elementary_open_shell_resonance_witness(
+        organic_1,
+        organic_2,
+        use_chirality=use_chirality,
+    )
+    if elementary_open_shell_witness is not None:
+        info.open_shell_three_center = elementary_open_shell_witness
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            "Equivalent: explicit elementary three-center open-shell electron shift matched.",
+            relation=EquivalenceRelation.RESONANCE_EQUIVALENCE,
+            method=EquivalenceMethod.OPEN_SHELL_THREE_CENTER,
         )
 
     if identifier_match:
