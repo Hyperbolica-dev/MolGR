@@ -800,23 +800,48 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def _api_stats(self) -> None:
         with _connect(self.server.db_path) as conn:
-            category_rows = conn.execute(
-                "SELECT category, COUNT(*) AS count FROM cases GROUP BY category"
-            ).fetchall()
-            status_rows = conn.execute(
-                """
-                SELECT COALESCE(r.status, 'unreviewed') AS status, COUNT(*) AS count
-                FROM cases c
-                LEFT JOIN reviews r ON r.case_id = c.case_id
-                GROUP BY COALESCE(r.status, 'unreviewed')
-                """
-            ).fetchall()
+            if self.server.restrict_to_triage:
+                allowed = self.server.triage_records
+                queue_rows = [
+                    row
+                    for row in conn.execute(
+                        """
+                        SELECT c.case_id, c.category, COALESCE(r.status, 'unreviewed') AS status
+                        FROM cases c LEFT JOIN reviews r ON r.case_id = c.case_id
+                        """
+                    ).fetchall()
+                    if str(row["case_id"]) in allowed
+                ]
+                category_counts = Counter(str(row["category"]) for row in queue_rows)
+                status_counts = Counter(str(row["status"]) for row in queue_rows)
+            else:
+                category_counts = Counter(
+                    {
+                        str(row["category"]): int(row["count"])
+                        for row in conn.execute(
+                            "SELECT category, COUNT(*) AS count FROM cases GROUP BY category"
+                        ).fetchall()
+                    }
+                )
+                status_counts = Counter(
+                    {
+                        str(row["status"]): int(row["count"])
+                        for row in conn.execute(
+                            """
+                            SELECT COALESCE(r.status, 'unreviewed') AS status, COUNT(*) AS count
+                            FROM cases c
+                            LEFT JOIN reviews r ON r.case_id = c.case_id
+                            GROUP BY COALESCE(r.status, 'unreviewed')
+                            """
+                        ).fetchall()
+                    }
+                )
             metadata_rows = conn.execute("SELECT key, value FROM metadata").fetchall()
         _json_response(
             self,
             {
-                "categories": {row["category"]: row["count"] for row in category_rows},
-                "review_statuses": {row["status"]: row["count"] for row in status_rows},
+                "categories": dict(category_counts),
+                "review_statuses": dict(status_counts),
                 "metadata": {row["key"]: row["value"] for row in metadata_rows},
                 "runtime": getattr(self.server, "runtime_info", {}),
                 "storage": {
