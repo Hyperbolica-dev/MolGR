@@ -392,6 +392,35 @@ def test_identifier_match_cannot_override_component_electron_mismatch(
     assert result.contradictions == ["identifier_match_despite_component_electron_mismatch"]
 
 
+def test_identifier_only_evidence_is_inconclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles("S=C(N)N=N[CH-]c1ccccc1.[S-]C(=NN=Cc1ccccc1)N")
+    reference = Chem.MolFromSmiles("[S-]C(=NN=Cc1ccccc1)N.[S-]C(=NN=Cc1ccccc1)N")
+    assert candidate is not None
+    assert reference is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: "same-key")
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+
+    result = equivalence.evaluate_equivalence(
+        candidate,
+        reference,
+        use_chirality=False,
+        max_resonance=10,
+    )
+
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
+    assert result.relation == equivalence.EquivalenceRelation.IDENTIFIER_EQUIVALENCE
+    assert result.method == equivalence.EquivalenceMethod.INCHI_KEY
+    assert result.bounded_search is not None
+    assert result.bounded_search.attempted is True
+    assert result.bounded_search.limit_reached is False
+
+
 def test_bounded_resonance_limit_is_inconclusive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
