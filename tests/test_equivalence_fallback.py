@@ -437,6 +437,11 @@ def test_open_shell_heuristic_without_resonance_witness_is_inconclusive(
         return False, 2, 1, None
 
     monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_elementary_open_shell_resonance_witness",
+        lambda *args, **kwargs: None,
+    )
     monkeypatch.setattr(equivalence, "_resonance_match", no_resonance_witness)
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -446,6 +451,45 @@ def test_open_shell_heuristic_without_resonance_witness_is_inconclusive(
     assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.relation == equivalence.EquivalenceRelation.NONE
     assert "no explicit resonance witness" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("candidate_smiles", "reference_smiles"),
+    [
+        ("C=C1[CH]CCC=C1", "[CH2]C1=CCCC=C1"),
+        ("[O]C=CO", "O=C[CH]O"),
+        ("C=C([N]O)C(C)=O", "[CH2]/C(=N\\O)C(C)=O"),
+        ("[H]N=C1[CH]C=CCO1", "[NH]C1=CC=CCO1"),
+        ("[H]N=C([N]C)N(C)C", "C/N=C(/[NH])N(C)C"),
+    ],
+)
+def test_elementary_open_shell_three_center_witness_is_explicit(
+    candidate_smiles: str,
+    reference_smiles: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles(candidate_smiles)
+    reference = Chem.MolFromSmiles(reference_smiles)
+    assert candidate is not None
+    assert reference is not None
+
+    # Identifier evidence is intentionally absent; the positive proof is the
+    # mapped electron shift itself.
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+
+    result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.relation == equivalence.EquivalenceRelation.RESONANCE_EQUIVALENCE
+    assert result.method == equivalence.EquivalenceMethod.OPEN_SHELL_THREE_CENTER
+    assert result.open_shell_three_center is not None
+    assert result.bounded_search is not None
+    assert result.bounded_search.attempted is True
 
 
 def test_nonconjugated_radical_cation_relocation_is_not_equivalent(
@@ -467,6 +511,67 @@ def test_nonconjugated_radical_cation_relocation_is_not_equivalent(
     assert result.open_shell_heuristic_triggered is True
     assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.equivalent is False
+
+
+def test_saturated_chain_radical_relocation_has_no_elementary_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles("O[CH]CCCN")
+    reference = Chem.MolFromSmiles("OCC[CH]CN")
+    assert candidate is not None
+    assert reference is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+
+    result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.NOT_EQUIVALENT
+    assert result.method is None
+    assert result.open_shell_three_center is None
+
+
+def test_radical_shift_with_unrelated_charge_redistribution_has_no_elementary_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles("C=[NH+]CC[C]([O-])OC")
+    reference = Chem.MolFromSmiles("[CH2]NCCC(=O)OC")
+    assert candidate is not None
+    assert reference is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+
+    result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
+
+    assert result.decision != equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.open_shell_three_center is None
+
+
+def test_aromatic_noninteger_delta_has_no_elementary_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Chem.MolFromSmiles("[O]c1ccco1")
+    reference = Chem.MolFromSmiles("O=C1C=C[CH]O1")
+    assert candidate is not None
+    assert reference is not None
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        equivalence,
+        "_resonance_match",
+        lambda *args, **kwargs: (False, 1, 1, None),
+    )
+
+    result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
+    assert result.open_shell_three_center is None
 
 
 def test_unrelated_radical_component_does_not_activate_open_shell_heuristic(
@@ -505,6 +610,11 @@ def test_open_shell_explicit_resonance_witness_is_equivalent(
         return True, 2, 2, "[CH2]C=CO"
 
     monkeypatch.setattr(equivalence, "_resonance_match", explicit_resonance_witness)
+    monkeypatch.setattr(
+        equivalence,
+        "_elementary_open_shell_resonance_witness",
+        lambda *args, **kwargs: None,
+    )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
 
