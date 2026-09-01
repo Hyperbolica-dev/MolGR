@@ -2339,7 +2339,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MolGR Trace</title>
   <style>
-    :root { color-scheme: light; --bg:#f6f7f9; --panel:#fff; --line:#d8dee8; --text:#172033; --muted:#667085; --accent:#2563eb; --selected:#b45309; }
+    :root { color-scheme: light; --bg:#f6f7f8; --panel:#fff; --line:#d6dddf; --text:#172126; --muted:#667377; --accent:#0f766e; --selected:#0f766e; }
     * { box-sizing: border-box; }
     html { width:100%; overflow-x:auto; }
     body { margin:0; width:100%; min-width:1000px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
@@ -2349,15 +2349,19 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     .language-toggle:hover { border-color:var(--accent); }
     h1 { margin:0; font-size:20px; }
     h2 { margin:0 0 10px; font-size:15px; }
-    .global-info { display:grid; grid-template-columns:minmax(240px,.8fr) minmax(220px,.65fr) minmax(360px,1.55fr); gap:12px; padding:12px; }
-    .global-card { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:12px; min-width:0; max-width:100%; overflow:auto; }
+    .global-info { padding:8px 12px; }
+    .global-info > details { border-radius:4px; }
+    .global-runtime { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:10px; }
+    .global-runtime section { min-width:0; overflow:auto; }
+    .global-runtime h2 { font-size:13px; color:var(--muted); }
     main { width:100%; max-width:100%; display:grid; grid-template-columns:380px minmax(0,1fr); align-items:stretch; gap:12px; padding:0 12px 12px; min-height:0; }
-    aside { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:10px; align-self:start; position:relative; display:flex; flex-direction:column; gap:10px; min-width:0; min-height:0; overflow:hidden; }
+    aside { border:1px solid var(--line); border-radius:5px; background:var(--panel); padding:10px; align-self:start; position:relative; display:flex; flex-direction:column; gap:10px; min-width:0; min-height:0; overflow:hidden; }
     #tree-search { width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }
     .tree { flex:1 1 0; height:0; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
     .tree ol { list-style:none; margin:0; padding-left:14px; border-left:1px solid #e5e7eb; }
     .tree > ol { padding-left:0; border-left:0; }
     .tree li { margin:4px 0; }
+    .tree-section-label { display:block; margin:12px 0 4px 28px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
     .tree-row { display:flex; align-items:flex-start; gap:4px; min-width:0; }
     .tree-toggle, .tree-toggle-spacer { flex:0 0 24px; width:24px; min-width:24px; height:24px; margin-top:2px; }
     .tree-toggle { border:1px solid transparent; border-radius:6px; background:transparent; padding:0; cursor:pointer; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; }
@@ -2367,19 +2371,24 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     .tree-children { list-style:none; margin:4px 0 0 12px; padding-left:14px; border-left:1px solid #e5e7eb; }
     .tree li.is-collapsed > .tree-children { display:none; }
     .tree-node { flex:1 1 auto; width:auto; min-width:0; border:1px solid transparent; border-radius:6px; background:transparent; padding:7px 8px; text-align:left; cursor:pointer; color:var(--text); }
-    .tree-node:hover, .tree-node.is-active { border-color:var(--accent); background:#eff6ff; }
-    .tree-node.is-selected { border-color:var(--selected); background:#fff7ed; }
+    .tree-node:hover { border-color:#8fb8b4; background:#f1f8f7; }
+    .tree-node.is-active { border-color:#b8cede; background:#eaf3f9; }
+    .tree-node.is-selected { border-color:var(--selected); background:#edf7f5; }
     .tree-label { display:block; font-weight:800; font-size:13px; overflow-wrap:anywhere; }
     .tree-meta { display:block; margin-top:2px; color:var(--muted); font-size:11px; }
     .content, .node-panel, .panel-info, .panel-info > *, .node-panel > *, .resonance-image-comparison, .resonance-image-group, .discordance-breakdown, .discordance-comparison { min-width:0; max-width:100%; }
     .content { align-self:start; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
-    .node-panel { display:none; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:14px; min-width:0; }
+    .node-panel { display:none; border:1px solid var(--line); border-radius:5px; background:var(--panel); padding:14px; min-width:0; }
     .node-panel.is-active { display:block; }
     .panel-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
     .panel-head h2 { margin:0; font-size:18px; }
     .panel-head p { margin:4px 0 0; color:var(--muted); }
     .badge { border:1px solid var(--line); border-radius:999px; padding:4px 8px; font-size:12px; color:var(--muted); white-space:nowrap; }
-    .badge.selected { color:#92400e; border-color:#f59e0b; background:#fffbeb; }
+    .badge.selected { color:#0f5f59; border-color:#8fb8b4; background:#edf7f5; }
+    .overview-lede { margin:0 0 12px; color:var(--muted); font-size:13px; }
+    .overview-metrics { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0 0 12px; padding:9px 0; border-block:1px solid var(--line); font-size:13px; }
+    .overview-metrics span { white-space:nowrap; }
+    .overview-section-title { margin:16px 0 6px; font-size:14px; }
     .image-box { border:1px solid var(--line); border-radius:8px; background:#fff; padding:10px; overflow:auto; }
     .image-box.is-zoomable { cursor:zoom-in; }
     .image-box.is-zoomable:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
@@ -2413,19 +2422,19 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     th { color:#334155; background:#f8fafc; }
     .wide-table { width:100%; min-width:0; max-width:100%; overflow-x:auto; overflow-y:hidden; overscroll-behavior-inline:contain; }
     .wide-table table { width:max-content; min-width:calc(100% - 20px); max-width:none; table-layout:auto; }
-    .selection-result-selected td { background:#ecfdf3; font-weight:700; }
+    .selection-result-selected td { background:#edf7f5; font-weight:700; }
     .selection-result-error td { background:#fef2f2; color:#991b1b; }
     pre { width:calc(100% - 20px); max-width:calc(100% - 20px); margin:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#0f172a; color:#e5e7eb; overflow:auto; max-height:520px; font-size:12px; }
     .empty { border:1px dashed var(--line); border-radius:8px; padding:24px; text-align:center; color:var(--muted); background:#fff; }
     @media (max-width:1400px) {
-      .global-info { grid-template-columns:repeat(2,minmax(0,1fr)); }
-      .global-info .global-card:last-child { grid-column:1 / -1; }
+      .global-runtime { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .global-runtime section:last-child { grid-column:1 / -1; }
       main { grid-template-columns:minmax(280px,320px) minmax(0,1fr); }
     }
     @media (max-width:1100px) {
       header { position:static; }
-      .global-info { grid-template-columns:1fr; }
-      .global-info .global-card:last-child { grid-column:auto; }
+      .global-runtime { grid-template-columns:1fr; }
+      .global-runtime section:last-child { grid-column:auto; }
       main { grid-template-columns:300px minmax(0,1fr); min-height:0; }
       .tree { overscroll-behavior:contain; }
       .node-panel { scroll-margin-top:12px; }
@@ -2433,7 +2442,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
     @media (max-width:720px) {
       header { padding:10px 12px; }
       .global-info { gap:8px; padding:8px; }
-      .global-card { padding:9px; }
+      .global-runtime { gap:8px; padding:8px; }
       main { grid-template-columns:300px minmax(0,1fr); gap:8px; padding:0 8px 8px; }
       aside { padding:8px; }
       .tree ol { padding-left:8px; }
@@ -2565,6 +2574,17 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         "无": "None",
         "摘要": "Summary",
         "完整 JSON": "Full JSON",
+        "Trace 概览": "Trace overview",
+        "Case details": "Case details",
+        "Developer fields": "Developer fields",
+        "运行与输入 / Developer": "Run and input / Developer",
+        "动画回放 / Developer": "Animation playback / Developer",
+        "最终结果与候选选择的静态概览；点击左侧节点查看各阶段结构与依据。": "Static overview of the final result and candidate selection. Use the left tree to inspect each stage, structure, and rationale.",
+        "最终候选": "Final candidate",
+        "no-metal 候选": "No-metal candidate",
+        "金属候选": "Metal candidates",
+        "最终分数": "Final score",
+        "结构 / 金属状态": "Structure / metal state",
         "分数构成": "Score components",
         "决策流程": "Decision flow",
         "阶段": "Stage",
@@ -3205,7 +3225,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const animation = traceData && traceData.selected_path_animation;
         if (!animation) return null;
         return makeNode({
-          label: "最终选中路径动画",
+          label: "动画回放 / Developer",
           kind,
           caseId,
           summary: [
@@ -3220,7 +3240,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           ],
           metadata: animation,
           image: animation,
-          selected: true,
+          selected: false,
         });
       }
 
@@ -3259,13 +3279,30 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const resonance = traceData.resonance || {};
         const resonanceBasis = traceData.resonance_selection_basis || {};
         const children = [];
+        const developerChildren = [];
         const selectedPathAnimation = buildSelectedPathAnimation(
           caseId,
           traceData,
           selected,
           "无金属最终路径动画",
         );
-        if (selectedPathAnimation) children.push(selectedPathAnimation);
+        if (selectedPathAnimation) developerChildren.push(selectedPathAnimation);
+
+        if (Object.keys(selected).length) {
+          children.push(makeNode({
+            label: "选中 no-metal 候选",
+            kind: "无金属候选",
+            caseId,
+            summary: [
+              ["分数", selected.score],
+              ["选择键", selected.organic_topology_selection_key],
+              ...stateSummary(selectedState),
+            ],
+            metadata: selected,
+            image: selectedState.dof_image,
+            selected: true,
+          }));
+        }
 
         const allTraceNodes = traceData.trace_nodes || [];
         const traceNodeMap = new Map();
@@ -3274,7 +3311,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           const metadata = node.metadata || {};
           const state = node.state || {};
           traceNodeMap.set(String(node.node_id), makeNode({
-            label: `${node.global_node_locator || `#${node.global_node_index ?? node.node_id}`}. ${node.phase}`,
+            label: `${node.phase}${event.stage || event.kind ? ` · ${event.stage || event.kind}` : ""}`,
             kind: `状态机 ${node.kind || "stage"}`,
             caseId,
             selected: Boolean(node.selected_path),
@@ -3303,7 +3340,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           else if (current) traceRoots.push(current);
         });
         if (traceRoots.length) {
-          children.push(makeNode({
+          developerChildren.push(makeNode({
             label: `完整状态机分支树 (${allTraceNodes.length})`,
             kind: "无金属完整 trace",
             caseId,
@@ -3369,19 +3406,14 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           }));
         }
 
-        if (Object.keys(selected).length) {
+        if (developerChildren.length) {
           children.push(makeNode({
-            label: "选中 no-metal 候选",
-            kind: "无金属候选",
+            label: "Developer",
+            kind: "Developer",
             caseId,
-            summary: [
-              ["分数", selected.score],
-              ["选择键", selected.organic_topology_selection_key],
-              ...stateSummary(selectedState),
-            ],
-            metadata: selected,
-            image: selectedState.dof_image,
-            selected: true,
+            summary: [["节点数", developerChildren.length]],
+            metadata: {},
+            children: developerChildren,
           }));
         }
 
@@ -3411,10 +3443,16 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           const caseId = String(item.id || "unknown");
           const base = item.base_state || {};
           const selected = item.selected_candidate || {};
+          const candidates = (item.candidates || []).filter(candidate => candidate && typeof candidate === "object");
+          const selectedReport = candidates.find(candidate => candidate.selected)
+            || candidates.find(candidate => String(candidate.combination_index) === String(selected.combination_index));
+          const noMetalTrace = item.no_metal_trace || {};
+          const noMetalSelected = noMetalTrace.selected_candidate || {};
+          const overviewImage = selectedReport?.dof_image || noMetalSelected.state?.dof_image || null;
           const children = [];
           const caseNode = makeNode({
             label: caseId,
-            kind: "case",
+            kind: "Trace 概览",
             caseId,
             summary: [
               ["id", item.id],
@@ -3439,6 +3477,8 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
               ["耗时秒", item.elapsed_seconds],
             ],
             metadata: item,
+            image: overviewImage,
+            selected: true,
             children,
           });
           roots.push(caseNode);
@@ -3476,7 +3516,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             children.push(buildNoMetal(caseId, "无金属重建", item.no_metal_trace || {}));
             return;
           }
-          const candidates = (item.candidates || []).filter(candidate => candidate && typeof candidate === "object");
           const selectionBasis = item.metal_selection_basis || {};
           const selectedPathAnimation = buildSelectedPathAnimation(
             caseId,
@@ -3484,7 +3523,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             selected,
             "含金属最终路径动画",
           );
-          if (selectedPathAnimation) children.push(selectedPathAnimation);
           const selectedOrganicTrace = selectedNoMetalTrace(item);
           if (selectedOrganicTrace) {
             children.push(buildNoMetal(caseId, "选中无金属重建", selectedOrganicTrace));
@@ -3550,7 +3588,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
                   const candidateOrganic = candidate.organic_part || {};
                   const candidateTarget = candidate.target || {};
                   const candidateResonanceBasis = bucket.no_metal_trace?.resonance_selection_basis || null;
-                  const title = `${candidate.global_node_locator || `#${candidate.global_node_index ?? ""}`} ${candidate.selected ? "selected " : ""}L${candidate.search_layer_index}/C${candidate.combination_index}`;
+                  const title = `${candidate.selected ? "selected " : ""}L${candidate.search_layer_index}/C${candidate.combination_index}`;
                   bucketChildren.push(makeNode({
                     label: title,
                     kind: "金属电子态候选",
@@ -3617,8 +3655,9 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
               children: layerChildren,
             }));
           });
+          const developerChildren = [];
           if (item.analysis) {
-            children.push(makeNode({
+            developerChildren.push(makeNode({
               label: "分析和评分上下文",
               kind: "analysis",
               caseId,
@@ -3627,6 +3666,19 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
                 ["note", item.analysis.note],
               ],
               metadata: item.analysis,
+            }));
+          }
+          if (selectedPathAnimation) {
+            developerChildren.push(selectedPathAnimation);
+          }
+          if (developerChildren.length) {
+            children.push(makeNode({
+              label: "Developer",
+              kind: "Developer",
+              caseId,
+              summary: [["节点数", developerChildren.length]],
+              metadata: {},
+              children: developerChildren,
             }));
           }
         });
@@ -3725,7 +3777,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         }
         root.appendChild(details("选择字段顺序", wideTable(criteriaRows, [
           "优先级", "字段", "名称", "方向", "含义",
-        ]), true));
+        ]), false));
 
         const fieldByKey = new Map(criteria.map(field => [field.key, field]));
         const resultTable = table(candidates.map(candidate => {
@@ -3834,7 +3886,7 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           field.label,
           field.direction,
           field.description,
-        ]), ["优先级", "字段", "名称", "方向", "含义"]), true));
+        ]), ["优先级", "字段", "名称", "方向", "含义"]), false));
 
         const decisions = basis.candidate_decisions || [];
         const fieldByKey = new Map(criteria.map(field => [field.key, field]));
@@ -3922,7 +3974,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const input = trace.input || {};
         const dof = trace.dof_rendering || {};
         const inputCard = document.createElement("section");
-        inputCard.className = "global-card";
         inputCard.innerHTML = `<h2>${localizeText("输入")}</h2>`;
         inputCard.appendChild(table([
           ["来源", input.source],
@@ -3936,7 +3987,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           ["全局节点数", trace.global_node_count],
         ]));
         const dofCard = document.createElement("section");
-        dofCard.className = "global-card";
         dofCard.innerHTML = `<h2>${localizeText("DOF 渲染")}</h2>`;
         dofCard.appendChild(table([
           ["存储", dof.storage],
@@ -3948,7 +3998,6 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
           ["错误数", (dof.errors || []).length],
         ]));
         const caseCard = document.createElement("section");
-        caseCard.className = "global-card";
         caseCard.innerHTML = "<h2>Cases</h2>";
         const caseRows = (trace.cases || []).map(item => [
           item.id,
@@ -3979,7 +4028,10 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
             td.textContent = fmt(cell);
           });
         });
-        root.append(inputCard, dofCard, caseCard);
+        const runtime = document.createElement("div");
+        runtime.className = "global-runtime";
+        runtime.append(inputCard, dofCard, caseCard);
+        root.appendChild(details("运行与输入 / Developer", runtime, false));
       }
 
       function syncTreeNode(node, forcedOpen = false) {
@@ -4003,7 +4055,21 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         node.parent = parent;
         if (node.children.length && typeof node.collapsed !== "boolean") {
           const compactTree = window.matchMedia("(max-width: 720px)").matches;
-          node.collapsed = depth >= (compactTree ? 1 : 2);
+          node.collapsed = node.kind === "Developer" || depth >= (compactTree ? 1 : 2);
+        }
+        if (depth === 1) {
+          const sectionLabels = {
+            "无金属重建": "无金属重建",
+            "含金属重建": "金属状态",
+            "Developer": "Developer",
+          };
+          const sectionText = sectionLabels[node.kind];
+          if (sectionText) {
+            const sectionLabel = document.createElement("span");
+            sectionLabel.className = "tree-section-label";
+            sectionLabel.textContent = localizeText(sectionText);
+            li.appendChild(sectionLabel);
+          }
         }
         const row = document.createElement("div");
         row.className = "tree-row";
@@ -4096,6 +4162,122 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         return root;
       }
 
+      function traceOverviewData(item) {
+        const isNoMetal = item.trace_kind === "no_metal";
+        const noMetalTrace = isNoMetal ? (item.no_metal_trace || {}) : selectedNoMetalTrace(item);
+        const noMetalSelected = noMetalTrace?.selected_candidate || {};
+        const noMetalState = noMetalSelected.state || {};
+        const resonanceBasis = noMetalTrace?.resonance_selection_basis || {};
+        const selected = item.selected_candidate || noMetalSelected;
+        const scoreDetailData = selected.score_details || {};
+        const metalBasis = item.metal_selection_basis || {};
+        const metalDecisions = Array.isArray(metalBasis.candidate_decisions)
+          ? metalBasis.candidate_decisions : [];
+        const resonanceDecisions = Array.isArray(resonanceBasis.candidates)
+          ? resonanceBasis.candidates : [];
+        const decisions = isNoMetal ? resonanceDecisions : metalDecisions;
+        return {
+          isNoMetal,
+          noMetalTrace,
+          noMetalSelected,
+          noMetalState,
+          resonanceBasis,
+          selected,
+          scoreDetailData,
+          metalBasis,
+          decisions,
+        };
+      }
+
+      function renderTraceOverview(item) {
+        const data = traceOverviewData(item);
+        const candidateReports = Array.isArray(item.candidates) ? item.candidates : [];
+        const root = document.createElement("section");
+        const lede = document.createElement("p");
+        lede.className = "overview-lede";
+        lede.textContent = localizeText("最终结果与候选选择的静态概览；点击左侧节点查看各阶段结构与依据。");
+        root.appendChild(lede);
+
+        const metrics = document.createElement("div");
+        metrics.className = "overview-metrics";
+        const metricRows = [
+          ["最终候选", hasValue(data.isNoMetal
+            ? data.resonanceBasis.selected_candidate_index
+            : data.selected.combination_index)
+            ? `C${data.isNoMetal
+              ? data.resonanceBasis.selected_candidate_index
+              : data.selected.combination_index}` : undefined],
+          ["金属状态", metalStatesLabel(data.selected.metal_states)],
+          ["no-metal 候选", hasValue(data.resonanceBasis.selected_candidate_index)
+            ? `C${data.resonanceBasis.selected_candidate_index}` : undefined],
+          ["共振候选", data.resonanceBasis.candidate_count],
+          ["金属候选", data.isNoMetal ? undefined : item.candidate_count],
+          ["最终分数", data.selected.score],
+          ["metal_discordance_count", data.scoreDetailData.metal_discordance_count],
+          ["alternative candidates", Math.max(0, data.decisions.length - 1)],
+        ];
+        metricRows.filter(([_, value]) => hasValue(value)).forEach(([label, value]) => {
+          const span = document.createElement("span");
+          span.textContent = `${localizeText(label)} ${fmt(value)}`;
+          metrics.appendChild(span);
+        });
+        root.appendChild(metrics);
+
+        if (data.decisions.length) {
+          const heading = document.createElement("h3");
+          heading.className = "overview-section-title";
+          heading.textContent = localizeText("候选选择结论");
+          root.appendChild(heading);
+          const rows = data.decisions.map(candidate => {
+            const selectionValues = candidate.selection_values || {};
+            const selected = Boolean(candidate.selected);
+            const candidateLabel = data.isNoMetal
+              ? resonanceCandidateLabel(candidate)
+              : `C${candidate.combination_index ?? ""}`;
+            const stateLabel = data.isNoMetal
+              ? (candidate.state?.canonical_smiles || candidate.state?.smiles)
+              : metalStatesLabel(candidate.metal_states);
+            const decision = data.isNoMetal
+              ? resonanceSelectionDecisionLabel(candidate.decision)
+              : metalSelectionDecisionLabel(candidate.decision);
+            const report = data.isNoMetal ? candidate : candidateReports.find(entry => (
+              String(entry.combination_index) === String(candidate.combination_index)
+              && String(entry.search_layer_index) === String(candidate.search_layer_index)
+            ));
+            return [
+              candidateLabel,
+              stateLabel,
+              report?.score,
+              selectionValues.metal_discordance_count,
+              candidate.decisive_field,
+              selected ? ui("selected") : decision,
+            ];
+          });
+          const resultTable = table(rows, [
+            "候选", "结构 / 金属状态", "分数", "失谐", "首个决定字段", "结论",
+          ]);
+          data.decisions.forEach((candidate, index) => {
+            if (candidate.selected && resultTable.tBodies[0]?.rows[index]) {
+              resultTable.tBodies[0].rows[index].classList.add("selection-result-selected");
+            }
+          });
+          const wrapper = document.createElement("div");
+          wrapper.className = "wide-table";
+          wrapper.appendChild(resultTable);
+          root.appendChild(wrapper);
+        }
+        return root;
+      }
+
+      function isDeveloperSummaryField(label) {
+        const text = String(label || "").toLowerCase();
+        return [
+          "全局索引", "定位符", "全局树父节点", "父节点", "trace 节点",
+          "选择键", "selection_key", "图排序键", "xyz 路径", "xyz 来源",
+          "耗时秒", "phase_history",
+        ].some(token => text.includes(token.toLowerCase()));
+      }
+
       function renderPanel(node) {
         const panel = document.createElement("article");
         panel.id = node.id;
@@ -4167,7 +4349,12 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         }
         const info = document.createElement("section");
         info.className = "panel-info";
-        info.appendChild(details("摘要", table(node.summary), true));
+        if (node.kind === "Trace 概览") {
+          info.appendChild(renderTraceOverview(node.metadata));
+        }
+        const primarySummary = node.summary.filter(([label]) => !isDeveloperSummaryField(label));
+        const developerSummary = node.summary.filter(([label]) => isDeveloperSummaryField(label));
+        info.appendChild(details(node.kind === "Trace 概览" ? "Case details" : "摘要", table(primarySummary), node.kind !== "Trace 概览"));
         if (node.kind === "金属价态候选" && node.metadata.selection_basis) {
           info.appendChild(renderMetalSelectionBasis(node.metadata.selection_basis));
         }
@@ -4192,7 +4379,10 @@ def _render_html_browser_report(output: dict[str, Any]) -> str:
         const discordancePanel = renderDiscordanceBreakdown(node.scoreDetails);
         if (discordancePanel) info.appendChild(discordancePanel);
         if (Object.keys(node.scoreDetails || {}).length) {
-          info.appendChild(details("分数构成", table(Object.entries(node.scoreDetails)), true));
+          info.appendChild(details("分数构成", table(Object.entries(node.scoreDetails)), false));
+        }
+        if (developerSummary.length) {
+          info.appendChild(details("Developer fields", table(developerSummary), false));
         }
         info.appendChild(lazyDetails("完整 JSON", node.metadata));
         panel.appendChild(info);
