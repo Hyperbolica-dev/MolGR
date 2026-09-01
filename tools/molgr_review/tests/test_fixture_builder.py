@@ -73,6 +73,132 @@ def test_review_page_exposes_fixture_removal_action() -> None:
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in stylesheet
     assert "text-overflow: ellipsis;" in stylesheet
     assert "body {\n    display: block;" not in stylesheet
+    assert 'class="render-kind' not in html
+    assert "primaryKind" not in javascript
+    assert "secondaryKind" not in javascript
+    assert 'querySelectorAll(".render-kind")' not in javascript
+
+
+def test_review_2d_render_omits_explicit_h_without_mutating_electronic_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    charged_radical = Chem.AddHs(Chem.MolFromSmiles("[NH3+][CH2]"))
+    assert charged_radical is not None
+    original_atom_count = charged_radical.GetNumAtoms()
+    original_h_count = sum(
+        atom.GetAtomicNum() == 1
+        for atom in charged_radical.GetAtoms()  # pyright: ignore[reportCallIssue]
+    )
+    original_heavy_charges = [
+        atom.GetFormalCharge()
+        for atom in charged_radical.GetAtoms()  # pyright: ignore[reportCallIssue]
+        if atom.GetAtomicNum() != 1
+    ]
+    original_heavy_radicals = [
+        atom.GetNumRadicalElectrons()
+        for atom in charged_radical.GetAtoms()  # pyright: ignore[reportCallIssue]
+        if atom.GetAtomicNum() != 1
+    ]
+    captured: dict[str, Chem.Mol] = {}
+
+    class SvgResult:
+        data = "<svg>prepared</svg>"
+
+    def capture_render(mol: Chem.Mol, **kwargs: object) -> SvgResult:
+        captured["mol"] = Chem.Mol(mol)
+        return SvgResult()
+
+    import rdkit_dof
+
+    monkeypatch.setattr(rdkit_dof, "MolToDofImage", capture_render)
+    assert review_server._render_mol_svg(charged_radical, legend="test") == ("<svg>prepared</svg>")
+
+    rendered = captured["mol"]
+    assert original_h_count > 0
+    assert charged_radical.GetNumAtoms() == original_atom_count
+    assert sum(atom.GetAtomicNum() == 1 for atom in rendered.GetAtoms()) == 0  # pyright: ignore[reportCallIssue]
+    assert sum(atom.GetFormalCharge() for atom in charged_radical.GetAtoms()) == sum(  # pyright: ignore[reportCallIssue]
+        atom.GetFormalCharge()
+        for atom in rendered.GetAtoms()  # pyright: ignore[reportCallIssue]
+    )
+    assert [
+        atom.GetFormalCharge()
+        for atom in rendered.GetAtoms()  # pyright: ignore[reportCallIssue]
+    ] == original_heavy_charges
+    assert [
+        atom.GetNumRadicalElectrons()
+        for atom in rendered.GetAtoms()  # pyright: ignore[reportCallIssue]
+    ] == original_heavy_radicals
+    assert sum(original_heavy_radicals) == 1
+
+
+def test_review_2d_render_preserves_hydride_annotations() -> None:
+    smiles = (
+        "CC(C)(C)N->[RuH+]123(<-n4c(C(F)(F)F)cc(C(F)(F)F)n4[BH2-]"
+        "n4nc(C(F)(F)F)cc4C(F)(F)F)<-C4=C->1CCC->2=C->3CC4"
+    )
+    mol = Chem.MolFromSmiles(smiles)
+    assert mol is not None
+    with_explicit_h = Chem.AddHs(mol)
+
+    def heavy_bond_signature(value: Chem.Mol) -> list[tuple[int, int, str]]:
+        heavy_indices = [
+            atom.GetIdx()
+            for atom in value.GetAtoms()  # pyright: ignore[reportCallIssue]
+            if atom.GetAtomicNum() != 1
+        ]
+        positions = {atom_index: position for position, atom_index in enumerate(heavy_indices)}
+        return sorted(
+            (
+                positions[bond.GetBeginAtomIdx()],
+                positions[bond.GetEndAtomIdx()],
+                str(bond.GetBondType()),
+            )
+            for bond in value.GetBonds()  # pyright: ignore[reportCallIssue]
+            if bond.GetBeginAtomIdx() in positions and bond.GetEndAtomIdx() in positions
+        )
+
+    rendered = review_server._prepare_review_2d_mol(with_explicit_h)
+
+    assert sum(atom.GetAtomicNum() == 1 for atom in rendered.GetAtoms()) == 0  # pyright: ignore[reportCallIssue]
+    rendered_smiles = Chem.MolToSmiles(rendered, canonical=True)
+    assert "[RuH+]" in rendered_smiles
+    assert "[BH2-]" in rendered_smiles
+    assert sum(atom.GetFormalCharge() for atom in with_explicit_h.GetAtoms()) == sum(  # pyright: ignore[reportCallIssue]
+        atom.GetFormalCharge()
+        for atom in rendered.GetAtoms()  # pyright: ignore[reportCallIssue]
+    )
+    assert heavy_bond_signature(rendered) == heavy_bond_signature(with_explicit_h)
+    assert sum(atom.GetNumRadicalElectrons() for atom in rendered.GetAtoms()) == 0  # pyright: ignore[reportCallIssue]
+
+
+def test_case_payload_hides_only_empty_or_exact_duplicate_organic_graphs() -> None:
+    duplicate = review_server._row_dict(
+        {
+            "candidate_smiles": " C ",
+            "candidate_organic_smiles": "C",
+            "reference_smiles": "N",
+            "reference_organic_smiles": " N ",
+        }
+    )
+    assert duplicate is not None
+    assert duplicate["available_render_kinds"] == ["candidate", "reference"]
+
+    distinct = review_server._row_dict(
+        {
+            "candidate_smiles": "C",
+            "candidate_organic_smiles": "CC",
+            "reference_smiles": "N",
+            "reference_organic_smiles": "NN",
+        }
+    )
+    assert distinct is not None
+    assert distinct["available_render_kinds"] == [
+        "candidate",
+        "reference",
+        "candidate_organic",
+        "reference_organic",
+    ]
 
 
 def test_fixture_manifest_rejects_unconfirmed_answers(tmp_path: Path) -> None:
@@ -769,6 +895,74 @@ def test_live_candidate_payload_is_self_consistent_and_does_not_use_snapshot_cac
     assert first_render["svg"] == "<svg>live</svg>"
     assert second_render["svg"] == "<svg>live</svg>"
     assert reconstruct_calls == 3
+
+
+def test_reference_render_cache_is_scoped_to_renderer_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "review.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript((APP_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.execute(
+            """
+            INSERT INTO cases(case_id, row_index, xyz_path, reference_smiles)
+            VALUES(?, ?, ?, ?)
+            """,
+            ("CACHE", 1, str(tmp_path / "unused.xyz"), "CC"),
+        )
+        conn.execute(
+            """
+            INSERT INTO render_cache(case_id, kind, svg, smiles, error, generated_at)
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            ("CACHE", "reference", "<svg>old</svg>", "CC", "", "2026-07-17T00:00:00Z"),
+        )
+        conn.commit()
+
+    render_calls = 0
+
+    def render_current(mol: Chem.Mol, *, legend: str) -> str:
+        nonlocal render_calls
+        render_calls += 1
+        assert mol.GetNumAtoms() == 2
+        assert sum(atom.GetAtomicNum() == 1 for atom in mol.GetAtoms()) == 0  # pyright: ignore[reportCallIssue]
+        return "<svg>review-2d-v2</svg>"
+
+    monkeypatch.setattr(review_server, "_render_mol_svg", render_current)
+
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
+    server.db_path = db_path
+    server.xyz_dir = None
+    server.fixtures_dir = tmp_path / "reviewed"
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def get_reference() -> dict[str, object]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        connection.request("GET", "/api/cases/CACHE/render?kind=reference")
+        response = connection.getresponse()
+        assert response.status == 200
+        payload = json.loads(response.read())
+        connection.close()
+        return payload
+
+    try:
+        first = get_reference()
+        second = get_reference()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+    assert first["svg"] == "<svg>review-2d-v2</svg>"
+    assert second["svg"] == "<svg>review-2d-v2</svg>"
+    assert render_calls == 1
+    with sqlite3.connect(db_path) as conn:
+        cache_kinds = {
+            row[0] for row in conn.execute("SELECT kind FROM render_cache WHERE case_id = 'CACHE'")
+        }
+    assert cache_kinds == {"reference", "review_2d_v2:reference"}
 
 
 def test_case_payload_selects_candidate_snapshot_for_server_python() -> None:

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false
 """Local molecule graph review server."""
 # ruff: noqa: E402, I001
 
 from __future__ import annotations
 
 import argparse
+import csv
 import html
 import json
 import mimetypes
@@ -16,6 +18,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -45,6 +48,7 @@ from fixture_builder import (
     resolve_xyz_path,
     sync_review_fixture,
 )
+from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.utils.equivalence import evaluate_equivalence
 from project_runtime import validate_project_runtime
 from scripts.reconstruction_trace import TraceInputCase, render_trace_report
@@ -98,6 +102,12 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="Directory updated immediately from fixture-producing review decisions.",
     )
+    parser.add_argument(
+        "--triage-csv",
+        type=Path,
+        default=None,
+        help="Optional read-only triage CSV used for queue filtering and reviewer evidence.",
+    )
     return parser.parse_args()
 
 
@@ -112,11 +122,15 @@ def _row_dict(
     row: sqlite3.Row | Mapping[str, Any] | None,
     *,
     fixture: dict[str, Any] | None = None,
+    triage: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if row is None:
         return None
     payload = dict(row)
     payload["fixture"] = fixture
+    payload["triage"] = triage
+    if triage:
+        payload["triage_bucket"] = triage.get("triage_bucket", "")
     metadata_json = payload.pop("metadata_json", None)
     if isinstance(metadata_json, str) and metadata_json:
         try:
@@ -147,6 +161,18 @@ def _row_dict(
     else:
         payload["candidate_snapshot_smiles"] = str(payload.get("candidate_smiles") or "")
         payload["candidate_snapshot_status"] = str(payload.get("candidate_status") or "")
+    candidate_smiles = str(payload.get("candidate_smiles") or "").strip()
+    reference_smiles = str(payload.get("reference_smiles") or "").strip()
+    candidate_organic_smiles = str(payload.get("candidate_organic_smiles") or "").strip()
+    reference_organic_smiles = str(payload.get("reference_organic_smiles") or "").strip()
+    available_render_kinds = ["candidate"]
+    if reference_smiles:
+        available_render_kinds.append("reference")
+    if candidate_organic_smiles and candidate_organic_smiles != candidate_smiles:
+        available_render_kinds.append("candidate_organic")
+    if reference_organic_smiles and reference_organic_smiles != reference_smiles:
+        available_render_kinds.append("reference_organic")
+    payload["available_render_kinds"] = available_render_kinds
     return payload
 
 
@@ -225,13 +251,13 @@ def _benchmark_candidate_mol(mol: Chem.Mol) -> Chem.Mol:
     return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
 
 
-def _mol_from_smiles(smiles: str) -> Chem.Mol | None:
+REVIEW_2D_RENDERER_VERSION = "review_2d_v2"
+
+
+def _render_mol_from_smiles(smiles: str) -> Chem.Mol | None:
     if not smiles.strip():
         return None
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    return Chem.AddHs(mol)
+    return Chem.MolFromSmiles(smiles)
 
 
 def _mol_from_smiles_without_sanitize(smiles: str) -> Chem.Mol | None:
@@ -241,6 +267,101 @@ def _mol_from_smiles_without_sanitize(smiles: str) -> Chem.Mol | None:
     if mol is not None:
         mol.UpdatePropertyCache(strict=False)
     return mol
+
+
+def _atom_h_count(atom: Chem.Atom, *, implicit: bool) -> int | None:
+    try:
+        return int(atom.GetNumImplicitHs() if implicit else atom.GetNumExplicitHs())
+    except (RuntimeError, ValueError):
+        return None
+
+
+def _review_graph_payload(mol: Chem.Mol, *, kind: str, smiles: str) -> dict[str, Any]:
+    graph = Chem.Mol(mol)
+    graph.UpdatePropertyCache(strict=False)
+    atoms: list[dict[str, Any]] = []
+    metal_atoms: list[dict[str, Any]] = []
+    for atom in graph.GetAtoms():  # pyright: ignore[reportCallIssue]
+        atomic_num = int(atom.GetAtomicNum())
+        is_metal = atomic_num not in NON_METAL_DICT
+        atom_payload = {
+            "index": int(atom.GetIdx()),
+            "element": atom.GetSymbol(),
+            "formal_charge": int(atom.GetFormalCharge()),
+            "radical_electrons": int(atom.GetNumRadicalElectrons()),
+            "explicit_h": _atom_h_count(atom, implicit=False),
+            "implicit_h": _atom_h_count(atom, implicit=True),
+            "is_metal": is_metal,
+            "neighbours": [
+                {"index": int(neighbour.GetIdx()), "element": neighbour.GetSymbol()}
+                for neighbour in atom.GetNeighbors()  # pyright: ignore[reportCallIssue]
+            ],
+        }
+        atoms.append(atom_payload)
+        if is_metal:
+            metal_atoms.append(
+                {
+                    "index": atom_payload["index"],
+                    "element": atom_payload["element"],
+                    "formal_charge": atom_payload["formal_charge"],
+                }
+            )
+
+    dative_types = {
+        Chem.BondType.DATIVE,
+        Chem.BondType.DATIVEL,
+        Chem.BondType.DATIVER,
+        Chem.BondType.DATIVEONE,
+    }
+    bond_names = {
+        Chem.BondType.SINGLE: "single",
+        Chem.BondType.DOUBLE: "double",
+        Chem.BondType.TRIPLE: "triple",
+        Chem.BondType.AROMATIC: "aromatic",
+    }
+    bonds: list[dict[str, Any]] = []
+    for bond in graph.GetBonds():  # pyright: ignore[reportCallIssue]
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        bond_type = bond.GetBondType()
+        kind_name = "dative" if bond_type in dative_types else bond_names.get(bond_type)
+        if kind_name is None:
+            kind_name = str(bond_type).lower()
+        bonds.append(
+            {
+                "index": int(bond.GetIdx()),
+                "begin_atom": int(begin.GetIdx()),
+                "begin_element": begin.GetSymbol(),
+                "end_atom": int(end.GetIdx()),
+                "end_element": end.GetSymbol(),
+                "type": kind_name,
+                "directional": bond_type in dative_types,
+            }
+        )
+
+    explicit_h_count = sum(atom.GetAtomicNum() == 1 for atom in graph.GetAtoms())
+    explicit_h_count += sum(
+        value
+        for atom in graph.GetAtoms()
+        if atom.GetAtomicNum() != 1
+        for value in [_atom_h_count(atom, implicit=False)]
+        if value is not None
+    )
+    return {
+        "kind": kind,
+        "smiles": smiles,
+        "summary": {
+            "total_formal_charge": sum(atom.GetFormalCharge() for atom in graph.GetAtoms()),
+            "atom_count": graph.GetNumAtoms(),
+            "explicit_h_count": explicit_h_count,
+            "total_radical_electrons": sum(
+                atom.GetNumRadicalElectrons() for atom in graph.GetAtoms()
+            ),
+            "metals": metal_atoms,
+        },
+        "atoms": atoms,
+        "bonds": bonds,
+    }
 
 
 def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str, Any]:
@@ -275,11 +396,28 @@ def _live_candidate_comparison(mol: Chem.Mol, snapshot_smiles: str) -> dict[str,
     return comparison
 
 
+def _prepare_review_2d_mol(mol: Chem.Mol) -> Chem.Mol:
+    """Copy a review molecule and omit removable explicit H atoms for 2D display."""
+
+    return Chem.RemoveHs(Chem.Mol(mol), sanitize=False)
+
+
 def _render_mol_svg(mol: Chem.Mol, *, legend: str) -> str:
     from rdkit_dof import MolToDofImage
 
-    image = MolToDofImage(mol, size=(520, 360), legend=legend, use_svg=True, return_image=False)
+    render_mol = _prepare_review_2d_mol(mol)
+    image = MolToDofImage(
+        render_mol,
+        size=(520, 360),
+        legend=legend,
+        use_svg=True,
+        return_image=False,
+    )
     return _svg_fragment_from_image(image)
+
+
+def _render_cache_kind(kind: str) -> str:
+    return f"{REVIEW_2D_RENDERER_VERSION}:{kind}"
 
 
 def _mol_to_sdf_block(mol: Chem.Mol) -> str:
@@ -403,6 +541,20 @@ class ReviewServer(ThreadingHTTPServer):
     xyz_dir: Path | None
     fixtures_dir: Path
     runtime_info: dict[str, Any]
+    triage_records: dict[str, dict[str, str]]
+
+
+def load_triage_records(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None:
+        return {}
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    with path.open(encoding="utf-8", newline="") as handle:
+        return {
+            row["case_id"]: row
+            for row in csv.DictReader(handle)
+            if str(row.get("case_id") or "").strip()
+        }
 
 
 class ReviewHandler(BaseHTTPRequestHandler):
@@ -449,6 +601,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self._trace_page(unquote(path[len("/trace/") :]))
         elif path == "/api/stats":
             self._api_stats()
+        elif path == "/api/review-reasons":
+            self._api_review_reasons()
         elif path == "/api/cases":
             self._api_cases(query)
         elif path.startswith("/api/cases/") and path.endswith("/render"):
@@ -460,6 +614,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/cases/") and path.endswith("/candidate-sdf"):
             case_id = unquote(path.split("/")[3])
             self._api_candidate_sdf(case_id)
+        elif path.startswith("/api/cases/") and path.endswith("/graph"):
+            case_id = unquote(path.split("/")[3])
+            self._api_graph(case_id, query)
         elif path.startswith("/api/cases/"):
             case_id = unquote(path.split("/")[3])
             self._api_case(case_id)
@@ -618,13 +775,43 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "review_statuses": {row["status"]: row["count"] for row in status_rows},
                 "metadata": {row["key"]: row["value"] for row in metadata_rows},
                 "runtime": getattr(self.server, "runtime_info", {}),
+                "storage": {
+                    "review_db": str(self.server.db_path.resolve()),
+                    "fixtures_dir": str(self.server.fixtures_dir.resolve()),
+                },
+                "triage_buckets": dict(
+                    sorted(
+                        Counter(
+                            row.get("triage_bucket", "")
+                            for row in getattr(self.server, "triage_records", {}).values()
+                            if row.get("triage_bucket")
+                        ).items()
+                    )
+                ),
             },
+        )
+
+    def _api_review_reasons(self) -> None:
+        with _connect(self.server.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT reviewer, COUNT(*) AS count
+                FROM reviews
+                WHERE reviewer IS NOT NULL AND TRIM(reviewer) != ''
+                GROUP BY reviewer
+                ORDER BY COUNT(*) DESC, reviewer
+                """
+            ).fetchall()
+        _json_response(
+            self,
+            {"items": [{"reviewer": row["reviewer"], "count": row["count"]} for row in rows]},
         )
 
     def _api_cases(self, query: dict[str, list[str]]) -> None:
         category = query.get("category", [""])[0]
         status = query.get("status", [""])[0]
         search = query.get("q", [""])[0].strip()
+        triage_bucket = query.get("triage_bucket", [""])[0]
         limit = max(1, min(int(query.get("limit", ["100"])[0]), 500))
         offset = max(0, int(query.get("offset", ["0"])[0]))
 
@@ -644,27 +831,47 @@ class ReviewHandler(BaseHTTPRequestHandler):
             params.extend((f"%{search}%", search))
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
+        triage_records = getattr(self.server, "triage_records", {})
         with _connect(self.server.db_path) as conn:
-            rows = conn.execute(
-                _case_query() + where_sql + " ORDER BY c.row_index LIMIT ? OFFSET ?",
-                (*params, limit, offset),
-            ).fetchall()
-            total = conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM cases c
-                LEFT JOIN reviews r ON r.case_id = c.case_id
-                """
-                + where_sql,
-                params,
-            ).fetchone()["count"]
+            if triage_bucket:
+                matching = conn.execute(
+                    _case_query() + where_sql + " ORDER BY c.row_index",
+                    params,
+                ).fetchall()
+                matching = [
+                    row
+                    for row in matching
+                    if triage_records.get(str(row["case_id"]), {}).get("triage_bucket")
+                    == triage_bucket
+                ]
+                total = len(matching)
+                rows = matching[offset : offset + limit]
+            else:
+                rows = conn.execute(
+                    _case_query() + where_sql + " ORDER BY c.row_index LIMIT ? OFFSET ?",
+                    (*params, limit, offset),
+                ).fetchall()
+                total = conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM cases c
+                    LEFT JOIN reviews r ON r.case_id = c.case_id
+                    """
+                    + where_sql,
+                    params,
+                ).fetchone()["count"]
         fixture_records = load_fixture_records(self.server.fixtures_dir)
         _json_response(
             self,
             {
                 "total": total,
                 "items": [
-                    _row_dict(row, fixture=fixture_records.get(str(row["case_id"]))) for row in rows
+                    _row_dict(
+                        row,
+                        fixture=fixture_records.get(str(row["case_id"])),
+                        triage=triage_records.get(str(row["case_id"])),
+                    )
+                    for row in rows
                 ],
             },
         )
@@ -676,6 +883,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         payload = _row_dict(
             row,
             fixture=fixture_records.get(case_id),
+            triage=getattr(self.server, "triage_records", {}).get(case_id),
         )
         if payload is None:
             _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
@@ -770,6 +978,32 @@ class ReviewHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _api_graph(self, case_id: str, query: dict[str, list[str]]) -> None:
+        kind = query.get("kind", ["candidate"])[0]
+        if kind not in {"candidate", "reference"}:
+            _json_response(self, {"error": "invalid_graph_kind"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        with _connect(self.server.db_path) as conn:
+            case = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+        if case is None:
+            _json_response(self, {"error": "case_not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        if kind == "candidate":
+            mol = reconstruct_case_mol(dict(case), xyz_dir=self.server.xyz_dir)
+            smiles = _safe_smiles(mol)
+        else:
+            source_smiles = str(case["reference_smiles"] or "")
+            mol = _render_mol_from_smiles(source_smiles)
+            if mol is None:
+                _json_response(
+                    self,
+                    {"error": "reference_smiles_missing_or_invalid"},
+                    status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
+                return
+            smiles = source_smiles
+        _json_response(self, _review_graph_payload(mol, kind=kind, smiles=smiles))
+
     def _api_render(self, case_id: str, query: dict[str, list[str]]) -> None:
         kind = query.get("kind", ["candidate"])[0]
         if kind not in {"candidate", "reference", "candidate_organic", "reference_organic"}:
@@ -777,10 +1011,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
             return
 
         with _connect(self.server.db_path) as conn:
+            cache_kind = _render_cache_kind(kind)
             if kind != "candidate":
                 cached = conn.execute(
                     "SELECT svg, smiles, error FROM render_cache WHERE case_id = ? AND kind = ?",
-                    (case_id, kind),
+                    (case_id, cache_kind),
                 ).fetchone()
                 if cached is not None and not cached["error"]:
                     _json_response(self, {"kind": kind, **dict(cached)})
@@ -800,19 +1035,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} candidate")
                 elif kind == "reference":
-                    mol = _mol_from_smiles(case["reference_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["reference_smiles"] or "")
                     if mol is None:
                         raise ValueError("reference_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} Reference")
                 elif kind == "candidate_organic":
-                    mol = _mol_from_smiles(case["candidate_organic_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["candidate_organic_smiles"] or "")
                     if mol is None:
                         raise ValueError("candidate_organic_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
                     svg = _render_mol_svg(mol, legend=f"{case_id} candidate organic")
                 else:
-                    mol = _mol_from_smiles(case["reference_organic_smiles"] or "")
+                    mol = _render_mol_from_smiles(case["reference_organic_smiles"] or "")
                     if mol is None:
                         raise ValueError("reference_organic_smiles_missing_or_invalid")
                     smiles = _safe_smiles(mol)
@@ -828,7 +1063,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     )
                     VALUES(?, ?, ?, ?, ?, ?)
                     """,
-                    (case_id, kind, svg, smiles, error, datetime.now(timezone.utc).isoformat()),
+                    (
+                        case_id,
+                        cache_kind,
+                        svg,
+                        smiles,
+                        error,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
                 )
                 conn.commit()
         _json_response(self, {"kind": kind, "svg": svg, "smiles": smiles, "error": error})
@@ -926,6 +1168,7 @@ def main() -> None:
     server.db_path = args.db
     server.xyz_dir = args.xyz_dir
     server.fixtures_dir = args.fixtures_dir
+    server.triage_records = load_triage_records(args.triage_csv)
     server.runtime_info = runtime_info
     server.fixtures_dir.mkdir(parents=True, exist_ok=True)
     print(f"Molecule review server: http://{args.host}:{args.port}")

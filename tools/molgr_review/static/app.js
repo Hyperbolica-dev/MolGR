@@ -6,8 +6,7 @@ const state = {
   limit: 80,
   current: null,
   viewStyle: "stick",
-  primaryKind: "candidate",
-  secondaryKind: "reference",
+  caseRequestToken: 0,
   xyzViewer: null,
   candidateViewer: null,
   currentCandidateSdf: "",
@@ -15,6 +14,13 @@ const state = {
   ketcherLoaded: false,
   ketcherStatus: null,
   layout: null,
+  referenceRenderStatus: "render_failed",
+  referenceRenderError: "",
+  graphEvidence: {},
+  graphEvidenceLoadingCaseId: "",
+  xyzLoadStatus: "unknown",
+  xyzLoadError: "",
+  savingReview: false,
 };
 
 const translations = {
@@ -24,19 +30,23 @@ const translations = {
     languageToggle: "English",
     category: "类别",
     reviewStatus: "审核状态",
+    triageBucket: "Triage bucket",
     search: "搜索",
     searchPlaceholder: "id 或 row_index",
     all: "全部",
     previousPage: "上一页",
     nextPage: "下一页",
     chooseCase: "选择一个 case",
-    focusKetcher: "Ketcher 画布",
+    currentCase: "当前审核 case",
     openTrace: "打开 Trace",
     reloadCurrent: "重载当前",
     manualConclusion: "人工结论",
+    shortcutHint: "快捷键 1–7 · 上一条/下一条 ← →",
+    triageEvidence: "审核证据",
+    mappingConfidence: "mapping",
     removeFixture: "移除 fixture",
     removeFixtureTitle: "移除 {file} 并将 {caseId} 标记为待复核",
-    reviewer: "审核人",
+    reviewer: "审核理由",
     candidateGraph: "候选图为准",
     referenceGraph: "参考图为准",
     acceptBoth: "接受两者",
@@ -52,8 +62,8 @@ const translations = {
     topologyCompare: "拓扑对比",
     currentCandidate: "当前候选",
     reference: "参考图",
-    candidateOrganic: "候选图 organic",
-    referenceOrganic: "参考图 organic",
+    candidateOrganic: "候选 Organic graph",
+    referenceOrganic: "参考 Organic graph",
     manualEdit: "人工修图",
     ketcherCorrection: "Ketcher 修正拓扑",
     loadCandidateSdf: "载入候选 SDF",
@@ -61,7 +71,104 @@ const translations = {
     readCanvas: "读取画布",
     correctedSmiles: "修正 SMILES",
     correctedMolblock: "修正 Molfile / Molblock",
-    notes: "备注",
+    notes: "备注 / 证据",
+    reviewerSummary: "Reviewer Summary / 审核关注项",
+    datasetRuntime: "数据集 / 运行环境",
+    reviewStructures: "审核结构",
+    reviewDetailsJump: "审核详情",
+    reviewStructuresHint: "优先核对输入几何、当前候选图与参考图。",
+    xyzGeometry: "原始 3D 几何",
+    additionalViews: "其他结构视图",
+    reviewerDetails: "Reviewer details / 审核详情",
+    smilesGraphSummary: "SMILES & graph summary",
+    atomBondInspector: "Atom / bond inspector",
+    provenanceSnapshot: "Provenance / snapshot",
+    showFullGraph: "查看完整 graph",
+    metric: "指标",
+    element: "元素",
+    formalCharge: "形式电荷",
+    radicalElectrons: "自由基电子",
+    explicitH: "显式 H",
+    implicitH: "隐式 H",
+    neighbours: "邻接原子",
+    bond: "键",
+    bondType: "类型",
+    currentCandidateSmiles: "Current Candidate SMILES",
+    candidateSnapshotSmiles: "Candidate snapshot SMILES",
+    referenceSmiles: "Reference SMILES",
+    totalFormalCharge: "总形式电荷",
+    atomCount: "原子数",
+    explicitHCount: "显式 H 数",
+    totalRadicalElectrons: "总自由基电子数",
+    metals: "金属及形式电荷",
+    graphLoading: "正在读取 graph…",
+    graphUnavailable: "Graph unavailable",
+    noRelevantAtoms: "没有符合默认筛选的原子",
+    currentCandidateStatus: "当前候选状态",
+    currentVsSnapshot: "Current vs snapshot",
+    equivalenceMethod: "等价性方法",
+    equivalenceReason: "等价性说明",
+    snapshotRuntime: "Snapshot runtime",
+    qTooltip: "分子总电荷",
+    multiplicityTooltip: "自旋多重度",
+    radicalsTooltip: "显式自由基电子总数",
+    formulaTooltip: "XYZ 与 graph 分子式一致性",
+    caseDetails: "Developer details / 开发信息",
+    assessmentDetails: "Assessment / Reference 详情",
+    runtimeDetails: "Benchmark / Runtime",
+    otherMetadata: "Developer / raw metadata",
+    notProvided: "未提供",
+    present: "存在",
+    missing: "缺失",
+    invalid: "无效",
+    valid: "有效",
+    unknownValidity: "存在；有效性未提供",
+    currentDecision: "当前已保存：{status}",
+    noSavedDecision: "当前未保存审核结论",
+    reviewedBy: "审核理由：{reviewer}",
+    updatedAt: "更新于：{updatedAt}",
+    referenceMissingNotice: "当前 payload 未提供 reference SMILES。",
+    referenceInvalidNotice: "当前 reference SMILES 无法解析。",
+    referenceRenderFailed: "Reference render failed",
+    focusCandidateFailure: "重点检查：当前候选重建不可用。",
+    focusReference: "重点检查：Reference 缺失、无效或渲染失败，优先核对 XYZ 与 Candidate。",
+    focusFormula: "重点检查：XYZ 与 Reference 的分子式状态异常。",
+    focusAssessment: "重点检查：当前 case 的 assessability 受限。",
+    focusSnapshot: "重点检查：当前重建与 candidate snapshot 不一致。",
+    focusComparison: "重点检查：对照 XYZ、Candidate 与 Reference 的成键和电荷。",
+    summaryReference: "Reference",
+    summaryCandidate: "Candidate",
+    summaryCharge: "Charge",
+    summaryMultiplicity: "Multiplicity",
+    summaryRadicals: "Radicals",
+    summaryFormula: "Formula",
+    summaryAssessability: "Assessability",
+    summarySnapshot: "Snapshot vs current",
+    summaryFixture: "Fixture",
+    xyzUnavailable: "XYZ 无法加载",
+    candidateUnavailableBecauseXyz: "当前候选因此不可用",
+    candidateUnavailable: "当前候选不可用",
+    technicalDetail: "技术信息：{detail}",
+    statusOk: "✓",
+    statusMissingCompact: "缺失",
+    statusInvalidCompact: "无效",
+    statusUnavailableCompact: "不可用",
+    statusUnknownCompact: "—",
+    formulaOk: "✓",
+    snapshotCurrent: "current",
+    snapshotDifferent: "不同",
+    snapshotUnknown: "—",
+    queueLabel: "Queue",
+    currentCandidateLabel: "Current",
+    currentVsSnapshotLabel: "Current vs snapshot",
+    availableCompact: "available",
+    missingCompact: "missing",
+    invalidCompact: "invalid",
+    renderFailedCompact: "render failed",
+    unavailableCompact: "unavailable",
+    sameCompact: "same",
+    differentCompact: "different",
+    formulaLabel: "formula",
     structure: "结构图",
     close: "关闭",
     closeZoomedImage: "关闭放大图片",
@@ -122,6 +229,7 @@ const translations = {
       spin_multiplicity: "多重度",
       total_radical_electrons: "总自由基电子数",
       reference_smiles: "参考 SMILES",
+      candidate_smiles: "候选 SMILES",
       candidate_snapshot_smiles: "候选快照 SMILES",
       candidate_snapshot_runtime: "候选快照运行时",
       live_candidate_smiles: "当前候选 SMILES",
@@ -169,19 +277,23 @@ const translations = {
     languageToggle: "中文",
     category: "Category",
     reviewStatus: "Review status",
+    triageBucket: "Triage bucket",
     search: "Search",
     searchPlaceholder: "id or row_index",
     all: "All",
     previousPage: "Previous",
     nextPage: "Next",
     chooseCase: "Select a case",
-    focusKetcher: "Ketcher canvas",
+    currentCase: "Current review case",
     openTrace: "Open Trace",
     reloadCurrent: "Reload current",
     manualConclusion: "Manual decision",
+    shortcutHint: "Shortcuts 1–7 · previous/next ← →",
+    triageEvidence: "Review evidence",
+    mappingConfidence: "mapping",
     removeFixture: "Remove fixture",
     removeFixtureTitle: "Remove {file} and mark {caseId} for follow-up",
-    reviewer: "Reviewer",
+    reviewer: "Review reason",
     candidateGraph: "Accept candidate",
     referenceGraph: "Accept reference",
     acceptBoth: "Accept both",
@@ -197,8 +309,8 @@ const translations = {
     topologyCompare: "Topology comparison",
     currentCandidate: "Current candidate",
     reference: "Reference",
-    candidateOrganic: "Candidate organic",
-    referenceOrganic: "Reference organic",
+    candidateOrganic: "Candidate Organic graph",
+    referenceOrganic: "Reference Organic graph",
     manualEdit: "Manual editing",
     ketcherCorrection: "Ketcher topology correction",
     loadCandidateSdf: "Load candidate SDF",
@@ -206,7 +318,104 @@ const translations = {
     readCanvas: "Read canvas",
     correctedSmiles: "Corrected SMILES",
     correctedMolblock: "Corrected Molfile / Molblock",
-    notes: "Notes",
+    notes: "Notes / evidence",
+    reviewerSummary: "Reviewer Summary",
+    datasetRuntime: "Dataset / runtime",
+    reviewStructures: "Review structures",
+    reviewDetailsJump: "Review details",
+    reviewStructuresHint: "Check the input geometry, current candidate, and reference first.",
+    xyzGeometry: "Original 3D geometry",
+    additionalViews: "Additional structure views",
+    reviewerDetails: "Reviewer details",
+    smilesGraphSummary: "SMILES & graph summary",
+    atomBondInspector: "Atom / bond inspector",
+    provenanceSnapshot: "Provenance / snapshot",
+    showFullGraph: "Show full graph",
+    metric: "Metric",
+    element: "Element",
+    formalCharge: "Formal charge",
+    radicalElectrons: "Radical e−",
+    explicitH: "Explicit H",
+    implicitH: "Implicit H",
+    neighbours: "Neighbours",
+    bond: "Bond",
+    bondType: "Type",
+    currentCandidateSmiles: "Current Candidate SMILES",
+    candidateSnapshotSmiles: "Candidate snapshot SMILES",
+    referenceSmiles: "Reference SMILES",
+    totalFormalCharge: "Total formal charge",
+    atomCount: "Atom count",
+    explicitHCount: "Explicit H count",
+    totalRadicalElectrons: "Total radical electrons",
+    metals: "Metals and formal charges",
+    graphLoading: "Loading graph…",
+    graphUnavailable: "Graph unavailable",
+    noRelevantAtoms: "No atoms match the default filter",
+    currentCandidateStatus: "Current candidate status",
+    currentVsSnapshot: "Current vs snapshot",
+    equivalenceMethod: "Equivalence method",
+    equivalenceReason: "Equivalence reason",
+    snapshotRuntime: "Snapshot runtime",
+    qTooltip: "Total molecular charge",
+    multiplicityTooltip: "Spin multiplicity",
+    radicalsTooltip: "Total explicit radical electrons",
+    formulaTooltip: "XYZ / graph molecular formula consistency",
+    caseDetails: "Developer details",
+    assessmentDetails: "Assessment / Reference details",
+    runtimeDetails: "Benchmark / Runtime",
+    otherMetadata: "Developer / raw metadata",
+    notProvided: "Not provided",
+    present: "Present",
+    missing: "Missing",
+    invalid: "Invalid",
+    valid: "Valid",
+    unknownValidity: "Present; validity not provided",
+    currentDecision: "Saved decision: {status}",
+    noSavedDecision: "No review decision saved",
+    reviewedBy: "Review reason: {reviewer}",
+    updatedAt: "Updated: {updatedAt}",
+    referenceMissingNotice: "The current payload does not provide a reference SMILES.",
+    referenceInvalidNotice: "The reference SMILES could not be parsed.",
+    referenceRenderFailed: "Reference render failed",
+    focusCandidateFailure: "Focus: the current candidate reconstruction is unavailable.",
+    focusReference: "Focus: reference is missing, invalid, or failed to render; compare XYZ and Candidate first.",
+    focusFormula: "Focus: the XYZ and Reference formula status is abnormal.",
+    focusAssessment: "Focus: assessability is limited for this case.",
+    focusSnapshot: "Focus: current reconstruction differs from the candidate snapshot.",
+    focusComparison: "Focus: compare bonding and charge across XYZ, Candidate, and Reference.",
+    summaryReference: "Reference",
+    summaryCandidate: "Candidate",
+    summaryCharge: "Charge",
+    summaryMultiplicity: "Multiplicity",
+    summaryRadicals: "Radicals",
+    summaryFormula: "Formula",
+    summaryAssessability: "Assessability",
+    summarySnapshot: "Snapshot vs current",
+    summaryFixture: "Fixture",
+    xyzUnavailable: "XYZ could not be loaded",
+    candidateUnavailableBecauseXyz: "The current candidate is therefore unavailable",
+    candidateUnavailable: "Current candidate unavailable",
+    technicalDetail: "Technical detail: {detail}",
+    statusOk: "✓",
+    statusMissingCompact: "missing",
+    statusInvalidCompact: "invalid",
+    statusUnavailableCompact: "unavailable",
+    statusUnknownCompact: "—",
+    formulaOk: "✓",
+    snapshotCurrent: "current",
+    snapshotDifferent: "different",
+    snapshotUnknown: "—",
+    queueLabel: "Queue",
+    currentCandidateLabel: "Current",
+    currentVsSnapshotLabel: "Current vs snapshot",
+    availableCompact: "available",
+    missingCompact: "missing",
+    invalidCompact: "invalid",
+    renderFailedCompact: "render failed",
+    unavailableCompact: "unavailable",
+    sameCompact: "same",
+    differentCompact: "different",
+    formulaLabel: "formula",
     structure: "Structure",
     close: "Close",
     closeZoomedImage: "Close enlarged image",
@@ -267,6 +476,7 @@ const translations = {
       spin_multiplicity: "Spin multiplicity",
       total_radical_electrons: "Total radical electrons",
       reference_smiles: "Reference SMILES",
+      candidate_smiles: "Candidate SMILES",
       candidate_snapshot_smiles: "Candidate snapshot SMILES",
       candidate_snapshot_runtime: "Candidate snapshot runtime",
       live_candidate_smiles: "Live candidate SMILES",
@@ -349,10 +559,12 @@ function applyLanguage() {
   renderCaseList();
   if (state.current) {
     renderCaseHeader();
+    renderReviewerSummary();
     renderVersionComparison();
     renderDiagnostics();
+    renderReviewerDetails();
     renderCandidateSdfStatus();
-    loadPair();
+    loadPair(state.caseRequestToken);
   }
   renderKetcherStatus();
 }
@@ -383,8 +595,6 @@ function localizedError(key) {
 const labels = {
   candidate: "currentCandidate",
   reference: "reference",
-  candidate_organic: "candidateOrganic",
-  reference_organic: "referenceOrganic",
 };
 
 const layoutStorageKey = "moleculeReviewLayout.v1";
@@ -590,7 +800,10 @@ async function api(path, options = {}) {
   const payload = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const message = typeof payload === "string" ? payload : payload.error || response.statusText;
-    throw new Error(message);
+    const error = new Error(message);
+    error.httpStatus = response.status;
+    error.payloadError = typeof payload === "object" && payload ? payload.error || "" : "";
+    throw error;
   }
   return payload;
 }
@@ -687,6 +900,35 @@ async function loadStats() {
         `<code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`,
     )
     .join("");
+  const triageBuckets = stats.triage_buckets || {};
+  const triageFilter = $("triageFilter");
+  const selectedBucket = triageFilter.value;
+  const triageEntries = Object.entries(triageBuckets).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  $("triageFilterField").hidden = triageEntries.length === 0;
+  triageFilter.innerHTML = `<option value="">${escapeHtml(tr("all"))}</option>${triageEntries
+    .map(
+      ([bucket, count]) =>
+        `<option value="${escapeHtml(bucket)}">${escapeHtml(bucket)} (${count})</option>`,
+    )
+    .join("")}`;
+  if (triageEntries.some(([bucket]) => bucket === selectedBucket)) {
+    triageFilter.value = selectedBucket;
+  }
+}
+
+async function loadReviewReasons() {
+  const data = await api("/api/review-reasons");
+  const items = Array.isArray(data.items) ? data.items : [];
+  $("reviewReasonOptions").innerHTML = items
+    .filter((item) => hasValue(item.reviewer))
+    .map((item) => {
+      const reviewer = String(item.reviewer).trim();
+      const count = Number(item.count) || 0;
+      return `<option value="${escapeHtml(reviewer)}">${escapeHtml(`${reviewer} (${count})`)}</option>`;
+    })
+    .join("");
 }
 
 async function loadCases(reset = false) {
@@ -695,9 +937,11 @@ async function loadCases(reset = false) {
   const category = $("categoryFilter").value;
   const status = $("statusFilter").value;
   const q = $("searchBox").value.trim();
+  const triageBucket = $("triageFilter").value;
   if (category) params.set("category", category);
   if (status) params.set("status", status);
   if (q) params.set("q", q);
+  if (triageBucket) params.set("triage_bucket", triageBucket);
   params.set("limit", state.limit);
   params.set("offset", state.offset);
   const data = await api(`/api/cases?${params.toString()}`);
@@ -711,14 +955,23 @@ function renderCaseList() {
     .map((item) => {
       const selected = state.current && state.current.case_id === item.case_id ? "selected" : "";
       const status = statusLabel(item.review_status);
-      const fixture = item.fixture ? msg("fixture", { kind: item.fixture.kind }) : tr("noFixture");
+      const category = hasValue(item.category)
+        ? badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`)
+        : "";
+      const fixture = item.fixture
+        ? badge(msg("fixture", { kind: item.fixture.kind }), "fixture-tag")
+        : "";
+      const triage = item.triage_bucket
+        ? badge(item.triage_bucket, "triage-tag")
+        : "";
       return `
         <button class="case-item ${selected}" data-case-id="${escapeHtml(item.case_id)}" type="button">
           <span class="row"><strong>${escapeHtml(item.case_id)}</strong><span>#${item.row_index}</span></span>
           <span class="row">
-            ${badge(categoryLabel(item.category), categoryKind(item.category))}
-            ${badge(status, item.review_status ? reviewStatusKind(item.review_status) : "")}
-            ${badge(fixture, item.fixture ? "ok" : "warn")}
+            ${category}
+            ${badge(status, `review-tag ${item.review_status ? reviewStatusKind(item.review_status) : ""}`)}
+            ${triage}
+            ${fixture}
           </span>
         </button>`;
     })
@@ -729,21 +982,43 @@ function renderCaseList() {
   });
 }
 
+function isCurrentCaseRequest(token, caseId) {
+  return token === state.caseRequestToken && state.current?.case_id === caseId;
+}
+
 async function loadCase(caseId) {
-  const item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+  const token = ++state.caseRequestToken;
+  let item;
+  try {
+    item = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+  } catch (error) {
+    if (token !== state.caseRequestToken) return;
+    throw error;
+  }
+  if (token !== state.caseRequestToken) return;
   state.current = item;
   const url = new URL(window.location.href);
   url.searchParams.set("case", item.case_id);
   window.history.replaceState({}, "", url);
-  state.primaryKind = "candidate";
-  state.secondaryKind = "reference";
   state.currentLiveCandidate = null;
+  state.referenceRenderStatus = "render_failed";
+  state.referenceRenderError = "";
+  state.graphEvidence = {};
+  state.graphEvidenceLoadingCaseId = "";
+  state.xyzLoadStatus = "unknown";
+  state.xyzLoadError = "";
   renderCaseHeader();
+  renderReviewerSummary();
   populateReviewForm();
   renderVersionComparison();
   renderDiagnostics();
-  await Promise.all([loadXyz(item), loadCandidateSdf(item)]);
-  await loadPair();
+  renderReviewerDetails();
+  await Promise.all([loadXyz(item, token), loadCandidateSdf(item, token)]);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  await loadPair(token);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  if ($("reviewerDetails").open) await loadGraphEvidence(token);
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
   renderCaseList();
 }
 
@@ -753,34 +1028,253 @@ function renderCaseHeader() {
   openTrace.disabled = !item;
   openTrace.title = item ? msg("traceTitle", { caseId: item.case_id }) : tr("selectCaseFirst");
   const fixture = item.fixture;
-  const fixtureBadge = fixture
-    ? badge(msg("fixture", { kind: fixture.kind }), "ok")
-    : badge(tr("noFixture"), "warn");
-  $("caseTitle").textContent = `${item.case_id} · row ${item.row_index}`;
-  const liveMismatchBadge = item.live_matches_candidate_snapshot === false
-    ? badge(tr("candidateSnapshotMismatch"), "bad")
-    : "";
-  $("caseMeta").innerHTML = [
-    badge(categoryLabel(item.category), categoryKind(item.category)),
-    badge(
-      msg("candidateSnapshot", { status: item.candidate_snapshot_status || tr("statusMissing") }),
-      item.candidate_snapshot_status === "ok" ? "ok" : "bad",
-    ),
+  $("caseTitle").textContent = item.case_id;
+  const context = hasValue(item.row_index) ? [`${tr("row")} ${item.row_index}`] : [];
+  $("caseContext").textContent = context.length ? context.join(" · ") : tr("notProvided");
+  const candidateStatus = item.live_candidate_status || item.candidate_status;
+  const headerItems = [];
+  if (hasValue(item.category)) {
+    headerItems.push(badge(categoryLabel(item.category), `queue-tag ${categoryKind(item.category)}`));
+  }
+  if (hasValue(item.triage_bucket)) {
+    headerItems.push(badge(item.triage_bucket, "triage-tag"));
+  }
+  headerItems.push(
     item.review_status
-      ? badge(
-          statusLabel(item.review_status),
-          reviewStatusKind(item.review_status),
-        )
-      : badge(tr("unreviewed")),
-    fixtureBadge,
-    liveMismatchBadge,
-  ].join(" ");
+      ? badge(statusLabel(item.review_status), `review-tag ${reviewStatusKind(item.review_status)}`)
+      : badge(tr("unreviewed"), "review-tag"),
+  );
+  if (fixture) headerItems.push(badge(msg("fixture", { kind: fixture.kind }), "fixture-tag"));
+  $("caseMeta").innerHTML = headerItems.join(" ");
+  const audit = [];
+  if (hasValue(item.source)) audit.push(item.source);
+  if (candidateStatus && candidateStatus !== "ok") audit.push(`${tr("currentCandidateLabel")}: ${candidateStatus}`);
+  if (item.review_status && hasValue(item.reviewer)) {
+    audit.push(msg("reviewedBy", { reviewer: item.reviewer }));
+  }
+  if (item.review_status && hasValue(item.updated_at)) {
+    audit.push(msg("updatedAt", { updatedAt: formatTimestamp(item.updated_at) }));
+  }
+  $("reviewAudit").textContent = audit.join(" · ");
   const removeFixture = $("removeFixture");
   removeFixture.hidden = !fixture;
   removeFixture.disabled = !fixture;
   removeFixture.title = fixture
     ? msg("removeFixtureTitle", { file: fixture.structure_file, caseId: item.case_id })
     : tr("noFixture");
+}
+
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function formatTimestamp(value) {
+  if (!hasValue(value)) return tr("notProvided");
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function referenceState(item) {
+  if (!hasValue(item?.reference_smiles)) return "missing";
+  const parseStatus = String(item.reference_parse_status || "").toLowerCase();
+  if (parseStatus && parseStatus !== "ok") return "parse_invalid";
+  return state.referenceRenderStatus === "available" ? "available" : "render_failed";
+}
+
+function referenceLabel(item) {
+  const status = referenceState(item);
+  if (status === "missing") return tr("missing");
+  if (status === "parse_invalid") return tr("invalid");
+  if (status === "render_failed") return tr("referenceRenderFailed");
+  return tr("valid");
+}
+
+function summaryValue(value) {
+  return hasValue(value) ? String(value) : tr("notProvided");
+}
+
+function formulaSummary(item) {
+  const fields = [
+    item.reference_formula_check_status,
+    item.reference_formula_match,
+    item.xyz_formula,
+    item.reference_formula_with_h,
+  ].filter(hasValue);
+  return fields.length ? fields.join(" · ") : tr("notProvided");
+}
+
+function formulaCompact(item) {
+  const match = item.reference_formula_match;
+  const status = String(item.reference_formula_check_status || "").toLowerCase();
+  if (!hasValue(match) && !status) return tr("statusUnknownCompact");
+  if (match === "True" || status === "ok") return tr("formulaOk");
+  if (["not_applicable", "missing_reference_smiles"].includes(status)) return tr("statusUnknownCompact");
+  return summaryValue(item.reference_formula_check_status || match);
+}
+
+function assessmentSummary(item) {
+  const fields = [
+    item.accuracy_assessment_status,
+    item.tmqmg_answer_assessment,
+    item.molgr_answer_assessment,
+  ].filter(hasValue);
+  return fields.length ? fields.join(" · ") : tr("notProvided");
+}
+
+function snapshotSummary(item) {
+  if (item.live_matches_candidate_snapshot === true) return tr("generatedSnapshotMatch");
+  if (item.live_matches_candidate_snapshot === false) return tr("generatedSnapshotMismatch");
+  if (hasValue(item.live_candidate_status)) return tr("generatedSnapshotIncomparable");
+  return tr("notProvided");
+}
+
+function snapshotCompact(item) {
+  if (item.live_matches_candidate_snapshot === true) return tr("snapshotCurrent");
+  if (item.live_matches_candidate_snapshot === false) return tr("snapshotDifferent");
+  return tr("snapshotUnknown");
+}
+
+function referenceCompact(item) {
+  const status = referenceState(item);
+  if (status === "available") return tr("statusOk");
+  if (status === "missing") return tr("statusMissingCompact");
+  if (status === "parse_invalid") return tr("statusInvalidCompact");
+  return tr("renderFailedCompact");
+}
+
+function candidateCompact(item) {
+  const status = String(item.live_candidate_status || item.candidate_status || "").toLowerCase();
+  if (status === "ok") return tr("statusOk");
+  if (["failed", "error", "unavailable"].includes(status)) return tr("statusUnavailableCompact");
+  return status || tr("statusUnknownCompact");
+}
+
+function assessabilityCompact(item) {
+  const value = item.accuracy_assessment_status || item.tmqmg_answer_assessment || item.molgr_answer_assessment;
+  if (!hasValue(value)) return tr("statusUnknownCompact");
+  return String(value).toLowerCase() === "assessable" ? tr("statusOk") : String(value);
+}
+
+function reviewFocusKey(item) {
+  if (["failed", "error", "unavailable"].includes(String(item.live_candidate_status || item.candidate_status || "").toLowerCase())) {
+    return "focusCandidateFailure";
+  }
+  if (["missing", "parse_invalid", "render_failed"].includes(referenceState(item))) return "focusReference";
+  const formulaStatus = String(item.reference_formula_check_status || "").toLowerCase();
+  if (item.reference_formula_match === "False" || (formulaStatus && !["ok", "not_applicable"].includes(formulaStatus))) {
+    return "focusFormula";
+  }
+  const assessability = assessmentSummary(item).toLowerCase();
+  if (assessability !== tr("notProvided").toLowerCase() && /not_assessable|unassessable|limited/.test(assessability)) {
+    return "focusAssessment";
+  }
+  if (item.live_matches_candidate_snapshot === false) return "focusSnapshot";
+  return "focusComparison";
+}
+
+function renderReviewerSummary() {
+  const item = state.current;
+  if (!item) return;
+  const referenceStatus = referenceState(item);
+  const candidateStatus = String(item.live_candidate_status || item.candidate_status || "").toLowerCase();
+  const snapshotDifferent = item.live_matches_candidate_snapshot === false;
+  const snapshotKnown = typeof item.live_matches_candidate_snapshot === "boolean";
+  const provenance = snapshotDifferent ? compactProvenanceReason(item.live_candidate_equivalence_reason) : "";
+  const secondary = [
+    ["q", summaryValue(item.total_charge), "qTooltip"],
+    ["M", summaryValue(item.spin_multiplicity), "multiplicityTooltip"],
+    ["radicals", summaryValue(item.total_radical_electrons), "radicalsTooltip"],
+    [tr("formulaLabel"), formulaCompact(item), "formulaTooltip"],
+  ];
+  const snapshotText = snapshotKnown
+    ? snapshotDifferent
+      ? `<span class="status-pill drift">${escapeHtml(tr("differentCompact"))}</span>`
+      : `<span class="snapshot-same">${escapeHtml(tr("sameCompact"))}</span>`
+    : escapeHtml(tr("statusUnknownCompact"));
+  const mainStatus = [
+    `${escapeHtml(tr("currentCandidateLabel"))} ${candidateStatus === "ok" ? "✓" : escapeHtml(candidateStatus || tr("statusUnknownCompact"))}`,
+    `${escapeHtml(tr("summaryReference"))} ${referenceStatus === "available" ? "✓" : escapeHtml(referenceStatus === "missing" ? tr("missingCompact") : referenceStatus === "parse_invalid" ? tr("invalidCompact") : tr("renderFailedCompact"))}`,
+    `${escapeHtml(tr("currentVsSnapshotLabel"))} ${snapshotText}`,
+  ];
+  $("reviewSummary").innerHTML = `
+    <div class="status-line">${mainStatus.join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>
+    ${provenance ? `<div class="drift-reason">${escapeHtml(provenance)}</div>` : ""}
+    <div class="status-line metadata-line">${secondary
+      .map(
+        ([label, value, tooltip]) =>
+          `<span title="${escapeHtml(tr(tooltip))}">${escapeHtml(label)} ${escapeHtml(value)}</span>`,
+      )
+      .join('<span class="status-separator" aria-hidden="true"> · </span>')}</div>`;
+  renderTriageEvidence(item);
+  updateReferenceVisual();
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!hasValue(value)) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function renderTriageEvidence(item) {
+  const panel = $("triageEvidence");
+  const triage = item?.triage;
+  if (!triage) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  const evidence = [];
+  parseJsonArray(triage.metal_coordination_diff).forEach((edge) => {
+    const side = edge.edge_present_in;
+    const pair = (edge.candidate_atoms || []).join("–");
+    const distance = Number(edge.distance);
+    evidence.push(
+      `${(edge.elements || []).join("–")} · XYZ ${pair || "—"} · ` +
+        `${Number.isFinite(distance) ? `${distance.toFixed(3)} Å` : "distance —"} · ` +
+        `Candidate ${side === "candidate" ? "yes" : "no"} · Reference ${side === "reference" ? "yes" : "no"}`,
+    );
+  });
+  parseJsonArray(triage.hydrogen_assignment_diff).forEach((hydrogen) => {
+    evidence.push(
+      `H#${hydrogen.h_atom} · ${hydrogen.candidate_center_element}#${hydrogen.candidate_center} ` +
+        `${hydrogen.candidate_distance} Å vs ${hydrogen.reference_center_element}#${hydrogen.reference_center} ` +
+        `${hydrogen.reference_distance} Å · nearest ${hydrogen.nearest_assignment}`,
+    );
+  });
+  if (!evidence.length && hasValue(triage.xyz_evidence_summary)) {
+    evidence.push(triage.xyz_evidence_summary);
+  }
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="triage-evidence-head"><strong>${escapeHtml(tr("triageEvidence"))}</strong>
+      <span>${escapeHtml(triage.triage_bucket || "")} · ${escapeHtml(tr("mappingConfidence"))} ${escapeHtml(triage.mapping_confidence || "—")}</span>
+    </div>
+    ${evidence.slice(0, 3).map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+    ${hasValue(triage.trace_evidence_summary) ? `<div class="triage-trace" title="${escapeHtml(triage.trace_evidence_summary)}">Trace · ${escapeHtml(triage.trace_evidence_summary)}</div>` : ""}`;
+}
+
+function compactProvenanceReason(reason) {
+  return String(reason || "")
+    .replace(/^Not equivalent:\s*/i, "")
+    .replace(/\.$/, "");
+}
+
+function updateReferenceVisual() {
+  const item = state.current;
+  if (!item) return;
+  const status = referenceState(item);
+  $("primaryVisual").hidden = false;
+  $("secondaryVisual").hidden = false;
+  if (status === "missing") showReferenceMessage(tr("referenceMissingNotice"));
+  if (status === "parse_invalid") showReferenceMessage(tr("referenceInvalidNotice"));
+  if (status === "render_failed") {
+    showReferenceMessage(tr("referenceRenderFailed"), state.referenceRenderError);
+  }
 }
 
 function populateReviewForm() {
@@ -792,23 +1286,203 @@ function populateReviewForm() {
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
+  if (item.review_status === "manual_reference") {
+    $("manualEditorDetails").open = true;
+  }
+}
+
+function renderReviewerDetails() {
+  const item = state.current;
+  if (!item) return;
+  const smilesRows = [
+    [tr("currentCandidateSmiles"), item.live_candidate_smiles],
+    [tr("candidateSnapshotSmiles"), item.candidate_snapshot_smiles],
+    [tr("referenceSmiles"), item.reference_smiles],
+  ];
+  $("reviewerSmiles").innerHTML = smilesRows
+    .map(
+      ([label, value]) =>
+        `<dt>${escapeHtml(label)}</dt><dd><code>${escapeHtml(hasValue(value) ? value : tr("notProvided"))}</code></dd>`,
+    )
+    .join("");
+  renderDiagnosticList(
+    "reviewerProvenance",
+    [
+      [tr("currentCandidateStatus"), item.live_candidate_status || item.candidate_status],
+      [tr("currentVsSnapshot"), snapshotSummary(item)],
+      [tr("equivalenceMethod"), item.live_candidate_equivalence_method],
+      [tr("equivalenceReason"), item.live_candidate_equivalence_reason],
+      [tr("snapshotRuntime"), item.candidate_snapshot_runtime],
+    ],
+    false,
+  );
+  renderGraphEvidence();
+}
+
+function jumpToReviewerDetails() {
+  const details = $("reviewerDetails");
+  details.open = true;
+  loadGraphEvidence(state.caseRequestToken);
+  requestAnimationFrame(() => details.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+function signedCharge(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return tr("notProvided");
+  return number > 0 ? `+${number}` : String(number);
+}
+
+function metalSummary(metals) {
+  if (!Array.isArray(metals) || !metals.length) return "—";
+  return metals
+    .map((metal) => `${metal.element}${metal.index} ${signedCharge(metal.formal_charge)}`)
+    .join(", ");
+}
+
+function renderGraphEvidence() {
+  const metrics = [
+    ["totalFormalCharge", "total_formal_charge", (value) => signedCharge(value)],
+    ["atomCount", "atom_count", String],
+    ["explicitHCount", "explicit_h_count", String],
+    ["totalRadicalElectrons", "total_radical_electrons", String],
+    ["metals", "metals", metalSummary],
+  ];
+  const candidate = state.graphEvidence.candidate?.summary;
+  const reference = state.graphEvidence.reference?.summary;
+  $("graphSummaryRows").innerHTML = metrics
+    .map(([labelKey, field, format]) => {
+      const candidateValue = candidate && candidate[field] !== undefined
+        ? format(candidate[field])
+        : "—";
+      const referenceValue = reference && reference[field] !== undefined
+        ? format(reference[field])
+        : "—";
+      return `<tr><th>${escapeHtml(tr(labelKey))}</th><td>${escapeHtml(candidateValue)}</td><td>${escapeHtml(referenceValue)}</td></tr>`;
+    })
+    .join("");
+  renderGraphInspector("candidate");
+  renderGraphInspector("reference");
+}
+
+function relevantAtomIndices(graph, showFull) {
+  if (!graph || !Array.isArray(graph.atoms)) return new Set();
+  if (showFull) return new Set(graph.atoms.map((atom) => atom.index));
+  const metalIndices = new Set(
+    graph.atoms.filter((atom) => atom.is_metal).map((atom) => atom.index),
+  );
+  return new Set(
+    graph.atoms
+      .filter(
+        (atom) =>
+          !["C", "H"].includes(atom.element) ||
+          atom.is_metal ||
+          atom.neighbours.some((neighbour) => metalIndices.has(neighbour.index)),
+      )
+      .map((atom) => atom.index),
+  );
+}
+
+function atomLabel(element, index) {
+  return `${element}${index}`;
+}
+
+function renderGraphInspector(kind) {
+  const graph = state.graphEvidence[kind];
+  const prefix = kind === "candidate" ? "candidate" : "reference";
+  const atomRows = $(`${prefix}AtomRows`);
+  const bondRows = $(`${prefix}BondRows`);
+  const error = $(`${prefix}GraphError`);
+  if (!graph) {
+    atomRows.innerHTML = `<tr><td colspan="7">${escapeHtml(tr("graphLoading"))}</td></tr>`;
+    bondRows.innerHTML = `<tr><td colspan="3">${escapeHtml(tr("graphLoading"))}</td></tr>`;
+    error.hidden = true;
+    error.textContent = "";
+    return;
+  }
+  if (graph.error) {
+    atomRows.innerHTML = `<tr><td colspan="7">${escapeHtml(tr("graphUnavailable"))}</td></tr>`;
+    bondRows.innerHTML = `<tr><td colspan="3">${escapeHtml(tr("graphUnavailable"))}</td></tr>`;
+    error.hidden = false;
+    error.textContent = tr("graphUnavailable");
+    return;
+  }
+  error.hidden = true;
+  error.textContent = "";
+  const showFull = document.querySelector(`.show-full-graph[data-kind="${kind}"]`)?.checked;
+  const visible = relevantAtomIndices(graph, showFull);
+  const atoms = graph.atoms.filter((atom) => visible.has(atom.index));
+  atomRows.innerHTML = atoms.length
+    ? atoms
+        .map(
+          (atom) => `<tr>
+            <td>${atom.index}</td><td>${escapeHtml(atom.element)}</td>
+            <td>${escapeHtml(signedCharge(atom.formal_charge))}</td>
+            <td>${atom.radical_electrons}</td><td>${atom.explicit_h ?? "—"}</td>
+            <td>${atom.implicit_h ?? "—"}</td>
+            <td>${escapeHtml(atom.neighbours.map((neighbour) => atomLabel(neighbour.element, neighbour.index)).join(", "))}</td>
+          </tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="7">${escapeHtml(tr("noRelevantAtoms"))}</td></tr>`;
+  const bonds = graph.bonds.filter(
+    (bond) => showFull || visible.has(bond.begin_atom) || visible.has(bond.end_atom),
+  );
+  bondRows.innerHTML = bonds.length
+    ? bonds
+        .map((bond) => {
+          const begin = atomLabel(bond.begin_element, bond.begin_atom);
+          const end = atomLabel(bond.end_element, bond.end_atom);
+          const connector = bond.directional
+            ? "→"
+            : bond.type === "double"
+              ? "="
+              : bond.type === "triple"
+                ? "≡"
+                : bond.type === "aromatic"
+                  ? "↔"
+                  : "–";
+          return `<tr><td>${bond.index}</td><td>${escapeHtml(`${begin} ${connector} ${end}`)}</td><td>${escapeHtml(bond.type)}</td></tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="3">—</td></tr>`;
+}
+
+async function loadGraphEvidence(token = state.caseRequestToken) {
+  const item = state.current;
+  if (!item || !isCurrentCaseRequest(token, item.case_id)) return;
+  if (state.graphEvidenceLoadingCaseId === item.case_id) return;
+  if (state.graphEvidence.candidate && state.graphEvidence.reference) return;
+  state.graphEvidenceLoadingCaseId = item.case_id;
+  renderGraphEvidence();
+  const kinds = ["candidate", "reference"];
+  const results = await Promise.all(
+    kinds.map(async (kind) => {
+      try {
+        return await api(
+          `/api/cases/${encodeURIComponent(item.case_id)}/graph?kind=${encodeURIComponent(kind)}`,
+        );
+      } catch (error) {
+        return { kind, error: error.message };
+      }
+    }),
+  );
+  if (!isCurrentCaseRequest(token, item.case_id)) return;
+  state.graphEvidence = Object.fromEntries(results.map((result) => [result.kind, result]));
+  state.graphEvidenceLoadingCaseId = "";
+  renderGraphEvidence();
 }
 
 function renderDiagnostics() {
   const item = state.current;
-  const pairs = [
-    ["total_charge", item.total_charge],
-    ["spin_multiplicity", item.spin_multiplicity],
-    ["total_radical_electrons", item.total_radical_electrons],
+  const smilesPairs = [
     ["reference_smiles", item.reference_smiles],
+    ["candidate_smiles", item.candidate_smiles],
     ["candidate_snapshot_smiles", item.candidate_snapshot_smiles],
-    ["candidate_snapshot_runtime", item.candidate_snapshot_runtime],
     ["live_candidate_smiles", item.live_candidate_smiles],
-    ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
-    ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
-    ["live_candidate_reason", item.live_candidate_equivalence_reason],
     ["candidate_organic", item.candidate_organic_smiles],
     ["reference_organic", item.reference_organic_smiles],
+  ];
+  const assessmentPairs = [
     ["reference_formula_status", item.reference_formula_check_status],
     ["xyz_formula", item.xyz_formula],
     ["reference_formula_with_h", item.reference_formula_with_h],
@@ -821,12 +1495,53 @@ function renderDiagnostics() {
     ["molgr_answer_assessment", item.molgr_answer_assessment],
     ["error", item.error],
   ];
-  $("diagnostics").innerHTML = pairs
+  const runtimePairs = [
+    ["candidate_snapshot_runtime", item.candidate_snapshot_runtime],
+    ["live_candidate_smiles_exact_match", item.live_candidate_smiles_exact_match],
+    ["live_matches_candidate_snapshot", item.live_matches_candidate_snapshot],
+    ["live_candidate_reason", item.live_candidate_equivalence_reason],
+  ];
+  renderDiagnosticList("assessmentDiagnostics", assessmentPairs);
+  renderDiagnosticList("runtimeDiagnostics", runtimePairs);
+
+  const represented = new Set([
+    "fixture", "case_id", "row_index", "source", "category", "xyz_path",
+    "total_charge", "total_radical_electrons", "spin_multiplicity", "reference_smiles",
+    "candidate_smiles", "candidate_organic_smiles", "reference_organic_smiles",
+    "candidate_status", "review_status", "corrected_smiles", "corrected_molblock", "notes",
+    "reviewer", "updated_at", "candidate_snapshot_runtime", "candidate_snapshot_smiles",
+    "candidate_snapshot_status", "live_candidate_status", "live_candidate_smiles",
+    "live_candidate_smiles_exact_match", "live_matches_candidate_snapshot",
+    "live_candidate_equivalence_method", "live_candidate_equivalence_reason",
+    "reference_formula_check_status", "xyz_formula", "reference_formula_with_h",
+    "reference_formula_mismatch_detail", "reference_answer_status", "reference_answer_reason",
+    "accuracy_assessment_status", "accuracy_assessment_reason", "tmqmg_answer_assessment",
+    "molgr_answer_assessment", "error",
+  ]);
+  const metadataPairs = Object.entries(item)
+    .filter(([key, value]) => !represented.has(key) && hasValue(value))
+    .sort(([left], [right]) => left.localeCompare(right));
+  renderDiagnosticList("metadataDiagnostics", metadataPairs, false);
+
+  $("diagnostics").innerHTML = [...smilesPairs, ...assessmentPairs, ...runtimePairs]
     .map(([key, value]) => {
       const displayValue = value === null || value === undefined ? "" : String(value);
       return `<dt>${escapeHtml(tr(`diagnostics.${key}`, key))}</dt><dd>${escapeHtml(displayValue)}</dd>`;
     })
     .join("");
+}
+
+function renderDiagnosticList(id, pairs, translateKeys = true) {
+  const available = pairs.filter(([, value]) => hasValue(value));
+  $(id).innerHTML = available.length
+    ? available
+        .map(([key, value]) => {
+          const label = translateKeys ? tr(`diagnostics.${key}`, key) : key;
+          const display = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+          return `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(display)}</dd>`;
+        })
+        .join("")
+    : `<div class="details-empty">${escapeHtml(tr("notProvided"))}</div>`;
 }
 
 function statusBadge(status) {
@@ -836,14 +1551,13 @@ function statusBadge(status) {
   return badge(status, "bad");
 }
 
-function versionResultCard(label, status, smiles) {
+function versionResultCard(label, status) {
   return `
     <article class="version-card">
       <header>
         <strong>${escapeHtml(label)}</strong>
         ${statusBadge(status)}
       </header>
-      <code>${escapeHtml(smiles || "")}</code>
     </article>`;
 }
 
@@ -871,8 +1585,8 @@ function renderVersionComparison() {
       ${badge(mismatch ? tr("disagreement") : tr("consistent"), mismatch ? "warn" : "ok")}
     </header>
     <div class="version-grid">
-      ${versionResultCard("Python 3.8 · candidate_cpp", py38Status, py38Smiles)}
-      ${versionResultCard("Python 3.10 · candidate_cpp", py310Status, py310Smiles)}
+      ${versionResultCard("Python 3.8 · candidate_cpp", py38Status)}
+      ${versionResultCard("Python 3.10 · candidate_cpp", py310Status)}
     </div>`;
 }
 
@@ -901,33 +1615,50 @@ function renderCandidateSdfStatus() {
   modelStatus.textContent = tr("rendered");
 }
 
-async function loadXyz(item) {
+async function loadXyz(item, token) {
   const container = $("viewer3d");
+  const technical = $("xyzTechnicalError");
   $("xyzText").textContent = tr("statusLoading");
+  technical.hidden = true;
+  technical.textContent = "";
   try {
     const xyz = await fetch(`/api/cases/${encodeURIComponent(item.case_id)}/xyz`).then((r) => {
       if (!r.ok) throw new Error(`XYZ load failed: ${r.status}`);
       return r.text();
     });
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     $("xyzText").textContent = xyz;
-    render3d(xyz);
+    state.xyzLoadStatus = "ok";
+    state.xyzLoadError = "";
+    render3d(xyz, token, item.case_id);
+    renderReviewerSummary();
   } catch (error) {
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
+    state.xyzLoadStatus = "error";
+    state.xyzLoadError = error.message;
     $("xyzText").textContent = error.message;
-    container.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    container.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("xyzUnavailable"))}</strong><span>${escapeHtml(tr("candidateUnavailableBecauseXyz"))}</span></div>`;
+    technical.hidden = false;
+    technical.textContent = msg("technicalDetail", { detail: error.message });
+    renderReviewerSummary();
   }
 }
 
-async function loadCandidateSdf(item) {
+async function loadCandidateSdf(item, token) {
   const text = $("candidateSdfText");
   const status = $("candidateSdfStatus");
   const modelStatus = $("candidateModelStatus");
+  const technical = $("candidateTechnicalError");
   text.textContent = tr("statusLoading");
   status.textContent = "";
   modelStatus.textContent = "";
   state.currentCandidateSdf = "";
   state.currentLiveCandidate = null;
+  technical.hidden = true;
+  technical.textContent = "";
   try {
     const data = await api(`/api/cases/${encodeURIComponent(item.case_id)}/candidate-sdf`);
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     state.currentLiveCandidate = data;
     item.live_candidate_status = data.live_candidate_status || "";
     item.live_candidate_smiles = data.live_candidate_smiles || "";
@@ -936,13 +1667,19 @@ async function loadCandidateSdf(item) {
     item.live_candidate_equivalence_method = data.live_candidate_equivalence_method || "";
     item.live_candidate_equivalence_reason = data.live_candidate_equivalence_reason || "";
     renderCaseHeader();
+    renderReviewerSummary();
     renderDiagnostics();
+    renderReviewerDetails();
     if (!data.available) {
       text.textContent = data.error || tr("reconstructionUnavailable");
       item.live_candidate_status = "unavailable";
+      renderReviewerSummary();
+      renderReviewerDetails();
       status.textContent = tr("unavailable");
       modelStatus.textContent = tr("unavailable");
-      renderCandidate3d("");
+      technical.hidden = !data.error;
+      technical.textContent = data.error ? msg("technicalDetail", { detail: data.error }) : "";
+      renderCandidate3d("", token, item.case_id);
       return;
     }
     state.currentCandidateSdf = data.sdf || "";
@@ -956,14 +1693,19 @@ async function loadCandidateSdf(item) {
         ? tr("generatedSnapshotIncomparable")
         : tr("emptyResult");
     }
-    renderCandidate3d(state.currentCandidateSdf);
+    renderCandidate3d(state.currentCandidateSdf, token, item.case_id);
     modelStatus.textContent = state.currentCandidateSdf ? tr("rendered") : tr("emptyResult");
   } catch (error) {
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     item.live_candidate_status = "error";
+    renderReviewerSummary();
+    renderReviewerDetails();
     text.textContent = error.message;
     status.textContent = tr("error");
     modelStatus.textContent = tr("error");
-    renderCandidate3d("");
+    technical.hidden = false;
+    technical.textContent = msg("technicalDetail", { detail: error.message });
+    renderCandidate3d("", token, item.case_id);
   }
 }
 
@@ -988,7 +1730,7 @@ function copyViewerPose(sourceViewer, targetViewer) {
   }
 }
 
-function render3d(xyz) {
+function render3d(xyz, token = state.caseRequestToken, caseId = state.current?.case_id) {
   const container = $("viewer3d");
   container.innerHTML = "";
   if (!window.$3Dmol) {
@@ -996,6 +1738,7 @@ function render3d(xyz) {
     return;
   }
   requestAnimationFrame(() => {
+    if (!isCurrentCaseRequest(token, caseId)) return;
     const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
     viewer.addModel(xyz, "xyz");
     applyViewerStyle(viewer);
@@ -1006,12 +1749,12 @@ function render3d(xyz) {
     viewer.render();
     state.xyzViewer = viewer;
     if (state.currentCandidateSdf) {
-      renderCandidate3d(state.currentCandidateSdf);
+      renderCandidate3d(state.currentCandidateSdf, token, caseId);
     }
   });
 }
 
-function renderCandidate3d(sdf) {
+function renderCandidate3d(sdf, token = state.caseRequestToken, caseId = state.current?.case_id) {
   const container = $("viewerCandidate3d");
   container.innerHTML = "";
   if (!sdf) {
@@ -1025,6 +1768,7 @@ function renderCandidate3d(sdf) {
     return;
   }
   requestAnimationFrame(() => {
+    if (!isCurrentCaseRequest(token, caseId)) return;
     const viewer = window.$3Dmol.createViewer(container, { backgroundColor: "white" });
     viewer.addModel(sdf, "sdf");
     applyViewerStyle(viewer);
@@ -1038,15 +1782,35 @@ function renderCandidate3d(sdf) {
   });
 }
 
-async function loadPair() {
+async function loadPair(token = state.caseRequestToken) {
   await Promise.all([
-    loadRender(state.primaryKind, "primary"),
-    loadRender(state.secondaryKind, "secondary"),
+    loadRender("candidate", "primary", token),
+    loadRender("reference", "secondary", token),
   ]);
 }
 
-async function loadRender(kind, slot) {
+function renderErrorDetail(kind, { httpStatus = null, payloadError = "", message = "" } = {}) {
+  const parts = [`kind=${kind}`];
+  if (httpStatus !== null && httpStatus !== undefined) parts.push(`HTTP ${httpStatus}`);
+  if (payloadError) parts.push(`payload.error=${payloadError}`);
+  if (message && message !== payloadError) parts.push(message);
+  return parts.join(" · ");
+}
+
+function showReferenceMessage(message, technicalDetail = "") {
+  const box = $("secondarySvg");
+  box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(message)}</strong></div>`;
+  setImageZoomState(box, tr("reference"));
+  const technical = $("referenceTechnicalError");
+  technical.hidden = !technicalDetail;
+  technical.textContent = technicalDetail
+    ? msg("technicalDetail", { detail: technicalDetail })
+    : "";
+}
+
+async function loadRender(kind, slot, token = state.caseRequestToken) {
   const item = state.current;
+  if (!item || !isCurrentCaseRequest(token, item.case_id)) return;
   const title = slot === "primary" ? $("primaryRenderTitle") : $("secondaryRenderTitle");
   const reason =
     slot === "primary" ? $("primaryReferenceReason") : $("secondaryReferenceReason");
@@ -1061,6 +1825,21 @@ async function loadRender(kind, slot) {
   box.innerHTML = `<div class="empty">${escapeHtml(tr("rendering"))}</div>`;
   setImageZoomState(box, title.textContent);
   smiles.textContent = "";
+  if (kind === "reference") {
+    $("referenceTechnicalError").hidden = true;
+    $("referenceTechnicalError").textContent = "";
+  }
+  const initialReferenceState = kind === "reference" ? referenceState(item) : null;
+  if (initialReferenceState === "missing" || initialReferenceState === "parse_invalid") {
+    state.referenceRenderError = "";
+    showReferenceMessage(
+      initialReferenceState === "missing"
+        ? tr("referenceMissingNotice")
+        : tr("referenceInvalidNotice"),
+    );
+    renderReviewerSummary();
+    return;
+  }
   try {
     const data =
       kind === "candidate"
@@ -1068,22 +1847,77 @@ async function loadRender(kind, slot) {
         : await api(
             `/api/cases/${encodeURIComponent(item.case_id)}/render?kind=${encodeURIComponent(kind)}`,
           );
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
     const renderError = kind === "candidate" ? data?.render_error || data?.error : data?.error;
     if (!data || renderError) {
-      box.innerHTML = `<div class="empty">${escapeHtml(renderError || tr("reconstructionUnavailable"))}</div>`;
+      const detail = renderErrorDetail(kind, {
+        payloadError: renderError || "",
+        message: !data ? "empty response" : "",
+      });
+      if (kind === "candidate") {
+        box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("candidateUnavailable"))}</strong></div>`;
+        $("candidateTechnicalError").hidden = false;
+        $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
+      } else {
+        state.referenceRenderStatus = "render_failed";
+        state.referenceRenderError = detail;
+        showReferenceMessage(tr("referenceRenderFailed"), detail);
+      }
     } else {
-      box.innerHTML = data.svg || `<div class="empty">${escapeHtml(tr("emptyRender"))}</div>`;
+      if (data.svg) {
+        box.innerHTML = data.svg;
+        if (kind === "reference") {
+          state.referenceRenderStatus = "available";
+          state.referenceRenderError = "";
+          $("referenceTechnicalError").hidden = true;
+          $("referenceTechnicalError").textContent = "";
+        }
+      } else {
+        const detail = renderErrorDetail(kind, { message: "empty SVG" });
+        if (kind === "reference") {
+          state.referenceRenderStatus = "render_failed";
+          state.referenceRenderError = detail;
+          showReferenceMessage(tr("referenceRenderFailed"), detail);
+        } else {
+          box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(tr("candidateUnavailable"))}</strong></div>`;
+          $("candidateTechnicalError").hidden = false;
+          $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
+        }
+      }
     }
     setImageZoomState(box, title.textContent);
     smiles.textContent = kind === "candidate" ? data?.live_candidate_smiles || "" : data?.smiles || "";
+    if (kind === "reference") {
+      renderCaseHeader();
+      renderReviewerSummary();
+    }
   } catch (error) {
-    box.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    if (!isCurrentCaseRequest(token, item.case_id)) return;
+    const detail = renderErrorDetail(kind, {
+      httpStatus: error.httpStatus,
+      payloadError: error.payloadError,
+      message: error.message,
+    });
+    box.innerHTML = `<div class="reviewer-error"><strong>${escapeHtml(kind === "candidate" ? tr("candidateUnavailable") : tr("referenceRenderFailed"))}</strong></div>`;
     setImageZoomState(box, title.textContent);
+    if (kind === "reference") {
+      state.referenceRenderStatus = "render_failed";
+      state.referenceRenderError = detail;
+      showReferenceMessage(tr("referenceRenderFailed"), detail);
+      renderCaseHeader();
+      renderReviewerSummary();
+    } else {
+      $("candidateTechnicalError").hidden = false;
+      $("candidateTechnicalError").textContent = msg("technicalDetail", { detail });
+    }
   }
 }
 
 async function saveReview(status) {
-  if (!state.current) return;
+  if (!state.current || state.savingReview) return;
+  state.savingReview = true;
+  const currentIndex = state.cases.findIndex((item) => item.case_id === state.current.case_id);
+  const queuedNextCaseId = currentIndex >= 0 ? state.cases[currentIndex + 1]?.case_id : "";
   $("saveState").textContent = tr("saving");
   try {
     if (status === "manual_reference") {
@@ -1104,10 +1938,66 @@ async function saveReview(status) {
     $("saveState").textContent = result.fixture
       ? msg("savedFixture", { file: result.fixture.structure_file })
       : tr("savedNoFixture");
-    await loadStats();
-    await loadCase(state.current.case_id);
+    await Promise.all([loadStats(), loadReviewReasons()]);
+    await loadCases();
+    if (queuedNextCaseId) {
+      await loadCase(queuedNextCaseId);
+      return;
+    }
+    const nextIndex = currentIndex >= 0 ? Math.min(currentIndex, state.cases.length - 1) : 0;
+    const nextCase = state.cases[nextIndex];
+    if (nextCase) await loadCase(nextCase.case_id);
   } catch (error) {
     $("saveState").textContent = error.message;
+  } finally {
+    state.savingReview = false;
+  }
+}
+
+async function navigateCase(delta) {
+  if (!state.cases.length) return;
+  const currentIndex = state.current
+    ? state.cases.findIndex((item) => item.case_id === state.current.case_id)
+    : -1;
+  const targetIndex = currentIndex + delta;
+  if (targetIndex >= 0 && targetIndex < state.cases.length) {
+    await loadCase(state.cases[targetIndex].case_id);
+    return;
+  }
+  if (delta > 0 && state.offset + state.limit < state.total) {
+    state.offset += state.limit;
+    await loadCases();
+    if (state.cases.length) await loadCase(state.cases[0].case_id);
+  } else if (delta < 0 && state.offset > 0) {
+    state.offset = Math.max(0, state.offset - state.limit);
+    await loadCases();
+    if (state.cases.length) await loadCase(state.cases[state.cases.length - 1].case_id);
+  }
+}
+
+function reviewShortcut(event) {
+  const target = event.target;
+  if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+  const statusByKey = {
+    1: "accept_candidate",
+    2: "accept_reference",
+    3: "accept_both",
+    4: "manual_reference",
+    5: "reference_answer_wrong",
+    6: "needs_followup",
+    7: "skip",
+  };
+  if (statusByKey[event.key]) {
+    event.preventDefault();
+    saveReview(statusByKey[event.key]);
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    navigateCase(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    navigateCase(1);
   }
 }
 
@@ -1233,11 +2123,21 @@ function bindEvents() {
   });
   $("refreshStats").addEventListener("click", () => {
     loadStats();
+    loadReviewReasons();
     loadCases(true);
   });
   $("languageToggle").addEventListener("click", toggleLanguage);
+  $("reviewer").addEventListener("focus", () => loadReviewReasons());
+  $("reviewerDetails").addEventListener("toggle", () => {
+    if ($("reviewerDetails").open) loadGraphEvidence(state.caseRequestToken);
+  });
+  $("jumpToReviewerDetails").addEventListener("click", jumpToReviewerDetails);
+  document.querySelectorAll(".show-full-graph").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => renderGraphInspector(checkbox.dataset.kind));
+  });
   $("categoryFilter").addEventListener("change", () => loadCases(true));
   $("statusFilter").addEventListener("change", () => loadCases(true));
+  $("triageFilter").addEventListener("change", () => loadCases(true));
   $("searchBox").addEventListener("input", debounce(() => loadCases(true), 250));
   $("prevPage").addEventListener("click", () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -1273,10 +2173,6 @@ function bindEvents() {
       openImageLightbox(box);
     });
   });
-  $("focusKetcher").addEventListener("click", () => {
-    $("ketcherPanel").scrollIntoView({ block: "center", behavior: "smooth" });
-    $("ketcherFrame").focus();
-  });
   $("loadMolgrToKetcher").addEventListener("click", () =>
     setKetcherMolecule(state.currentCandidateSdf || currentCandidateOrganicSmiles()),
   );
@@ -1291,18 +2187,10 @@ function bindEvents() {
       if (state.currentCandidateSdf) renderCandidate3d(state.currentCandidateSdf);
     });
   });
-  document.querySelectorAll(".render-kind").forEach((button) => {
-    button.addEventListener("click", async () => {
-      document.querySelectorAll(".render-kind").forEach((b) => b.classList.remove("active"));
-      button.classList.add("active");
-      state.primaryKind = button.dataset.kind;
-      state.secondaryKind = state.primaryKind === "candidate" ? "reference" : "candidate";
-      await loadPair();
-    });
-  });
   document.querySelectorAll(".decision").forEach((button) => {
     button.addEventListener("click", () => saveReview(button.dataset.status));
   });
+  document.addEventListener("keydown", reviewShortcut);
 }
 
 function debounce(fn, wait) {
@@ -1318,6 +2206,7 @@ async function init() {
   const requestedCaseId = new URLSearchParams(window.location.search).get("case")?.trim() || "";
   if (requestedCaseId) $("searchBox").value = requestedCaseId;
   await loadStats();
+  await loadReviewReasons();
   await loadCases(true);
   if (requestedCaseId) {
     await loadCase(requestedCaseId);
