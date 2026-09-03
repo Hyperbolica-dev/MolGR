@@ -844,6 +844,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "review_statuses": dict(status_counts),
                 "metadata": {row["key"]: row["value"] for row in metadata_rows},
                 "runtime": getattr(self.server, "runtime_info", {}),
+                "session": {
+                    "required_reviewer": self.server.required_reviewer,
+                    "restricted_to_triage": self.server.restrict_to_triage,
+                    "frozen_candidate_only": self.server.frozen_candidate_only,
+                },
                 "storage": {
                     "review_db": str(self.server.db_path.resolve()),
                     "fixtures_dir": str(self.server.fixtures_dir.resolve()),

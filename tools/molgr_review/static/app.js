@@ -21,6 +21,7 @@ const state = {
   xyzLoadStatus: "unknown",
   xyzLoadError: "",
   savingReview: false,
+  requiredReviewer: "",
 };
 
 const translations = {
@@ -867,6 +868,7 @@ function reviewStatusKind(status) {
 
 async function loadStats() {
   const stats = await api("/api/stats");
+  state.requiredReviewer = String(stats.session?.required_reviewer || "");
   const categoryEntries = Object.entries(stats.categories || {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => [categoryLabel(key), value]);
@@ -1282,7 +1284,9 @@ function populateReviewForm() {
   $("correctedSmiles").value = item.corrected_smiles || "";
   $("correctedMolblock").value = item.corrected_molblock || "";
   $("notes").value = item.notes || "";
-  $("reviewer").value = item.reviewer || localStorage.getItem("moleculeReviewReviewer") || "";
+  $("reviewer").value =
+    state.requiredReviewer || item.reviewer || localStorage.getItem("moleculeReviewReviewer") || "";
+  $("reviewer").readOnly = Boolean(state.requiredReviewer);
   document.querySelectorAll(".decision").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.review_status);
   });
@@ -1928,7 +1932,7 @@ async function saveReview(status) {
       corrected_smiles: $("correctedSmiles").value,
       corrected_molblock: $("correctedMolblock").value,
       notes: $("notes").value,
-      reviewer: $("reviewer").value,
+      reviewer: state.requiredReviewer || $("reviewer").value,
     };
     localStorage.setItem("moleculeReviewReviewer", payload.reviewer);
     const result = await api(`/api/cases/${encodeURIComponent(state.current.case_id)}/review`, {
