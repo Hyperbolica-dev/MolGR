@@ -124,9 +124,66 @@ def test_review_reason_control_is_editable_and_saves_only_its_value() -> None:
     assert 'id="reviewer" type="text" list="reviewReasonOptions"' in html
     assert '<datalist id="reviewReasonOptions"></datalist>' in html
     assert 'data-i18n="notes">备注 / 证据</span>' in html
-    assert 'reviewer: $("reviewer").value' in javascript
+    assert 'reviewer: state.requiredReviewer || $("reviewer").value' in javascript
     assert 'notes: $("notes").value' in javascript
     assert 'value="${escapeHtml(reviewer)}"' in javascript
     assert "reviewer} (${count})" in javascript
     assert "await Promise.all([loadStats(), loadReviewReasons()])" in javascript
     assert 'class="render-kind' not in html
+
+
+def test_required_reviewer_accepts_exact_match_and_rejects_other_values(tmp_path: Path) -> None:
+    db_path = tmp_path / "review.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript((APP_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.executemany(
+            "INSERT INTO cases(case_id, row_index, xyz_path) VALUES(?, ?, '')",
+            [("MATCH", 1), ("OTHER", 2)],
+        )
+        conn.commit()
+
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler)
+    server.db_path = db_path
+    server.xyz_dir = None
+    server.fixtures_dir = tmp_path / "reviewed"
+    server.required_reviewer = "human/manual"
+    server.runtime_info = {}
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post(case_id: str, reviewer: str) -> tuple[int, dict[str, Any]]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        connection.request(
+            "POST",
+            f"/api/cases/{case_id}/review",
+            body=json.dumps({"status": "needs_followup", "reviewer": reviewer, "notes": "test"}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        connection.close()
+        return response.status, payload
+
+    try:
+        matching_status, matching_payload = post("MATCH", "human/manual")
+        other_status, other_payload = post("OTHER", "auto-oxidative-addition")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+    assert matching_status == 200
+    assert matching_payload["ok"] is True
+    assert other_status == 400
+    assert other_payload == {
+        "error": "required_reviewer_mismatch",
+        "required_reviewer": "human/manual",
+    }
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute(
+            "SELECT status, reviewer FROM reviews WHERE case_id='MATCH'"
+        ).fetchone() == (
+            "needs_followup",
+            "human/manual",
+        )
+        assert conn.execute("SELECT COUNT(*) FROM reviews WHERE case_id='OTHER'").fetchone()[0] == 0
