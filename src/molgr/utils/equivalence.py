@@ -407,6 +407,7 @@ def _inchi_key(mol: Chem.Mol, *, use_chirality: bool = True) -> str | None:
         clone = _safe_copy(mol)
         if not use_chirality:
             Chem.RemoveStereochemistry(clone)
+            clone.RemoveAllConformers()
             clone.UpdatePropertyCache(strict=False)
         key = inchi.MolToInchiKey(clone)
     except TimeoutError:
@@ -507,8 +508,8 @@ def _prepare_organic_mol(mol: Chem.Mol, *, already_standardized: bool = False) -
     return standardized
 
 
-# These elements can appear in hypervalent, multiple-bond forms in molecular datasets.
-# Equivalence comparison uses their charge-separated octet form only;
+# These elements are allowed to appear in tmQMg in hypervalent, multiple-bond
+# forms.  Equivalence comparison uses their charge-separated octet form only;
 # reconstruction output and stored reference graphs are left untouched.
 _OCTET_NORMALIZED_ATOMIC_NUMS = frozenset({7, 8, 9, 15, 16, 17, 33, 34, 35, 53})
 _OCTET_VALENCE_LIMITS = {
@@ -664,20 +665,15 @@ def _cached_resonance_smiles(
             seen.append(smiles)
 
     supplier_forms: list[Chem.Mol] = []
-    try:
-        supplier = ResonanceMolSupplier(
-            source,
-            maxStructs=max_resonance,
-            flags=Chem.ResonanceFlags(resonance_flags),
-        )
-        for resonance_mol in supplier:
-            if resonance_mol is None:
-                continue
-            supplier_forms.append(resonance_mol)
-    except TimeoutError:
-        raise
-    except Exception:  # noqa: BLE001
-        supplier_forms = []
+    supplier = ResonanceMolSupplier(
+        source,
+        maxStructs=max_resonance,
+        flags=Chem.ResonanceFlags(resonance_flags),
+    )
+    for resonance_mol in supplier:
+        if resonance_mol is None:
+            continue
+        supplier_forms.append(resonance_mol)
 
     # Reserve the bounded result set for explicit charge-shift forms before
     # adding RDKit's broader enumeration.  Walk the local transformation to a
@@ -815,13 +811,17 @@ def _elementary_open_shell_resonance_witness(
     """Find an explicit elementary ``A radical-B=C <-> A=B-C radical`` witness.
 
     A positive result requires a topology-preserving atom mapping and exactly
-    one three-center electron shift.  It deliberately excludes charge motion,
+    one three-center electron shift. It deliberately excludes charge motion,
     proton motion, aromatic/non-integral bond changes, and any additional atom
-    or bond change.  Failure to find a mapping is only absence of this proof;
+    or bond change. Failure to find a mapping is only absence of this proof;
     it is not evidence of non-equivalence.
     """
 
     search = TopologyMappingSearchMetadata()
+    radicals_1 = _total_radical_electrons(mol1)
+    radicals_2 = _total_radical_electrons(mol2)
+    if radicals_1 == 0 or radicals_1 != radicals_2:
+        return None, search
     if mol1.GetNumAtoms() != mol2.GetNumAtoms() or mol1.GetNumBonds() != mol2.GetNumBonds():
         return None, search
 
@@ -1050,7 +1050,7 @@ def _resonance_match(
             return True, len(mol1_smiles), 0, target_2_smiles
         intersection = mol1_smiles & mol2_smiles
         if intersection:
-            return True, len(mol1_smiles), len(mol2_smiles), next(iter(intersection))
+            return True, len(mol1_smiles), len(mol2_smiles), min(intersection)
         return False, len(mol1_smiles), len(mol2_smiles), None
 
     def local_charge_shift_smiles(mol: Chem.Mol) -> set[str]:
@@ -1093,28 +1093,23 @@ def _resonance_match(
             raise
         return match_sets(mol1_smiles, mol2_smiles, target_2_smiles)
 
-    try:
-        # Preserve formal charges and bond orders for the generic local
-        # [*-]-[*]=[*] migration.  The special normalizer below intentionally
-        # collapses thiosemicarbazone-like motifs and would erase this input.
-        raw_target_1 = _canon_smiles(mol1, use_chirality)
-        raw_target_2 = _canon_smiles(mol2, use_chirality)
-        raw_result = match_sets(
-            local_charge_shift_smiles(mol1),
-            local_charge_shift_smiles(mol2),
-            raw_target_2,
-        )
-        if raw_result[0]:
-            return raw_result
+    # Preserve formal charges and bond orders for the generic local
+    # [*-]-[*]=[*] migration.  The special normalizer below intentionally
+    # collapses thiosemicarbazone-like motifs and would erase this input.
+    raw_target_1 = _canon_smiles(mol1, use_chirality)
+    raw_target_2 = _canon_smiles(mol2, use_chirality)
+    raw_result = match_sets(
+        local_charge_shift_smiles(mol1),
+        local_charge_shift_smiles(mol2),
+        raw_target_2,
+    )
+    if raw_result[0]:
+        return raw_result
 
-        normalized_1 = _normalize_special_resonance_forms(mol1)
-        normalized_2 = _normalize_special_resonance_forms(mol2)
-        normalized_target_1 = _canon_smiles(normalized_1, use_chirality)
-        normalized_target_2 = _canon_smiles(normalized_2, use_chirality)
-    except TimeoutError:
-        raise
-    except Exception:  # noqa: BLE001
-        return False, 0, 0, None
+    normalized_1 = _normalize_special_resonance_forms(mol1)
+    normalized_2 = _normalize_special_resonance_forms(mol2)
+    normalized_target_1 = _canon_smiles(normalized_1, use_chirality)
+    normalized_target_2 = _canon_smiles(normalized_2, use_chirality)
 
     if (normalized_target_1, normalized_target_2) == (raw_target_1, raw_target_2):
         return cached_resonance_sets(raw_target_1, raw_target_2)
@@ -1132,18 +1127,10 @@ def evaluate_equivalence(
     """Evaluate molecular equivalence and retain the proof and invariant state.
 
     The result separates the comparison decision from the relation that supplied
-    positive evidence. Identifier equality is evidence only after the shared
-    graph/electronic invariants have passed, and identifier agreement by itself
-    produces ``INCONCLUSIVE`` rather than ``EQUIVALENT``.
-
-    The comparison is directional only in diagnostic naming: ``mol1`` is exposed
-    as ``candidate`` and ``mol2`` as ``reference``. The primary equivalence
-    relation is otherwise symmetric.
-
-    Metal coordination is outside this evaluator's graph-identity contract. The
-    normalization standardizes and removes metal--ligand coordination bonds and
-    removes metal atoms before comparing the remaining graph. Only the normalized
-    metal element/formal-charge multiset is retained as a required invariant.
+    positive evidence.  Full InChIKey equality is accepted after hard structural
+    checks; prepared-organic identifier-only equality remains inconclusive.
+    Component electron mismatches remain diagnostic evidence; accepted comparison
+    pathways still determine the decision.
     """
 
     # Capture the source molecules before any graph normalization.  In
@@ -1216,6 +1203,13 @@ def evaluate_equivalence(
         ),
     )
     invariants = {
+        "raw_total_formal_charge": InvariantResult(
+            InvariantStatus.PASSED
+            if raw_mol1.formal_charge == raw_mol2.formal_charge
+            else InvariantStatus.FAILED,
+            raw_mol1.formal_charge,
+            raw_mol2.formal_charge,
+        ),
         "heavy_atom_formula": InvariantResult(
             InvariantStatus.PASSED if checks.heavy_atom_formula.passed else InvariantStatus.FAILED,
             checks.heavy_atom_formula.mol1,
@@ -1265,6 +1259,8 @@ def evaluate_equivalence(
         normalization_electronic_effects=normalization_electronic_effects,
     )
 
+    resonance_error: str | None = None
+
     def finish(
         decision: EquivalenceDecision,
         reason: str,
@@ -1277,6 +1273,8 @@ def evaluate_equivalence(
         info.equivalent = decision == EquivalenceDecision.EQUIVALENT
         info.method = method
         info.reason = reason
+        if resonance_error is not None:
+            info.reason += f" Resonance search failed: {resonance_error}."
         return info
 
     if not checks.heavy_atom_formula.passed:
@@ -1312,6 +1310,12 @@ def evaluate_equivalence(
             "Not equivalent: explicit-hydrogen atom counts differ.",
         )
 
+    if raw_mol1.formal_charge != raw_mol2.formal_charge:
+        return finish(
+            EquivalenceDecision.NOT_EQUIVALENT,
+            "Not equivalent: raw whole-molecule total formal charges differ.",
+        )
+
     try:
         smiles_1 = _canon_smiles(organic_1, use_chirality)
         smiles_2 = _canon_smiles(organic_2, use_chirality)
@@ -1330,6 +1334,8 @@ def evaluate_equivalence(
                 "Not equivalent: non-metal connectivity differs.",
             )
 
+        # Preserve this representation-sensitive comparison as structured
+        # evidence, but do not let it terminate the accepted-path evaluation.
         component_signature_1 = _component_electron_signature(organic_1)
         component_signature_2 = _component_electron_signature(organic_2)
         component_electrons_match = component_signature_1 == component_signature_2
@@ -1391,10 +1397,6 @@ def evaluate_equivalence(
             info.contradictions.append(
                 "carbene_normalization_match_despite_component_electron_mismatch"
             )
-        return finish(
-            EquivalenceDecision.NOT_EQUIVALENT,
-            "Not equivalent: charge or radical count differs within a component.",
-        )
 
     if use_chirality and not stereo_matches:
         if identifier_match:
@@ -1422,8 +1424,8 @@ def evaluate_equivalence(
 
     # Matching topology and component electron totals can identify an ambiguous
     # open-shell representation, but do not prove resonance reachability. Keep
-    # the heuristic as structured evidence and require the bounded matcher to
-    # produce an explicit common form before returning EQUIVALENT.
+    # the heuristic as structured evidence and require the bounded matcher or
+    # an explicit local witness before returning EQUIVALENT.
     open_shell_predicates_match = (
         component_electrons_match
         and checks.formal_charge.passed
@@ -1446,19 +1448,27 @@ def evaluate_equivalence(
 
     assert info.bounded_search is not None
     info.bounded_search.attempted = True
-    resonance_matched, mol1_count, mol2_count, hit_smiles = _resonance_match(
-        organic_1,
-        organic_2,
-        use_chirality=use_chirality,
-        max_resonance=max_resonance,
-        resonance_flags=resonance_flags,
-    )
+    try:
+        resonance_matched, mol1_count, mol2_count, hit_smiles = _resonance_match(
+            organic_1,
+            organic_2,
+            use_chirality=use_chirality,
+            max_resonance=max_resonance,
+            resonance_flags=resonance_flags,
+        )
+    except TimeoutError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        resonance_error = f"{type(exc).__name__}: {exc}"
+        resonance_matched, mol1_count, mol2_count, hit_smiles = False, 0, 0, None
     info.bounded_search.mol1_count = mol1_count
     info.bounded_search.mol2_count = mol2_count
     info.bounded_search.limit_reached = not resonance_matched and (
         mol1_count >= max_resonance or mol2_count >= max_resonance
     )
-    info.bounded_search.exhaustive = not info.bounded_search.limit_reached
+    info.bounded_search.exhaustive = (
+        resonance_error is None and not info.bounded_search.limit_reached
+    )
     if resonance_matched:
         info.resonance = ResonanceDetail(
             max_resonance=max_resonance,
@@ -1489,12 +1499,37 @@ def evaluate_equivalence(
             method=EquivalenceMethod.OPEN_SHELL_THREE_CENTER,
         )
 
+    # Full InChIKey is positive evidence after hard structural checks and may
+    # override a component-electron diagnostic. Prepared-organic identifier
+    # agreement remains conservative and is handled by the inconclusive path.
+    if full_identifier_match and (not prepared_identifier_match or not component_electrons_match):
+        reason = (
+            "Equivalent: full InChIKey matches despite diagnostic component-electron mismatch."
+            if not component_electrons_match
+            else "Equivalent: full InChIKey matches after hard structural checks."
+        )
+        return finish(
+            EquivalenceDecision.EQUIVALENT,
+            reason,
+            relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
+            method=EquivalenceMethod.INCHI_KEY,
+        )
+
+    if resonance_error is not None:
+        return finish(
+            EquivalenceDecision.INCONCLUSIVE,
+            "Inconclusive: resonance search did not complete.",
+        )
+
     if mapping_search.limit_reached:
         return finish(
             EquivalenceDecision.INCONCLUSIVE,
             "Inconclusive: elementary open-shell topology mapping search reached its limit.",
         )
 
+    # Full InChIKey is positive evidence after hard structural checks and may
+    # override a component-electron diagnostic. Prepared-organic identifier
+    # agreement remains conservative and is handled by the inconclusive path.
     if identifier_match:
         reason = (
             "Inconclusive: identifier_equivalence (prepared organic InChIKey agreement) "

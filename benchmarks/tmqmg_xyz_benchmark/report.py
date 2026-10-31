@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import cast
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -58,17 +59,25 @@ def _truthy_series(series: pd.Series) -> pd.Series:
 
 
 def _comparable_mask(df: pd.DataFrame) -> pd.Series:
+    if "reference_status" in df.columns:
+        return cast(pd.Series, df["reference_status"]).eq("valid")
     status_mask = df["status"].fillna("") != "skipped" if "status" in df.columns else True
     if "comparison_skipped" not in df.columns:
         return status_mask & df["equivalent"].notna()
-    return status_mask & ~_truthy_series(df["comparison_skipped"])
+    return status_mask & ~_truthy_series(cast(pd.Series, df["comparison_skipped"]))
+
+
+def _equivalent_mask(df: pd.DataFrame) -> pd.Series:
+    if "evaluator_decision" in df.columns:
+        return df["status"].eq("ok") & df["evaluator_decision"].eq("equivalent")
+    return _truthy_series(cast(pd.Series, df["equivalent"]))
 
 
 def _accuracy_by_method(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for method_id, group in df.groupby("method_id", sort=True):
         denominator = group.loc[_comparable_mask(group)]
-        valid = _truthy_series(denominator["equivalent"])
+        valid = _equivalent_mask(denominator)
         accuracy = float(valid.mean()) if len(denominator) else 0.0
         rows.append({"method_id": method_id, "accuracy": accuracy, "count": len(denominator)})
     return pd.DataFrame(rows)
@@ -183,17 +192,18 @@ def _plot_timing_recall_boxplot(datasets: list[tuple[str, pd.DataFrame]], out_pa
         recalls: dict[str, float] = {}
         counts: dict[str, int] = {}
         for method_id in method_ids:
-            method_df = df.loc[(df["method_id"] == method_id) & (df["status"] != "skipped")]
-            timing = method_df.loc[method_df["timing_ms_total"].notna(), "timing_ms_total"].astype(
-                float
-            )
+            method_df = df.loc[df["method_id"] == method_id]
+            timing = method_df.loc[
+                (method_df["status"] != "skipped") & method_df["timing_ms_total"].notna(),
+                "timing_ms_total",
+            ].astype(float)
             timing = timing.loc[timing > 0.0]
             values = timing.tolist()
             series.append(values)
             all_positive_timings.extend(values)
             denominator = method_df.loc[_comparable_mask(method_df)]
             recalls[method_id] = (
-                float(_truthy_series(denominator["equivalent"]).mean()) if len(denominator) else 0.0
+                float(_equivalent_mask(denominator).mean()) if len(denominator) else 0.0
             )
             counts[method_id] = len(denominator)
 
