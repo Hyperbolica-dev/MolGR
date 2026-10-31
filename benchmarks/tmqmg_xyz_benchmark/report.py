@@ -5,11 +5,16 @@ import argparse
 from pathlib import Path
 from typing import cast
 
-import matplotlib
-import matplotlib.pyplot as plt
 import pandas as pd
 
-matplotlib.use("Agg")
+
+def _pyplot():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
 
 
 def _parse_args() -> argparse.Namespace:
@@ -84,6 +89,7 @@ def _accuracy_by_method(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _plot_accuracy(datasets: list[tuple[str, pd.DataFrame]], out_path: Path) -> None:
+    plt = _pyplot()
     method_ids = sorted({method_id for _, df in datasets for method_id in df["method_id"].unique()})
     summary = {label: _accuracy_by_method(df).set_index("method_id") for label, df in datasets}
 
@@ -132,6 +138,7 @@ def _plot_accuracy(datasets: list[tuple[str, pd.DataFrame]], out_path: Path) -> 
 
 
 def _plot_timing_boxplot(datasets: list[tuple[str, pd.DataFrame]], out_path: Path) -> None:
+    plt = _pyplot()
     method_ids = sorted({method_id for _, df in datasets for method_id in df["method_id"].unique()})
     fig, ax = plt.subplots(figsize=(11, 4.8))
     colors = ["#2F6FDF", "#D95F02", "#1B9E77", "#7570B3"]
@@ -177,6 +184,7 @@ def _plot_timing_boxplot(datasets: list[tuple[str, pd.DataFrame]], out_path: Pat
 
 
 def _plot_timing_recall_boxplot(datasets: list[tuple[str, pd.DataFrame]], out_path: Path) -> None:
+    plt = _pyplot()
     method_ids = sorted({method_id for _, df in datasets for method_id in df["method_id"].unique()})
     dataset_labels = [label for label, _ in datasets]
     grouped = len(datasets) > 1

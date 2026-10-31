@@ -119,7 +119,11 @@ def _artifact_path(root: Path, entry: dict[str, Any]) -> Path:
     if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
         raise ValueError(f"Invalid relative artifact_path for {entry['case_id']}")
     path = (root / relative).resolve()
-    if not path.is_relative_to(root) or path == root:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError(f"artifact_path escapes candidate root: {relative}") from None
+    if path == root:
         raise ValueError(f"artifact_path escapes candidate root: {relative}")
     return path
 

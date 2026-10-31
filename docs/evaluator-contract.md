@@ -153,3 +153,8 @@ SQLite commits each `(case_id, version)` independently. Identical invocations
 resume missing rows; changed inputs, source, runtime binaries, or parameters
 require a new output directory. Use `--limit` for smoke only; the default exact
 RDKit requirement is `2026.03.6`. The full run requires separate authorization.
+
+The replay runner supports Linux and macOS environments with the multiprocessing
+`fork` start method. Windows is not supported; replay integration tests are skipped
+there. Summary/statistics imports do not require matplotlib; plotting loads the
+optional dependency only when requested.

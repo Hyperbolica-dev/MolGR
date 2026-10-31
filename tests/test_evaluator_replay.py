@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import multiprocessing
 import os
 import signal
 import sqlite3
@@ -22,6 +23,12 @@ assert SPEC is not None and SPEC.loader is not None
 replay = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = replay
 SPEC.loader.exec_module(replay)
+
+
+pytestmark = pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="The replay integration runner requires multiprocessing fork (Linux/macOS).",
+)
 
 
 def _inputs(
