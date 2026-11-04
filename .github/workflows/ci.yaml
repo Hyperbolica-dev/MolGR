@@ -140,10 +140,10 @@ jobs:
 
       - name: Compile smoke check
         run: |
-          uv run --no-sync python -c "import molgr; import molgr._core"
+          uv run --no-sync --python ${{ matrix.python-version }} python -c "import molgr; import molgr._core"
 
       - name: Run tests
-        run: uv run --no-sync pytest
+        run: uv run --no-sync --python ${{ matrix.python-version }} python -m pytest
 
   build-release-wheels:
     name: Build release wheels (${{ matrix.target }})

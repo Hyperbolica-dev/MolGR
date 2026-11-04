@@ -20,7 +20,7 @@ SMILES and available atom-indexed spin densities are preserved as properties.
 No optimization, hydrogen addition, or coordinate reordering was applied.
 
 `selection.json` pins source row IDs, structure keys, categories, and selection
-reasons. `manifest.json` records source metadata, SDF checksums, corrected SMILES,
+reasons. `manifest.json` records source metadata, corrected SMILES,
 source-to-geometry atom mappings, and corrections. Its `source_geometry_sha256`
 hashes the original SQLite element and position blobs (little-endian int32 atomic
 numbers followed by float64 XYZ coordinates), allowing precision and atom order
@@ -101,8 +101,9 @@ support is not implied by these targeted checks.
 The record page and bundled documentation disagree on dataset totals and some
 old release checksums. The manifest pins the **record-specific SQLite file** by
 size and its published Zenodo MD5. Initial extraction used read-only HTTPS byte
-ranges; the full database checksum was **not** verified. SDF hashes verify the
-frozen outputs, not the entire source database. Full downloads stay outside Git.
+ranges; the full database checksum was **not** verified. Fixture tests validate
+coordinates and chemical structure rather than SDF file bytes, so LF/CRLF
+line endings do not affect validation. Full downloads stay outside Git.
 
 Regenerate from a complete download (verifies its size and published MD5):
 

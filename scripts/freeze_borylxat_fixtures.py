@@ -230,7 +230,6 @@ def write_references(root: Path, manifest: dict, geometries: list[Chem.Mol]) -> 
         case.update(
             reference_status=REFERENCE_STATUS,
             reference_file=reference_file,
-            reference_sha256=hashlib.sha256(sdf_bytes).hexdigest(),
             reference_smiles=Chem.MolToSmiles(Chem.RemoveHs(mol)),
             reference_source_atom_to_geometry=mapping,
             reference_corrections={
