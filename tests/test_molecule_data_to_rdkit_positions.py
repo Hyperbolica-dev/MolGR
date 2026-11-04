@@ -28,6 +28,7 @@ from molgr.utils.converter import (
     has_atom_unresolved_two_electron_center,
     mol_data_to_rdkit,
     pybel_to_rdmol,
+    refresh_atom_electron_property_lists,
 )
 
 
@@ -134,6 +135,69 @@ def test_rdkit_converters_preserve_explicit_closed_shell_boron_anion() -> None:
         assert boron.GetDegree() == 2
         assert boron.GetNumRadicalElectrons() == 0
         assert get_atom_unpaired_electrons(boron) == 0
+
+
+def test_refreshed_electron_lists_follow_edits_and_atom_reordering_in_sdf() -> None:
+    mol = pybel_to_rdmol(_openbabel_metal_radical_molecule(), kekulize=False)
+    iron = mol.GetAtomWithIdx(0)
+    carbon = mol.GetAtomWithIdx(1)
+    iron.SetIntProp(METAL_UNPAIRED_ELECTRONS_PROP, 4)
+    iron.ClearProp(LONE_PAIR_COUNT_PROP)
+    carbon.SetIntProp(LONE_PAIR_COUNT_PROP, 2)
+    carbon.SetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP, False)
+    mol.SetProp("unrelated_metadata", "preserved")
+    reordered = Chem.RenumberAtoms(mol, [1, 0])
+    # Simulate an editor retaining molecular metadata, including stale lists.
+    for name in mol.GetPropNames():
+        reordered.SetProp(name, mol.GetProp(name))
+    mol = reordered
+    refresh_atom_electron_property_lists(mol)
+    refresh_atom_electron_property_lists(mol)
+    assert get_atom_unpaired_electrons(mol.GetAtomWithIdx(0)) == 1
+
+    buffer = io.StringIO()
+    with Chem.SDWriter(buffer) as writer:
+        writer.write(mol)
+    restored = next(
+        Chem.ForwardSDMolSupplier(
+            io.BytesIO(buffer.getvalue().encode()), sanitize=False, removeHs=False
+        )
+    )
+    assert restored is not None
+    carbon, iron = restored.GetAtomWithIdx(0), restored.GetAtomWithIdx(1)
+    assert carbon.GetAtomicNum() == 6
+    assert get_atom_lone_pair_count(carbon) == 2
+    assert carbon.HasProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
+    assert not has_atom_unresolved_two_electron_center(carbon)
+    assert iron.GetAtomicNum() == 26
+    assert iron.GetFormalCharge() == 2
+    assert iron.GetNumRadicalElectrons() == 0
+    assert get_atom_unpaired_electrons(iron) == 4
+    assert get_atom_lone_pair_count(iron) == 0
+    assert restored.GetProp("unrelated_metadata") == "preserved"
+
+
+def test_refresh_removes_orphaned_electron_lists_without_reassigning_atoms() -> None:
+    mol = pybel_to_rdmol(_openbabel_metal_radical_molecule(), kekulize=False)
+    fields = (
+        (METAL_UNPAIRED_ELECTRONS_PROP, "iprop"),
+        (LONE_PAIR_COUNT_PROP, "iprop"),
+        (UNRESOLVED_TWO_ELECTRON_CENTER_PROP, "bprop"),
+    )
+    for name, kind in fields:
+        assert mol.HasProp(f"atom.{kind}.{name}")
+        for atom in mol.GetAtoms():
+            atom.ClearProp(name)
+    # A pure metadata refresh must not impose MolGR's metal radical convention.
+    mol.GetAtomWithIdx(0).SetNumRadicalElectrons(3)
+    refresh_atom_electron_property_lists(mol)
+
+    for name, kind in fields:
+        assert not mol.HasProp(f"atom.{kind}.{name}")
+        assert not any(atom.HasProp(name) for atom in mol.GetAtoms())
+    assert mol.GetAtomWithIdx(0).GetNumRadicalElectrons() == 3
+    assert mol.GetAtomWithIdx(0).GetFormalCharge() == 2
+    assert mol.GetAtomWithIdx(1).GetNumRadicalElectrons() == 1
 
 
 def test_mol_data_to_rdkit_sets_positions_by_atom_index() -> None:

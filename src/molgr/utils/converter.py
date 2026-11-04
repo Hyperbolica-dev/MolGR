@@ -83,25 +83,36 @@ def _set_rdkit_unresolved_two_electron_center(atom: Chem.Atom, value: bool) -> N
         atom.ClearProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
 
 
+def refresh_atom_electron_property_lists(rdmol: Chem.Mol) -> None:
+    """Rebuild MolGR's SDF property lists in place from current atom annotations.
+
+    Call after editing electron properties or atom order. Remove old lists even
+    when no atom retains the property, so SDF readers cannot resurrect a consumed
+    electron annotation. Atom properties, formal charges and radicals are unchanged.
+    """
+
+    fields = (
+        (METAL_UNPAIRED_ELECTRONS_PROP, "iprop", Chem.CreateAtomIntPropertyList),
+        (LONE_PAIR_COUNT_PROP, "iprop", Chem.CreateAtomIntPropertyList),
+        (UNRESOLVED_TWO_ELECTRON_CENTER_PROP, "bprop", Chem.CreateAtomBoolPropertyList),
+    )
+    for name, kind, create_list in fields:
+        list_name = f"atom.{kind}.{name}"
+        if rdmol.HasProp(list_name):
+            rdmol.ClearProp(list_name)
+        if any(
+            atom.HasProp(name)
+            for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
+        ):
+            create_list(rdmol, name)
+
+
 def _finalize_metal_unpaired_electrons(rdmol: Chem.Mol) -> None:
-    has_metal = False
-    for atom in rdmol.GetAtoms():  # pyright: ignore[reportCallIssue]
-        if not _is_metal_atomic_num(int(atom.GetAtomicNum())):
-            continue
-        has_metal = True
-        atom.SetNumRadicalElectrons(0)
-    if has_metal:
-        Chem.CreateAtomIntPropertyList(rdmol, METAL_UNPAIRED_ELECTRONS_PROP)
-    if any(
-        atom.HasProp(LONE_PAIR_COUNT_PROP)
-        for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
-    ):
-        Chem.CreateAtomIntPropertyList(rdmol, LONE_PAIR_COUNT_PROP)
-    if any(
-        atom.HasProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
-        for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
-    ):
-        Chem.CreateAtomBoolPropertyList(rdmol, UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
+    for atom_idx in range(rdmol.GetNumAtoms()):
+        atom = rdmol.GetAtomWithIdx(atom_idx)
+        if _is_metal_atomic_num(int(atom.GetAtomicNum())):
+            atom.SetNumRadicalElectrons(0)
+    refresh_atom_electron_property_lists(rdmol)
     rdmol.UpdatePropertyCache(strict=False)
 
 
@@ -297,4 +308,5 @@ __all__ = [
     "mol_data_to_pybel",
     "mol_data_to_rdkit",
     "pybel_to_rdmol",
+    "refresh_atom_electron_property_lists",
 ]

@@ -81,7 +81,13 @@ def _build_smiles_case(smiles: str, case_idx: int) -> dict[str, object]:
             raise ValueError(f"RDKit EmbedMolecule failed: code={embed_code}")
 
         total_charge, total_radical_electrons = _total_charge_and_radicals(mol_h)
+        # Embedding chooses a concrete geometry even when the source SMILES
+        # leaves stereo unspecified. Keep that configuration as an additional
+        # reference, using the known input topology rather than the prediction.
+        reference = Chem.Mol(mol_h)
+        Chem.AssignStereochemistryFrom3D(reference)
         case["ground_truth_rdmol"] = mol
+        case["embedded_reference_rdmol"] = Chem.RemoveHs(reference)
         case["xyz_block"] = Chem.MolToXYZBlock(mol_h)
         case["total_charge"] = total_charge
         case["total_radical_electrons"] = total_radical_electrons
@@ -159,6 +165,17 @@ def _run_smiles_regression_case(case: dict[str, object]) -> _RegressionOutcome:
             max_resonance=100,
         )
         decision = info.decision.value
+        if decision == "not_equivalent":
+            # Retaining geometry-derived E/Z is also valid. Keep the original
+            # reference above for resonance forms where the double bond moves
+            # and that additional stereochemical constraint no longer applies.
+            info = evaluate_equivalence(
+                case["embedded_reference_rdmol"],
+                predicted_rdmol,
+                use_chirality=True,
+                max_resonance=100,
+            )
+            decision = info.decision.value
     except Exception as exc:  # noqa: BLE001
         return _RegressionOutcome(
             status="error",

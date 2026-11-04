@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import replace
 
 import pytest
@@ -186,6 +187,46 @@ def test_resolved_singlet_two_electron_center_forms_metal_double_bond(
     assert bond is not None
     assert bond.GetBondType() == Chem.BondType.DOUBLE
     assert get_atom_lone_pair_count(result.GetAtomWithIdx(center_idx)) == 0
+
+
+@pytest.mark.parametrize("atomic_num", [6, 7, 15])
+@pytest.mark.parametrize("keep_other_lone_pair", [False, True])
+def test_consumed_lone_pair_stays_consumed_after_sdf_round_trip(
+    atomic_num: int,
+    keep_other_lone_pair: bool,
+) -> None:
+    mol, metal_idx, center_idx = _metal_singlet_two_electron_center(atomic_num)
+    other_idx = None
+    if keep_other_lone_pair:
+        editable = Chem.RWMol(mol)
+        other = Chem.Atom(8)
+        other.SetNoImplicit(True)
+        other.SetIntProp(LONE_PAIR_COUNT_PROP, 1)
+        other_idx = editable.AddAtom(other)
+        editable.GetConformer().SetAtomPosition(other_idx, (10.0, 0.0, 0.0))
+        mol = editable.GetMol()
+    # Both converters create this snapshot before coordination post-processing.
+    Chem.CreateAtomIntPropertyList(mol, LONE_PAIR_COUNT_PROP)
+
+    result = make_dative_bond(mol)
+    assert result.GetBondBetweenAtoms(metal_idx, center_idx).GetBondType() == Chem.BondType.DOUBLE
+    assert get_atom_lone_pair_count(result.GetAtomWithIdx(center_idx)) == 0
+
+    buffer = io.StringIO()
+    with Chem.SDWriter(buffer) as writer:
+        writer.write(result)
+    restored = next(
+        Chem.ForwardSDMolSupplier(
+            io.BytesIO(buffer.getvalue().encode()), sanitize=False, removeHs=False
+        )
+    )
+    assert restored is not None
+    assert get_atom_lone_pair_count(restored.GetAtomWithIdx(center_idx)) == 0
+    assert bool(result.HasProp(f"atom.iprop.{LONE_PAIR_COUNT_PROP}")) == keep_other_lone_pair
+    if other_idx is not None:
+        assert get_atom_lone_pair_count(restored.GetAtomWithIdx(other_idx)) == 1
+    # Post-processing returns a copy and must not change the source annotation.
+    assert get_atom_lone_pair_count(mol.GetAtomWithIdx(center_idx)) == 1
 
 
 def test_resolved_carbyne_center_forms_metal_triple_bond() -> None:
