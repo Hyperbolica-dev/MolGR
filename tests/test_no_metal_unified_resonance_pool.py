@@ -10,6 +10,7 @@ from molgr.fallback.utils.electrons import (
     get_lone_pair_count,
     get_unpaired_electron_count,
     has_unresolved_two_electron_center,
+    set_lone_pair_count,
     set_unpaired_electron_count,
     set_unresolved_two_electron_center,
 )
@@ -40,6 +41,166 @@ def _state(omol: pybel.Molecule, *, source: str = "test") -> ReconstructionState
         phase_history=("prepared_no_metal_seed",),
         metadata={"source": source},
     )
+
+
+def _boron_neighbor_seed(
+    given_charge: int,
+    target: int,
+    existing_radicals: int = 0,
+    *,
+    element: int = 6,
+    valence: int = 4,
+    reverse_bond: bool = False,
+):
+    mol = ob.OBMol()
+    pairs = []
+    for _ in range(2):
+        boron = mol.NewAtom()
+        boron.SetAtomicNum(5)
+        boron.SetFormalCharge(-1)
+        neighbor = mol.NewAtom()
+        neighbor.SetAtomicNum(element)
+        begin, end = boron.GetIdx(), neighbor.GetIdx()
+        mol.AddBond(end if reverse_bond else begin, begin if reverse_bond else end, 2)
+        pairs.append((boron.GetIdx(), neighbor.GetIdx()))
+        for endpoint, ligand, count in ((boron, 9, 2), (neighbor, 1, valence - 2)):
+            for _ in range(count):
+                ligand_atom = mol.NewAtom()
+                ligand_atom.SetAtomicNum(ligand)
+                mol.AddBond(endpoint.GetIdx(), ligand_atom.GetIdx(), 1)
+    if existing_radicals:
+        carbon = mol.NewAtom()
+        carbon.SetAtomicNum(6)
+        set_unpaired_electron_count(carbon, 1)
+        for _ in range(3):
+            hydrogen = mol.NewAtom()
+            hydrogen.SetAtomicNum(1)
+            mol.AddBond(carbon.GetIdx(), hydrogen.GetIdx(), 1)
+    return ReconstructionState(
+        omol=pybel.Molecule(mol),
+        given_charge=given_charge,
+        total_charge=-2 + given_charge,
+        total_radical_electrons=target,
+    ), pairs
+
+
+@pytest.mark.parametrize(
+    "charge,target,existing_radicals,expected_changes",
+    [
+        (2, 2, 0, {(), (0,), (1,), (0, 1)}),
+        (1, 2, 0, {(), (0,), (1,)}),
+        (2, 1, 0, {(), (0,), (1,)}),
+        (0, 1, 0, {()}),
+        (-1, 1, 0, {()}),
+        (2, 0, 0, {()}),
+        (1, 1, 1, {()}),
+        (1, 2, 1, {(), (0,), (1,)}),
+    ],
+)
+def test_boron_neighbor_seed_expansion_preserves_original_and_obeys_budgets(
+    charge, target, existing_radicals, expected_changes
+):
+    original, pairs = _boron_neighbor_seed(charge, target, existing_radicals)
+    seeds = no_metal_resonance.expand_boron_neighbor_radical_seeds([original])
+    assert seeds[0] is original
+    assert original.given_charge == charge
+    assert all(original.omol.OBMol.GetBond(b, c).GetBondOrder() == 2 for b, c in pairs)
+    seen_changes = set()
+    for seed in seeds:
+        mol = seed.omol.OBMol
+        changed = tuple(
+            i for i, (b, c) in enumerate(pairs) if mol.GetBond(b, c).GetBondOrder() == 1
+        )
+        seen_changes.add(changed)
+        assert seed.given_charge == charge - len(changed)
+        assert mol.NumAtoms() == original.omol.OBMol.NumAtoms()
+        assert mol.NumBonds() == original.omol.OBMol.NumBonds()
+        assert sum(a.GetFormalCharge() for a in ob.OBMolAtomIter(mol)) == -2 + len(changed)
+        assert sum(get_unpaired_electron_count(a) for a in ob.OBMolAtomIter(mol)) == (
+            existing_radicals + len(changed)
+        )
+        for i, (b, c) in enumerate(pairs):
+            assert mol.GetAtom(b).GetFormalCharge() == -1
+            assert mol.GetAtom(c).GetFormalCharge() == int(i in changed)
+            assert get_unpaired_electron_count(mol.GetAtom(b)) == int(i in changed)
+            assert get_unpaired_electron_count(mol.GetAtom(c)) == 0
+    assert seen_changes == expected_changes
+    assert len(seeds) == len(expected_changes)
+    # Running the expansion again must not duplicate already generated states.
+    assert len(no_metal_resonance.expand_boron_neighbor_radical_seeds(seeds)) == len(seeds)
+
+
+@pytest.mark.parametrize(
+    "ineligible_state",
+    ["neutral_boron", "charged_carbon", "single_bond", "radical", "lone_pair", "unresolved"],
+)
+def test_boron_neighbor_expansion_requires_closed_shell_anionic_double_bond(ineligible_state):
+    original, pairs = _boron_neighbor_seed(2, 2)
+    mol = original.omol.OBMol
+    for b, c in pairs:
+        boron, carbon = mol.GetAtom(b), mol.GetAtom(c)
+        if ineligible_state == "neutral_boron":
+            boron.SetFormalCharge(0)
+        elif ineligible_state == "charged_carbon":
+            carbon.SetFormalCharge(1)
+        elif ineligible_state == "single_bond":
+            mol.GetBond(b, c).SetBondOrder(1)
+        elif ineligible_state == "radical":
+            set_unpaired_electron_count(boron, 1)
+        elif ineligible_state == "lone_pair":
+            set_lone_pair_count(carbon, 1)
+        else:
+            set_unresolved_two_electron_center(carbon, True)
+    assert no_metal_resonance.expand_boron_neighbor_radical_seeds([original]) == [original]
+
+
+@pytest.mark.parametrize(
+    "element,valence,accepted",
+    [
+        (6, 4, True),
+        (14, 4, True),
+        (32, 4, True),
+        (5, 3, True),
+        (7, 3, False),
+        (8, 2, False),
+        (15, 3, False),
+        (16, 2, False),
+        (16, 4, False),
+        (6, 3, False),
+        (26, 4, False),
+    ],
+)
+@pytest.mark.parametrize("reverse_bond", [False, True])
+def test_boron_neighbor_reduction_uses_electronic_state_not_element_identity(
+    element, valence, accepted, reverse_bond
+):
+    original, pairs = _boron_neighbor_seed(
+        1, 1, element=element, valence=valence, reverse_bond=reverse_bond
+    )
+    before = no_metal_resonance._candidate_key(original)
+    seeds = no_metal_resonance.expand_boron_neighbor_radical_seeds([original])
+    assert no_metal_resonance._candidate_key(original) == before
+    assert len(seeds) == (3 if accepted else 1)
+    for seed in seeds[1:]:
+        assert seed.given_charge == 0
+        mol = seed.omol.OBMol
+        assert sum(a.GetFormalCharge() for a in ob.OBMolAtomIter(mol)) == -1
+        assert sum(get_unpaired_electron_count(a) for a in ob.OBMolAtomIter(mol)) == 1
+        for b, x in pairs:
+            changed = mol.GetBond(b, x).GetBondOrder() == 1
+            assert mol.GetAtom(b).GetFormalCharge() == -1
+            assert get_unpaired_electron_count(mol.GetAtom(b)) == int(changed)
+            assert mol.GetAtom(x).GetFormalCharge() == int(changed)
+            assert get_unpaired_electron_count(mol.GetAtom(x)) == 0
+            assert get_lone_pair_count(mol.GetAtom(x)) == 0
+    if not accepted:
+        # A failed local probe must also leave the caller's graph/electrons intact.
+        _, charge, changed = no_metal_resonance._reduce_boron_neighbor_bond(
+            original.omol, 1, 1, *pairs[0]
+        )
+        assert not changed
+        assert charge == 1
+        assert no_metal_resonance._candidate_key(original) == before
 
 
 def _charge_separated_resonance(*, negative_atom_idx: int) -> ReconstructionState:

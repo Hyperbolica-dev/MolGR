@@ -1,0 +1,1667 @@
+{
+  "schema_version": 2,
+  "source_dataset": {
+    "name": "BorylXAT-DB",
+    "record_url": "https://zenodo.org/records/21330198",
+    "doi": "10.5281/zenodo.21330198",
+    "record_version": "v2",
+    "file": "BorylXAT-DB.db",
+    "download_url": "https://zenodo.org/records/21330198/files/BorylXAT-DB.db?download=1",
+    "size_bytes": 291348480,
+    "published_md5": "d486fbcc36f856bbebf303b5cda4950f",
+    "license": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "full_file_checksum_verified": false
+  },
+  "coordinate_units": "angstrom",
+  "atom_index_base": 0,
+  "fixtures": [
+    {
+      "case_id": "B_00388",
+      "ase_row_id": 1,
+      "category": "B",
+      "selection_reason": "parent BH2 radical",
+      "source_geometry_sha256": "28cb24af976cf923c92671b07a2ece20a8f999d3777de72cfdaf05c5edda8db5",
+      "natoms": 3,
+      "source_formula": "H2B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.999666,
+        0.000167,
+        0.000167
+      ],
+      "source_smiles": "B([H:1])[H:2]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388.sdf",
+      "reference_sha256": "a6b7173c6377605cc02eecd5b6cc1e8060a43bd581bc1b34c6124346127dd647",
+      "reference_smiles": "[BH2]",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00389",
+      "ase_row_id": 2,
+      "category": "B",
+      "selection_reason": "cyano-substituted",
+      "source_geometry_sha256": "188c57e467b858fa03c5795215b770d437cbba7094c2e032805945e9bc6f626c",
+      "natoms": 4,
+      "source_formula": "CHBN",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.90536,
+        -0.137489,
+        0.238826,
+        -0.006696
+      ],
+      "source_smiles": "B([C:1]#[N:2])[H:3]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00389.sdf",
+      "reference_sha256": "8295a62d828bc809cd65486131ad3f46a2203732bf2de98f3dbe53c0c27a61ef",
+      "reference_smiles": "[BH]C#N",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00390",
+      "ase_row_id": 3,
+      "category": "B",
+      "selection_reason": "fluoro-substituted",
+      "source_geometry_sha256": "242ddb76ddac1c79314a70d111c6809a481f5b1cc0446379987be39f82f2345a",
+      "natoms": 3,
+      "source_formula": "HBF",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.929809,
+        -0.01532,
+        0.085511
+      ],
+      "source_smiles": "B([F:1])[H:2]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00390.sdf",
+      "reference_sha256": "6f89d81799a661e6a984193b786a3ad0269818738e0a7c1ca70f84e062d6b896",
+      "reference_smiles": "[BH]F",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00391",
+      "ase_row_id": 4,
+      "category": "B",
+      "selection_reason": "ethynyl-substituted",
+      "source_geometry_sha256": "c7f56536ac76ca3246f1986a2156c542e01c5f8c756b3a8a031493fd9c7b5cdc",
+      "natoms": 5,
+      "source_formula": "C2H2B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.849627,
+        -0.176665,
+        0.348036,
+        -0.007403,
+        -0.013595
+      ],
+      "source_smiles": "B([C:1]#[C:2][H:4])[H:3]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00391.sdf",
+      "reference_sha256": "01fadec8b247707333917d146e89e1c4889eb3ab7cf63cc69fd8a9c4adbb5fd1",
+      "reference_smiles": "[BH]C#C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        4,
+        3
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00392",
+      "ase_row_id": 5,
+      "category": "B",
+      "selection_reason": "methyl-substituted",
+      "source_geometry_sha256": "5e43d203b4f5cadf2de6efeec40d8ccd82e9d828ce3ff42209a6380310186a7c",
+      "natoms": 6,
+      "source_formula": "CH4B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.991797,
+        -0.052039,
+        0.016277,
+        0.022499,
+        0.006616,
+        0.014849
+      ],
+      "source_smiles": "B([C:1]([H:3])([H:4])[H:5])[H:2]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00392.sdf",
+      "reference_sha256": "69f1134afc6641d0639f99adce6c4fb9a88dcf3caf86db852713eaa09e8f6c23",
+      "reference_smiles": "[BH]C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        2
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00393",
+      "ase_row_id": 6,
+      "category": "B",
+      "selection_reason": "methoxy-substituted",
+      "source_geometry_sha256": "255ac9909db830366298244c95fa2917dc246aeac0fd4c55189d526e0323967c",
+      "natoms": 7,
+      "source_formula": "CH4BO",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.980955,
+        -0.095533,
+        0.047441,
+        0.066402,
+        -0.001018,
+        0.002774,
+        -0.001021
+      ],
+      "source_smiles": "B([O:1][C:2]([H:4])([H:5])[H:6])[H:3]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00393.sdf",
+      "reference_sha256": "10113374b0979f6cf89bf0ab1b791ea99011e32af4ac2cff2d570d6b12ff99f4",
+      "reference_smiles": "[BH]OC",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        3
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00394",
+      "ase_row_id": 7,
+      "category": "B",
+      "selection_reason": "phenyl-substituted",
+      "source_geometry_sha256": "591db8dc941ea683a5ffd010cf3d0fd86dfdeb771cbde4e3f02fb1001bf0be73",
+      "natoms": 13,
+      "source_formula": "C6H6B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        1.047202,
+        -0.381191,
+        0.174109,
+        0.049496,
+        -0.008482,
+        0.024533,
+        0.082191,
+        0.011869,
+        0.000449,
+        -0.000404,
+        0.000507,
+        0.000974,
+        -0.001253
+      ],
+      "source_smiles": "B([c:1]1[c:2]([H:8])[c:3]([H:9])[c:4]([H:10])[c:5]([H:11])[c:6]1[H:12])[H:7]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00394.sdf",
+      "reference_sha256": "1e658c3dee709d99f04f5afe257372484563432b31f7f3e8a17f0df681d31ef4",
+      "reference_smiles": "[BH]c1ccccc1",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        8,
+        3,
+        9,
+        4,
+        10,
+        5,
+        11,
+        6,
+        12,
+        7
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00395",
+      "ase_row_id": 8,
+      "category": "B",
+      "selection_reason": "dimethylamino-substituted",
+      "source_geometry_sha256": "033c6e7d219284276aaf85eb80f47712e5c690228dd45845989d99ae072c2f8f",
+      "natoms": 11,
+      "source_formula": "C2H7BN",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        1.053783,
+        -0.132363,
+        0.028626,
+        0.017427,
+        0.030521,
+        0.000556,
+        0.000571,
+        -0.00066,
+        0.000105,
+        0.001346,
+        8.8e-05
+      ],
+      "source_smiles": "B([N:1]([C:2]([H:5])([H:6])[H:7])[C:3]([H:8])([H:9])[H:10])[H:4]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00395.sdf",
+      "reference_sha256": "9846a68c30ff28fa7d53feda789eaad2a92701b594d2c656f60afa6c187a7a0c",
+      "reference_smiles": "[BH]N(C)C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        5,
+        6,
+        7,
+        3,
+        8,
+        9,
+        10,
+        4
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00397",
+      "ase_row_id": 10,
+      "category": "B",
+      "selection_reason": "vinyl conjugation",
+      "source_geometry_sha256": "679e2a505de219e404be65a92d38c1f33be92c2967f25958200cafedf95cc92d",
+      "natoms": 7,
+      "source_formula": "C2H4B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.704127,
+        -0.235227,
+        0.603877,
+        -0.022746,
+        0.006746,
+        -0.028993,
+        -0.027785
+      ],
+      "source_smiles": "B([C:1](=[C:2]([H:5])[H:6])[H:4])[H:3]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00397.sdf",
+      "reference_sha256": "6916ba2085776b72698896900d5856fb35139dcc3935ea08e1d72240a443e7e4",
+      "reference_smiles": "[BH]C=C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        5,
+        6,
+        4,
+        3
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00400",
+      "ase_row_id": 13,
+      "category": "B",
+      "selection_reason": "cyclic dioxy substitution",
+      "source_geometry_sha256": "70bd0a8eece4a60a5b2eb7372e9baca34d45dcf6dee9db4a30815009e1862a29",
+      "natoms": 9,
+      "source_formula": "C2H4BO2",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        1.05658,
+        -0.084141,
+        0.059761,
+        0.059766,
+        -0.08415,
+        -0.001964,
+        -0.001945,
+        -0.001964,
+        -0.001943
+      ],
+      "source_smiles": "B1[O:1][C:2]([H:5])([H:6])[C:3]([H:7])([H:8])[O:4]1",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00400.sdf",
+      "reference_sha256": "4d133b074274e81faf1214c46ff81dcf2d1bc19e732e061034e84c1619f82e54",
+      "reference_smiles": "[B]1OCCO1",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        5,
+        6,
+        3,
+        7,
+        8,
+        4
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00401",
+      "ase_row_id": 14,
+      "category": "B",
+      "selection_reason": "conjugated five-membered ring",
+      "source_geometry_sha256": "85cc01fef120648dbedb44cc58188699f4eec95c864632aaafcf634efe1c0656",
+      "natoms": 9,
+      "source_formula": "C4H4B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.684108,
+        -0.009958,
+        0.172381,
+        0.172655,
+        -0.010213,
+        0.00049,
+        -0.004959,
+        -0.005005,
+        0.000502
+      ],
+      "source_smiles": "B1[C:1]([H:5])=[C:2]([H:6])[C:3]([H:7])=[C:4]1[H:8]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00401.sdf",
+      "reference_sha256": "f95a9bfb18246217028ca1bef5047f85d9eb6e500d1ba5c00e2143e866d76200",
+      "reference_smiles": "[B]1C=CC=C1",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        5,
+        2,
+        6,
+        3,
+        7,
+        4,
+        8
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00403",
+      "ase_row_id": 16,
+      "category": "B",
+      "selection_reason": "dimethyl substitution",
+      "source_geometry_sha256": "ed91d8ad9cd857dee0badf05383ff2e1c389e99f7ccfd5540ac1f0bb293e43df",
+      "natoms": 9,
+      "source_formula": "C2H6B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        1
+      ],
+      "source_spin_densities": [
+        -0.043045,
+        1.001879,
+        -0.043063,
+        0.035553,
+        0.005938,
+        0.000625,
+        0.005954,
+        0.035511,
+        0.000649
+      ],
+      "source_smiles": "C([BH:1][C:2]([H:6])([H:7])[H:8])([H:3])([H:4])[H:5]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00403.sdf",
+      "reference_sha256": "f5fbe0513603786e11f4c14370db09a3235b40550401999556c41da28a406180",
+      "reference_smiles": "C[B]C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        6,
+        7,
+        8,
+        3,
+        4,
+        5
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00409",
+      "ase_row_id": 22,
+      "category": "B",
+      "selection_reason": "difluoro substitution; source SMILES adds a spurious B-H",
+      "source_geometry_sha256": "f9bb783adc76fbd1e2f879cd324845dda009a9bd6fdf7efb628c5b74935cc458",
+      "natoms": 3,
+      "source_formula": "BF2",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        1
+      ],
+      "source_spin_densities": [
+        -0.014924,
+        1.029851,
+        -0.014927
+      ],
+      "source_smiles": "F[BH:1][F:2]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00409.sdf",
+      "reference_sha256": "52ba63fcc2df1f1a98bb5d273817cf36efb2052165eaeb8c8a046708df6fb655",
+      "reference_smiles": "F[B]F",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00413",
+      "ase_row_id": 26,
+      "category": "B",
+      "selection_reason": "bicyclic alkyl substitution",
+      "source_geometry_sha256": "bfd686ad0df5c75df17c2fae9317ea0910368d44276eec383daa5904ebb6bba3",
+      "natoms": 23,
+      "source_formula": "C8H14B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.987401,
+        -0.050835,
+        0.033923,
+        -0.019187,
+        0.033923,
+        -0.050834,
+        0.014606,
+        0.007588,
+        0.014607,
+        0.009566,
+        0.00378,
+        -0.000286,
+        0.000489,
+        0.00033,
+        -0.000286,
+        0.00378,
+        0.009566,
+        -0.00022,
+        0.001215,
+        -0.000176,
+        5.4e-05,
+        -0.00022,
+        0.001215
+      ],
+      "source_smiles": "B1[C@:1]2([H:9])[C:2]([H:10])([H:11])[C:3]([H:12])([H:13])[C:4]([H:14])([H:15])[C@@:5]1([H:16])[C:6]([H:17])([H:18])[C:7]([H:19])([H:20])[C:8]2([H:21])[H:22]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00413.sdf",
+      "reference_sha256": "f16fb2b516eefae08ab4310609bbf2991446589ee91252460ce4d58eae383f07",
+      "reference_smiles": "[B]1[C@H]2CCC[C@@H]1CCC2",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        9,
+        2,
+        10,
+        11,
+        3,
+        12,
+        13,
+        4,
+        14,
+        15,
+        5,
+        16,
+        6,
+        17,
+        18,
+        7,
+        19,
+        20,
+        8,
+        21,
+        22
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00415",
+      "ase_row_id": 28,
+      "category": "B",
+      "selection_reason": "silyl substitution",
+      "source_geometry_sha256": "2cff2431e54f875b2dcabf897901848b836c68a6f7a5adfaccd6dce2354c4bec",
+      "natoms": 15,
+      "source_formula": "C3H10BSi",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.978544,
+        0.027814,
+        -0.016746,
+        -0.005404,
+        0.027539,
+        -0.018217,
+        0.000683,
+        2.6e-05,
+        -0.001051,
+        0.000522,
+        0.000226,
+        0.000186,
+        -0.000827,
+        -0.000721,
+        0.007424
+      ],
+      "source_smiles": "B([Si:1]([C:2]([H:6])([H:7])[H:8])([C:3]([H:9])([H:10])[H:11])[C:4]([H:12])([H:13])[H:14])[H:5]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00415.sdf",
+      "reference_sha256": "0e856231603de0cf1e53c400ddcca9c3288a6c0264c7110b7d96b83c6e401f45",
+      "reference_smiles": "[BH][Si](C)(C)C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        6,
+        7,
+        8,
+        3,
+        9,
+        10,
+        11,
+        4,
+        12,
+        13,
+        14,
+        5
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00418",
+      "ase_row_id": 31,
+      "category": "B",
+      "selection_reason": "thioether substitution",
+      "source_geometry_sha256": "2de5c8e028d6d1b54c0bf2acf84a282c87f2a7c57397160e86653b77cf10b430",
+      "natoms": 7,
+      "source_formula": "CH4BS",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.978436,
+        -0.00894,
+        0.026683,
+        0.003616,
+        -0.000822,
+        -0.000823,
+        0.00185
+      ],
+      "source_smiles": "B([S:1][C:2]([H:4])([H:5])[H:6])[H:3]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00418.sdf",
+      "reference_sha256": "f7912e004898d667737a9a4a74a7a603cf40ee554a41b0bb8e47be15536a1567",
+      "reference_smiles": "[BH]SC",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        3
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00423",
+      "ase_row_id": 36,
+      "category": "B",
+      "selection_reason": "dicyano substitution",
+      "source_geometry_sha256": "000c99a6613ed4ec3aa8be5adbae02db8acaef345d8a179caef601d3f86914e9",
+      "natoms": 5,
+      "source_formula": "C2BN2",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        2
+      ],
+      "source_spin_densities": [
+        0.228997,
+        -0.120626,
+        0.783174,
+        -0.12072,
+        0.229176
+      ],
+      "source_smiles": "N#[C:1][BH:2][C:3]#[N:4]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00423.sdf",
+      "reference_sha256": "afaf185ac8a295e9d9174d59ae882608d7b0d7f19d69fc15620f379a26772d52",
+      "reference_smiles": "N#C[B]C#N",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00436",
+      "ase_row_id": 49,
+      "category": "B",
+      "selection_reason": "cyclic diamino substitution",
+      "source_geometry_sha256": "05136dc1497bc7d1bc70ce91a75fc5e08d40a24ccb0e842f659ef633b7fa610e",
+      "natoms": 17,
+      "source_formula": "C4H10BN2",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        2
+      ],
+      "source_spin_densities": [
+        0.012076,
+        -0.067361,
+        1.052687,
+        -0.06728,
+        0.012057,
+        0.02901,
+        0.02912,
+        -0.000803,
+        -0.000726,
+        0.001544,
+        -0.000801,
+        0.001543,
+        -0.000723,
+        0.000578,
+        -0.000748,
+        0.000573,
+        -0.000745
+      ],
+      "source_smiles": "C([N:1]1[BH:2][N:3]([C:4]([H:10])([H:11])[H:12])[C:5]([H:13])([H:14])[C:6]1([H:15])[H:16])([H:7])([H:8])[H:9]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00436.sdf",
+      "reference_sha256": "de479ca1a333396d8abedd4d25424d746d4d150ce855fde255ae2b7ebb2b51c9",
+      "reference_smiles": "CN1[B]N(C)CC1",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        10,
+        11,
+        12,
+        5,
+        13,
+        14,
+        6,
+        15,
+        16,
+        7,
+        8,
+        9
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00440",
+      "ase_row_id": 53,
+      "category": "B",
+      "selection_reason": "delocalized spin; carbon spin density exceeds boron",
+      "source_geometry_sha256": "d1c2b5de70009985532f97158ad698b0074895335683f464d7e0147084f57a1c",
+      "natoms": 10,
+      "source_formula": "C3H6B",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        2
+      ],
+      "source_spin_densities": [
+        0.720354,
+        -0.188854,
+        0.530277,
+        -0.035932,
+        -0.034273,
+        -0.032762,
+        0.003992,
+        -0.000437,
+        0.018766,
+        0.018868
+      ],
+      "source_smiles": "C(=[C:1]([BH:2][C:3]([H:7])([H:8])[H:9])[H:6])([H:4])[H:5]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00440.sdf",
+      "reference_sha256": "8453e696f86c27e89d058b8998dbd33f1e16308a12c7781fedfb1b2e6189665c",
+      "reference_smiles": "C=C[B]C",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        3,
+        7,
+        8,
+        9,
+        6,
+        4,
+        5
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00442",
+      "ase_row_id": 55,
+      "category": "B",
+      "selection_reason": "mixed methyl/fluoro substitution",
+      "source_geometry_sha256": "8ac979fe93db17db1e019be066ec728f78d5d99cc2cc6e998b29deadb900f5f4",
+      "natoms": 6,
+      "source_formula": "CH3BF",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "inferred doublet: author open-shell category, odd electron count, spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md"
+      ],
+      "boron_atom_indices": [
+        1
+      ],
+      "source_spin_densities": [
+        -0.016402,
+        0.994688,
+        -0.001872,
+        0.005488,
+        -9.5e-05,
+        0.018193
+      ],
+      "source_smiles": "C([BH:1][F:2])([H:3])([H:4])[H:5]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00442.sdf",
+      "reference_sha256": "046957fa838cf1c75e4beebf35de51a887c4a8952072807c893c25da26a9b6d9",
+      "reference_smiles": "C[B]F",
+      "reference_source_atom_to_geometry": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 1,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00001_r",
+      "ase_row_id": 807,
+      "category": "complex_r",
+      "selection_reason": "trimethylamine N donor; radical reactant",
+      "source_geometry_sha256": "dc71833032d4aec3f88be3dbc918bc14b565a2b8fab3f067870994ed4ab7e4cd",
+      "natoms": 16,
+      "source_formula": "C3H11BN",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "author workflow: B_N_r doublet (multiplicity 2); spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        1.100749,
+        -0.034203,
+        -0.03418,
+        -0.029038,
+        0.008973,
+        -0.029075,
+        0.000576,
+        0.002617,
+        0.000421,
+        0.000197,
+        0.002549,
+        0.000206,
+        0.000419,
+        0.013819,
+        -0.002002,
+        -0.002028
+      ],
+      "source_smiles": "[H][B-]([H])[N+](C([H])([H])[H])(C([H])([H])[H])C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00001_r.sdf",
+      "reference_sha256": "bd239d58a9eb1cf0f8cd883f14641a00b5d9620cbb0cabf5d4ddfc2477c8e0b7",
+      "reference_smiles": "[BH2-][N+](C)(C)C",
+      "reference_source_atom_to_geometry": [
+        1,
+        0,
+        2,
+        4,
+        3,
+        7,
+        8,
+        9,
+        5,
+        10,
+        11,
+        12,
+        6,
+        13,
+        14,
+        15
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00001_p",
+      "ase_row_id": 808,
+      "category": "complex_p",
+      "selection_reason": "trimethylamine N donor; chloroborane product control",
+      "source_geometry_sha256": "1105dcb9bb6386688bf2020e8b98798e4d9db4e27442df0601bf5fd7759ede58",
+      "natoms": 17,
+      "source_formula": "C3H11BClN",
+      "charge": 0,
+      "spin_multiplicity": 1,
+      "electronic_state_basis": "author workflow: B_N_p singlet (multiplicity 1); author closed-shell category",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": null,
+      "source_smiles": "[H][B-]([H])(Cl)[N+](C([H])([H])[H])(C([H])([H])[H])C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00001_p.sdf",
+      "reference_sha256": "6e172329dfd1c15d3861367a18d7dd6054f86c02dd8b21389e3b86f752e4dc17",
+      "reference_smiles": "C[N+](C)(C)[BH2-]Cl",
+      "reference_source_atom_to_geometry": [
+        2,
+        0,
+        3,
+        1,
+        5,
+        4,
+        8,
+        9,
+        10,
+        6,
+        11,
+        12,
+        13,
+        7,
+        14,
+        15,
+        16
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 0,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00069_r",
+      "ase_row_id": 933,
+      "category": "complex_r",
+      "selection_reason": "trimethylphosphine P donor; radical reactant",
+      "source_geometry_sha256": "038f72683e3bc7899327251ea506dea69428c5204536a00ca647a795d32a8685",
+      "natoms": 16,
+      "source_formula": "C3H11BP",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "author workflow: B_N_r doublet (multiplicity 2); spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.914036,
+        -0.040941,
+        -0.040969,
+        -0.003755,
+        0.155538,
+        0.019732,
+        -0.003863,
+        -0.000226,
+        0.002563,
+        -0.003243,
+        -0.004582,
+        0.011421,
+        -0.004668,
+        -0.000202,
+        0.002328,
+        -0.003171
+      ],
+      "source_smiles": "[H][B-]([H])[P+](C([H])([H])[H])(C([H])([H])[H])C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00069_r.sdf",
+      "reference_sha256": "96a727495a6b956a71452c93f7813f0d66c8570f920f424811bd0ad964298102",
+      "reference_smiles": "[BH2-][P+](C)(C)C",
+      "reference_source_atom_to_geometry": [
+        1,
+        0,
+        2,
+        4,
+        3,
+        7,
+        8,
+        9,
+        5,
+        10,
+        11,
+        12,
+        6,
+        13,
+        14,
+        15
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00069_p",
+      "ase_row_id": 934,
+      "category": "complex_p",
+      "selection_reason": "trimethylphosphine P donor; chloroborane product control",
+      "source_geometry_sha256": "83941638425ea763503d1c30614c8ac3a3c61b194964ec7001c8031089b250a0",
+      "natoms": 17,
+      "source_formula": "C3H11BClP",
+      "charge": 0,
+      "spin_multiplicity": 1,
+      "electronic_state_basis": "author workflow: B_N_p singlet (multiplicity 1); author closed-shell category",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": null,
+      "source_smiles": "[H][B-]([H])(Cl)[P+](C([H])([H])[H])(C([H])([H])[H])C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00069_p.sdf",
+      "reference_sha256": "28f80416d27044c734fbd1b2b4fe7b9f1f63935673009f66ece5d8eb98ea0ee2",
+      "reference_smiles": "C[P+](C)(C)[BH2-]Cl",
+      "reference_source_atom_to_geometry": [
+        2,
+        0,
+        3,
+        1,
+        5,
+        4,
+        8,
+        9,
+        10,
+        6,
+        11,
+        12,
+        13,
+        7,
+        14,
+        15,
+        16
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 0,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00141_r",
+      "ase_row_id": 1077,
+      "category": "complex_r",
+      "selection_reason": "trifluorophosphine P donor; radical reactant",
+      "source_geometry_sha256": "74b88b510f34fc8df17e7b6552a6263d2fd1d72438439d81a53c42819194253f",
+      "natoms": 7,
+      "source_formula": "H2BF3P",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "author workflow: B_N_r doublet (multiplicity 2); spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.702962,
+        -0.03356,
+        -0.033568,
+        -0.014427,
+        0.401107,
+        -0.014357,
+        -0.008157
+      ],
+      "source_smiles": "[H][B-]([H])[P+](F)(F)F",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00141_r.sdf",
+      "reference_sha256": "be9ad413a512b4461438d085c56a00c2d4a1dbd42be779e84a49de50be960a0a",
+      "reference_smiles": "[BH2-][P+](F)(F)F",
+      "reference_source_atom_to_geometry": [
+        1,
+        0,
+        2,
+        4,
+        3,
+        5,
+        6
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00141_p",
+      "ase_row_id": 1078,
+      "category": "complex_p",
+      "selection_reason": "trifluorophosphine P donor; chloroborane product control",
+      "source_geometry_sha256": "333a7d364a34667c4302e11737df5cbc621da1c83c4890e0820fd8e705525c6e",
+      "natoms": 8,
+      "source_formula": "H2BClF3P",
+      "charge": 0,
+      "spin_multiplicity": 1,
+      "electronic_state_basis": "author workflow: B_N_p singlet (multiplicity 1); author closed-shell category",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": null,
+      "source_smiles": "[H][B-]([H])(Cl)[P+](F)(F)F",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00141_p.sdf",
+      "reference_sha256": "3547dddafbb9c6691b760fb0b7e659b46fefc4a70253bd36be373e6f53cd54b4",
+      "reference_smiles": "F[P+](F)(F)[BH2-]Cl",
+      "reference_source_atom_to_geometry": [
+        2,
+        0,
+        3,
+        1,
+        5,
+        4,
+        6,
+        7
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 0,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00146_r",
+      "ase_row_id": 1087,
+      "category": "complex_r",
+      "selection_reason": "imidazole-derived N-heterocyclic carbene C donor; radical reactant",
+      "source_geometry_sha256": "6a8f169784f4d69d0f44881bf661f02547758679ed8062acb6897b677851ed95",
+      "natoms": 18,
+      "source_formula": "C5H10BN2",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "author workflow: B_N_r doublet (multiplicity 2); spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.579221,
+        -0.028377,
+        -0.028377,
+        -0.005512,
+        0.120026,
+        0.12864,
+        0.120026,
+        -0.005512,
+        0.039495,
+        0.039495,
+        0.01125,
+        0.011222,
+        0.000126,
+        0.000126,
+        0.011241,
+        0.011231,
+        -0.00216,
+        -0.00216
+      ],
+      "source_smiles": "[H][B-]([H])[C+]1N(C([H])([H])[H])C([H])=C([H])N1C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00146_r.sdf",
+      "reference_sha256": "bb4fca167ca6f54b321aa5f2bd8ef6d73030f67be682808c1f471175c90edb70",
+      "reference_smiles": "[BH2-][c+]1n(C)ccn1C",
+      "reference_source_atom_to_geometry": [
+        1,
+        0,
+        2,
+        5,
+        4,
+        3,
+        10,
+        11,
+        12,
+        9,
+        17,
+        8,
+        16,
+        6,
+        7,
+        13,
+        14,
+        15
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00146_p",
+      "ase_row_id": 1088,
+      "category": "complex_p",
+      "selection_reason": "imidazole-derived N-heterocyclic carbene C donor; chloroborane product control",
+      "source_geometry_sha256": "896e29c18d5f883d2bc3fe36e44575ef5cd735ebc91d1d11011a886562df209d",
+      "natoms": 19,
+      "source_formula": "C5H10BClN2",
+      "charge": 0,
+      "spin_multiplicity": 1,
+      "electronic_state_basis": "author workflow: B_N_p singlet (multiplicity 1); author closed-shell category",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": null,
+      "source_smiles": "[H]C1=C([H])N(C([H])([H])[H])[C+]([B-]([H])([H])Cl)N1C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00146_p.sdf",
+      "reference_sha256": "b3fa9aa60300ce00fc29f2e1cf268f6ba3ecdeaa4ff0fa136f970e2e71b0f891",
+      "reference_smiles": "Cn1ccn(C)[c+]1[BH2-]Cl",
+      "reference_source_atom_to_geometry": [
+        17,
+        9,
+        10,
+        18,
+        5,
+        4,
+        11,
+        12,
+        13,
+        6,
+        0,
+        2,
+        3,
+        1,
+        7,
+        8,
+        14,
+        15,
+        16
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 0,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00209_r",
+      "ase_row_id": 1213,
+      "category": "complex_r",
+      "selection_reason": "thiazole-derived carbene C donor; radical reactant",
+      "source_geometry_sha256": "3e58378a1185c5fe6842cbca80871da3bc61d3e3e0987d688b834770a1b9be05",
+      "natoms": 14,
+      "source_formula": "C4H7BNS",
+      "charge": 0,
+      "spin_multiplicity": 2,
+      "electronic_state_basis": "author workflow: B_N_r doublet (multiplicity 2); spin-density sum ~1",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": [
+        0.389954,
+        -0.020082,
+        -0.019531,
+        -0.013322,
+        0.160062,
+        0.230312,
+        0.18806,
+        0.121541,
+        -0.058222,
+        0.013107,
+        0.013097,
+        0.000154,
+        -0.00757,
+        0.002441
+      ],
+      "source_smiles": "[H][B-]([H])[C+]1SC([H])=C([H])N1C([H])([H])[H]",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00209_r.sdf",
+      "reference_sha256": "14c3055f56ea447bf1a598f6fb4d20172dcdd5ce9ee4bf003aa4d701370f3983",
+      "reference_smiles": "[BH2-][c+]1sccn1C",
+      "reference_source_atom_to_geometry": [
+        1,
+        0,
+        2,
+        5,
+        6,
+        7,
+        12,
+        8,
+        13,
+        4,
+        3,
+        9,
+        10,
+        11
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 1,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    },
+    {
+      "case_id": "B_00388_LB_00209_p",
+      "ase_row_id": 1214,
+      "category": "complex_p",
+      "selection_reason": "thiazole-derived carbene C donor; chloroborane product control",
+      "source_geometry_sha256": "00e8919bfdc98786a1fd700ad7db1c844e03f9d78c6655b507e150f2f02ef1a5",
+      "natoms": 15,
+      "source_formula": "C4H7BClNS",
+      "charge": 0,
+      "spin_multiplicity": 1,
+      "electronic_state_basis": "author workflow: B_N_p singlet (multiplicity 1); author closed-shell category",
+      "electronic_state_sources": [
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/Database_Structure.md",
+        "https://github.com/jackie-illiilli/BorylXAT-DB/blob/main/1_Calc_Reactant.ipynb"
+      ],
+      "boron_atom_indices": [
+        0
+      ],
+      "source_spin_densities": null,
+      "source_smiles": "[H]C1=C([H])N(C([H])([H])[H])[C+]([B-]([H])([H])Cl)S1",
+      "reference_status": "corrected_source_graph_geometry_checked",
+      "reference_file": "reference_graph/B_00388_LB_00209_p.sdf",
+      "reference_sha256": "2e8a3b4d480a3576838238836f50c3d7d3c7c08027230f3916ab1010bbe9d466",
+      "reference_smiles": "Cn1ccs[c+]1[BH2-]Cl",
+      "reference_source_atom_to_geometry": [
+        13,
+        8,
+        9,
+        14,
+        5,
+        4,
+        10,
+        11,
+        12,
+        6,
+        0,
+        2,
+        3,
+        1,
+        7
+      ],
+      "reference_corrections": {
+        "implicit_hydrogens_disabled": true,
+        "extra_boron_bracket_hydrogens_removed": 0,
+        "boron_radical_electrons": 0,
+        "source_formal_charges_preserved": true,
+        "source_bond_orders_preserved_before_aromatic_normalization": true,
+        "geometry_connectivity_check": "RDKit covalent radii, factor 1.2",
+        "representation": "one B-centred Lewis form; source covalent/charge-separated convention"
+      }
+    }
+  ]
+}

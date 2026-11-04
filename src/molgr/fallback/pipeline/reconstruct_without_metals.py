@@ -122,8 +122,9 @@ def _expand_resonance_layer(
 
     # Each normalization is optional: retain the incoming seeds and add changed
     # variants before continuing to the next normalization.
+    resonance_seeds = no_metal_resonance.expand_boron_neighbor_radical_seeds(source_seeds)
     resonance_seeds = no_metal_resonance.expand_resonance_seed_pool_stage(
-        source_seeds,
+        resonance_seeds,
         phase="relocate_carbene_radical_for_resonance",
         stage=clean_carbene_neighbor_unsaturated,
         uses_charge_budget=False,

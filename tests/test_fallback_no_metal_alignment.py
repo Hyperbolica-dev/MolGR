@@ -660,6 +660,52 @@ def test_assign_charge_radical_uses_active_orbital_occupancy_for_python_and_cpp(
 
 
 @pytest.mark.parametrize(
+    ("charge", "bond_orders", "expected_unpaired"),
+    [
+        (0, (1, 1), 1),  # Neutral boryl radical.
+        (0, (1, 1, 1), 0),  # Closed-shell, electron-deficient borane.
+        (-1, (1,), 1),  # An anionic lone pair plus one active electron.
+        (-1, (1, 1), 0),  # Preserve the closed-shell boryl-anion convention.
+        (-1, (1, 1, 1), 1),  # Three-coordinate radical anion.
+        (-1, (1, 1, 1, 1), 0),  # Closed-shell borate.
+        (-1, (2, 1), 1),  # Count bond orders, not just neighbors.
+        (-1, (2, 1, 1), 0),
+        (1, (1, 1), 0),  # Removing an electron must not create two radicals.
+    ],
+)
+def test_boron_electronic_states_survive_refresh_for_python_and_cpp(
+    charge: int, bond_orders: tuple[int, ...], expected_unpaired: int
+) -> None:
+    from molgr import _core  # type: ignore
+
+    for backend in ("python", "cpp"):
+        mol = ob.OBMol()
+        boron = mol.NewAtom()
+        boron.SetAtomicNum(5)
+        boron.SetFormalCharge(charge)
+        for order in bond_orders:
+            neighbor = mol.NewAtom()
+            neighbor.SetAtomicNum(6)
+            mol.AddBond(boron.GetIdx(), neighbor.GetIdx(), order)
+        # A refresh must replace stale electronic labels, then be idempotent.
+        set_unpaired_electron_count(boron, 3)
+        set_lone_pair_count(boron, 1)
+        set_unresolved_two_electron_center(boron, True)
+        for expected_changed in (True, False):
+            if backend == "python":
+                changed = assign_charge_radical_for_atom(boron)
+            else:
+                changed = _core.dev.stages.fresh.assign_charge_radical_for_atom_ptr(
+                    _get_ptr(mol), 1
+                )
+            assert changed is expected_changed
+            assert boron.GetFormalCharge() == charge
+            assert get_unpaired_electron_count(boron) == expected_unpaired
+            assert get_lone_pair_count(boron) == 0
+            assert not has_unresolved_two_electron_center(boron)
+
+
+@pytest.mark.parametrize(
     ("atomic_num", "hydrogen_count", "initial_charge", "expected_charge"),
     [
         (8, 3, -1, 1),
@@ -1307,6 +1353,66 @@ def test_eliminate_possible_cp_like_radical_anion_recomputes_global_electron_bud
     assert not cpp_hit
     assert cpp_given_charge == -2
     assert cp_status(cpp_omol) == (0, 2)
+
+
+@pytest.mark.parametrize(
+    ("given_charge", "radical_target", "existing_radicals", "expected_assignments"),
+    [
+        (-1, 1, 0, 1),
+        (-2, 1, 0, 1),  # Radical budget runs out before negative charge does.
+        (-2, 2, 0, 2),
+        (-1, 0, 0, 0),
+        (-1, None, 0, 0),  # Legacy calls do not authorize new radicals.
+        (0, 1, 0, 0),
+        (1, 1, 0, 0),
+        (-1, 1, 1, 0),  # Existing radicals count against the global target.
+        (-1, 2, 1, 1),
+    ],
+)
+def test_bv3_negative_charge_assignment_obeys_both_budgets_for_python_and_cpp(
+    given_charge: int,
+    radical_target: int | None,
+    existing_radicals: int,
+    expected_assignments: int,
+) -> None:
+    from molgr import _core  # type: ignore
+
+    for backend in ("python", "cpp"):
+        mol = ob.OBMol()
+        boron_indices = []
+        for group in range(2):
+            boron = mol.NewAtom()
+            boron.SetAtomicNum(5)
+            boron_indices.append(boron.GetIdx())
+            if group == 0 and existing_radicals:
+                boron.SetFormalCharge(-1)
+                set_unpaired_electron_count(boron, 1)
+            for _ in range(3):
+                fluorine = mol.NewAtom()
+                fluorine.SetAtomicNum(9)
+                mol.AddBond(boron.GetIdx(), fluorine.GetIdx(), 1)
+        omol = pybel.Molecule(mol)
+        bonds_before = _pybel_stage_signature(omol)[1]
+        if backend == "python":
+            _, remaining, hit = eliminate_negative_charges(omol, given_charge, radical_target)
+        else:
+            remaining, hit = _core.dev.stages.eliminate.eliminate_negative_charges_ptr(
+                _get_ptr(mol), given_charge, -1 if radical_target is None else radical_target
+            )
+        assert hit is bool(expected_assignments)
+        assert remaining == given_charge + expected_assignments
+        assert _pybel_stage_signature(omol)[1] == bonds_before
+        borons = [mol.GetAtom(idx) for idx in boron_indices]
+        assert sum(atom.GetFormalCharge() for atom in borons) == -(
+            existing_radicals + expected_assignments
+        )
+        assert sum(get_unpaired_electron_count(atom) for atom in borons) == (
+            existing_radicals + expected_assignments
+        )
+        for atom in borons:
+            assert atom.GetFormalCharge() == -get_unpaired_electron_count(atom)
+            assert get_lone_pair_count(atom) == 0
+            assert not has_unresolved_two_electron_center(atom)
 
 
 def test_eliminate_negative_charges_prefers_single_radical_heteroatom_even_at_zero_charge_for_python_and_cpp() -> (

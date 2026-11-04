@@ -21,15 +21,19 @@ def assign_radical_dots(atom: ob.OBAtom) -> int:
 
     The result is not yet an unpaired-electron count. In particular, two missing
     bond-valence units may later become one active lone pair, two real unpaired
-    electrons, or an unresolved C/N/P two-electron center. The low-coordinate
-    ``B-`` correction prevents Open Babel's tetravalent-boron prior from creating
-    a spurious extra deficit.
+    electrons, or an unresolved C/N/P two-electron center. Boron uses its
+    nonbonding electron budget, excluding the closed-shell anionic lone pairs
+    that are not reconstruction-active. An odd electron left on B- remains
+    active, including the three-bond radical anion.
     """
     atomic_num = int(atom.GetAtomicNum())
     total_valence = int(atom.GetTotalValence())
+    if atomic_num == 5:
+        charge = int(atom.GetFormalCharge())
+        nonbonding_electrons = max(0, 3 - charge - total_valence)
+        inactive_lone_pairs = min(max(0, -charge), nonbonding_electrons // 2)
+        return nonbonding_electrons - 2 * inactive_lone_pairs
     typical_valence = int(ob.GetTypicalValence(atomic_num, total_valence, atom.GetFormalCharge()))
-    if atomic_num == 5 and total_valence <= 3:
-        typical_valence = 3 + atom.GetFormalCharge()
     return max(0, typical_valence - total_valence)
 
 
@@ -132,8 +136,6 @@ def assign_charge_radical_for_atom(atom: ob.OBAtom) -> bool:
         )
 
     set_unresolved_two_electron_center(atom, False)
-    if atom.GetAtomicNum() == 5 and atom.GetFormalCharge() == -1 and atom.GetTotalValence() < 3:
-        _assign_active_electron_occupancy(atom, 0)
     _assign_active_electron_occupancy(atom, radical_dots)
     return (
         old_charge != atom.GetFormalCharge()
