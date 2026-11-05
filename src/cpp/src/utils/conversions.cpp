@@ -1,9 +1,11 @@
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/electrons.h"
 #include "molgr/vendor/openbabel_threading.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <mutex>
 #include "molgr/compat/openbabel_iter.h"
 
 namespace molgr
@@ -33,8 +35,17 @@ namespace molgr
                 {
                     new_atom->SetHyb(atom->GetHyb());
                 }
-                new_atom->SetAromatic(atom->IsAromatic());
-                new_atom->SetInRing(atom->IsInRing());
+                bool source_atom_aromatic;
+                bool source_atom_in_ring;
+                {
+                    // Native lazy perception may write OpenBabel's global logger.
+                    std::lock_guard<std::recursive_mutex> lock(
+                        molgr::vendor::openbabel_threading::NativeOpenBabelMutex());
+                    source_atom_aromatic = atom->IsAromatic();
+                    source_atom_in_ring = atom->IsInRing();
+                }
+                new_atom->SetAromatic(source_atom_aromatic);
+                new_atom->SetInRing(source_atom_in_ring);
                 new_atom->SetVector(atom->GetX(), atom->GetY(), atom->GetZ());
             }
 

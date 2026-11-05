@@ -12,6 +12,7 @@
 #include "molgr/utils/no_metals/preparation.h"
 #include "molgr/utils/parallel.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include <openbabel/mol.h>
 
@@ -520,7 +521,7 @@ namespace molgr
                         [](const OpenBabel::OBMol &no_metal_omol,
                            const std::vector<molgr::metal::MetalAtomPosition> &metal_states)
                         {
-                            auto combined_omol = std::make_shared<OpenBabel::OBMol>(
+                            auto combined_omol = molgr::vendor::openbabel_threading::SharedMolCopy(
                                 molgr::utils::CloneMolTopologyOnly(no_metal_omol));
                             molgr::metal::preparation::CombineMetalWithOmol(
                                 *combined_omol,

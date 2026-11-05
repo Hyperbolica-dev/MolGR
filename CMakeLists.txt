@@ -83,6 +83,7 @@ add_library(molgr STATIC
     src/cpp/src/utils/metal_radical_inference.cpp
     src/cpp/src/vendor/forcefielduff.cpp
     src/cpp/src/vendor/openbabel_conversion.cpp
+    src/cpp/src/vendor/openbabel_copy.cpp
     src/cpp/src/vendor/openbabel_threading.cpp
     src/cpp/src/utils/metals/preparation.cpp
     src/cpp/src/utils/metals/scoring.cpp

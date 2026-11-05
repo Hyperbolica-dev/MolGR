@@ -1,6 +1,7 @@
 #include "molgr/pipeline/resonance.h"
 
 #include "molgr/utils/conversions.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include <deque>
 #include <map>
@@ -48,7 +49,7 @@ namespace molgr
             const auto [root_key, bond_index_map] = BuildResonanceSearchContext(mol);
             std::set<ResonanceStateKey> seen{root_key};
             std::deque<std::tuple<std::shared_ptr<OpenBabel::OBMol>, ResonanceStateKey, int>> frontier{
-                {std::make_shared<OpenBabel::OBMol>(
+                {molgr::vendor::openbabel_threading::SharedMolCopy(
                      molgr::utils::CloneMolTopologyOnly(mol)),
                  root_key,
                  0}};
@@ -106,7 +107,7 @@ namespace molgr
                 0,
                 0,
                 0,
-                std::make_shared<OpenBabel::OBMol>(
+                molgr::vendor::openbabel_threading::SharedMolCopy(
                     molgr::utils::CloneMolTopologyOnly(mol)),
                 root_key});
 
@@ -187,6 +188,8 @@ namespace molgr
                 max_depth,
                 [&resonances](const ResonanceSearchNode &node)
                 {
+                    std::lock_guard<std::recursive_mutex> lock(
+                        molgr::vendor::openbabel_threading::NativeOpenBabelMutex());
                     resonances.push_back(node.omol);
                     return true;
                 });
@@ -205,6 +208,8 @@ namespace molgr
                 max_depth,
                 [&resonances](const ResonanceSearchNode &node)
                 {
+                    std::lock_guard<std::recursive_mutex> lock(
+                        molgr::vendor::openbabel_threading::NativeOpenBabelMutex());
                     resonances.push_back(node.omol);
                     return true;
                 },

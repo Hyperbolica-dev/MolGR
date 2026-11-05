@@ -3,6 +3,7 @@
 #include "molgr/stages/break_bond.h"
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/resonance.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include <memory>
 #include <set>
@@ -43,7 +44,7 @@ namespace molgr
                 for (const auto &state : states)
                 {
                     auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
-                    auto next_mol = std::make_shared<OpenBabel::OBMol>(
+                    auto next_mol = molgr::vendor::openbabel_threading::SharedMolCopy(
                         molgr::utils::CloneMolTopologyOnly(state.Mol()));
                     machine = machine.Branch(std::nullopt, std::move(next_mol));
                     const bool hit = machine.RunOmolStage(
@@ -70,7 +71,7 @@ namespace molgr
                 for (const auto &state : states)
                 {
                     auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
-                    auto next_mol = std::make_shared<OpenBabel::OBMol>(
+                    auto next_mol = molgr::vendor::openbabel_threading::SharedMolCopy(
                         molgr::utils::CloneMolTopologyOnly(state.Mol()));
                     machine = machine.Branch(std::nullopt, std::move(next_mol));
                     const bool hit = machine.RunOmolChargeStage(

@@ -7,6 +7,7 @@
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/electrons.h"
 #include "molgr/utils/xyz.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include "molgr/compat/openbabel_iter.h"
 
@@ -66,7 +67,7 @@ namespace molgr
             std::shared_ptr<OpenBabel::OBMol> NormalizeSeedOmolCopy(
                 const OpenBabel::OBMol &seed_omol)
             {
-                auto omol = std::make_shared<OpenBabel::OBMol>(
+                auto omol = molgr::vendor::openbabel_threading::SharedMolCopy(
                     molgr::utils::CloneMolTopologyOnly(seed_omol));
                 NormalizeSeedElectronicLabels(*omol);
                 return omol;

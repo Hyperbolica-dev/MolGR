@@ -3,6 +3,7 @@
 #include "molgr/utils/consts.h"
 #include "molgr/utils/electrons.h"
 #include "molgr/utils/utils.h"
+#include "molgr/vendor/openbabel_copy.h"
 #include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
@@ -890,7 +891,7 @@ namespace molgr
             {
                 return false;
             }
-            OpenBabel::OBMol working(*parent);
+            OpenBabel::OBMol working = molgr::vendor::openbabel_threading::CopyMol(*parent);
             PrepareTopologyWorkingMolecule(working);
             const ValidatedConjugationTopology conjugated_topology =
                 ValidatedConjugatedTopology(
@@ -903,7 +904,7 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const molgr::config::OrganicTopologyConfig &config)
         {
-            OpenBabel::OBMol working(mol);
+            OpenBabel::OBMol working = molgr::vendor::openbabel_threading::CopyMol(mol);
             PrepareTopologyWorkingMolecule(working);
 
             OrganicTopologyMetrics metrics;

@@ -3,6 +3,7 @@
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/force_field.h"
 #include "molgr/utils/scoring.h"
+#include "molgr/vendor/openbabel_copy.h"
 
 #include <array>
 #include <stdexcept>
@@ -279,7 +280,7 @@ namespace molgr
             }
             else if (!omol.unique())
             {
-                omol = std::make_shared<OpenBabel::OBMol>(
+                omol = molgr::vendor::openbabel_threading::SharedMolCopy(
                     molgr::utils::CloneMolTopologyOnly(*omol));
             }
             return *omol;
