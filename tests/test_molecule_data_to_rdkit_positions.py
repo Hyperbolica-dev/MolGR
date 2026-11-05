@@ -122,7 +122,7 @@ def test_metal_unpaired_electron_property_survives_sdf_round_trip() -> None:
     assert iron.GetNumRadicalElectrons() == 0
     assert get_atom_unpaired_electrons(iron) == 2
     assert get_atom_lone_pair_count(iron) == 1
-    assert restored.GetAtomWithIdx(1).GetIntProp(UNPAIRED_ELECTRON_COUNT_PROP) == 1
+    assert int(restored.GetAtomWithIdx(1).GetProp(UNPAIRED_ELECTRON_COUNT_PROP)) == 1
     assert has_atom_unresolved_two_electron_center(restored.GetAtomWithIdx(1))
 
 
@@ -303,12 +303,14 @@ def test_mixed_atom_electron_presence_survives_conversion(route: str) -> None:
         for idx, expected_presence in enumerate(expected):
             atom = mol.GetAtomWithIdx(idx)
             assert tuple(bool(atom.HasProp(name)) for name in fields) == expected_presence
-        assert mol.GetAtomWithIdx(0).GetIntProp(UNPAIRED_ELECTRON_COUNT_PROP) == 0
-        assert mol.GetAtomWithIdx(1).GetIntProp(LONE_PAIR_COUNT_PROP) == 0
-        assert not mol.GetAtomWithIdx(2).GetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
-        assert mol.GetAtomWithIdx(3).GetIntProp(UNPAIRED_ELECTRON_COUNT_PROP) == 2
-        assert mol.GetAtomWithIdx(3).GetIntProp(LONE_PAIR_COUNT_PROP) == 1
-        assert mol.GetAtomWithIdx(3).GetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
+        # SDF integer lists may use a wider C++ integer type on Windows.
+        # Assert the serialized value, not RDKit's incidental storage width.
+        assert int(mol.GetAtomWithIdx(0).GetProp(UNPAIRED_ELECTRON_COUNT_PROP)) == 0
+        assert get_atom_lone_pair_count(mol.GetAtomWithIdx(1)) == 0
+        assert not has_atom_unresolved_two_electron_center(mol.GetAtomWithIdx(2))
+        assert int(mol.GetAtomWithIdx(3).GetProp(UNPAIRED_ELECTRON_COUNT_PROP)) == 2
+        assert get_atom_lone_pair_count(mol.GetAtomWithIdx(3)) == 1
+        assert has_atom_unresolved_two_electron_center(mol.GetAtomWithIdx(3))
 
 
 def test_postprocess_consumed_nonmetal_radicals_update_explicit_sdf_count() -> None:
@@ -338,7 +340,7 @@ def test_postprocess_consumed_nonmetal_radicals_update_explicit_sdf_count() -> N
         io.BytesIO(buffer.getvalue().encode()), sanitize=False, removeHs=False
     ))
     assert restored is not None
-    assert restored.GetAtomWithIdx(1).GetIntProp(UNPAIRED_ELECTRON_COUNT_PROP) == 0
+    assert int(restored.GetAtomWithIdx(1).GetProp(UNPAIRED_ELECTRON_COUNT_PROP)) == 0
 
 
 def test_refreshed_electron_lists_follow_edits_and_atom_reordering_in_sdf() -> None:
@@ -370,7 +372,7 @@ def test_refreshed_electron_lists_follow_edits_and_atom_reordering_in_sdf() -> N
     assert restored is not None
     carbon, iron = restored.GetAtomWithIdx(0), restored.GetAtomWithIdx(1)
     assert carbon.GetAtomicNum() == 6
-    assert carbon.GetIntProp(UNPAIRED_ELECTRON_COUNT_PROP) == 1
+    assert int(carbon.GetProp(UNPAIRED_ELECTRON_COUNT_PROP)) == 1
     assert get_atom_lone_pair_count(carbon) == 2
     assert carbon.HasProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
     assert not has_atom_unresolved_two_electron_center(carbon)
