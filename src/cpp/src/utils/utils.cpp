@@ -8,6 +8,7 @@
 
 #include "molgr/utils/utils.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/electrons.h"
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -81,7 +82,16 @@ namespace molgr
             {
                 return data;
             }
-            return MoleculeDataFromOBMol(*mol);
+            data = MoleculeDataFromOBMol(*mol);
+            for (size_t i = 0; i < data.atoms.size(); ++i)
+            {
+                OpenBabel::OBAtom *atom = mol->GetAtom(static_cast<int>(i + 1));
+                data.atoms[i].electron_property_presence =
+                    (atom->HasData(kUnpairedElectronCountProp) ? 1 : 0) |
+                    (atom->HasData(kLonePairCountProp) ? 2 : 0) |
+                    (atom->HasData(kUnresolvedTwoElectronCenterProp) ? 4 : 0);
+            }
+            return data;
         }
 
     } // namespace utils

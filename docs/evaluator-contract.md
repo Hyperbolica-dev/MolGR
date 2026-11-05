@@ -58,7 +58,9 @@ With `use_chirality=True`, coordinate-derived stereochemistry remains enabled.
 
 The per-component electron signature remains computed and persisted in `invariants["component_electrons"]`, together with aggregate radical counts, raw diagnostics, normalization effects, and contradiction metadata. A mismatch is diagnostic by default. RDKit radical bookkeeping, metal–ligand Lewis representation, and component-local electron accounting do not independently establish `NOT_EQUIVALENT`.
 
-No representation-independent global electronic-state contradiction is currently implemented. The evaluator therefore does not synthesize an `electronic_state_conflict` from RDKit atom radical flags alone.
+RDKit atom radical flags alone still do not establish a global electronic-state
+contradiction. Jointly known MolGR annotations additionally constrain positive
+structural evidence as described below.
 
 An accepted result can intentionally contain both:
 
@@ -67,6 +69,50 @@ decision = equivalent
 relation = identifier_equivalence
 component_electrons.status = failed
 ```
+
+## Known electronic annotations (v2 integration)
+
+The evaluator reads `MOLGR_METAL_UNPAIRED_ELECTRONS`,
+`MOLGR_LONE_PAIR_COUNT`, and `MOLGR_UNRESOLVED_TWO_ELECTRON_CENTER` before
+normalization. Known zero/false is retained through Open Babel/RDKit conversion,
+coordination consumption, and explicit property-preserving serialization.
+Absent or malformed fields stay unknown; generic reference/baseline molecules
+do not acquire synthetic zero annotations.
+
+Every positive comparison path, including identical canonical SMILES, must
+admit a compatible atom mapping for jointly known occupancy information.
+Alternative symmetric mappings are considered. An atom-mapped instance of the
+existing graph, carbene/zwitterion, resonance, or elementary three-center proof
+must support that same mapping; an unrelated global match is insufficient.
+Metal annotations follow the existing metal-state multiset contract, without
+adding a metal coordination-connectivity requirement.
+
+Lone-pair counts describe **reconstruction-active pairs**, not all Lewis lone
+pairs. Equal known counts are compatible. A changed count may be transported
+by a supported mapped representation change when the change in twice the
+active-pair count balances formal charge, bond-order sum, and RDKit radical
+bookkeeping locally. This balance is never independent positive EQ evidence.
+An unresolved-center marker means occupancy is deferred, not one/two radical
+electrons; its zero occupancy placeholders do not conflict with a resolved
+annotation. Different resolution flags alone are not different physical states.
+
+Unknown fields never veto otherwise sufficient structural evidence. The same
+known-information rule applies symmetrically to all methods and references.
+`invariants["electronic_properties"]` records known/unknown/comparable field
+counts, deferred centers, and mapping progress alongside the existing raw
+property values. It is not a confidence score or an additional scoring system.
+
+An incompatible mapping is not a negative verdict. Only exhaustive mapping
+failure with an irreconcilable localized conflict and no eligible electronic
+rearrangement establishes NEQ in this minimal integration. Other unresolved
+annotation conflicts, mapping/resonance limits, or search errors yield INC,
+not NEQ. A compatible mapped positive witness is sufficient even if further
+alternative mappings were not enumerated. Timeouts retain the existing caller
+contract. The mapping bound is 10,000 and the resonance bound is unchanged.
+
+This remains evaluator v2. It requires a new source hash and output snapshot;
+it must not overwrite or be mixed into the frozen `cace4ccc8` results.
+
 
 ## Inconclusive results
 

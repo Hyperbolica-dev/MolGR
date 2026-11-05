@@ -1,0 +1,182 @@
+[
+  {
+    "case_id": "B_00388",
+    "ase_row_id": 1,
+    "category": "B",
+    "selection_reason": "parent BH2 radical"
+  },
+  {
+    "case_id": "B_00389",
+    "ase_row_id": 2,
+    "category": "B",
+    "selection_reason": "cyano-substituted"
+  },
+  {
+    "case_id": "B_00390",
+    "ase_row_id": 3,
+    "category": "B",
+    "selection_reason": "fluoro-substituted"
+  },
+  {
+    "case_id": "B_00391",
+    "ase_row_id": 4,
+    "category": "B",
+    "selection_reason": "ethynyl-substituted"
+  },
+  {
+    "case_id": "B_00392",
+    "ase_row_id": 5,
+    "category": "B",
+    "selection_reason": "methyl-substituted"
+  },
+  {
+    "case_id": "B_00393",
+    "ase_row_id": 6,
+    "category": "B",
+    "selection_reason": "methoxy-substituted"
+  },
+  {
+    "case_id": "B_00394",
+    "ase_row_id": 7,
+    "category": "B",
+    "selection_reason": "phenyl-substituted"
+  },
+  {
+    "case_id": "B_00395",
+    "ase_row_id": 8,
+    "category": "B",
+    "selection_reason": "dimethylamino-substituted"
+  },
+  {
+    "case_id": "B_00397",
+    "ase_row_id": 10,
+    "category": "B",
+    "selection_reason": "vinyl conjugation"
+  },
+  {
+    "case_id": "B_00400",
+    "ase_row_id": 13,
+    "category": "B",
+    "selection_reason": "cyclic dioxy substitution"
+  },
+  {
+    "case_id": "B_00401",
+    "ase_row_id": 14,
+    "category": "B",
+    "selection_reason": "conjugated five-membered ring"
+  },
+  {
+    "case_id": "B_00403",
+    "ase_row_id": 16,
+    "category": "B",
+    "selection_reason": "dimethyl substitution"
+  },
+  {
+    "case_id": "B_00409",
+    "ase_row_id": 22,
+    "category": "B",
+    "selection_reason": "difluoro substitution; source SMILES adds a spurious B-H"
+  },
+  {
+    "case_id": "B_00413",
+    "ase_row_id": 26,
+    "category": "B",
+    "selection_reason": "bicyclic alkyl substitution"
+  },
+  {
+    "case_id": "B_00415",
+    "ase_row_id": 28,
+    "category": "B",
+    "selection_reason": "silyl substitution"
+  },
+  {
+    "case_id": "B_00418",
+    "ase_row_id": 31,
+    "category": "B",
+    "selection_reason": "thioether substitution"
+  },
+  {
+    "case_id": "B_00423",
+    "ase_row_id": 36,
+    "category": "B",
+    "selection_reason": "dicyano substitution"
+  },
+  {
+    "case_id": "B_00436",
+    "ase_row_id": 49,
+    "category": "B",
+    "selection_reason": "cyclic diamino substitution"
+  },
+  {
+    "case_id": "B_00440",
+    "ase_row_id": 53,
+    "category": "B",
+    "selection_reason": "delocalized spin; carbon spin density exceeds boron"
+  },
+  {
+    "case_id": "B_00442",
+    "ase_row_id": 55,
+    "category": "B",
+    "selection_reason": "mixed methyl/fluoro substitution"
+  },
+  {
+    "case_id": "B_00388_LB_00001_r",
+    "ase_row_id": 807,
+    "category": "complex_r",
+    "selection_reason": "trimethylamine N donor; radical reactant"
+  },
+  {
+    "case_id": "B_00388_LB_00001_p",
+    "ase_row_id": 808,
+    "category": "complex_p",
+    "selection_reason": "trimethylamine N donor; chloroborane product control"
+  },
+  {
+    "case_id": "B_00388_LB_00069_r",
+    "ase_row_id": 933,
+    "category": "complex_r",
+    "selection_reason": "trimethylphosphine P donor; radical reactant"
+  },
+  {
+    "case_id": "B_00388_LB_00069_p",
+    "ase_row_id": 934,
+    "category": "complex_p",
+    "selection_reason": "trimethylphosphine P donor; chloroborane product control"
+  },
+  {
+    "case_id": "B_00388_LB_00141_r",
+    "ase_row_id": 1077,
+    "category": "complex_r",
+    "selection_reason": "trifluorophosphine P donor; radical reactant"
+  },
+  {
+    "case_id": "B_00388_LB_00141_p",
+    "ase_row_id": 1078,
+    "category": "complex_p",
+    "selection_reason": "trifluorophosphine P donor; chloroborane product control"
+  },
+  {
+    "case_id": "B_00388_LB_00146_r",
+    "ase_row_id": 1087,
+    "category": "complex_r",
+    "selection_reason": "imidazole-derived N-heterocyclic carbene C donor; radical reactant"
+  },
+  {
+    "case_id": "B_00388_LB_00146_p",
+    "ase_row_id": 1088,
+    "category": "complex_p",
+    "selection_reason": "imidazole-derived N-heterocyclic carbene C donor; chloroborane product control"
+  },
+  {
+    "case_id": "B_00388_LB_00209_r",
+    "ase_row_id": 1213,
+    "category": "complex_r",
+    "selection_reason": "thiazole-derived carbene C donor; radical reactant"
+  },
+  {
+    "case_id": "B_00388_LB_00209_p",
+    "ase_row_id": 1214,
+    "category": "complex_p",
+    "selection_reason": "thiazole-derived carbene C donor; chloroborane product control"
+  }
+]

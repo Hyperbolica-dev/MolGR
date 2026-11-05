@@ -28,6 +28,10 @@ namespace molgr
             int radical_num;
             int lone_pair_count = 0;
             bool unresolved_two_electron_center = false;
+            // Presence bits: unpaired=1, active lone pairs=2, unresolved=4.
+            // Internal pipeline output is fully specified; generic OB extraction
+            // overrides this mask from the original atom property presence.
+            std::uint8_t electron_property_presence = 7;
             int hybridization = 0;
             double x, y, z;
         };

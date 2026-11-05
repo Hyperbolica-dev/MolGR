@@ -15,11 +15,12 @@ from rdkit import Chem
 
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.utils.consts import NON_METAL_DICT
-from molgr.fallback.utils.electrons import LONE_PAIR_COUNT_PROP
+from molgr.fallback.utils.electrons import LONE_PAIR_COUNT_PROP, UNPAIRED_ELECTRON_COUNT_PROP
 from molgr.utils.converter import (
     get_atom_lone_pair_count,
     get_atom_unpaired_electrons,
     has_atom_unresolved_two_electron_center,
+    refresh_atom_electron_property_lists,
 )
 from molgr.utils.coordination import coordination_distance_cutoff
 from molgr.utils.coordination_visibility import (
@@ -28,6 +29,7 @@ from molgr.utils.coordination_visibility import (
     coordination_visibility_mask,
     empty_coordination_blocker_arrays,
 )
+from molgr.utils.rdkit_stereo import apply_3d_stereo_workarounds
 
 
 pt = Chem.GetPeriodicTable()
@@ -68,7 +70,7 @@ def _is_explicit_carbyne_center(atom: Chem.Atom) -> bool:
 
 def _consume_active_lone_pair(atom: Chem.Atom) -> None:
     if atom.HasProp(LONE_PAIR_COUNT_PROP):
-        atom.ClearProp(LONE_PAIR_COUNT_PROP)
+        atom.SetIntProp(LONE_PAIR_COUNT_PROP, 0)
 
 
 def _rdkit_atom_coordinates(conformer: Chem.Conformer, atom_idx: int) -> Point3D:
@@ -214,6 +216,8 @@ def make_dative_bond(
                     Chem.BondType.TRIPLE,
                 )
                 non_metal_atom.SetNumRadicalElectrons(0)
+                if non_metal_atom.HasProp(UNPAIRED_ELECTRON_COUNT_PROP):
+                    non_metal_atom.SetIntProp(UNPAIRED_ELECTRON_COUNT_PROP, 0)
             elif _is_explicit_singlet_two_electron_center(non_metal_atom):
                 rwmol.AddBond(
                     close_non_metal_atom_id,
@@ -260,18 +264,17 @@ def make_dative_bond(
             rwmol.AddBond(rd_bond.GetBeginAtomIdx(), int(metal_atom_id), Chem.BondType.DATIVE)
             rwmol.AddBond(rd_bond.GetEndAtomIdx(), int(metal_atom_id), Chem.BondType.DATIVE)
 
-    return rwmol.GetMol()
+    result = rwmol.GetMol()
+    refresh_atom_electron_property_lists(result)
+    return result
 
 
 def make_stereochemistry(rdmol: Chem.Mol) -> Chem.Mol:
     rdmol.UpdatePropertyCache(strict=False)
     Chem.SetAromaticity(rdmol)
-    Chem.DetectBondStereochemistry(rdmol)
-    Chem.SetBondStereoFromDirections(rdmol)
-    Chem.AssignAtomChiralTagsFromStructure(rdmol)
-    Chem.AssignStereochemistryFrom3D(rdmol)
-    for bond_idx in range(rdmol.GetNumBonds()):
-        rd_bond = rdmol.GetBondWithIdx(bond_idx)
-        if rd_bond.GetStereo() == Chem.BondStereo.STEREONONE:
-            rd_bond.SetBondDir(Chem.BondDir.NONE)
+    # This already perceives bond directions and atom tags, then cleans stereo.
+    # Keep its directional single bonds: STEREONONE on a single bond does not
+    # mean its direction is unused (it may encode E/Z on an adjacent double).
+    # UNKNOWN directions also carry explicit uncertainty across repeated calls.
+    apply_3d_stereo_workarounds(rdmol, perceive=True)
     return rdmol

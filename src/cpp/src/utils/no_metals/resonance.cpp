@@ -3,12 +3,16 @@
 #include "molgr/pipeline/resonance.h"
 #include "molgr/stages/clean.h"
 #include "molgr/stages/eliminate.h"
+#include "molgr/stages/fresh.h"
 #include "molgr/stages/preprocess.h"
 #include "molgr/utils/conversions.h"
+#include "molgr/utils/consts.h"
 #include "molgr/utils/electrons.h"
 #include "molgr/utils/no_metals/selection.h"
 #include "molgr/utils/resonance.h"
 #include "molgr/compat/openbabel_iter.h"
+
+#include <openbabel/bond.h>
 
 #include <algorithm>
 #include <chrono>
@@ -52,6 +56,163 @@ namespace
             }
         }
         return unique;
+    }
+
+    int RealUnpairedElectrons(const OpenBabel::OBMol &mol)
+    {
+        int count = 0;
+        auto &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+        FOR_ATOMS_OF_MOL(atom_iter, mutable_mol)
+        {
+            count += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+        }
+        return count;
+    }
+
+    std::vector<std::pair<int, int>> BoronNeighborRadicalBonds(const OpenBabel::OBMol &mol)
+    {
+        std::vector<std::pair<int, int>> pairs;
+        auto &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
+        FOR_BONDS_OF_MOL(bond_iter, mutable_mol)
+        {
+            if (bond_iter->GetBondOrder() != 2 || bond_iter->IsAromatic())
+            {
+                continue;
+            }
+            auto *boron = bond_iter->GetBeginAtom();
+            auto *neighbor = bond_iter->GetEndAtom();
+            if (boron->GetAtomicNum() != 5 || boron->GetFormalCharge() != -1)
+            {
+                std::swap(boron, neighbor);
+            }
+            if (boron->GetAtomicNum() != 5 || molgr::kNonMetalDict.count(neighbor->GetAtomicNum()) == 0 ||
+                boron->GetFormalCharge() != -1 || neighbor->GetFormalCharge() != 0 ||
+                boron->GetTotalValence() != 4)
+            {
+                continue;
+            }
+            const auto closed_shell = [](OpenBabel::OBAtom &atom)
+            {
+                return molgr::utils::GetUnpairedElectronCount(atom) == 0 &&
+                       molgr::utils::GetLonePairCount(atom) == 0 &&
+                       !molgr::utils::HasUnresolvedTwoElectronCenter(atom);
+            };
+            if (closed_shell(*boron) && closed_shell(*neighbor))
+            {
+                pairs.emplace_back(boron->GetIdx(), neighbor->GetIdx());
+            }
+        }
+        std::sort(pairs.begin(), pairs.end());
+        return pairs;
+    }
+
+    bool ReduceBoronNeighborBond(
+        OpenBabel::OBMol &mol, int &charge, int target_radicals,
+        int boron_idx, int neighbor_idx)
+    {
+        if (charge <= 0 || RealUnpairedElectrons(mol) >= target_radicals)
+        {
+            return false;
+        }
+        const auto pairs = BoronNeighborRadicalBonds(mol);
+        if (std::find(pairs.begin(), pairs.end(), std::make_pair(boron_idx, neighbor_idx)) == pairs.end())
+        {
+            return false;
+        }
+        auto *boron = mol.GetAtom(boron_idx);
+        auto *neighbor = mol.GetAtom(neighbor_idx);
+        auto *bond = mol.GetBond(boron, neighbor);
+        const auto restore = [&]()
+        {
+            bond->SetBondOrder(2);
+            boron->SetFormalCharge(-1);
+            neighbor->SetFormalCharge(0);
+            for (auto *atom : {boron, neighbor})
+            {
+                molgr::utils::SetUnpairedElectronCount(*atom, 0);
+                molgr::utils::SetLonePairCount(*atom, 0);
+                molgr::utils::SetUnresolvedTwoElectronCenter(*atom, false);
+            }
+        };
+        // Do not interpret absent labels as a valid closed-shell starting state.
+        if (molgr::reconstruct::AssignChargeRadicalForAtom(*neighbor))
+        {
+            restore();
+            return false;
+        }
+        bond->SetBondOrder(1);
+        neighbor->SetFormalCharge(1);
+        molgr::reconstruct::AssignChargeRadicalForAtom(*boron);
+        molgr::reconstruct::AssignChargeRadicalForAtom(*neighbor);
+        const auto matches = [](OpenBabel::OBAtom &atom, int expected_charge, int radicals)
+        {
+            return atom.GetFormalCharge() == expected_charge &&
+                   molgr::utils::GetUnpairedElectronCount(atom) == radicals &&
+                   molgr::utils::GetLonePairCount(atom) == 0 &&
+                   !molgr::utils::HasUnresolvedTwoElectronCenter(atom);
+        };
+        // Exactly one new B radical and one positive charge; reject extra deficits.
+        if (!matches(*boron, -1, 1) || !matches(*neighbor, 1, 0))
+        {
+            restore();
+            return false;
+        }
+        --charge;
+        return true;
+    }
+
+    std::vector<molgr::state::ReconstructionState> ExpandBoronNeighborRadicalSeeds(
+        std::vector<molgr::state::ReconstructionState> states)
+    {
+        // Keep originals and enumerate individual sites and their combinations.
+        // Each reduction consumes one positive-charge unit and one radical slot.
+        constexpr std::size_t max_seeds = 256;
+        auto pool = DeduplicateStates(std::move(states));
+        if (std::none_of(pool.begin(), pool.end(), [](const auto &state)
+                         { return state.given_charge > 0 && state.total_radical_electrons > 0; }))
+        {
+            return pool;
+        }
+        std::set<RawStateKey> seen;
+        for (const auto &state : pool)
+        {
+            seen.emplace(molgr::resonance::BuildResonanceStateKey(state.Mol()), state.given_charge);
+        }
+        std::size_t next_index = 0;
+        while (next_index < pool.size() && pool.size() < max_seeds)
+        {
+            // Copy the state: appending candidates can invalidate vector references.
+            const auto state = pool[next_index++];
+            if (state.given_charge <= 0 || state.total_radical_electrons <= 0 ||
+                RealUnpairedElectrons(state.Mol()) >= state.total_radical_electrons)
+            {
+                continue;
+            }
+            for (const auto &[boron_idx, neighbor_idx] : BoronNeighborRadicalBonds(state.Mol()))
+            {
+                auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
+                machine = machine.Branch(
+                    "branch_boron_neighbor_radical_seed",
+                    std::make_shared<OpenBabel::OBMol>(molgr::utils::CloneMolTopologyOnly(state.Mol())));
+                if (!machine.RunOmolChargeStage(
+                        "reduce_boron_neighbor_bond_for_radical", ReduceBoronNeighborBond,
+                        state.total_radical_electrons, boron_idx, neighbor_idx))
+                {
+                    continue;
+                }
+                auto candidate = machine.FreezeLike(state);
+                if (seen.emplace(molgr::resonance::BuildResonanceStateKey(candidate.Mol()),
+                                 candidate.given_charge).second)
+                {
+                    pool.push_back(std::move(candidate));
+                }
+                if (pool.size() >= max_seeds)
+                {
+                    break;
+                }
+            }
+        }
+        return pool;
     }
 
     template <typename Stage>
@@ -244,7 +405,7 @@ namespace molgr
             std::vector<molgr::state::ReconstructionState> BuildResonanceSeedPool(
                 std::vector<molgr::state::ReconstructionState> neighbor_seeds)
             {
-                auto pool = DeduplicateStates(std::move(neighbor_seeds));
+                auto pool = ExpandBoronNeighborRadicalSeeds(std::move(neighbor_seeds));
                 AppendOmolStageVariants(
                     pool,
                     "relocate_carbene_radical_for_resonance",

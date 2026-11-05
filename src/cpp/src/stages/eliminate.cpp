@@ -35,6 +35,7 @@ namespace molgr
             std::vector<int> score_key;
             int bond_idx = -1;
             int charge_atom_idx = -1;
+            int spin_created = 0;
         };
 
         struct NegativeChargeAssignmentPattern
@@ -85,9 +86,19 @@ namespace molgr
             return std::min(molgr::utils::GetUnpairedElectronCount(*atom), std::max(1, std::abs(charge)));
         }
 
+        bool IsClosedShellTrivalentBoron(OBAtom &atom)
+        {
+            return atom.GetAtomicNum() == 5 && atom.GetTotalValence() == 3 &&
+                   atom.GetFormalCharge() == 0 &&
+                   molgr::utils::GetUnpairedElectronCount(atom) == 0 &&
+                   molgr::utils::GetLonePairCount(atom) == 0 &&
+                   !molgr::utils::HasUnresolvedTwoElectronCenter(atom);
+        }
+
         // Electron bookkeeping: radical actions consume real unpaired electrons.
         // An unresolved action atomically consumes one pure deferred 2e marker as
         // +/-2 without first creating a diradical. Active lone pairs are excluded.
+        // A trivalent-boron reduction instead creates one unpaired electron.
         bool ApplyChargeAssignmentAction(OBMol &mol, const ChargeAssignmentAction &action)
         {
             OBAtom *atom = mol.GetAtom(action.atom_idx);
@@ -116,7 +127,17 @@ namespace molgr
             {
                 return false;
             }
-            if (action.consume_unresolved_center)
+            if (action.spin_created != 0)
+            {
+                if (action.spin_created != 1 || action.spin_consumed != 0 ||
+                    action.consume_unresolved_center || action.formal_charge != -1 ||
+                    !IsClosedShellTrivalentBoron(*atom))
+                {
+                    return false;
+                }
+                molgr::utils::SetUnpairedElectronCount(*atom, 1);
+            }
+            else if (action.consume_unresolved_center)
             {
                 if (action.spin_consumed != 0 ||
                     std::abs(action.formal_charge) != 2 ||
@@ -395,7 +416,8 @@ namespace molgr
         // remaining deficit of at least two, one pure unresolved 2e center.
         std::vector<ChargeAssignmentAction> NegativeChargeAssignmentActions(
             OBMol &mol,
-            int charge)
+            int charge,
+            int total_radical_electrons)
         {
             std::vector<ChargeAssignmentAction> actions;
             if (charge > 0)
@@ -436,10 +458,31 @@ namespace molgr
 
             if (charge < 0)
             {
+                int real_unpaired = 0;
+                if (total_radical_electrons >= 0)
+                {
+                    FOR_ATOMS_OF_MOL(atom_iter, mol)
+                    {
+                        real_unpaired += molgr::utils::GetUnpairedElectronCount(*atom_iter);
+                    }
+                }
+                const bool can_create_radical =
+                    total_radical_electrons >= 0 && real_unpaired < total_radical_electrons;
                 int match_order = 0;
                 FOR_ATOMS_OF_MOL(atom_iter, mol)
                 {
                     OBAtom *atom = &(*atom_iter);
+                    if (can_create_radical && IsClosedShellTrivalentBoron(*atom))
+                    {
+                        const int atom_idx = atom->GetIdx();
+                        const int charge_after = charge + 1;
+                        ChargeAssignmentAction action{
+                            atom_idx, -1, 0, false, 1,
+                            {98, std::abs(charge_after), std::max(charge_after, 0),
+                             5, atom_idx, match_order}};
+                        action.spin_created = 1;
+                        actions.push_back(std::move(action));
+                    }
                     if (atom->GetFormalCharge() == 0 && molgr::utils::GetUnpairedElectronCount(*atom) >= 1)
                     {
                         AppendNegativeChargeAssignmentAction(
@@ -890,6 +933,7 @@ namespace molgr
         // Electron bookkeeping: encode real radical actions or a pure unresolved
         // 2e center as negative charge. The latter requires at least two remaining
         // charge units and becomes -2; zero-budget separation remains radical-only.
+        // Neutral Bv3 can instead create a radical when both budgets allow it.
         bool EliminateNegativeCharges(OBMol &mol, int &charge, int total_radical_electrons)
         {
             bool hit = false;
@@ -908,7 +952,7 @@ namespace molgr
                     }
                 }
 
-                const auto actions = NegativeChargeAssignmentActions(mol, charge);
+                const auto actions = NegativeChargeAssignmentActions(mol, charge, total_radical_electrons);
                 if (actions.empty())
                 {
                     break;

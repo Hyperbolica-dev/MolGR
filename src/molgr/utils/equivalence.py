@@ -1,14 +1,13 @@
 # pyright: reportCallIssue=false
 """Conservative molecular-representation equivalence evaluator.
 
-Evaluator v1 compares the normalized organic graph and selected electronic-state
-invariants. For metal complexes it preserves only the multiset of metal element
-and normalized formal-charge pairs: metal--ligand coordination edges are removed
-before graph comparison, metal atoms are then removed, and radicals located on
-metal atoms are ignored. Consequently, ``EQUIVALENT`` does not establish full
-transition-metal molecular-graph identity. Consumers whose denominator includes
-coordination connectivity, metal identity by atom position, oxidation-state
-assignment, or metal spin state must apply independent dataset-specific gates.
+Evaluator v2 compares the normalized organic graph, metal formal-state signature,
+and jointly known MolGR electronic annotations. Missing annotations do not veto
+independent structural evidence. Known annotations are compared under atom
+symmetry and the existing representation transformations; incomplete searches
+are inconclusive, not negative evidence. Metal--ligand coordination edges are
+still removed before graph comparison. This is not a proof of full coordination
+graph identity or of an identical quantum electronic state.
 
 ``INCONCLUSIVE`` is a first-class result, not a synonym for ``NOT_EQUIVALENT``.
 The compatibility wrapper returns ``False`` for both, so callers that need the
@@ -133,7 +132,7 @@ UNKNOWN_ELECTRON_METADATA = "unknown"
 class RawMoleculeDiagnostics:
     """Read-only diagnostics captured before equivalence normalization.
 
-    The three MolGR-specific fields deliberately use ``"unknown"`` when the
+    The MolGR-specific fields deliberately use ``"unknown"`` when the
     source molecule does not carry the corresponding property.  A missing
     property is not evidence for a zero-valued electronic state, especially
     for ordinary reference RDKit molecules.
@@ -148,6 +147,7 @@ class RawMoleculeDiagnostics:
     molgr_metal_unpaired_electrons: object = UNKNOWN_ELECTRON_METADATA
     active_lone_pair_properties: object = UNKNOWN_ELECTRON_METADATA
     unresolved_two_electron_center_properties: object = UNKNOWN_ELECTRON_METADATA
+    molgr_unpaired_electrons: object = UNKNOWN_ELECTRON_METADATA
 
 
 @dataclass
@@ -264,6 +264,21 @@ def _raw_formula_key(mol: Chem.Mol, hydrogen_count: int) -> str:
     )
 
 
+def _read_electron_property(atom: Chem.Atom, name: str, *, boolean: bool = False):
+    """Read present annotations without turning absent/malformed data into zero."""
+
+    if not atom.HasProp(name):
+        return None
+    try:
+        value = atom.GetProp(name).strip().lower()
+        if boolean:
+            return {"true": True, "1": True, "false": False, "0": False}.get(value)
+        count = int(value)
+        return count if count >= 0 else None
+    except (RuntimeError, TypeError, ValueError):
+        return None
+
+
 def _raw_atom_property_entries(
     mol: Chem.Mol,
     property_name: str,
@@ -279,16 +294,9 @@ def _raw_atom_property_entries(
             continue
         if not atom.HasProp(property_name):
             continue
-        try:
-            value: object = (
-                atom.GetBoolProp(property_name) if boolean else atom.GetIntProp(property_name)
-            )
-        except (RuntimeError, TypeError, ValueError):
-            try:
-                raw_value = atom.GetProp(property_name)
-                value = raw_value.lower() in {"1", "true"} if boolean else int(raw_value)
-            except (RuntimeError, TypeError, ValueError):
-                value = UNKNOWN_ELECTRON_METADATA
+        value = _read_electron_property(atom, property_name, boolean=boolean)
+        if value is None:
+            value = UNKNOWN_ELECTRON_METADATA
         entries.append((int(atom.GetIdx()), value))
     return tuple(entries) if entries else UNKNOWN_ELECTRON_METADATA
 
@@ -329,6 +337,9 @@ def _raw_molecule_diagnostics(mol: Chem.Mol) -> RawMoleculeDiagnostics:
             "MOLGR_UNRESOLVED_TWO_ELECTRON_CENTER",
             boolean=True,
         ),
+        molgr_unpaired_electrons=_raw_atom_property_entries(
+            mol, "MOLGR_UNPAIRED_ELECTRON_COUNT",
+        ),
     )
 
 
@@ -340,12 +351,26 @@ def _safe_copy(mol: Chem.Mol) -> Chem.Mol:
 
 
 def _sanitize_if_possible(mol: Chem.Mol) -> None:
+    # MolGR's explicit assignment is authoritative, but the current working
+    # count may already include an allowed graph/electron transformation.
+    # Preserve that count, not the original property value: restoring the latter
+    # here would undo resonance moves or metal-bond bookkeeping. Unannotated
+    # baseline atoms keep RDKit's existing perception behavior.
+    assigned = [
+        (atom, atom.GetNumRadicalElectrons())
+        for atom in mol.GetAtoms()
+        if not _is_metal_atom(atom)
+        and _read_electron_property(atom, "MOLGR_UNPAIRED_ELECTRON_COUNT") is not None
+    ]
     try:
         Chem.SanitizeMol(mol)
     except TimeoutError:
         raise
     except Exception:  # noqa: BLE001
         pass
+    finally:
+        for atom, count in assigned:
+            atom.SetNumRadicalElectrons(count)
 
 
 def _kekulize_if_possible(mol: Chem.Mol, *, clear_aromatic_flags: bool = False) -> None:
@@ -372,7 +397,8 @@ def _safe_smiles(mol: Chem.Mol, *, use_chirality: bool) -> str:
     if not use_chirality:
         Chem.RemoveStereochemistry(clone)
         clone.UpdatePropertyCache(strict=False)
-    return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=use_chirality)
+    # Isotopes remain chemical labels when stereochemistry is disabled.
+    return Chem.MolToSmiles(clone, canonical=True, isomericSmiles=True)
 
 
 def _canon_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
@@ -385,9 +411,8 @@ def _resonance_form_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
         # ResonanceMolSupplier returns sanitized molecules. Avoid copying and
         # sanitizing every form in the hot loop, but retain the safe fallback.
         if not use_chirality:
-            # ``isomericSmiles=False`` suppresses most stereo output, but an
-            # explicit copy also removes directional bond/stereo state before
-            # resonance forms are cached and compared.
+            # Remove stereo explicitly; isomeric output must stay enabled to
+            # retain isotopes in the resonance cache and comparison keys.
             achiral = Chem.Mol(mol)
             Chem.RemoveStereochemistry(achiral)
             for bond in achiral.GetBonds():
@@ -395,7 +420,7 @@ def _resonance_form_smiles(mol: Chem.Mol, use_chirality: bool) -> str:
                 bond.SetStereo(Chem.BondStereo.STEREONONE)
             achiral.UpdatePropertyCache(strict=False)
             mol = achiral
-        return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=use_chirality)
+        return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
     except TimeoutError:
         raise
     except Exception:  # noqa: BLE001
@@ -718,7 +743,7 @@ def _resonance_topology_key(mol: Chem.Mol) -> str:
         bond.SetStereo(Chem.BondStereo.STEREONONE)
     topology = rw_mol.GetMol()
     topology.UpdatePropertyCache(strict=False)
-    return Chem.MolToSmiles(topology, canonical=True, isomericSmiles=False)
+    return Chem.MolToSmiles(topology, canonical=True, isomericSmiles=True)
 
 
 def _has_defined_stereochemistry(mol: Chem.Mol) -> bool:
@@ -807,6 +832,7 @@ def _elementary_open_shell_resonance_witness(
     mol2: Chem.Mol,
     *,
     use_chirality: bool,
+    atom_mapping: tuple[int, ...] | None = None,
 ) -> tuple[OpenShellThreeCenterDetail | None, TopologyMappingSearchMetadata]:
     """Find an explicit elementary ``A radical-B=C <-> A=B-C radical`` witness.
 
@@ -826,11 +852,15 @@ def _elementary_open_shell_resonance_witness(
         return None, search
 
     search.attempted = True
-    mappings = mol2.GetSubstructMatches(
-        _topology_query(mol1),
-        uniquify=False,
-        useChirality=False,
-        maxMatches=10000,
+    mappings = (
+        (atom_mapping,)
+        if atom_mapping is not None
+        else mol2.GetSubstructMatches(
+            _topology_query(mol1),
+            uniquify=False,
+            useChirality=False,
+            maxMatches=10000,
+        )
     )
     search.limit_reached = len(mappings) >= search.limit
     for mapping_index, mapping in enumerate(mappings):
@@ -925,7 +955,7 @@ def _elementary_open_shell_resonance_witness(
 
         ordered_endpoints = sorted(endpoints)
         mol1_atoms = (ordered_endpoints[0], center, ordered_endpoints[1])
-        mol2_atoms = tuple(mapping[idx] for idx in mol1_atoms)
+        mol2_atoms = (mapping[mol1_atoms[0]], mapping[center], mapping[mol1_atoms[2]])
         return OpenShellThreeCenterDetail(
             mol1_atoms=mol1_atoms,
             mol2_atoms=mol2_atoms,
@@ -1116,6 +1146,235 @@ def _resonance_match(
     return cached_resonance_sets(normalized_target_1, normalized_target_2)
 
 
+_ELECTRON_PROPERTY_MAPPING_LIMIT = 10000
+_ELECTRON_PROPERTY_NAMES = (
+    "MOLGR_METAL_UNPAIRED_ELECTRONS",
+    "MOLGR_LONE_PAIR_COUNT",
+    "MOLGR_UNRESOLVED_TWO_ELECTRON_CENTER",
+)
+
+
+def _electron_annotations(mol: Chem.Mol) -> list[tuple[int | None, int | None, int | None]]:
+    return [
+        (
+            _read_electron_property(atom, _ELECTRON_PROPERTY_NAMES[0])
+            if _is_metal_atom(atom)
+            else None,
+            _read_electron_property(atom, _ELECTRON_PROPERTY_NAMES[1]),
+            _read_electron_property(atom, _ELECTRON_PROPERTY_NAMES[2], boolean=True),
+        )
+        for atom in mol.GetAtoms()
+    ]
+
+
+def _electron_coverage(mol: Chem.Mol) -> dict[str, object]:
+    annotations = _electron_annotations(mol)
+    known = sum(value is not None for fields in annotations for value in fields)
+    return {
+        "known_fields": known,
+        "unknown_fields": 3 * len(annotations) - known,
+        "comparable_fields": 0,
+        "deferred_centers": sum(fields[2] is True for fields in annotations),
+        "mappings_examined": 0,
+        "mapping_limit_reached": False,
+    }
+
+
+def _electronic_property_mappings(mol1: Chem.Mol, mol2: Chem.Mol):
+    return mol2.GetSubstructMatches(
+        _topology_query(mol1),
+        uniquify=False,
+        useChirality=False,
+        maxMatches=_ELECTRON_PROPERTY_MAPPING_LIMIT,
+    )
+
+
+def _mapped_electronic_structure_match(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    mapping: tuple[int, ...],
+    *,
+    use_chirality: bool,
+    max_resonance: int,
+    resonance_flags: Chem.ResonanceFlags,
+) -> tuple[bool, bool]:
+    """Bind an existing structural proof to this particular annotation mapping."""
+
+    left, right = Chem.Mol(mol1), Chem.Mol(mol2)
+    for idx1, idx2 in enumerate(mapping):
+        atom1, atom2 = left.GetAtomWithIdx(idx1), right.GetAtomWithIdx(idx2)
+        if (
+            atom1.GetIsotope() != atom2.GetIsotope()
+            or _mapped_hydrogen_count(atom1) != _mapped_hydrogen_count(atom2)
+            or (
+                _is_metal_atom(atom1)
+                and atom1.GetFormalCharge() != atom2.GetFormalCharge()
+            )
+        ):
+            return False, False
+        # Atom maps survive the existing SMILES/resonance paths. They prevent
+        # a second, incompatible symmetry mapping from supplying the proof.
+        atom1.SetAtomMapNum(idx1 + 1)
+        atom2.SetAtomMapNum(idx1 + 1)
+    if _canon_smiles(left, use_chirality) == _canon_smiles(right, use_chirality):
+        return True, False
+    if _carbene_zwitterion_normalized_smiles(
+        left, use_chirality=use_chirality
+    ) == _carbene_zwitterion_normalized_smiles(right, use_chirality=use_chirality):
+        return True, False
+    witness, _ = _elementary_open_shell_resonance_witness(
+        left, right, use_chirality=use_chirality, atom_mapping=mapping
+    )
+    if witness is not None:
+        return True, False
+    matched, count1, count2, _ = _resonance_match(
+        left,
+        right,
+        use_chirality=use_chirality,
+        max_resonance=max_resonance,
+        resonance_flags=resonance_flags,
+    )
+    return matched, not matched and max(count1, count2) >= max_resonance
+
+
+def _has_electron_rearrangement(mol: Chem.Mol) -> bool:
+    """A conservative guard: only localized, non-conjugated conflicts are final."""
+
+    return any(
+        bond.GetIsAromatic() or bond.GetBondTypeAsDouble() > 1
+        for bond in mol.GetBonds()
+    ) or any(
+        not _is_metal_atom(atom)
+        and (atom.GetFormalCharge() != 0 or atom.GetNumRadicalElectrons() != 0)
+        and atom.GetDegree() != 0
+        for atom in mol.GetAtoms()
+    )
+
+
+def _compare_electronic_properties(
+    mol1: Chem.Mol,
+    mol2: Chem.Mol,
+    coverage: InvariantResult,
+    *,
+    use_chirality: bool,
+    max_resonance: int,
+    resonance_flags: Chem.ResonanceFlags,
+) -> EquivalenceDecision | None:
+    """Constrain positive graph evidence; never infer EQ from electron totals."""
+
+    annotations1, annotations2 = _electron_annotations(mol1), _electron_annotations(mol2)
+    # Ordinary baseline/reference molecules have no side annotations. Avoid a
+    # mapping search and preserve the existing structural result in that case.
+    if not any(
+        any(fields[k] is not None for fields in annotations1)
+        and any(fields[k] is not None for fields in annotations2)
+        for k in (0, 1)
+    ):
+        coverage.reason = "No jointly known occupancy fields; structural evidence retained."
+        return None
+
+    assert isinstance(coverage.mol1, dict) and isinstance(coverage.mol2, dict)
+    graphs = []
+    for source in (mol1, mol2):
+        graph = Chem.RWMol(source)
+        # Retain metals for annotation mapping, not their coordination edges:
+        # the existing structural contract compares only their state multiset.
+        for bond in list(graph.GetBonds()):
+            if _is_metal_atom(bond.GetBeginAtom()) or _is_metal_atom(bond.GetEndAtom()):
+                graph.RemoveBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+        graphs.append(_normalize_nonmetal_octet(graph.GetMol()))
+    left, right = graphs
+    # Normalizers retain atom order and annotations, including added explicit H.
+    annotations1, annotations2 = _electron_annotations(left), _electron_annotations(right)
+    incomplete = False
+    conflicts: list[tuple[int, int, str, object, object]] = []
+    comparable_max = 0
+    try:
+        mappings = _electronic_property_mappings(left, right)
+        limit_reached = len(mappings) >= _ELECTRON_PROPERTY_MAPPING_LIMIT
+        for index, mapping in enumerate(mappings):
+            for side in (coverage.mol1, coverage.mol2):
+                side["mappings_examined"] = index + 1
+                side["mapping_limit_reached"] = limit_reached
+            matched, bounded = _mapped_electronic_structure_match(
+                left,
+                right,
+                mapping,
+                use_chirality=use_chirality,
+                max_resonance=max_resonance,
+                resonance_flags=resonance_flags,
+            )
+            incomplete |= bounded
+            if not matched:
+                continue
+            mapped_conflicts = []
+            comparable = 0
+            for idx1, idx2 in enumerate(mapping):
+                fields1, fields2 = annotations1[idx1], annotations2[idx2]
+                atom1, atom2 = left.GetAtomWithIdx(idx1), right.GetAtomWithIdx(idx2)
+                for k in (0, 1):
+                    value1, value2 = fields1[k], fields2[k]
+                    # A deferred center has no selected singlet/triplet
+                    # occupancy. Its zero LP/spin placeholders cannot veto EQ.
+                    if value1 is None or value2 is None or (
+                        k == 1 and (fields1[2] is True or fields2[2] is True)
+                    ):
+                        continue
+                    comparable += 1
+                    if value1 == value2:
+                        continue
+                    if k == 1:
+                        # These are active pairs, NOT a full Lewis-pair census.
+                        # Equal labels need no transport. A changed label must
+                        # be balanced by the mapped, independently proved
+                        # bond/charge/radical rearrangement.
+                        electron1 = (
+                            2 * value1 + atom1.GetFormalCharge()
+                            + _bond_order_sum(atom1) + atom1.GetNumRadicalElectrons()
+                        )
+                        electron2 = (
+                            2 * value2 + atom2.GetFormalCharge()
+                            + _bond_order_sum(atom2) + atom2.GetNumRadicalElectrons()
+                        )
+                        if abs(electron1 - electron2) < 1e-8:
+                            continue
+                    mapped_conflicts.append(
+                        (idx1, idx2, _ELECTRON_PROPERTY_NAMES[k], value1, value2)
+                    )
+            comparable_max = max(comparable_max, comparable)
+            if not mapped_conflicts:
+                for side in (coverage.mol1, coverage.mol2):
+                    side["comparable_fields"] = comparable
+                coverage.status = (
+                    InvariantStatus.PASSED if comparable else InvariantStatus.NOT_EVALUATED
+                )
+                coverage.reason = "Compatible atom-mapped known information; unknowns retained."
+                return None
+            conflicts = mapped_conflicts
+        incomplete |= limit_reached
+    except TimeoutError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        coverage.reason = f"Electronic comparison did not complete: {type(exc).__name__}: {exc}"
+        return EquivalenceDecision.INCONCLUSIVE
+    for side in (coverage.mol1, coverage.mol2):
+        side["comparable_fields"] = comparable_max
+    if (
+        conflicts and not incomplete
+        and not _has_electron_rearrangement(left)
+        and not _has_electron_rearrangement(right)
+    ):
+        coverage.status = InvariantStatus.FAILED
+        coverage.reason = f"Exhaustive mappings have irreconcilable localized annotations: {conflicts}"
+        return EquivalenceDecision.NOT_EQUIVALENT
+    coverage.reason = (
+        "Electronic mapping/resonance search reached its limit."
+        if incomplete
+        else f"No annotation-compatible mapped structural proof; unresolved conflicts: {conflicts}"
+    )
+    return EquivalenceDecision.INCONCLUSIVE
+
+
 def evaluate_equivalence(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
@@ -1139,6 +1398,22 @@ def evaluate_equivalence(
     # presented as the source molecule's physical open-shell state.
     raw_mol1 = _raw_molecule_diagnostics(mol1)
     raw_mol2 = _raw_molecule_diagnostics(mol2)
+
+    # Discard consumer tracking labels only at the public comparison boundary.
+    # Later mapping witnesses deliberately introduce their own atom maps to
+    # bind graph and electron evidence to the same symmetry correspondence.
+    # Those internal maps must survive the canonical/resonance helpers.
+    mol1, mol2 = Chem.Mol(mol1), Chem.Mol(mol2)
+    for mol in (mol1, mol2):
+        for atom in mol.GetAtoms():
+            atom.SetAtomMapNum(0)
+            if not _is_metal_atom(atom):
+                assigned = _read_electron_property(atom, "MOLGR_UNPAIRED_ELECTRON_COUNT")
+                if assigned is not None:
+                    # SDF/RDKit perception may have changed the native flag after
+                    # conversion. Decode the explicit source assignment once at
+                    # entry; working transformations may then move electrons.
+                    atom.SetNumRadicalElectrons(assigned)
 
     standardized_1 = _standardize_metal_bonds(mol1)
     standardized_2 = _standardize_metal_bonds(mol2)
@@ -1239,6 +1514,12 @@ def evaluate_equivalence(
         "nonmetal_connectivity": InvariantResult(InvariantStatus.NOT_EVALUATED),
         "component_electrons": InvariantResult(InvariantStatus.NOT_EVALUATED),
         "stereochemistry": InvariantResult(InvariantStatus.NOT_EVALUATED),
+        "electronic_properties": InvariantResult(
+            InvariantStatus.NOT_EVALUATED,
+            _electron_coverage(mol1),
+            _electron_coverage(mol2),
+            "Known source annotations retained; comparison not yet required.",
+        ),
     }
     info = EquivalenceResult(
         checks=checks,
@@ -1268,6 +1549,21 @@ def evaluate_equivalence(
         relation: EquivalenceRelation = EquivalenceRelation.NONE,
         method: EquivalenceMethod | None = None,
     ) -> EquivalenceResult:
+        if decision == EquivalenceDecision.EQUIVALENT:
+            electronic = invariants["electronic_properties"]
+            electronic_decision = _compare_electronic_properties(
+                standardized_1,
+                standardized_2,
+                electronic,
+                use_chirality=use_chirality,
+                max_resonance=max_resonance,
+                resonance_flags=resonance_flags,
+            )
+            if electronic_decision is not None:
+                decision = electronic_decision
+                reason = electronic.reason
+                relation = EquivalenceRelation.NONE
+                method = None
         info.decision = decision
         info.relation = relation
         info.equivalent = decision == EquivalenceDecision.EQUIVALENT

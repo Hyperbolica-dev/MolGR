@@ -27,19 +27,24 @@ namespace molgr
         }
 
         // Electron bookkeeping: return a bond-valence deficit, not an already
-        // classified unpaired-electron count. Low-coordinate boron follows the
-        // same charge-aware valence prior as the Python fallback.
+        // classified unpaired-electron count. Boron uses its nonbonding electron
+        // budget minus inactive anionic lone pairs, retaining an odd electron
+        // on a three-bond B- radical just as in the Python fallback.
         int AssignRadicalDots(OBAtom &atom)
         {
             const int total_valence = static_cast<int>(atom.GetTotalValence());
-            int typical_valence = GetTypicalValence(
+            if (atom.GetAtomicNum() == 5)
+            {
+                const int charge = atom.GetFormalCharge();
+                const int nonbonding_electrons = std::max(0, 3 - charge - total_valence);
+                const int inactive_lone_pairs = std::min(
+                    std::max(0, -charge), nonbonding_electrons / 2);
+                return nonbonding_electrons - 2 * inactive_lone_pairs;
+            }
+            const int typical_valence = GetTypicalValence(
                 atom.GetAtomicNum(),
                 total_valence,
                 atom.GetFormalCharge());
-            if (atom.GetAtomicNum() == 5 && total_valence <= 3)
-            {
-                typical_valence = 3 + atom.GetFormalCharge();
-            }
             return std::max(0, typical_valence - total_valence);
         }
 
@@ -165,10 +170,6 @@ namespace molgr
                            before_unresolved_center;
             }
             molgr::utils::SetUnresolvedTwoElectronCenter(atom, false);
-            if (atom.GetAtomicNum() == 5 && atom.GetFormalCharge() == -1 && current_val < 3)
-            {
-                AssignActiveElectronOccupancy(atom, 0);
-            }
             AssignActiveElectronOccupancy(atom, rad);
             return changed();
         }

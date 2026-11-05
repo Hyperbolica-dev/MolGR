@@ -12,16 +12,22 @@ from openbabel import pybel
 from molgr.config import CONFIG, MolGRConfig
 from molgr.fallback.pipeline.resonance import ResonanceTraversalPolicy, walk_radical_resonances
 from molgr.fallback.stages.clean import clean_carbene_neighbor_unsaturated
+from molgr.fallback.stages.fresh import assign_charge_radical_for_atom
 from molgr.fallback.stages.preprocess import validate_omol
 from molgr.fallback.state import (
     TRACE_NODE_METADATA_KEY,
     OmolStateMachine,
     ReconstructionState,
 )
+from molgr.fallback.utils import consts
 from molgr.fallback.utils import resonance as resonance_utils
 from molgr.fallback.utils.electrons import (
+    get_lone_pair_count,
     get_unpaired_electron_count,
     has_unresolved_two_electron_center,
+    set_lone_pair_count,
+    set_unpaired_electron_count,
+    set_unresolved_two_electron_center,
 )
 
 from .selection import _annotate_no_metal_candidate_topology, _score_reconstruction_candidate
@@ -32,6 +38,7 @@ _OmolChargeStage = Callable[
     [pybel.Molecule, int],
     Tuple[pybel.Molecule, int, bool],
 ]
+_MAX_BORON_NEIGHBOR_SEEDS = 256
 
 
 def _default_resonance_traversal_policy(
@@ -93,9 +100,9 @@ def _deduplicate_states(states: Iterable[ReconstructionState]) -> list[Reconstru
 def build_resonance_seed_pool(
     neighbor_seeds: Sequence[ReconstructionState],
 ) -> list[ReconstructionState]:
-    """Add optional transformations that explicitly preserve electronic state."""
+    """Add optional budgeted electronic states and resonance normalizations."""
 
-    pool = _deduplicate_states(neighbor_seeds)
+    pool = expand_boron_neighbor_radical_seeds(neighbor_seeds)
     stages = (
         ("relocate_carbene_radical_for_resonance", clean_carbene_neighbor_unsaturated, False),
     )
@@ -106,6 +113,130 @@ def build_resonance_seed_pool(
             stage=stage,
             uses_charge_budget=uses_charge_budget,
         )
+    return pool
+
+
+def _boron_neighbor_radical_bonds(omol: pybel.Molecule) -> list[tuple[int, int]]:
+    pairs = []
+    for bond_iter in ob.OBMolBondIter(cast(ob.OBMol, omol.OBMol)):
+        bond = cast(ob.OBBond, bond_iter)
+        if bond.GetBondOrder() != 2 or bond.IsAromatic():
+            continue
+        boron, neighbor = bond.GetBeginAtom(), bond.GetEndAtom()
+        if boron.GetAtomicNum() != 5 or boron.GetFormalCharge() != -1:
+            boron, neighbor = neighbor, boron
+        if (
+            boron.GetAtomicNum() == 5
+            and neighbor.GetAtomicNum() in consts.NON_METAL_DICT
+            and boron.GetFormalCharge() == -1
+            and neighbor.GetFormalCharge() == 0
+            and boron.GetTotalValence() == 4
+            and all(
+                get_unpaired_electron_count(atom) == 0
+                and get_lone_pair_count(atom) == 0
+                and not has_unresolved_two_electron_center(atom)
+                for atom in (boron, neighbor)
+            )
+        ):
+            pairs.append((boron.GetIdx(), neighbor.GetIdx()))
+    return sorted(pairs)
+
+
+def _reduce_boron_neighbor_bond(
+    omol: pybel.Molecule,
+    given_charge: int,
+    total_radical_electrons: int,
+    boron_idx: int,
+    neighbor_idx: int,
+) -> tuple[pybel.Molecule, int, bool]:
+    """Turn B-=X into B- radical-X+ using one positive-charge/radical unit."""
+    mol = cast(ob.OBMol, omol.OBMol)
+    if (
+        given_charge <= 0
+        or sum(get_unpaired_electron_count(cast(ob.OBAtom, a)) for a in ob.OBMolAtomIter(mol))
+        >= total_radical_electrons
+        or (boron_idx, neighbor_idx) not in _boron_neighbor_radical_bonds(omol)
+    ):
+        return omol, given_charge, False
+    boron, neighbor = mol.GetAtom(boron_idx), mol.GetAtom(neighbor_idx)
+    bond = mol.GetBond(boron_idx, neighbor_idx)
+
+    def restore() -> None:
+        bond.SetBondOrder(2)
+        for atom, charge in ((boron, -1), (neighbor, 0)):
+            atom.SetFormalCharge(charge)
+            set_unpaired_electron_count(atom, 0)
+            set_lone_pair_count(atom, 0)
+            set_unresolved_two_electron_center(atom, False)
+
+    # Require a model-consistent starting state, not merely missing labels.
+    if assign_charge_radical_for_atom(neighbor):
+        restore()
+        return omol, given_charge, False
+    bond.SetBondOrder(1)
+    neighbor.SetFormalCharge(1)
+    assign_charge_radical_for_atom(boron)
+    assign_charge_radical_for_atom(neighbor)
+    # Other elements can create extra active electrons or normalize charge.
+    # This action is only allowed to spend one charge and one radical slot.
+    if any(
+        atom.GetFormalCharge() != charge
+        or get_unpaired_electron_count(atom) != radicals
+        or get_lone_pair_count(atom) != 0
+        or has_unresolved_two_electron_center(atom)
+        for atom, charge, radicals in ((boron, -1, 1), (neighbor, 1, 0))
+    ):
+        restore()
+        return omol, given_charge, False
+    return omol, given_charge - 1, True
+
+
+def expand_boron_neighbor_radical_seeds(
+    states: Sequence[ReconstructionState],
+) -> list[ReconstructionState]:
+    """Keep original seeds and enumerate budgeted B=X reductions before traversal.
+
+    Each eligible bond gets its own branch; multiple centers can be adjusted in
+    combination while both budgets allow it. Bound the pool as in neighbor seed
+    enumeration, retaining all original seeds even when already over the cap.
+    """
+    pool = _deduplicate_states(states)
+    if not any(s.given_charge > 0 and s.total_radical_electrons > 0 for s in pool):
+        return pool
+    seen = {_candidate_key(state) for state in pool}
+    next_index = 0
+    while next_index < len(pool) and len(pool) < _MAX_BORON_NEIGHBOR_SEEDS:
+        state = pool[next_index]
+        next_index += 1
+        if state.given_charge <= 0 or state.total_radical_electrons <= 0:
+            continue
+        if (
+            sum(
+                get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                for atom in ob.OBMolAtomIter(cast(ob.OBMol, state.omol.OBMol))
+            )
+            >= state.total_radical_electrons
+        ):
+            continue
+        for boron_idx, neighbor_idx in _boron_neighbor_radical_bonds(state.omol):
+            machine = OmolStateMachine.from_reconstruction_state(state).branch(
+                "branch_boron_neighbor_radical_seed", omol=_clone_omol(state.omol)
+            )
+            if not machine.run_omol_charge_stage(
+                "reduce_boron_neighbor_bond_for_radical",
+                _reduce_boron_neighbor_bond,
+                state.total_radical_electrons,
+                boron_idx,
+                neighbor_idx,
+            ):
+                continue
+            candidate = machine.freeze_like(state)
+            key = _candidate_key(candidate)
+            if key not in seen:
+                seen.add(key)
+                pool.append(candidate)
+            if len(pool) >= _MAX_BORON_NEIGHBOR_SEEDS:
+                break
     return pool
 
 
@@ -323,6 +454,7 @@ __all__ = [
     "ResonanceTraversalPolicy",
     "_default_resonance_traversal_policy",
     "build_resonance_seed_pool",
+    "expand_boron_neighbor_radical_seeds",
     "expand_resonance_seed_pool_stage",
     "search_resonance_candidates",
 ]

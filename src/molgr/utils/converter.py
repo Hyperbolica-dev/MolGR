@@ -8,6 +8,7 @@ from molgr import _core as core
 from molgr.fallback.utils.consts import NON_METAL_DICT
 from molgr.fallback.utils.electrons import (
     LONE_PAIR_COUNT_PROP,
+    UNPAIRED_ELECTRON_COUNT_PROP,
     UNRESOLVED_TWO_ELECTRON_CENTER_PROP,
     get_lone_pair_count,
     get_unpaired_electron_count,
@@ -55,53 +56,64 @@ def _is_metal_atomic_num(atomic_num: int) -> bool:
     return atomic_num not in NON_METAL_DICT
 
 
-def _set_rdkit_unpaired_electrons(atom: Chem.Atom, unpaired_electrons: int) -> None:
-    """Map real unpaired electrons to RDKit, using a side property for metals."""
+def _set_rdkit_unpaired_electrons(
+    atom: Chem.Atom, unpaired_electrons: int, *, known: bool = True
+) -> None:
+    """Map unpaired electrons to RDKit and annotate only explicitly known counts."""
 
     if _is_metal_atomic_num(int(atom.GetAtomicNum())):
-        atom.SetIntProp(METAL_UNPAIRED_ELECTRONS_PROP, int(unpaired_electrons))
+        if known:
+            atom.SetIntProp(METAL_UNPAIRED_ELECTRONS_PROP, int(unpaired_electrons))
         atom.SetNumRadicalElectrons(0)
         return
     atom.SetNumRadicalElectrons(int(unpaired_electrons))
+    if known:
+        atom.SetIntProp(UNPAIRED_ELECTRON_COUNT_PROP, int(unpaired_electrons))
 
 
 def _set_rdkit_lone_pair_count(atom: Chem.Atom, lone_pair_count: int) -> None:
-    """Persist active lone pairs as an RDKit atom property without changing spin."""
+    """Persist a known lone-pair count, including zero, without changing spin."""
 
-    if lone_pair_count:
-        atom.SetIntProp(LONE_PAIR_COUNT_PROP, int(lone_pair_count))
-    elif atom.HasProp(LONE_PAIR_COUNT_PROP):
-        atom.ClearProp(LONE_PAIR_COUNT_PROP)
+    atom.SetIntProp(LONE_PAIR_COUNT_PROP, int(lone_pair_count))
 
 
 def _set_rdkit_unresolved_two_electron_center(atom: Chem.Atom, value: bool) -> None:
     """Persist deferred two-electron occupancy without selecting singlet/triplet."""
 
-    if value:
-        atom.SetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP, True)
-    elif atom.HasProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP):
-        atom.ClearProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
+    atom.SetBoolProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP, bool(value))
+
+
+def refresh_atom_electron_property_lists(rdmol: Chem.Mol) -> None:
+    """Rebuild MolGR's SDF property lists in place from current atom annotations.
+
+    Call after editing electron properties or atom order. Remove old lists even
+    when no atom retains the property, so SDF readers cannot resurrect a consumed
+    electron annotation. Atom properties, formal charges and radicals are unchanged.
+    """
+
+    fields = (
+        (METAL_UNPAIRED_ELECTRONS_PROP, "iprop", Chem.CreateAtomIntPropertyList),
+        (UNPAIRED_ELECTRON_COUNT_PROP, "iprop", Chem.CreateAtomIntPropertyList),
+        (LONE_PAIR_COUNT_PROP, "iprop", Chem.CreateAtomIntPropertyList),
+        (UNRESOLVED_TWO_ELECTRON_CENTER_PROP, "bprop", Chem.CreateAtomBoolPropertyList),
+    )
+    for name, kind, create_list in fields:
+        list_name = f"atom.{kind}.{name}"
+        if rdmol.HasProp(list_name):
+            rdmol.ClearProp(list_name)
+        if any(
+            atom.HasProp(name)
+            for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
+        ):
+            create_list(rdmol, name)
 
 
 def _finalize_metal_unpaired_electrons(rdmol: Chem.Mol) -> None:
-    has_metal = False
-    for atom in rdmol.GetAtoms():  # pyright: ignore[reportCallIssue]
-        if not _is_metal_atomic_num(int(atom.GetAtomicNum())):
-            continue
-        has_metal = True
-        atom.SetNumRadicalElectrons(0)
-    if has_metal:
-        Chem.CreateAtomIntPropertyList(rdmol, METAL_UNPAIRED_ELECTRONS_PROP)
-    if any(
-        atom.HasProp(LONE_PAIR_COUNT_PROP)
-        for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
-    ):
-        Chem.CreateAtomIntPropertyList(rdmol, LONE_PAIR_COUNT_PROP)
-    if any(
-        atom.HasProp(UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
-        for atom in rdmol.GetAtoms()  # pyright: ignore[reportCallIssue]
-    ):
-        Chem.CreateAtomBoolPropertyList(rdmol, UNRESOLVED_TWO_ELECTRON_CENTER_PROP)
+    for atom_idx in range(rdmol.GetNumAtoms()):
+        atom = rdmol.GetAtomWithIdx(atom_idx)
+        if _is_metal_atomic_num(int(atom.GetAtomicNum())):
+            atom.SetNumRadicalElectrons(0)
+    refresh_atom_electron_property_lists(rdmol)
     rdmol.UpdatePropertyCache(strict=False)
 
 
@@ -115,7 +127,12 @@ def _restore_rdkit_unpaired_electrons(
         rdmol.GetAtoms(),  # pyright: ignore[reportCallIssue]
         unpaired_electrons,
     ):
-        _set_rdkit_unpaired_electrons(atom, count)
+        prop = (
+            METAL_UNPAIRED_ELECTRONS_PROP
+            if _is_metal_atomic_num(int(atom.GetAtomicNum()))
+            else UNPAIRED_ELECTRON_COUNT_PROP
+        )
+        _set_rdkit_unpaired_electrons(atom, count, known=bool(atom.HasProp(prop)))
 
 
 def get_atom_unpaired_electrons(atom: Chem.Atom) -> int:
@@ -160,7 +177,7 @@ def mol_data_to_pybel(mol_data: core.utils.MoleculeData) -> pybel.Molecule:
     """Copy all three electron classifications from MoleculeData to Open Babel.
 
     ``radical_num`` remains real unpaired electrons; lone-pair and unresolved
-    fields use independent generic data and are not inferred from one another.
+    fields are independent. Presence bits retain known zero/false versus unknown.
     """
     obmol = ob.OBMol()
     obmol.BeginModify()
@@ -168,12 +185,13 @@ def mol_data_to_pybel(mol_data: core.utils.MoleculeData) -> pybel.Molecule:
         obatom: ob.OBAtom = obmol.NewAtom()
         obatom.SetAtomicNum(atom.atomic_num)
         obatom.SetFormalCharge(atom.formal_charge)
-        set_unpaired_electron_count(obatom, atom.radical_num)
-        set_lone_pair_count(obatom, atom.lone_pair_count)
-        set_unresolved_two_electron_center(
-            obatom,
-            atom.unresolved_two_electron_center,
-        )
+        presence = atom.electron_property_presence
+        if presence & 1:
+            set_unpaired_electron_count(obatom, atom.radical_num)
+        if presence & 2:
+            set_lone_pair_count(obatom, atom.lone_pair_count)
+        if presence & 4:
+            set_unresolved_two_electron_center(obatom, atom.unresolved_two_electron_center)
         obatom.SetVector(atom.x, atom.y, atom.z)
     for bond in mol_data.bonds:
         obmol.AddBond(bond.begin_atom_idx, bond.end_atom_idx, bond.order)
@@ -188,10 +206,10 @@ def mol_data_to_rdkit(
 ) -> Chem.Mol:
     """Convert MoleculeData while preserving independent electron classifications.
 
-    Nonmetal unpaired electrons use RDKit radicals, metal unpaired electrons use
-    ``MOLGR_METAL_UNPAIRED_ELECTRONS``, and active lone-pair/unresolved fields use
-    separate atom properties. Sanitization is not allowed to redefine these
-    stored MolGR assignments.
+    Nonmetal unpaired electrons use RDKit radicals plus explicit-count provenance;
+    metals use ``MOLGR_METAL_UNPAIRED_ELECTRONS``. The presence mask distinguishes
+    known zero/false from unknown for all three independent classifications.
+    Sanitization is not allowed to redefine stored MolGR assignments.
     """
     unpaired_electrons = [int(atom.radical_num) for atom in mol_data.atoms]
     rwmol = Chem.RWMol()
@@ -200,12 +218,17 @@ def mol_data_to_rdkit(
         rd_atom = rwmol.GetAtomWithIdx(atom_id)
         rd_atom.SetNoImplicit(True)
         rd_atom.SetFormalCharge(atom.formal_charge)
-        _set_rdkit_unpaired_electrons(rd_atom, atom.radical_num)
-        _set_rdkit_lone_pair_count(rd_atom, atom.lone_pair_count)
-        _set_rdkit_unresolved_two_electron_center(
-            rd_atom,
-            atom.unresolved_two_electron_center,
+        presence = atom.electron_property_presence
+        _set_rdkit_unpaired_electrons(
+            rd_atom, atom.radical_num, known=bool(presence & 1)
         )
+        if presence & 2:
+            _set_rdkit_lone_pair_count(rd_atom, atom.lone_pair_count)
+        if presence & 4:
+            _set_rdkit_unresolved_two_electron_center(
+                rd_atom,
+                atom.unresolved_two_electron_center,
+            )
     for bond_data in mol_data.bonds:
         rwmol.AddBond(
             bond_data.begin_atom_idx - 1,
@@ -252,32 +275,16 @@ def pybel_to_rdmol(
     formal_radicals: List[int] = [
         get_unpaired_electron_count(cast(ob.OBAtom, atom)) for atom in ob.OBMolAtomIter(omol.OBMol)
     ]
-    lone_pair_counts: List[int] = [
-        get_lone_pair_count(cast(ob.OBAtom, atom)) for atom in ob.OBMolAtomIter(omol.OBMol)
-    ]
-    unresolved_two_electron_centers: List[bool] = [
-        has_unresolved_two_electron_center(cast(ob.OBAtom, atom))
-        for atom in ob.OBMolAtomIter(omol.OBMol)
-    ]
     rwmol = Chem.RWMol(Chem.MolFromXYZBlock(omol.write("xyz")))
     for bond in bonds:
         rwmol.AddBond(
             bond[0], bond[1], OB_RDKIT_BOND_ORDER_MAPPING.get(bond[2], Chem.BondType.ZERO)
         )
-    for atom_id, (charge, radical, lone_pair_count, unresolved_center) in enumerate(
-        zip(
-            formal_charges,
-            formal_radicals,
-            lone_pair_counts,
-            unresolved_two_electron_centers,
-        )
-    ):
+    for atom_id, (charge, radical) in enumerate(zip(formal_charges, formal_radicals)):
         atom = rwmol.GetAtomWithIdx(atom_id)
         atom.SetNoImplicit(True)
         atom.SetFormalCharge(charge)
         _set_rdkit_unpaired_electrons(atom, radical)
-        _set_rdkit_lone_pair_count(atom, lone_pair_count)
-        _set_rdkit_unresolved_two_electron_center(atom, unresolved_center)
     rdmol = rwmol.GetMol()
     rdmol.UpdatePropertyCache(strict=False)
     if sanitize:
@@ -285,6 +292,22 @@ def pybel_to_rdmol(
     elif kekulize:
         Chem.KekulizeIfPossible(rdmol)
     _restore_rdkit_unpaired_electrons(rdmol, formal_radicals)
+    for atom_id, source in enumerate(ob.OBMolAtomIter(omol.OBMol)):
+        source = cast(ob.OBAtom, source)
+        atom = rdmol.GetAtomWithIdx(atom_id)
+        if source.HasData(LONE_PAIR_COUNT_PROP):
+            _set_rdkit_lone_pair_count(atom, get_lone_pair_count(source))
+        if source.HasData(UNRESOLVED_TWO_ELECTRON_CENTER_PROP):
+            _set_rdkit_unresolved_two_electron_center(
+                atom, has_unresolved_two_electron_center(source)
+            )
+        if not source.HasData(UNPAIRED_ELECTRON_COUNT_PROP):
+            prop = (
+                METAL_UNPAIRED_ELECTRONS_PROP
+                if _is_metal_atomic_num(int(atom.GetAtomicNum()))
+                else UNPAIRED_ELECTRON_COUNT_PROP
+            )
+            atom.ClearProp(prop)
     _finalize_metal_unpaired_electrons(rdmol)
     return rdmol
 
@@ -297,4 +320,5 @@ __all__ = [
     "mol_data_to_pybel",
     "mol_data_to_rdkit",
     "pybel_to_rdmol",
+    "refresh_atom_electron_property_lists",
 ]

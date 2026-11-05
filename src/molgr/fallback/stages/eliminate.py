@@ -29,6 +29,7 @@ class _ChargeAssignmentAction:
     score_key: Tuple[int, ...]
     bond_idx: int | None = None
     charge_atom_idx: int | None = None
+    spin_created: int = 0
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,17 @@ _NEGATIVE_CHARGE_ASSIGNMENT_PATTERNS = (
 )
 
 
+def _is_closed_shell_trivalent_boron(atom: ob.OBAtom) -> bool:
+    return (
+        atom.GetAtomicNum() == 5
+        and atom.GetTotalValence() == 3
+        and atom.GetFormalCharge() == 0
+        and get_unpaired_electron_count(atom) == 0
+        and get_lone_pair_count(atom) == 0
+        and not has_unresolved_two_electron_center(atom)
+    )
+
+
 def _apply_charge_assignment_action(
     obmol: ob.OBMol,
     action: _ChargeAssignmentAction,
@@ -86,6 +98,7 @@ def _apply_charge_assignment_action(
     Radical actions consume the requested number of real unpaired electrons. An
     unresolved action instead consumes one pure deferred two-electron marker
     atomically and assigns ``+2`` or ``-2`` without first creating two radicals.
+    A trivalent-boron reduction instead creates one real unpaired electron.
     Active lone pairs are never interchangeable inputs here.
     """
 
@@ -108,7 +121,17 @@ def _apply_charge_assignment_action(
         return True
     if atom.GetFormalCharge() != 0:
         return False
-    if action.consume_unresolved_center:
+    if action.spin_created:
+        if (
+            action.spin_created != 1
+            or action.spin_consumed != 0
+            or action.consume_unresolved_center
+            or action.formal_charge != -1
+            or not _is_closed_shell_trivalent_boron(atom)
+        ):
+            return False
+        set_unpaired_electron_count(atom, 1)
+    elif action.consume_unresolved_center:
         if (
             action.spin_consumed != 0
             or abs(action.formal_charge) != 2
@@ -298,12 +321,15 @@ def _negative_charge_assignment_actions(
     omol: pybel.Molecule,
     obmol: ob.OBMol,
     given_charge: int,
+    total_radical_electrons: int | None = None,
 ) -> list[_ChargeAssignmentAction]:
     """Rank anion actions from radicals or a pure unresolved 2e center.
 
     Radical actions preserve their existing SMARTS priority and may seed charge
     separation at zero budget. An unresolved center is admitted only for a real
-    deficit of at least two and becomes ``-2``. Active lone pairs remain excluded.
+    deficit of at least two and becomes ``-2``. With a negative charge deficit
+    and remaining radical budget, neutral Bv3 can accept an electron as B-.
+    Active lone pairs remain excluded.
     """
 
     if given_charge > 0:
@@ -386,8 +412,37 @@ def _negative_charge_assignment_actions(
                 )
 
     if given_charge < 0:
+        can_create_radical = (
+            total_radical_electrons is not None
+            and sum(
+                get_unpaired_electron_count(cast(ob.OBAtom, atom))
+                for atom in ob.OBMolAtomIter(obmol)
+            )
+            < total_radical_electrons
+        )
         for match_order, atom_iter in enumerate(ob.OBMolAtomIter(obmol)):
             atom = cast(ob.OBAtom, atom_iter)
+            if can_create_radical and _is_closed_shell_trivalent_boron(atom):
+                atom_idx = _atom_idx(atom)
+                charge_after = given_charge + 1
+                actions.append(
+                    _ChargeAssignmentAction(
+                        atom_idx=atom_idx,
+                        formal_charge=-1,
+                        spin_consumed=0,
+                        consume_unresolved_center=False,
+                        charge_delta=1,
+                        score_key=(
+                            98,
+                            abs(charge_after),
+                            max(charge_after, 0),
+                            5,
+                            atom_idx,
+                            match_order,
+                        ),
+                        spin_created=1,
+                    )
+                )
             if atom.GetFormalCharge() == 0 and get_unpaired_electron_count(atom) >= 1:
                 append_action(
                     atom,
@@ -736,7 +791,9 @@ def eliminate_negative_charges(
     supplied, the target count is checked before every action so that a charge
     assignment cannot consume a radical needed by the target. A pure unresolved
     center is eligible only when at least two negative charge units remain and is
-    consumed directly as ``-2``. Active lone pairs are not consumed.
+    consumed directly as ``-2``. With both negative charge and radical budget,
+    Bv3 instead becomes B- with one new unpaired electron. Both budgets are
+    rechecked after each assignment. Active lone pairs are not consumed.
     """
 
     obmol = cast(ob.OBMol, omol.OBMol)
@@ -751,7 +808,9 @@ def eliminate_negative_charges(
             if real_unpaired <= total_radical_electrons:
                 break
 
-        actions = _negative_charge_assignment_actions(omol, obmol, given_charge)
+        actions = _negative_charge_assignment_actions(
+            omol, obmol, given_charge, total_radical_electrons
+        )
         if not actions:
             break
         action = actions[0]

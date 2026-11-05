@@ -75,8 +75,7 @@ namespace molgr
             return clone;
         }
 
-        // Electron bookkeeping: restore radical_num as real unpaired electrons and
-        // restore active lone-pair/unresolved fields independently.
+        // Restore each known electron field independently, omitting unknown data.
         OpenBabel::OBMol MolFromMoleculeData(const MoleculeData &data)
         {
             OpenBabel::OBMol mol;
@@ -87,11 +86,29 @@ namespace molgr
                 OpenBabel::OBAtom *atom = mol.NewAtom();
                 atom->SetAtomicNum(atom_data.atomic_num);
                 atom->SetFormalCharge(atom_data.formal_charge);
-                SetUnpairedElectronCount(*atom, atom_data.radical_num);
-                SetLonePairCount(*atom, atom_data.lone_pair_count);
-                SetUnresolvedTwoElectronCenter(
-                    *atom,
-                    atom_data.unresolved_two_electron_center);
+                // Reconstruction's sparse setters omit zero; serialization must
+                // retain a known zero as distinct from an absent annotation.
+                const auto restore_known_count = [atom](const char *name, int value)
+                {
+                    if (value != 0)
+                    {
+                        SetAtomIntegerData(*atom, name, value);
+                        return;
+                    }
+                    auto *field = new OpenBabel::OBPairData();
+                    field->SetAttribute(name);
+                    field->SetValue("0");
+                    field->SetOrigin(OpenBabel::local);
+                    atom->SetData(field);
+                };
+                if (atom_data.electron_property_presence & 1)
+                    restore_known_count(kUnpairedElectronCountProp, atom_data.radical_num);
+                if (atom_data.electron_property_presence & 2)
+                    restore_known_count(kLonePairCountProp, atom_data.lone_pair_count);
+                if (atom_data.electron_property_presence & 4)
+                    restore_known_count(
+                        kUnresolvedTwoElectronCenterProp,
+                        atom_data.unresolved_two_electron_center ? 1 : 0);
                 atom->SetHyb(atom_data.hybridization);
                 atom->SetVector(atom_data.x, atom_data.y, atom_data.z);
             }
