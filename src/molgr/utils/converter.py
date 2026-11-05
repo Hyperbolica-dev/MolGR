@@ -219,9 +219,7 @@ def mol_data_to_rdkit(
         rd_atom.SetNoImplicit(True)
         rd_atom.SetFormalCharge(atom.formal_charge)
         presence = atom.electron_property_presence
-        _set_rdkit_unpaired_electrons(
-            rd_atom, atom.radical_num, known=bool(presence & 1)
-        )
+        _set_rdkit_unpaired_electrons(rd_atom, atom.radical_num, known=bool(presence & 1))
         if presence & 2:
             _set_rdkit_lone_pair_count(rd_atom, atom.lone_pair_count)
         if presence & 4:

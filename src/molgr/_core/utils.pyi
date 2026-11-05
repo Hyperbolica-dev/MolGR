@@ -51,7 +51,9 @@ class AtomData:
     def electron_property_presence(self) -> int:
         """Known electron fields: unpaired=1, active lone pairs=2, unresolved=4."""
     @electron_property_presence.setter
-    def electron_property_presence(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
+    def electron_property_presence(
+        self, arg0: typing.SupportsInt | typing.SupportsIndex
+    ) -> None: ...
     @property
     def x(self) -> float: ...
     @x.setter

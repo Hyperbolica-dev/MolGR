@@ -338,7 +338,8 @@ def _raw_molecule_diagnostics(mol: Chem.Mol) -> RawMoleculeDiagnostics:
             boolean=True,
         ),
         molgr_unpaired_electrons=_raw_atom_property_entries(
-            mol, "MOLGR_UNPAIRED_ELECTRON_COUNT",
+            mol,
+            "MOLGR_UNPAIRED_ELECTRON_COUNT",
         ),
     )
 
@@ -1206,10 +1207,7 @@ def _mapped_electronic_structure_match(
         if (
             atom1.GetIsotope() != atom2.GetIsotope()
             or _mapped_hydrogen_count(atom1) != _mapped_hydrogen_count(atom2)
-            or (
-                _is_metal_atom(atom1)
-                and atom1.GetFormalCharge() != atom2.GetFormalCharge()
-            )
+            or (_is_metal_atom(atom1) and atom1.GetFormalCharge() != atom2.GetFormalCharge())
         ):
             return False, False
         # Atom maps survive the existing SMILES/resonance paths. They prevent
@@ -1241,8 +1239,7 @@ def _has_electron_rearrangement(mol: Chem.Mol) -> bool:
     """A conservative guard: only localized, non-conjugated conflicts are final."""
 
     return any(
-        bond.GetIsAromatic() or bond.GetBondTypeAsDouble() > 1
-        for bond in mol.GetBonds()
+        bond.GetIsAromatic() or bond.GetBondTypeAsDouble() > 1 for bond in mol.GetBonds()
     ) or any(
         not _is_metal_atom(atom)
         and (atom.GetFormalCharge() != 0 or atom.GetNumRadicalElectrons() != 0)
@@ -1316,8 +1313,10 @@ def _compare_electronic_properties(
                     value1, value2 = fields1[k], fields2[k]
                     # A deferred center has no selected singlet/triplet
                     # occupancy. Its zero LP/spin placeholders cannot veto EQ.
-                    if value1 is None or value2 is None or (
-                        k == 1 and (fields1[2] is True or fields2[2] is True)
+                    if (
+                        value1 is None
+                        or value2 is None
+                        or (k == 1 and (fields1[2] is True or fields2[2] is True))
                     ):
                         continue
                     comparable += 1
@@ -1329,12 +1328,16 @@ def _compare_electronic_properties(
                         # be balanced by the mapped, independently proved
                         # bond/charge/radical rearrangement.
                         electron1 = (
-                            2 * value1 + atom1.GetFormalCharge()
-                            + _bond_order_sum(atom1) + atom1.GetNumRadicalElectrons()
+                            2 * value1
+                            + atom1.GetFormalCharge()
+                            + _bond_order_sum(atom1)
+                            + atom1.GetNumRadicalElectrons()
                         )
                         electron2 = (
-                            2 * value2 + atom2.GetFormalCharge()
-                            + _bond_order_sum(atom2) + atom2.GetNumRadicalElectrons()
+                            2 * value2
+                            + atom2.GetFormalCharge()
+                            + _bond_order_sum(atom2)
+                            + atom2.GetNumRadicalElectrons()
                         )
                         if abs(electron1 - electron2) < 1e-8:
                             continue
@@ -1360,12 +1363,15 @@ def _compare_electronic_properties(
     for side in (coverage.mol1, coverage.mol2):
         side["comparable_fields"] = comparable_max
     if (
-        conflicts and not incomplete
+        conflicts
+        and not incomplete
         and not _has_electron_rearrangement(left)
         and not _has_electron_rearrangement(right)
     ):
         coverage.status = InvariantStatus.FAILED
-        coverage.reason = f"Exhaustive mappings have irreconcilable localized annotations: {conflicts}"
+        coverage.reason = (
+            f"Exhaustive mappings have irreconcilable localized annotations: {conflicts}"
+        )
         return EquivalenceDecision.NOT_EQUIVALENT
     coverage.reason = (
         "Electronic mapping/resonance search reached its limit."
