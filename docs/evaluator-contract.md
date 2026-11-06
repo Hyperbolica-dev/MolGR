@@ -51,20 +51,29 @@ After the hard structural checks pass, the evaluator may return `EQUIVALENT` for
 
 - normalized graph identity;
 - established carbene/zwitterion normalization;
-- independent full InChIKey agreement after the hard structural checks, including when it supplies the positive fallback for a component-electron diagnostic mismatch;
 - successful resonance equivalence.
 
 For open-shell forms, a mapped elementary three-center radical/bond-order
 shift is explicit positive evidence. The mapping search is bounded and its
 attempted count and limit status remain diagnostic; reaching the bound returns
-`INCONCLUSIVE` unless stronger accepted identifier evidence is already present.
+`INCONCLUSIVE` unless an accepted structural path has already matched.
 
 The witness requires equal, positive total RDKit radical labels on its two
 normalized inputs. If this necessary condition fails, only this witness is
 skipped: its search metadata remains unattempted, and all existing comparison
 paths continue. Radical-label mismatch is not a top-level `NOT_EQUIVALENT` gate.
 
-Prepared-organic InChIKey agreement without another accepted pathway remains `INCONCLUSIVE`.
+InChIKey is diagnostic only. Agreement of either the prepared input key or the
+normalized organic key, even after all hard checks pass, remains `INCONCLUSIVE`
+without an accepted structural path. Disagreement is not a hard veto. The
+normalized organic key is computed after metal removal; it is not an identifier
+for the full original molecule. Standard InChI can normalize distinct proton
+and Lewis representations, so matching keys alone do not establish the
+evaluator's graph/electron equivalence.
+An `INCONCLUSIVE` result may retain `relation=identifier_equivalence` and
+`method=inchi_key` to identify this diagnostic signal; neither field implies a
+positive equivalence proof. See the [InChI Trust technical FAQ](https://www.inchi-trust.org/technical-faq/)
+for standard InChI normalization and InChIKey layer semantics.
 
 With `use_chirality=False`, InChIKey generation removes stereochemistry and
 conformers only from its private molecule copy, preventing InChI from inferring
@@ -79,11 +88,11 @@ RDKit atom radical flags alone still do not establish a global electronic-state
 contradiction. Jointly known MolGR annotations additionally constrain positive
 structural evidence as described below.
 
-An accepted result can intentionally contain both:
+An accepted structural result can intentionally contain both:
 
 ```text
 decision = equivalent
-relation = identifier_equivalence
+relation = resonance_equivalence
 component_electrons.status = failed
 ```
 

@@ -515,19 +515,19 @@ def test_inchi_ignores_3d_stereo_only_when_chirality_disabled() -> None:
     assert equivalence._inchi_key(mol, use_chirality=True) == enabled_key
 
 
-def test_full_identifier_match_overrides_component_electron_mismatch(
+def test_normalized_identifier_match_does_not_override_component_electron_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mol1 = Chem.MolFromSmiles("[OH+].[SH-]")
     mol2 = Chem.MolFromSmiles("[OH-].[SH+]")
     assert mol1 is not None
     assert mol2 is not None
-    keys = iter((None, None, "full-key", "full-key"))
+    keys = iter((None, None, "normalized-key", "normalized-key"))
     monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: next(keys))
 
     result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
 
-    assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.relation == equivalence.EquivalenceRelation.IDENTIFIER_EQUIVALENCE
     assert result.method == equivalence.EquivalenceMethod.INCHI_KEY
     assert result.invariants["component_electrons"].status == equivalence.InvariantStatus.FAILED
@@ -559,14 +559,14 @@ def test_carbene_match_overrides_component_electron_mismatch(
     ]
 
 
-def test_full_identifier_match_is_positive_without_component_mismatch(
+def test_normalized_identifier_match_is_inconclusive_without_structural_witness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mol1 = Chem.MolFromSmiles("[OH+].[SH-]")
     mol2 = Chem.MolFromSmiles("[OH-].[SH+]")
     assert mol1 is not None
     assert mol2 is not None
-    keys = iter((None, None, "full-key", "full-key"))
+    keys = iter((None, None, "normalized-key", "normalized-key"))
     monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: next(keys))
     monkeypatch.setattr(
         equivalence,
@@ -588,7 +588,24 @@ def test_full_identifier_match_is_positive_without_component_mismatch(
 
     result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
 
-    assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
+    assert result.relation == equivalence.EquivalenceRelation.IDENTIFIER_EQUIVALENCE
+    assert result.method == equivalence.EquivalenceMethod.INCHI_KEY
+
+
+def test_both_identifier_sources_match_is_still_inconclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mol1 = Chem.MolFromSmiles("[OH+].[SH-]")
+    mol2 = Chem.MolFromSmiles("[OH-].[SH+]")
+    assert mol1 is not None
+    assert mol2 is not None
+    keys = iter(("prepared-key", "prepared-key", "normalized-key", "normalized-key"))
+    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: next(keys))
+
+    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.relation == equivalence.EquivalenceRelation.IDENTIFIER_EQUIVALENCE
     assert result.method == equivalence.EquivalenceMethod.INCHI_KEY
 

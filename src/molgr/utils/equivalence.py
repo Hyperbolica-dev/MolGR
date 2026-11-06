@@ -1418,8 +1418,8 @@ def evaluate_equivalence(
     """Evaluate molecular equivalence and retain the proof and invariant state.
 
     The result separates the comparison decision from the relation that supplied
-    positive evidence.  Full InChIKey equality is accepted after hard structural
-    checks; prepared-organic identifier-only equality remains inconclusive.
+    positive evidence. InChIKey agreement is diagnostic and, without an accepted
+    structural path, remains inconclusive regardless of which input form matched.
     Component electron mismatches remain diagnostic evidence; accepted comparison
     pathways still determine the decision. Metal coordination connectivity is
     checked when ``ignore_metal_coordination_bonds`` is disabled.
@@ -1722,13 +1722,15 @@ def evaluate_equivalence(
         prepared_inchi_source_2 = mol2
     prepared_inchi_key_1 = _inchi_key(prepared_inchi_source_1, use_chirality=use_chirality)
     prepared_inchi_key_2 = _inchi_key(prepared_inchi_source_2, use_chirality=use_chirality)
-    full_inchi_key_1 = _inchi_key(organic_1, use_chirality=use_chirality)
-    full_inchi_key_2 = _inchi_key(organic_2, use_chirality=use_chirality)
+    normalized_inchi_key_1 = _inchi_key(organic_1, use_chirality=use_chirality)
+    normalized_inchi_key_2 = _inchi_key(organic_2, use_chirality=use_chirality)
     prepared_identifier_match = (
         prepared_inchi_key_1 is not None and prepared_inchi_key_1 == prepared_inchi_key_2
     )
-    full_identifier_match = full_inchi_key_1 is not None and full_inchi_key_1 == full_inchi_key_2
-    identifier_match = prepared_identifier_match or full_identifier_match
+    normalized_identifier_match = (
+        normalized_inchi_key_1 is not None and normalized_inchi_key_1 == normalized_inchi_key_2
+    )
+    identifier_match = prepared_identifier_match or normalized_identifier_match
 
     try:
         normalized_1 = _carbene_zwitterion_normalized_smiles(organic_1, use_chirality=use_chirality)
@@ -1852,22 +1854,6 @@ def evaluate_equivalence(
             method=EquivalenceMethod.OPEN_SHELL_THREE_CENTER,
         )
 
-    # Full InChIKey is positive evidence after hard structural checks and may
-    # override a component-electron diagnostic. Prepared-organic identifier
-    # agreement remains conservative and is handled by the inconclusive path.
-    if full_identifier_match and (not prepared_identifier_match or not component_electrons_match):
-        reason = (
-            "Equivalent: full InChIKey matches despite diagnostic component-electron mismatch."
-            if not component_electrons_match
-            else "Equivalent: full InChIKey matches after hard structural checks."
-        )
-        return finish(
-            EquivalenceDecision.EQUIVALENT,
-            reason,
-            relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
-            method=EquivalenceMethod.INCHI_KEY,
-        )
-
     if resonance_error is not None:
         return finish(
             EquivalenceDecision.INCONCLUSIVE,
@@ -1880,20 +1866,12 @@ def evaluate_equivalence(
             "Inconclusive: elementary open-shell topology mapping search reached its limit.",
         )
 
-    # Full InChIKey is positive evidence after hard structural checks and may
-    # override a component-electron diagnostic. Prepared-organic identifier
-    # agreement remains conservative and is handled by the inconclusive path.
+    # Standard InChI can normalize distinct Lewis and proton placements. Neither
+    # key source alone proves a graph/electron-equivalence pathway.
     if identifier_match:
-        reason = (
-            "Inconclusive: identifier_equivalence (prepared organic InChIKey agreement) "
-            "has no independent stronger structural evidence."
-            if prepared_identifier_match
-            else "Inconclusive: identifier_equivalence (full InChIKey agreement) "
-            "has no independent stronger structural evidence."
-        )
         return finish(
             EquivalenceDecision.INCONCLUSIVE,
-            reason,
+            "Inconclusive: InChIKey agreement has no independent structural witness.",
             relation=EquivalenceRelation.IDENTIFIER_EQUIVALENCE,
             method=EquivalenceMethod.INCHI_KEY,
         )
