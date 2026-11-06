@@ -431,12 +431,14 @@ def test_tmqmg_cpp_method_uses_one_subprocess_with_native_workers(
         case_timeout_seconds=1.0,
         cpp_backend_config=_build_cpp_backend_config_payload(use_all_accelerations=True),
         process_workers=3,
+        roundtrip_diagnostics=False,
     )
 
     assert len(run_calls) == 1
     payload = payloads[0]
     assert payload["native_workers"] == 3
     assert payload["native_batch"] is True
+    assert payload["roundtrip_diagnostics"] is False
     assert len(payload["cases"]) == 5
     assert [result.case_idx for result in results] == [1, 2, 3, 4, 5]
     assert [result.case_id for result in results] == ["C1", "C2", "C3", "C4", "C5"]
@@ -683,6 +685,49 @@ def test_equivalence_uses_internal_candidate_not_recorded_smiles() -> None:
     assert result.smiles_roundtrip_status == "roundtrip_changed"
     assert result.smiles_roundtrip_parse_success is True
     assert result.smiles_roundtrip_equivalent is False
+
+
+def test_skipping_roundtrip_keeps_reference_equivalence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ground_truth = Chem.MolFromSmiles("C")
+    backend_object = Chem.MolFromSmiles("C")
+    assert ground_truth is not None
+    assert backend_object is not None
+
+    class _Output:
+        status = "ok"
+        error = None
+        predicted_smiles = "C"
+        rdkit_mol = backend_object
+        timing_ms_breakdown = {"method_ms": 1.0}
+
+    def unexpected_roundtrip(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("roundtrip diagnostics should be disabled")
+
+    monkeypatch.setattr(
+        "benchmarks.tmqmg_xyz_benchmark.run._smiles_roundtrip_diagnostic",
+        unexpected_roundtrip,
+    )
+    result = _run_case_method(
+        {
+            "case_idx": 1,
+            "id": "A",
+            "input_smiles": "C",
+            "ground_truth_smiles": "C",
+            "ground_truth_rdmol": ground_truth,
+            "reference_error": None,
+            "provider_error": None,
+        },
+        "fake",
+        lambda case: _Output(),
+        case_timeout_seconds=1.0,
+        roundtrip_diagnostics=False,
+    )
+
+    assert result.evaluator_decision == "equivalent"
+    assert result.smiles_roundtrip_status is None
+    assert "roundtrip_ms" not in (result.timing_ms_breakdown or {})
 
 
 def test_smiles_reparse_failure_does_not_override_correct_internal_equivalence() -> None:

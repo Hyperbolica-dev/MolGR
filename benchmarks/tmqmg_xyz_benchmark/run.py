@@ -245,6 +245,11 @@ def _parse_args() -> argparse.Namespace:
         help="Per-method per-case wall-time limit. Use 0 to disable.",
     )
     parser.add_argument(
+        "--skip-smiles-roundtrip",
+        action="store_true",
+        help="Skip the independent internal-molecule to SMILES roundtrip diagnostic.",
+    )
+    parser.add_argument(
         "--cpp-accelerations",
         choices=("default", "all"),
         default="default",
@@ -465,6 +470,7 @@ def _run_case_method(
     *,
     case_timeout_seconds: float | None,
     precomputed_output: MethodRunOutput | None = None,
+    roundtrip_diagnostics: bool = True,
 ) -> BenchmarkResult:
     from molgr.utils.equivalence import EquivalenceDecision, evaluate_equivalence
 
@@ -549,7 +555,7 @@ def _run_case_method(
     equivalence_method = None
     evaluator_decision = None
     roundtrip: dict[str, Any] | None = None
-    if output.rdkit_mol is not None and output.predicted_smiles:
+    if roundtrip_diagnostics and output.rdkit_mol is not None and output.predicted_smiles:
         roundtrip_started = time.perf_counter()
         roundtrip = _smiles_roundtrip_diagnostic(
             output.rdkit_mol,
@@ -625,6 +631,7 @@ def _run_method_cases_worker(payload: dict[str, Any]) -> list[BenchmarkResult]:
     cases = payload["cases"]
     xyz_dir = Path(payload["xyz_dir"])
     case_timeout_seconds = payload["case_timeout_seconds"]
+    roundtrip_diagnostics = payload.get("roundtrip_diagnostics", True)
     cpp_backend_config_payload = payload.get("cpp_backend_config") or {}
     from molgr.config import CONFIG, CppBackendConfig, MolGRConfig
 
@@ -664,6 +671,7 @@ def _run_method_cases_worker(payload: dict[str, Any]) -> list[BenchmarkResult]:
                     method.run,
                     case_timeout_seconds=case_timeout_seconds,
                     precomputed_output=output,
+                    roundtrip_diagnostics=roundtrip_diagnostics,
                 )
             )
         return results
@@ -674,6 +682,7 @@ def _run_method_cases_worker(payload: dict[str, Any]) -> list[BenchmarkResult]:
                 method_id,
                 method.run,
                 case_timeout_seconds=case_timeout_seconds,
+                roundtrip_diagnostics=roundtrip_diagnostics,
             )
         )
     return results
@@ -706,6 +715,7 @@ def _run_method_subprocess(
     cpp_backend_config: dict[str, Any],
     native_workers: int | None = None,
     native_batch: bool = False,
+    roundtrip_diagnostics: bool = True,
 ) -> list[BenchmarkResult]:
     payload = {
         "method_id": method_id,
@@ -715,6 +725,7 @@ def _run_method_subprocess(
         "cpp_backend_config": cpp_backend_config,
         "native_workers": native_workers,
         "native_batch": native_batch,
+        "roundtrip_diagnostics": roundtrip_diagnostics,
     }
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp_payload:
         payload_path = Path(tmp_payload.name)
@@ -758,6 +769,7 @@ def _run_method_subprocesses(
     case_timeout_seconds: float | None,
     cpp_backend_config: dict[str, Any],
     process_workers: int,
+    roundtrip_diagnostics: bool = True,
 ) -> list[BenchmarkResult]:
     if method_id == "molgr_cpp" and process_workers > 1:
         # One process owns one native batch executor. Splitting this method
@@ -771,6 +783,7 @@ def _run_method_subprocesses(
             cpp_backend_config=cpp_backend_config,
             native_workers=process_workers,
             native_batch=True,
+            roundtrip_diagnostics=roundtrip_diagnostics,
         )
     if process_workers <= 1 or len(cases) <= 1:
         return _run_method_subprocess(
@@ -779,6 +792,7 @@ def _run_method_subprocesses(
             xyz_dir=xyz_dir,
             case_timeout_seconds=case_timeout_seconds,
             cpp_backend_config=cpp_backend_config,
+            roundtrip_diagnostics=roundtrip_diagnostics,
         )
 
     worker_count = min(process_workers, len(cases))
@@ -794,6 +808,7 @@ def _run_method_subprocesses(
                 "xyz_dir": str(xyz_dir),
                 "case_timeout_seconds": case_timeout_seconds,
                 "cpp_backend_config": cpp_backend_config,
+                "roundtrip_diagnostics": roundtrip_diagnostics,
             }
             with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp_payload:
                 payload_path = Path(tmp_payload.name)
@@ -902,6 +917,7 @@ def run(
     case_timeout_seconds: float | None = 1.0,
     cpp_backend_config: dict[str, Any] | None = None,
     method_ids: Sequence[str] | None = None,
+    roundtrip_diagnostics: bool = True,
 ) -> list[BenchmarkResult]:
     rows = _load_rows(csv_path)
     selected = _selected_rows(
@@ -926,6 +942,7 @@ def run(
             case_timeout_seconds=case_timeout_seconds,
             cpp_backend_config=runtime_cpp_backend_config,
             process_workers=process_workers,
+            roundtrip_diagnostics=roundtrip_diagnostics,
         )
         if len(method_results) != len(selected):
             results.extend(
@@ -968,6 +985,7 @@ def main() -> int:
         case_timeout_seconds=args.case_timeout_seconds or None,
         cpp_backend_config=cpp_backend_config,
         method_ids=method_ids,
+        roundtrip_diagnostics=not args.skip_smiles_roundtrip,
     )
     return 0
 

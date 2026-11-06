@@ -114,6 +114,39 @@ def test_resonance_match_compares_the_two_generated_sets() -> None:
     assert hit_smiles is not None
 
 
+def test_resonance_match_stops_before_enumerating_second_side_on_direct_hit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    implicit_mol = Chem.MolFromSmiles("C")
+    assert implicit_mol is not None
+    mol = Chem.AddHs(implicit_mol)
+    original = equivalence._prepare_resonance_source
+    calls = 0
+
+    def tracked_prepare(source: Chem.Mol) -> Chem.Mol:
+        nonlocal calls
+        calls += 1
+        return original(source)
+
+    monkeypatch.setattr(equivalence, "_prepare_resonance_source", tracked_prepare)
+    matched, mol1_count, mol2_count, hit_smiles = equivalence._resonance_match(
+        mol,
+        mol,
+        use_chirality=False,
+        max_resonance=50,
+        resonance_flags=Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
+        | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
+    )
+
+    assert (matched, mol1_count, mol2_count, hit_smiles) == (
+        True,
+        1,
+        0,
+        "[H]C([H])([H])[H]",
+    )
+    assert calls == 1
+
+
 def test_resonance_supplier_includes_generic_anion_charge_shift() -> None:
     equivalence._cached_resonance_smiles.cache_clear()
 
@@ -700,6 +733,27 @@ def test_normalized_graph_identity_preserves_component_diagnostic(
     assert result.relation == equivalence.EquivalenceRelation.NORMALIZED_GRAPH_IDENTITY
     assert result.invariants["component_electrons"].status == equivalence.InvariantStatus.FAILED
     assert result.contradictions == []
+
+
+def test_normalized_graph_identity_skips_identifier_and_carbene_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mol1 = Chem.MolFromSmiles("CCO")
+    mol2 = Chem.MolFromSmiles("CCO")
+    assert mol1 is not None
+    assert mol2 is not None
+
+    def unexpected_call(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("an exact graph match needs no fallback normalization")
+
+    monkeypatch.setattr(equivalence, "_inchi_key", unexpected_call)
+    monkeypatch.setattr(equivalence, "_carbene_zwitterion_normalized_smiles", unexpected_call)
+
+    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
+
+    assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
+    assert result.method == equivalence.EquivalenceMethod.IDEAL
+    assert result.carbene_zwitterion is None
 
 
 @pytest.mark.parametrize(

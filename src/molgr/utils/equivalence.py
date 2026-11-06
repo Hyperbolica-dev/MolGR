@@ -682,13 +682,15 @@ def _cached_resonance_smiles(
         return ()
     source = _prepare_resonance_source(source_mol)
     seen: list[str] = []
+    seen_set: set[str] = set()
 
     def add_form(form: Chem.Mol) -> None:
         if len(seen) >= max_resonance:
             return
         smiles = _resonance_form_smiles(form, use_chirality)
-        if smiles not in seen:
+        if smiles not in seen_set:
             seen.append(smiles)
+            seen_set.add(smiles)
 
     supplier_forms: list[Chem.Mol] = []
     supplier = ResonanceMolSupplier(
@@ -723,10 +725,10 @@ def _cached_resonance_smiles(
             charge_shift_queue.append(shifted_form)
             add_form(shifted_form)
             if len(seen) >= max_resonance:
-                return tuple(dict.fromkeys(seen))
+                return tuple(seen)
     for resonance_form in supplier_forms:
         add_form(resonance_form)
-    return tuple(dict.fromkeys(seen))
+    return tuple(seen)
 
 
 def _resonance_topology_key(mol: Chem.Mol, *, preserve_metal_formal_charge: bool = False) -> str:
@@ -1113,6 +1115,8 @@ def _resonance_match(
                     resonance_flags=int(resonance_flags),
                 )
             )
+            if target_2_smiles in mol1_smiles:
+                return True, len(mol1_smiles), 0, target_2_smiles
             mol2_smiles = set(
                 _cached_resonance_smiles(
                     target_2_smiles,
@@ -1130,11 +1134,10 @@ def _resonance_match(
     # collapses thiosemicarbazone-like motifs and would erase this input.
     raw_target_1 = _canon_smiles(mol1, use_chirality)
     raw_target_2 = _canon_smiles(mol2, use_chirality)
-    raw_result = match_sets(
-        local_charge_shift_smiles(mol1),
-        local_charge_shift_smiles(mol2),
-        raw_target_2,
-    )
+    raw_forms_1 = local_charge_shift_smiles(mol1)
+    if raw_target_2 in raw_forms_1:
+        return True, len(raw_forms_1), 0, raw_target_2
+    raw_result = match_sets(raw_forms_1, local_charge_shift_smiles(mol2), raw_target_2)
     if raw_result[0]:
         return raw_result
 
@@ -1698,8 +1701,12 @@ def evaluate_equivalence(
             component_signature_2,
         )
 
-        achiral_smiles_match = _canon_smiles(organic_1, False) == _canon_smiles(organic_2, False)
-        stereo_matches = not use_chirality or not achiral_smiles_match or smiles_1 == smiles_2
+        stereo_matches = True
+        if use_chirality and smiles_1 != smiles_2:
+            achiral_smiles_match = _canon_smiles(organic_1, False) == _canon_smiles(
+                organic_2, False
+            )
+            stereo_matches = not achiral_smiles_match
         invariants["stereochemistry"] = InvariantResult(
             InvariantStatus.PASSED if stereo_matches else InvariantStatus.FAILED,
             smiles_1,
@@ -1713,48 +1720,65 @@ def evaluate_equivalence(
             f"Inconclusive: canonical comparison failed: {type(exc).__name__}: {exc}",
         )
 
-    prepared_inchi_source_1 = prepared_organic_1
-    prepared_inchi_source_2 = prepared_organic_2
-    if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
-        _is_metal_atom(atom) for atom in mol2.GetAtoms()
-    ):
-        prepared_inchi_source_1 = mol1
-        prepared_inchi_source_2 = mol2
-    prepared_inchi_key_1 = _inchi_key(prepared_inchi_source_1, use_chirality=use_chirality)
-    prepared_inchi_key_2 = _inchi_key(prepared_inchi_source_2, use_chirality=use_chirality)
-    normalized_inchi_key_1 = _inchi_key(organic_1, use_chirality=use_chirality)
-    normalized_inchi_key_2 = _inchi_key(organic_2, use_chirality=use_chirality)
-    prepared_identifier_match = (
-        prepared_inchi_key_1 is not None and prepared_inchi_key_1 == prepared_inchi_key_2
-    )
-    normalized_identifier_match = (
-        normalized_inchi_key_1 is not None and normalized_inchi_key_1 == normalized_inchi_key_2
-    )
-    identifier_match = prepared_identifier_match or normalized_identifier_match
+    identifier_match: bool | None = None
 
-    try:
-        normalized_1 = _carbene_zwitterion_normalized_smiles(organic_1, use_chirality=use_chirality)
-        normalized_2 = _carbene_zwitterion_normalized_smiles(organic_2, use_chirality=use_chirality)
-        info.carbene_zwitterion = CarbeneZwitterionDetail(
-            mol1_normalized=normalized_1,
-            mol2_normalized=normalized_2,
-        )
-        carbene_match = normalized_1 == normalized_2
-    except TimeoutError:
-        raise
-    except Exception:
-        carbene_match = False
+    def identifier_matches() -> bool:
+        nonlocal identifier_match
+        if identifier_match is None:
+            # InChIKey is diagnostic evidence, not a structural proof. Compute
+            # it only for conflicts or after all accepted paths have failed.
+            prepared_inchi_source_1 = prepared_organic_1
+            prepared_inchi_source_2 = prepared_organic_2
+            if not any(_is_metal_atom(atom) for atom in mol1.GetAtoms()) and not any(
+                _is_metal_atom(atom) for atom in mol2.GetAtoms()
+            ):
+                prepared_inchi_source_1 = mol1
+                prepared_inchi_source_2 = mol2
+            prepared_inchi_key_1 = _inchi_key(prepared_inchi_source_1, use_chirality=use_chirality)
+            prepared_inchi_key_2 = _inchi_key(prepared_inchi_source_2, use_chirality=use_chirality)
+            normalized_inchi_key_1 = _inchi_key(organic_1, use_chirality=use_chirality)
+            normalized_inchi_key_2 = _inchi_key(organic_2, use_chirality=use_chirality)
+            identifier_match = (
+                prepared_inchi_key_1 is not None and prepared_inchi_key_1 == prepared_inchi_key_2
+            ) or (
+                normalized_inchi_key_1 is not None
+                and normalized_inchi_key_1 == normalized_inchi_key_2
+            )
+        return identifier_match
+
+    carbene_match: bool | None = None
+
+    def carbene_matches() -> bool:
+        nonlocal carbene_match
+        if carbene_match is None:
+            try:
+                normalized_1 = _carbene_zwitterion_normalized_smiles(
+                    organic_1, use_chirality=use_chirality
+                )
+                normalized_2 = _carbene_zwitterion_normalized_smiles(
+                    organic_2, use_chirality=use_chirality
+                )
+                info.carbene_zwitterion = CarbeneZwitterionDetail(
+                    mol1_normalized=normalized_1,
+                    mol2_normalized=normalized_2,
+                )
+                carbene_match = normalized_1 == normalized_2
+            except TimeoutError:
+                raise
+            except Exception:  # noqa: BLE001
+                carbene_match = False
+        return carbene_match
 
     if not component_electrons_match:
-        if identifier_match:
+        if identifier_matches():
             info.contradictions.append("identifier_match_despite_component_electron_mismatch")
-        if carbene_match:
+        if carbene_matches():
             info.contradictions.append(
                 "carbene_normalization_match_despite_component_electron_mismatch"
             )
 
     if use_chirality and not stereo_matches:
-        if identifier_match:
+        if identifier_matches():
             info.contradictions.append("identifier_match_despite_stereochemistry_mismatch")
         return finish(
             EquivalenceDecision.NOT_EQUIVALENT,
@@ -1769,7 +1793,7 @@ def evaluate_equivalence(
             method=EquivalenceMethod.IDEAL,
         )
 
-    if carbene_match:
+    if carbene_matches():
         return finish(
             EquivalenceDecision.EQUIVALENT,
             "Equivalent: carbene/zwitterion normalization matched.",
@@ -1868,7 +1892,7 @@ def evaluate_equivalence(
 
     # Standard InChI can normalize distinct Lewis and proton placements. Neither
     # key source alone proves a graph/electron-equivalence pathway.
-    if identifier_match:
+    if identifier_matches():
         return finish(
             EquivalenceDecision.INCONCLUSIVE,
             "Inconclusive: InChIKey agreement has no independent structural witness.",
