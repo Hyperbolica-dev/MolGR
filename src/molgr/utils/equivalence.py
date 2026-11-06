@@ -5,9 +5,9 @@ Evaluator v2 compares the normalized organic graph, metal formal-state signature
 and jointly known MolGR electronic annotations. Missing annotations do not veto
 independent structural evidence. Known annotations are compared under atom
 symmetry and the existing representation transformations; incomplete searches
-are inconclusive, not negative evidence. Metal--ligand coordination edges are
-still removed before graph comparison. This is not a proof of full coordination
-graph identity or of an identical quantum electronic state.
+are inconclusive, not negative evidence. Metal coordination edges are ignored
+by default; callers can request a standardized coordination-connectivity check.
+This is not a proof of an identical quantum electronic state.
 
 ``INCONCLUSIVE`` is a first-class result, not a synonym for ``NOT_EQUIVALENT``.
 The compatibility wrapper returns ``False`` for both, so callers that need the
@@ -729,10 +729,11 @@ def _cached_resonance_smiles(
     return tuple(dict.fromkeys(seen))
 
 
-def _resonance_topology_key(mol: Chem.Mol) -> str:
+def _resonance_topology_key(mol: Chem.Mol, *, preserve_metal_formal_charge: bool = False) -> str:
     rw_mol = Chem.RWMol(Chem.Mol(mol))
     for atom in rw_mol.GetAtoms():
-        atom.SetFormalCharge(0)
+        if not (preserve_metal_formal_charge and _is_metal_atom(atom)):
+            atom.SetFormalCharge(0)
         atom.SetNumRadicalElectrons(0)
         atom.SetIsAromatic(False)
         atom.SetNoImplicit(True)
@@ -1190,6 +1191,25 @@ def _electronic_property_mappings(mol1: Chem.Mol, mol2: Chem.Mol):
     )
 
 
+def _metal_bonds_follow_mapping(mol1: Chem.Mol, mol2: Chem.Mol, mapping: tuple[int, ...]) -> bool:
+    """Require the same metal-incident edges under an annotation mapping."""
+
+    def metal_bonds(mol: Chem.Mol):
+        return (
+            bond
+            for bond in mol.GetBonds()
+            if _is_metal_atom(bond.GetBeginAtom()) or _is_metal_atom(bond.GetEndAtom())
+        )
+
+    bonds1 = tuple(metal_bonds(mol1))
+    bonds2 = tuple(metal_bonds(mol2))
+    return len(bonds1) == len(bonds2) and all(
+        mol2.GetBondBetweenAtoms(mapping[bond.GetBeginAtomIdx()], mapping[bond.GetEndAtomIdx()])
+        is not None
+        for bond in bonds1
+    )
+
+
 def _mapped_electronic_structure_match(
     mol1: Chem.Mol,
     mol2: Chem.Mol,
@@ -1256,6 +1276,7 @@ def _compare_electronic_properties(
     use_chirality: bool,
     max_resonance: int,
     resonance_flags: Chem.ResonanceFlags,
+    ignore_metal_coordination_bonds: bool,
 ) -> EquivalenceDecision | None:
     """Constrain positive graph evidence; never infer EQ from electron totals."""
 
@@ -1293,6 +1314,10 @@ def _compare_electronic_properties(
             for side in (coverage.mol1, coverage.mol2):
                 side["mappings_examined"] = index + 1
                 side["mapping_limit_reached"] = limit_reached
+            if not ignore_metal_coordination_bonds and not _metal_bonds_follow_mapping(
+                mol1, mol2, mapping
+            ):
+                continue
             matched, bounded = _mapped_electronic_structure_match(
                 left,
                 right,
@@ -1388,6 +1413,7 @@ def evaluate_equivalence(
     max_resonance: int = 50,
     resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
     | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
+    ignore_metal_coordination_bonds: bool = True,
 ) -> EquivalenceResult:
     """Evaluate molecular equivalence and retain the proof and invariant state.
 
@@ -1395,7 +1421,8 @@ def evaluate_equivalence(
     positive evidence.  Full InChIKey equality is accepted after hard structural
     checks; prepared-organic identifier-only equality remains inconclusive.
     Component electron mismatches remain diagnostic evidence; accepted comparison
-    pathways still determine the decision.
+    pathways still determine the decision. Metal coordination connectivity is
+    checked when ``ignore_metal_coordination_bonds`` is disabled.
     """
 
     # Capture the source molecules before any graph normalization.  In
@@ -1517,6 +1544,10 @@ def evaluate_equivalence(
             checks.radical_electrons.mol2,
         ),
         "metal_state": InvariantResult(InvariantStatus.NOT_EVALUATED),
+        "metal_coordination": InvariantResult(
+            InvariantStatus.NOT_EVALUATED,
+            reason="Metal coordination bonds are ignored by configuration.",
+        ),
         "nonmetal_connectivity": InvariantResult(InvariantStatus.NOT_EVALUATED),
         "component_electrons": InvariantResult(InvariantStatus.NOT_EVALUATED),
         "stereochemistry": InvariantResult(InvariantStatus.NOT_EVALUATED),
@@ -1564,6 +1595,7 @@ def evaluate_equivalence(
                 use_chirality=use_chirality,
                 max_resonance=max_resonance,
                 resonance_flags=resonance_flags,
+                ignore_metal_coordination_bonds=ignore_metal_coordination_bonds,
             )
             if electronic_decision is not None:
                 decision = electronic_decision
@@ -1619,6 +1651,25 @@ def evaluate_equivalence(
         )
 
     try:
+        if not ignore_metal_coordination_bonds:
+            coordination_1 = _resonance_topology_key(
+                standardized_1, preserve_metal_formal_charge=True
+            )
+            coordination_2 = _resonance_topology_key(
+                standardized_2, preserve_metal_formal_charge=True
+            )
+            coordination_matches = coordination_1 == coordination_2
+            invariants["metal_coordination"] = InvariantResult(
+                InvariantStatus.PASSED if coordination_matches else InvariantStatus.FAILED,
+                coordination_1,
+                coordination_2,
+            )
+            if not coordination_matches:
+                return finish(
+                    EquivalenceDecision.NOT_EQUIVALENT,
+                    "Not equivalent: metal coordination connectivity differs.",
+                )
+
         smiles_1 = _canon_smiles(organic_1, use_chirality)
         smiles_2 = _canon_smiles(organic_2, use_chirality)
         info.canonical_smiles = CanonicalSmilesDetail(smiles_1, smiles_2, use_chirality)
@@ -1873,6 +1924,7 @@ def check_equivalence(
     max_resonance: int = 50,
     resonance_flags: Chem.ResonanceFlags = Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
     | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
+    ignore_metal_coordination_bonds: bool = True,
 ) -> Tuple[bool, EquivalenceInfo]:
     with rdBase.BlockLogs():
         result = evaluate_equivalence(
@@ -1881,5 +1933,6 @@ def check_equivalence(
             use_chirality=use_chirality,
             max_resonance=max_resonance,
             resonance_flags=resonance_flags,
+            ignore_metal_coordination_bonds=ignore_metal_coordination_bonds,
         )
     return result.decision == EquivalenceDecision.EQUIVALENT, result

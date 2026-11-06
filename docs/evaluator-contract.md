@@ -28,6 +28,23 @@ equate species that differ in total electron count. The local regression uses
 `[S]C(=NN=Cc1ccccc1)N` versus `[S-]C(=NN=Cc1ccccc1)N` (charges 0 and -1),
 which previously matched after thiosemicarbazone normalization.
 
+## Metal coordination option
+
+`evaluate_equivalence` and `check_equivalence` accept
+`ignore_metal_coordination_bonds=True` by default. This preserves the historical
+graph-level result: `N->[Cu]` and `N.[Cu]` are equivalent after the metal is
+removed. Set the option to `False` to require the same metal-incident edge
+connectivity under atom symmetry. The same mapping must then support jointly
+known electronic annotations. `invariants["metal_coordination"]` reports
+`not_evaluated` in the default mode, and `passed` or `failed` in strict mode.
+
+The strict check runs after the existing metal-bond standardization. It compares
+which atoms are connected to each metal, including metal-metal edges, while
+allowing the existing Lewis-form bond-order normalization. It does not require
+identical original metal-ligand bond orders or prove a physical coordination
+geometry. Benchmark callers retain the default until a benchmark explicitly
+opts into strict coordination connectivity.
+
 ## Positive evidence
 
 After the hard structural checks pass, the evaluator may return `EQUIVALENT` for:
@@ -84,8 +101,9 @@ admit a compatible atom mapping for jointly known occupancy information.
 Alternative symmetric mappings are considered. An atom-mapped instance of the
 existing graph, carbene/zwitterion, resonance, or elementary three-center proof
 must support that same mapping; an unrelated global match is insufficient.
-Metal annotations follow the existing metal-state multiset contract, without
-adding a metal coordination-connectivity requirement.
+Metal annotations follow the existing metal-state multiset contract when metal
+coordination bonds are ignored. Strict mode also aligns them to the matched
+metal coordination connectivity.
 
 Lone-pair counts describe **reconstruction-active pairs**, not all Lewis lone
 pairs. Equal known counts are compatible. A changed count may be transported
