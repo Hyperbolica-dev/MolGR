@@ -225,7 +225,7 @@ namespace molgr
                         return nullptr;
                     }
                     return std::make_unique<molgr::utils::MoleculeData>(
-                        molgr::utils::MoleculeDataFromOBMol(no_metal_state->Mol()));
+                        molgr::utils::MoleculeDataFromOBMol(no_metal_state->Mol(), true));
                 }
 
                 const auto metal_enum_started = std::chrono::steady_clock::now();
@@ -547,7 +547,7 @@ namespace molgr
                     return nullptr;
                 }
                 return std::make_unique<molgr::utils::MoleculeData>(
-                    molgr::utils::MoleculeDataFromOBMol(*best_candidate.combined_omol));
+                    molgr::utils::MoleculeDataFromOBMol(*best_candidate.combined_omol, true));
             }
         }
     }

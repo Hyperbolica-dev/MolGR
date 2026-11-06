@@ -218,6 +218,13 @@ def _cpp_xyz_seed_signature(
     return bond_signature, hybridizations
 
 
+def test_cpp_xyz_seed_does_not_invent_electron_property_presence() -> None:
+    data = _core.dev.utils.debug_xyz_seed_molecule_data("1\nH\nH 0 0 0\n")
+
+    assert len(data.atoms) == 1
+    assert data.atoms[0].electron_property_presence == 0
+
+
 @pytest.mark.parametrize(
     "xyz_block",
     [

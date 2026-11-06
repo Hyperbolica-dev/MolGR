@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import io
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,27 @@ def test_reference_parse_failure_is_not_a_confirmed_reference_error() -> None:
     )
 
     assert status == "unresolved"
+
+
+@pytest.mark.parametrize(
+    ("formula_match", "expected_status"),
+    [("False", "excluded"), (" false ", "excluded"), ("0", "excluded"), ("True", "valid")],
+)
+def test_reference_formula_evidence_survives_csv_boolean_strings(
+    formula_match: str, expected_status: str
+) -> None:
+    rows = csv.DictReader(
+        io.StringIO(
+            "reference_formula_match,reference_formula_mismatch_detail,reference_status\n"
+            f"{formula_match},confirmed XYZ/reference formula mismatch,valid\n"
+        )
+    )
+
+    status, reason = reference_validity(next(rows))
+
+    assert status == expected_status
+    if expected_status == "excluded":
+        assert reason == "confirmed XYZ/reference formula mismatch"
 
 
 def test_summary_and_csv_keep_reference_partition_and_inconclusive(tmp_path: Path) -> None:

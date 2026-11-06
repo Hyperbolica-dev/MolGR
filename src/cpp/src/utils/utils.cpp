@@ -82,16 +82,7 @@ namespace molgr
             {
                 return data;
             }
-            data = MoleculeDataFromOBMol(*mol);
-            for (size_t i = 0; i < data.atoms.size(); ++i)
-            {
-                OpenBabel::OBAtom *atom = mol->GetAtom(static_cast<int>(i + 1));
-                data.atoms[i].electron_property_presence =
-                    (atom->HasData(kUnpairedElectronCountProp) ? 1 : 0) |
-                    (atom->HasData(kLonePairCountProp) ? 2 : 0) |
-                    (atom->HasData(kUnresolvedTwoElectronCenterProp) ? 4 : 0);
-            }
-            return data;
+            return MoleculeDataFromOBMol(*mol);
         }
 
     } // namespace utils

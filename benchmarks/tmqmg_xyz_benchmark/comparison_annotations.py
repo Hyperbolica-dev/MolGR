@@ -40,6 +40,18 @@ def _required_string(value: Any, *, field: str) -> str:
     return value.strip()
 
 
+def _csv_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1"}:
+            return True
+        if normalized in {"false", "0"}:
+            return False
+    return None
+
+
 @lru_cache(maxsize=1)
 def load_comparison_annotations() -> tuple[ComparisonAnnotation, ...]:
     payload = json.loads(ANNOTATIONS_PATH.read_text(encoding="utf-8"))
@@ -147,13 +159,15 @@ def reference_validity(
 ) -> tuple[str, str | None]:
     reason = str(row.get("reference_reason") or row.get("reference_answer_reason") or "").strip()
     wrong = row.get("reference_answer_wrong")
-    if wrong is True or str(wrong).lower() == "true":
+    if _csv_bool(wrong) is True:
         return (
             ("excluded", reason)
             if reason
             else ("unresolved", "Missing reference exclusion evidence")
         )
-    if row.get("reference_formula_match") is False and row.get("reference_formula_mismatch_detail"):
+    if _csv_bool(row.get("reference_formula_match")) is False and row.get(
+        "reference_formula_mismatch_detail"
+    ):
         return "excluded", str(row["reference_formula_mismatch_detail"])
     reference_error = row.get("reference_error")
     if reference_error:
@@ -183,7 +197,7 @@ def reference_validity(
         manual_wrong = manual_entry.get("reference_answer_wrong")
         if (
             manual_entry.get("status") == "accepted_reference_issue"
-            and (manual_wrong is True or str(manual_wrong).lower() == "true")
+            and _csv_bool(manual_wrong) is True
             and manual_reason
         ):
             return "excluded", manual_reason

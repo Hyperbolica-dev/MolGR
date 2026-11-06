@@ -29,8 +29,8 @@ namespace molgr
             int lone_pair_count = 0;
             bool unresolved_two_electron_center = false;
             // Presence bits: unpaired=1, active lone pairs=2, unresolved=4.
-            // Internal pipeline output is fully specified; generic OB extraction
-            // overrides this mask from the original atom property presence.
+            // Internal pipeline output is fully specified; conversion from a
+            // generic OBMol replaces this mask with actual property presence.
             std::uint8_t electron_property_presence = 7;
             int hybridization = 0;
             double x, y, z;
@@ -54,7 +54,9 @@ namespace molgr
 
         MoleculeData ExtractMoleculeData(intptr_t mol_ptr);
         OpenBabel::OBMol MolFromMoleculeData(const MoleculeData &data);
-        MoleculeData MoleculeDataFromOBMol(const OpenBabel::OBMol &mol);
+        MoleculeData MoleculeDataFromOBMol(
+            const OpenBabel::OBMol &mol,
+            bool assume_electron_properties_known = false);
 
     }
 }

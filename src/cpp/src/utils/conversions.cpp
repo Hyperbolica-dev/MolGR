@@ -165,7 +165,9 @@ namespace molgr
 
         // Electron bookkeeping: serialize all three classifications independently;
         // only real unpaired electrons contribute to total_radical_num.
-        MoleculeData MoleculeDataFromOBMol(const OpenBabel::OBMol &mol)
+        MoleculeData MoleculeDataFromOBMol(
+            const OpenBabel::OBMol &mol,
+            bool assume_electron_properties_known)
         {
             MoleculeData data;
             data.total_charge = 0;
@@ -183,6 +185,13 @@ namespace molgr
                 atom_data.lone_pair_count = GetLonePairCount(*atom);
                 atom_data.unresolved_two_electron_center =
                     HasUnresolvedTwoElectronCenter(*atom);
+                if (!assume_electron_properties_known)
+                {
+                    atom_data.electron_property_presence =
+                        (atom->HasData(kUnpairedElectronCountProp) ? 1 : 0) |
+                        (atom->HasData(kLonePairCountProp) ? 2 : 0) |
+                        (atom->HasData(kUnresolvedTwoElectronCenterProp) ? 4 : 0);
+                }
                 atom_data.hybridization = atom->GetHyb();
                 atom_data.x = atom->GetX();
                 atom_data.y = atom->GetY();
