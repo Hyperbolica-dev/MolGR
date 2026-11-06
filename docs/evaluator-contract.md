@@ -75,6 +75,12 @@ An `INCONCLUSIVE` result may retain `relation=identifier_equivalence` and
 positive equivalence proof. See the [InChI Trust technical FAQ](https://www.inchi-trust.org/technical-faq/)
 for standard InChI normalization and InChIKey layer semantics.
 
+This policy changes at least the directed `WEXMIW_PATTERN` benchmark control
+from `EQUIVALENT` to `INCONCLUSIVE`: its keys agree, but bounded resonance search
+finds no structural witness. The previously reported 74,547-slot replay and
+source hash describe an earlier evaluator snapshot; a new full replay is needed
+before claiming aggregate decision compatibility for this revision.
+
 With `use_chirality=False`, InChIKey generation removes stereochemistry and
 conformers only from its private molecule copy, preventing InChI from inferring
 stereochemistry from 3D coordinates. Input molecules remain unchanged.

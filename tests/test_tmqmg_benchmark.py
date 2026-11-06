@@ -819,7 +819,7 @@ def test_internal_mismatch_remains_failure_when_smiles_reparse_also_fails() -> N
             "CCOC(=O)C1CS#C(->[Cr](<-[C-]#[O+])(<-[C-]#[O+])"
             "(<-[C-]#[O+])(<-[C-]#[O+])<-[C-]#[O+])C=C(c2ccccc2)N1",
             "preserved",
-            True,
+            None,  # Matching InChIKey without a bounded structural witness is inconclusive.
         ),
         (
             "NON_KEKULIZABLE_PATTERN",
@@ -837,7 +837,7 @@ def test_internal_graph_decision_is_independent_of_roundtrip_status(
     candidate_smiles: str,
     reference_smiles: str,
     roundtrip_status: str,
-    expected_equivalent: bool,
+    expected_equivalent: bool | None,
 ) -> None:
     internal = Chem.MolFromSmiles(candidate_smiles, sanitize=False)
     reference = Chem.MolFromSmiles(reference_smiles)
@@ -870,8 +870,13 @@ def test_internal_graph_decision_is_independent_of_roundtrip_status(
     )
 
     assert result.equivalent is expected_equivalent
-    assert result.evaluator_decision == (
-        "equivalent" if expected_equivalent else "not_equivalent"
+    assert (
+        result.evaluator_decision
+        == {
+            True: "equivalent",
+            False: "not_equivalent",
+            None: "inconclusive",
+        }[expected_equivalent]
     )
     assert result.comparison_skipped is False
     assert result.smiles_roundtrip_status == roundtrip_status
