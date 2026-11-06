@@ -111,8 +111,7 @@ namespace
         int positive_atom_idx)
     {
         auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
-        auto next_mol = molgr::vendor::openbabel_threading::SharedMolCopy(
-            molgr::utils::CloneMolTopologyOnly(state.Mol()));
+        auto next_mol = molgr::utils::CloneMolTopologyShared(state.Mol());
         machine = machine.Branch(std::nullopt, std::move(next_mol));
         const std::string phase = mode == "bond_order"
                                       ? "resolve_neighbor_radicals_by_bond_order"

@@ -789,8 +789,7 @@ namespace
         auto clone = std::make_shared<molgr::state::ReconstructionState>(*state);
         if (state->omol)
         {
-            clone->omol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                molgr::utils::CloneMolTopologyOnly(*state->omol));
+            clone->omol = molgr::utils::CloneMolTopologyShared(*state->omol);
         }
         return clone;
     }

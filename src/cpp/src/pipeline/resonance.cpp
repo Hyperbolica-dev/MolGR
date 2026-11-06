@@ -49,8 +49,7 @@ namespace molgr
             const auto [root_key, bond_index_map] = BuildResonanceSearchContext(mol);
             std::set<ResonanceStateKey> seen{root_key};
             std::deque<std::tuple<std::shared_ptr<OpenBabel::OBMol>, ResonanceStateKey, int>> frontier{
-                {molgr::vendor::openbabel_threading::SharedMolCopy(
-                     molgr::utils::CloneMolTopologyOnly(mol)),
+                {molgr::utils::CloneMolTopologyShared(mol),
                  root_key,
                  0}};
 
@@ -107,8 +106,7 @@ namespace molgr
                 0,
                 0,
                 0,
-                molgr::vendor::openbabel_threading::SharedMolCopy(
-                    molgr::utils::CloneMolTopologyOnly(mol)),
+                molgr::utils::CloneMolTopologyShared(mol),
                 root_key});
 
             int push_order = 0;

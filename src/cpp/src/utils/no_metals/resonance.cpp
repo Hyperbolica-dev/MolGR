@@ -194,7 +194,7 @@ namespace
                 auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
                 machine = machine.Branch(
                     "branch_boron_neighbor_radical_seed",
-                    molgr::vendor::openbabel_threading::SharedMolCopy(molgr::utils::CloneMolTopologyOnly(state.Mol())));
+                    molgr::utils::CloneMolTopologyShared(state.Mol()));
                 if (!machine.RunOmolChargeStage(
                         "reduce_boron_neighbor_bond_for_radical", ReduceBoronNeighborBond,
                         state.total_radical_electrons, boron_idx, neighbor_idx))
@@ -226,8 +226,7 @@ namespace
         for (const auto &state : pool)
         {
             auto machine = molgr::state::OmolStateMachine::FromReconstructionState(state);
-            auto next_mol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                molgr::utils::CloneMolTopologyOnly(state.Mol()));
+            auto next_mol = molgr::utils::CloneMolTopologyShared(state.Mol());
             machine = machine.Branch(std::nullopt, std::move(next_mol));
             if (machine.RunOmolStage(phase, stage))
             {

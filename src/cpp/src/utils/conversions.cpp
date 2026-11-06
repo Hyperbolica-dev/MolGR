@@ -1,11 +1,9 @@
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/electrons.h"
 #include "molgr/vendor/openbabel_threading.h"
-#include "molgr/vendor/openbabel_copy.h"
 
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
-#include <mutex>
 #include "molgr/compat/openbabel_iter.h"
 
 namespace molgr
@@ -14,12 +12,17 @@ namespace molgr
     {
         // Electron bookkeeping: despite the historical name, clone topology plus
         // all three MolGR atom electron fields verbatim; do not infer one from another.
-        OpenBabel::OBMol CloneMolTopologyOnly(const OpenBabel::OBMol &mol)
+        static void PopulateMolTopologyOnly(
+            const OpenBabel::OBMol &mol,
+            OpenBabel::OBMol &clone,
+            bool preserve_implicit_hydrogens)
         {
             OpenBabel::OBMol &mutable_source = const_cast<OpenBabel::OBMol &>(mol);
             const bool source_has_hybridization =
                 mutable_source.HasHybridizationPerceived();
-            OpenBabel::OBMol clone;
+            const bool source_has_aromaticity = mutable_source.HasAromaticPerceived();
+            const bool source_has_ring_flags =
+                mutable_source.HasRingAtomsAndBondsPerceived();
             clone.BeginModify();
             clone.ReserveAtoms(mol.NumAtoms());
             clone.SetDimension(mol.GetDimension());
@@ -30,22 +33,20 @@ namespace molgr
                 OpenBabel::OBAtom *new_atom = clone.NewAtom();
                 new_atom->SetAtomicNum(atom->GetAtomicNum());
                 new_atom->SetFormalCharge(atom->GetFormalCharge());
+                if (preserve_implicit_hydrogens)
+                {
+                    // Aromatic topology scoring depends on the implicit H count.
+                    new_atom->SetImplicitHCount(atom->GetImplicitHCount());
+                }
                 CopyElectronData(*atom, *new_atom);
                 if (source_has_hybridization)
                 {
                     new_atom->SetHyb(atom->GetHyb());
                 }
-                bool source_atom_aromatic;
-                bool source_atom_in_ring;
-                {
-                    // Native lazy perception may write OpenBabel's global logger.
-                    std::lock_guard<std::recursive_mutex> lock(
-                        molgr::vendor::openbabel_threading::NativeOpenBabelMutex());
-                    source_atom_aromatic = atom->IsAromatic();
-                    source_atom_in_ring = atom->IsInRing();
-                }
-                new_atom->SetAromatic(source_atom_aromatic);
-                new_atom->SetInRing(source_atom_in_ring);
+                // Query only already-perceived source flags. Otherwise the
+                // clone stays unperceived and computes them when needed.
+                new_atom->SetAromatic(source_has_aromaticity && atom->IsAromatic());
+                new_atom->SetInRing(source_has_ring_flags && atom->IsInRing());
                 new_atom->SetVector(atom->GetX(), atom->GetY(), atom->GetZ());
             }
 
@@ -75,14 +76,33 @@ namespace molgr
             }
 
             clone.EndModify();
-            clone.SetRingAtomsAndBondsPerceived(
-                mutable_source.HasRingAtomsAndBondsPerceived());
+            clone.SetRingAtomsAndBondsPerceived(source_has_ring_flags);
             clone.SetClosureBondsPerceived(mutable_source.HasClosureBondsPerceived());
             clone.SetSSSRPerceived(false);
             clone.SetLSSRPerceived(mutable_source.HasLSSRPerceived());
-            clone.SetAromaticPerceived(mutable_source.HasAromaticPerceived());
+            clone.SetAromaticPerceived(source_has_aromaticity);
             clone.SetHybridizationPerceived(source_has_hybridization);
             clone.SetAtomTypesPerceived(mutable_source.HasAtomTypesPerceived());
+        }
+
+        OpenBabel::OBMol CloneMolTopologyOnly(const OpenBabel::OBMol &mol)
+        {
+            OpenBabel::OBMol clone;
+            PopulateMolTopologyOnly(mol, clone, false);
+            return clone;
+        }
+
+        OpenBabel::OBMol CloneMolTopologyForScoring(const OpenBabel::OBMol &mol)
+        {
+            OpenBabel::OBMol clone;
+            PopulateMolTopologyOnly(mol, clone, true);
+            return clone;
+        }
+
+        std::shared_ptr<OpenBabel::OBMol> CloneMolTopologyShared(const OpenBabel::OBMol &mol)
+        {
+            auto clone = std::make_shared<OpenBabel::OBMol>();
+            PopulateMolTopologyOnly(mol, *clone, false);
             return clone;
         }
 

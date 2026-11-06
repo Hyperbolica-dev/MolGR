@@ -67,8 +67,7 @@ namespace molgr
             std::shared_ptr<OpenBabel::OBMol> NormalizeSeedOmolCopy(
                 const OpenBabel::OBMol &seed_omol)
             {
-                auto omol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                    molgr::utils::CloneMolTopologyOnly(seed_omol));
+                auto omol = molgr::utils::CloneMolTopologyShared(seed_omol);
                 NormalizeSeedElectronicLabels(*omol);
                 return omol;
             }

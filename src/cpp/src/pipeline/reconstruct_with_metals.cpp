@@ -521,8 +521,7 @@ namespace molgr
                         [](const OpenBabel::OBMol &no_metal_omol,
                            const std::vector<molgr::metal::MetalAtomPosition> &metal_states)
                         {
-                            auto combined_omol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                                molgr::utils::CloneMolTopologyOnly(no_metal_omol));
+                            auto combined_omol = molgr::utils::CloneMolTopologyShared(no_metal_omol);
                             molgr::metal::preparation::CombineMetalWithOmol(
                                 *combined_omol,
                                 metal_states);

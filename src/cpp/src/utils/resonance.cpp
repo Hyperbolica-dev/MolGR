@@ -822,8 +822,7 @@ namespace molgr
             const OpenBabel::OBMol &mol,
             const std::tuple<int, int, int> &idxs)
         {
-            auto new_mol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                molgr::utils::CloneMolTopologyOnly(mol));
+            auto new_mol = molgr::utils::CloneMolTopologyShared(mol);
             OpenBabel::OBAtom *atom1 = new_mol->GetAtom(std::get<0>(idxs));
             OpenBabel::OBAtom *atom3 = new_mol->GetAtom(std::get<2>(idxs));
             OpenBabel::OBBond *bond1 = new_mol->GetBond(std::get<0>(idxs), std::get<1>(idxs));
@@ -954,8 +953,7 @@ namespace molgr
             int total_radical_electrons)
         {
             auto machine = molgr::state::OmolStateMachine(
-                molgr::vendor::openbabel_threading::SharedMolCopy(
-                    molgr::utils::CloneMolTopologyOnly(mol)),
+                molgr::utils::CloneMolTopologyShared(mol),
                 charge,
                 {},
                 {},

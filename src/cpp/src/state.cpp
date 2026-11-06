@@ -280,8 +280,7 @@ namespace molgr
             }
             else if (!omol.unique())
             {
-                omol = molgr::vendor::openbabel_threading::SharedMolCopy(
-                    molgr::utils::CloneMolTopologyOnly(*omol));
+                omol = molgr::utils::CloneMolTopologyShared(*omol);
             }
             return *omol;
         }
