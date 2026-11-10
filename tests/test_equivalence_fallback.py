@@ -9,7 +9,9 @@ import sys
 import pytest
 from rdkit import Chem
 
-from molgr.utils import equivalence
+# Frozen Python-engine regression coverage. The public API is exercised by
+# test_equivalence_native.py and the fidelity/electronic/coordination suites.
+from molgr.utils import _legacy_equivalence as equivalence
 
 
 @pytest.mark.parametrize(
@@ -123,10 +125,10 @@ def test_resonance_match_stops_before_enumerating_second_side_on_direct_hit(
     original = equivalence._prepare_resonance_source
     calls = 0
 
-    def tracked_prepare(source: Chem.Mol) -> Chem.Mol:
+    def tracked_prepare(source: Chem.Mol, **kwargs) -> Chem.Mol:
         nonlocal calls
         calls += 1
-        return original(source)
+        return original(source, **kwargs)
 
     monkeypatch.setattr(equivalence, "_prepare_resonance_source", tracked_prepare)
     matched, mol1_count, mol2_count, hit_smiles = equivalence._resonance_match(
@@ -150,8 +152,8 @@ def test_resonance_match_stops_before_enumerating_second_side_on_direct_hit(
 def test_resonance_supplier_includes_generic_anion_charge_shift() -> None:
     equivalence._cached_resonance_smiles.cache_clear()
 
-    forms = equivalence._cached_resonance_smiles(
-        "CC=C[O-]",
+    forms = equivalence._enumerate_resonance_forms(
+        Chem.MolFromSmiles("CC=C[O-]"),
         use_chirality=False,
         max_resonance=1,
         resonance_flags=int(Chem.ResonanceFlags.UNCONSTRAINED_ANIONS),
@@ -243,14 +245,16 @@ def test_resonance_sets_are_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(equivalence, "ResonanceMolSupplier", counting_supplier)
 
     for _ in range(2):
-        equivalence._resonance_match(
-            mol1,
-            mol2,
-            use_chirality=False,
-            max_resonance=50,
-            resonance_flags=Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
-            | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
-        )
+        for source in ("CCO", "COC"):
+            equivalence._cached_resonance_smiles(
+                source,
+                use_chirality=False,
+                max_resonance=50,
+                resonance_flags=int(
+                    Chem.ResonanceFlags.UNCONSTRAINED_CATIONS
+                    | Chem.ResonanceFlags.UNCONSTRAINED_ANIONS
+                ),
+            )
 
     assert supplier_calls == 2
     equivalence._cached_resonance_smiles.cache_clear()
@@ -321,7 +325,7 @@ def test_resonance_hit_is_stable_across_hash_seeds() -> None:
     script = """
 import json
 from rdkit import Chem
-from molgr.utils.equivalence import evaluate_equivalence
+from molgr.utils._legacy_equivalence import evaluate_equivalence
 r = evaluate_equivalence(
     Chem.MolFromSmiles("CC1=[N+]=C(OC=[N-])[N]N1"),
     Chem.MolFromSmiles("Cc1nc(OC=[N])n[nH]1"),
@@ -609,7 +613,7 @@ def test_normalized_identifier_match_is_inconclusive_without_structural_witness(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
     carbene_forms = iter(("form-1", "form-2"))
     monkeypatch.setattr(
@@ -706,32 +710,28 @@ def test_atom_count_mismatch_remains_a_hard_veto(monkeypatch: pytest.MonkeyPatch
     assert result.invariants["atom_count"].status == equivalence.InvariantStatus.FAILED
 
 
-def test_normalized_graph_identity_preserves_component_diagnostic(
+def test_normalized_graph_identity_implies_weaker_invariants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mol1 = Chem.MolFromSmiles("CCO")
     mol2 = Chem.MolFromSmiles("CCO")
     assert mol1 is not None
     assert mol2 is not None
-    monkeypatch.setattr(equivalence, "_inchi_key", lambda *args, **kwargs: None)
-    carbene_forms = iter(("form-1", "form-2"))
-    monkeypatch.setattr(
-        equivalence,
-        "_carbene_zwitterion_normalized_smiles",
-        lambda *args, **kwargs: next(carbene_forms),
-    )
-    signatures = iter((("candidate", 1, 0), ("reference", 0, 1)))
-    monkeypatch.setattr(
-        equivalence,
-        "_component_electron_signature",
-        lambda *args, **kwargs: next(signatures),
-    )
 
+    def redundant_check(*args, **kwargs):
+        raise AssertionError("Graph identity already proves this invariant")
+
+    monkeypatch.setattr(equivalence, "_resonance_topology_key", redundant_check)
+    monkeypatch.setattr(equivalence, "_component_electron_signature", redundant_check)
     result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
 
     assert result.decision == equivalence.EquivalenceDecision.EQUIVALENT
     assert result.relation == equivalence.EquivalenceRelation.NORMALIZED_GRAPH_IDENTITY
-    assert result.invariants["component_electrons"].status == equivalence.InvariantStatus.FAILED
+    for name in ("nonmetal_connectivity", "component_electrons", "stereochemistry"):
+        invariant = result.invariants[name]
+        assert invariant.status == equivalence.InvariantStatus.PASSED
+        assert invariant.mol1 is None and invariant.mol2 is None
+        assert "Implied" in invariant.reason
     assert result.contradictions == []
 
 
@@ -815,7 +815,7 @@ def test_open_shell_explicit_three_center_witness_is_equivalent(
     def resonance_search(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         if search_fails:
             raise RuntimeError("temporary resonance failure")
-        return False, 1, 1, None
+        return equivalence._ResonanceMatchResult(False, 1, 1, None)
 
     monkeypatch.setattr(equivalence, "_resonance_match", resonance_search)
 
@@ -843,7 +843,7 @@ def test_open_shell_without_witness_remains_inconclusive(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
     monkeypatch.setattr(
         equivalence,
@@ -872,7 +872,7 @@ def test_open_shell_mapping_bound_remains_inconclusive(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
     monkeypatch.setattr(
         equivalence,
@@ -921,7 +921,7 @@ def test_elementary_open_shell_three_center_witness_is_explicit(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -955,7 +955,7 @@ def test_nonconjugated_radical_cation_relocation_is_not_equivalent(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -976,7 +976,7 @@ def test_saturated_chain_radical_relocation_has_no_elementary_witness(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -997,7 +997,7 @@ def test_radical_shift_with_unrelated_charge_redistribution_has_no_elementary_wi
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -1017,7 +1017,7 @@ def test_aromatic_noninteger_delta_has_no_elementary_witness(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 1, 1, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(False, 1, 1, None),
     )
 
     result = equivalence.evaluate_equivalence(candidate, reference, use_chirality=False)
@@ -1038,7 +1038,7 @@ def test_open_shell_explicit_resonance_witness_is_equivalent(
     def explicit_resonance_witness(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         nonlocal calls
         calls += 1
-        return True, 2, 2, "[CH2]C=CO"
+        return equivalence._ResonanceMatchResult(True, 2, 2, "[CH2]C=CO")
 
     monkeypatch.setattr(equivalence, "_resonance_match", explicit_resonance_witness)
     monkeypatch.setattr(
@@ -1067,7 +1067,9 @@ def test_bounded_resonance_limit_is_inconclusive(
     monkeypatch.setattr(
         equivalence,
         "_resonance_match",
-        lambda *args, **kwargs: (False, 10, 10, None),
+        lambda *args, **kwargs: equivalence._ResonanceMatchResult(
+            False, 10, 10, None, local_limit_reached=True
+        ),
     )
 
     result = equivalence.evaluate_equivalence(

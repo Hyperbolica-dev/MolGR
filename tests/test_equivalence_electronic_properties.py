@@ -272,10 +272,10 @@ def test_bounded_electronic_mapping_is_inconclusive_not_a_known_conflict(
     _set_counts(mol2, LONE_PAIRS, (1, 0, 0, 0))
     if reverse:
         mol1, mol2 = mol2, mol1
-    # Identity conflicts; the symmetry-related compatible mapping is beyond this bound.
+    # Stop before completing any mapping, independently of candidate ordering.
     monkeypatch.setattr(equivalence, "_ELECTRON_PROPERTY_MAPPING_LIMIT", 1)
 
-    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False)
+    result = equivalence.evaluate_equivalence(mol1, mol2, use_chirality=False, max_mapping_nodes=1)
 
     assert result.decision == equivalence.EquivalenceDecision.INCONCLUSIVE
     assert result.equivalent is False
@@ -297,8 +297,8 @@ def test_electronic_mapping_enumeration_exception_is_inconclusive_not_inequivale
         raise RuntimeError("controlled atom-mapping enumeration failure")
 
     monkeypatch.setattr(
-        equivalence,
-        "_electronic_property_mappings",
+        equivalence._core.equivalence,
+        "evaluate",
         fail_mapping_enumeration,
     )
 
@@ -317,7 +317,8 @@ def test_electronic_mapping_enumeration_exception_is_inconclusive_not_inequivale
     [(METAL_UNPAIRED, "missing"), (LONE_PAIRS, "-1"), (UNRESOLVED, "not-a-bool")],
 )
 def test_malformed_electronic_metadata_remains_unknown_without_blocking_graph_eq(
-    prop: str, malformed: str,
+    prop: str,
+    malformed: str,
 ) -> None:
     mol1 = _mol("[Fe].O")
     mol2 = Chem.Mol(mol1)

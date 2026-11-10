@@ -15,7 +15,8 @@ from rdkit import Chem, rdBase
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "src" / "molgr" / "utils" / "equivalence.py"
+# These tests exercise the historical original/v1/v2 replay contract.
+SOURCE = ROOT / "src" / "molgr" / "utils" / "_legacy_equivalence.py"
 SPEC = importlib.util.spec_from_file_location(
     "_replay_under_test", ROOT / "scripts" / "evaluator_replay.py"
 )
@@ -106,6 +107,17 @@ def _inputs(
 
 def _rows(args):
     return [json.loads(line) for line in (args.out_dir / "raw.jsonl").read_text().splitlines()]
+
+
+def test_resume_identity_includes_native_binary_and_imported_python_sources(tmp_path):
+    args = _inputs(tmp_path, [("a", "valid", "CCO", "CCO")])
+    replay.run(args)
+    # The identity stored alongside results must cover more than the wrapper.
+    identity = json.loads((args.out_dir / "checkpoint-metadata.json").read_text())["identity"]
+    assert identity["runtime_binaries_sha256"]["molgr_core"] == replay._file_sha256(
+        Path(replay._core.__file__)
+    )
+    assert "utils/converter.py" in identity["molgr_python_sha256"]
 
 
 def test_excluded_and_unresolved_are_scored_before_frozen_validity_aggregation(tmp_path):

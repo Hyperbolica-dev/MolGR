@@ -873,7 +873,7 @@ def test_internal_mismatch_remains_failure_when_smiles_reparse_also_fails() -> N
             "[O-]C#C[CH-]c12->[Pt+4](<-c1c([O-])[c-]o2)"
             "(<-P(c1ccccc1)(c1ccccc1)c1ccccc1)<-P(c1ccccc1)(c1ccccc1)c1ccccc1",
             "reparse_failed",
-            False,
+            None,  # Native input rejects a graph that cannot be Kekulized.
         ),
     ],
 )
@@ -993,8 +993,8 @@ def test_tmqmg_cpp_all_accelerations_worker_survives_target_bucket_parallelism(
         ("C", "C", "equivalent", True, "success_count"),
         ("C", "N", "not_equivalent", False, "fail_count"),
         (
-            "[NH3+]CC1=N[N-][N]C1=CO",
-            "[NH3+]Cc1[n-]nnc1[CH]O",
+            "[O]N=O",
+            "[O-][N+]=O",  # No supported joint charge/radical migration witness.
             "inconclusive",
             None,
             "inconclusive_count",

@@ -96,6 +96,14 @@ def test_copy_without_hydrogens_defers_bond_stereo_until_all_bonds_exist() -> No
             "[NH3+]CC1=N[N-][N]C1=CO",
             "[NH3+]Cc1[n-]nnc1[CH]O",
             {"status": "accepted_reference_issue", "reason": "preferable"},
+            "equivalent",  # Native resonance witness is independently replayed in its tests.
+            True,
+            "unresolved",
+        ),
+        (
+            "[O][O]",
+            "O=O",
+            {"status": "accepted_reference_issue", "reason": "preferable"},
             "inconclusive",
             None,
             "unresolved",

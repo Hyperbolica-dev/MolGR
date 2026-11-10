@@ -24,6 +24,9 @@ from typing import Any
 from rdkit import Chem, rdBase
 from rdkit.Chem import rdchem, rdinchi
 
+import molgr
+from molgr import _core
+
 
 VERSIONS = ("original", "v1", "v2")
 REFERENCE_STATUSES = ("valid", "confirmed_excluded", "unresolved")
@@ -192,6 +195,13 @@ def _read_inputs(args: argparse.Namespace) -> tuple[dict, dict, dict, dict, list
             "rdBase": _file_sha256(Path(rdBase.__file__)),
             "rdchem": _file_sha256(Path(rdchem.__file__)),
             "rdinchi": _file_sha256(Path(rdinchi.__file__)),
+            "molgr_core": _file_sha256(Path(_core.__file__)),
+        },
+        # Native evaluator snapshots import adapters/types and the compiled
+        # kernel. A wrapper-only hash must not authorize a mixed-code resume.
+        "molgr_python_sha256": {
+            str(path.relative_to(Path(molgr.__file__).parent)): _file_sha256(path)
+            for path in sorted(Path(molgr.__file__).parent.rglob("*.py"))
         },
         "parameters": {
             "max_resonance": args.max_resonance,

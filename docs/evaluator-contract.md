@@ -1,239 +1,323 @@
-# MolGR operational evaluator contract
+# Native equivalence evaluator contract
 
-The evaluator measures graph/cheminformatics-level equivalence for MolGR reconstruction. It does not prove identical quantum electronic states or exact localization of radical electrons in a transition-metal Lewis representation.
+The default `evaluate_equivalence` entry now uses the C++ kernel in
+`src/cpp/src/utils/equivalence.cpp`. Python captures input diagnostics, decodes
+MolGR properties, prepares explicit hydrogens and stereo, then packages native
+results. It does not run graph matching, resonance search, SMILES generation,
+InChI generation, or an RDKit resonance supplier.
 
-Policy designation: `molgr-evaluator-v2` (an evaluator semantic-version change, not a reconstruction or accuracy-improvement release).
+This is molecular representation equivalence under the rules below, not a proof
+of identical quantum electronic states. The implementation and rule coverage
+changed: historical Python verdicts are comparison evidence, not an oracle.
+The archived `_legacy_equivalence.py` is used only for comparison/tests; the
+production entry never falls back to it. Its former contract is preserved in
+[evaluator-legacy-contract.md](evaluator-legacy-contract.md).
 
-Transition-metal coordination and Lewis-form representations can preserve structural molecular-graph equivalence, formula, connectivity, and total formal charge while differing in RDKit-local radical bookkeeping. Therefore component-electron mismatch remains diagnostic evidence but no longer independently establishes graph non-equivalence.
+## MoleculeData boundary for the native evaluator
 
-## Hard invariants
+The existing flat `MoleculeData` layout remains in use. `AtomData.isotope`
+defaults to zero (no isotope label). `BondData.kind` defaults to `Covalent`;
+`Dative` uses the existing one-based endpoints as donor -> acceptor, and
+`CoordinationUnspecified` retains connectivity without inventing a direction.
+For coordination edges `order` is unused (the RDKit adapter writes zero).
+No conformer collection or separate public electronic-state model is introduced.
 
-The following independently establish `NOT_EQUIVALENT` when they fail:
+`rdkit_to_mol_data` takes a prepared RDKit molecule, adds all hydrogens as atom
+nodes before coordination is projected out, and stores explicit Kekule orders
+alongside aromatic flags. It does not modify the source. Hydrogen nodes and
+their connections are fixed during resonance search; implicit hydrogen counts
+are zero on output. Existing `x/y/z` fields retain coordinates when supplied.
+The electron-property mask continues to describe explicit MolGR annotations;
+native nonmetal radical values do not fabricate those annotations. Metal
+unpaired counts come from the existing MolGR metal annotation.
 
-- heavy-atom formula;
-- explicit-hydrogen formula;
-- atom count;
-- metal identity/formal-valence signature;
-- non-metal connectivity;
-- raw whole-molecule total formal charge.
+The adapter batches primitive atom/bond rows through one native constructor;
+it does not allocate Python `AtomData`/`BondData` wrappers or assign each field
+through a separate binding call. Charge/radical totals are accumulated natively.
+Indexed RDKit traversal is shared with stereo extraction. Public conversion
+preserves stereo and coordinates by default (`include_stereo=True`,
+`include_coordinates=True`). Equivalence omits coordinates and skips stereo
+perception/extraction when `use_chirality=False`; stereo tags are still cleared
+on the private graph before Kekulization to preserve its bond-order selection.
+The evaluator combines atom validation, raw diagnostics and annotation decoding
+in one source scan. It reuses element/isotope/charge fields and decoded MolGR
+values in transfer rows; invalid metadata stays unknown and known zero/false
+retains its presence bit. Only a changed explicit nonmetal radical assignment
+requires a copy before `AddHs`, which creates the adapter's private graph.
+Unannotated radicals and bond orders are read after chemical processing. Newly
+added H nodes retain their actual isotopes, including isotopic H restored from
+RDKit's `RemoveHs` metadata. Original input properties and coordinates remain
+unchanged. All RDKit access stays in Python; the C++ build has no RDKit dependency.
 
-These checks are not weakened by the component-electron policy.
+Both native and Python Open Babel converters omit coordination edges and
+preserve the atoms, explicit hydrogens and isotopes. These OBMol objects are
+covalent projections: retain the original MoleculeData for coordination checks.
+Extracting a projection back into MoleculeData does not restore discarded edges.
+Passing Open Babel checks on the projection is not a proof of full coordination
+or electronic equivalence.
 
-The raw charge gate compares the sum of atom formal charges on each input before
-metal-bond standardization, metal removal, or resonance normalization. Its values
-and status are recorded in `invariants["raw_total_formal_charge"]`; the existing
-`formal_charge` check remains a prepared-organic diagnostic. Charge mismatch
-returns `NOT_EQUIVALENT` before any positive comparison path: resonance cannot
-equate species that differ in total electron count. The local regression uses
-`[S]C(=NN=Cc1ccccc1)N` versus `[S-]C(=NN=Cc1ccccc1)N` (charges 0 and -1),
-which previously matched after thiosemicarbazone normalization.
+Sparse `stereo` records retain tetrahedral winding, double-bond cis/trans,
+square-planar, trigonal-bipyramidal and octahedral configurations. References
+are one-based atom indices in the explicit-H graph, independent of bond-array
+order. Zero denotes a virtual non-H reference (such as a lone pair); a zero
+configuration records explicitly unspecified stereo, distinct from no record.
+`stereo_groups` retains ABS/AND/OR atom groups. Tetrahedral winding is adjusted
+for neighbor permutations; SP uses opposite reference pairs; TB/OH preserve
+their reference order when reconstructing adjacency. No CIP labels, SMILES
+roundtrip or coordinate perception are needed for this transfer.
 
-## Metal coordination option
+Open Babel receives supported tetrahedral, cis/trans and square-planar records
+using actual OB atom IDs. Stereo frames depending on omitted coordination edges,
+TB/OH records and enhanced relative group centers stay in the original data.
+They are not converted into absolute configurations on the covalent projection.
+OB stereo extraction reads existing annotations without coordinate perception;
+hydrogens at stereo centers must already be explicit.
 
-`evaluate_equivalence` and `check_equivalence` accept
-`ignore_metal_coordination_bonds=True` by default. This preserves the historical
-graph-level result: `N->[Cu]` and `N.[Cu]` are equivalent after the metal is
-removed. Set the option to `False` to require the same metal-incident edge
-connectivity under atom symmetry. The same mapping must then support jointly
-known electronic annotations. `invariants["metal_coordination"]` reports
-`not_evaluated` in the default mode, and `passed` or `failed` in strict mode.
+The input adapter rejects queries, dummy atoms, unsupported bond types and
+unsupported stereo classes (including allene and atropisomeric bond tags),
+rather than silently dropping them. Bond members of enhanced stereo groups are
+not yet supported. Directed dative output is supported; direction-unspecified
+coordination cannot yet be exported to RDKit. This boundary is used by the default native evaluator.
 
-The strict check runs after the existing metal-bond standardization. It compares
-which atoms are connected to each metal, including metal-metal edges, while
-allowing the existing Lewis-form bond-order normalization. It does not require
-identical original metal-ligand bond orders or prove a physical coordination
-geometry. Benchmark callers retain the default until a benchmark explicitly
-opts into strict coordination connectivity.
+## Execution order
 
-## Positive evidence
+1. **Python input boundary.** Capture raw diagnostics and decode annotations;
+   copy the input only if annotation repair is needed. Public atom maps are not
+   exported. Skip stereo processing when disabled;
+   add all H atoms and obtain integer Kekule bond orders, then perceive radical
+   bookkeeping once. Explicit MolGR unpaired assignments, including zero, are
+   restored. Unknown/malformed electronic properties remain unknown. Unsupported
+   queries, bonds, stereo or failed Kekulization return `INCONCLUSIVE`.
+2. **Native validation and preparation.** Check atom/bond/stereo indices and
+   declared totals. Build immutable topology plus charge/radical/bond arrays.
+   Apply established metal Lewis-form and supported hypervalent normalization.
+   Coordinates are not used to infer stereo or equivalence.
+3. **Hard invariants.** Check original total charge, element and isotope
+   inventories, explicit-H count, atom count and normalized metal formal states.
+   Contradictions establish `NOT_EQUIVALENT`. Component radical counts alone
+   are diagnostic and do not establish inequivalence.
+4. **Shared topology candidates.** Joint color refinement ignores covalent
+   order and electronic labels while retaining element/isotope labels, explicit
+   H connections and requested coordination constraints. Unequal color counts
+   reject immediately; equal colors alone never prove isomorphism. Covalent
+   component color inventories provide a further necessary topology check.
+5. **Joint mapping search.** Component charge inventories must match, and each
+   atom's candidates must belong to compatible components. One bounded search
+   serves both identity and resonance: assignments immediately remove used or
+   adjacency-incompatible targets from remaining domains, with reversible
+   updates on backtracking. Local identity is preferred only when electronic
+   inventories allow it. After a topology/stereo witness is established, known
+   annotation conflicts also prune partial assignments; missing fields remain
+   compatible. Alternative symmetric mappings remain searchable. Equivalent
+   terminal-H permutations are pruned unless used by stereo. Each complete
+   mapping is checked for direct identity (aromatic edges may ignore arbitrary
+   Kekule order), or passed to the regional proof below. Both require stereo
+   and electronic annotations to agree under that same mapping.
+   When neither input admits even a first carbene-normalization step, unequal
+   covalent-component radical inventories skip mapping and return `INCONCLUSIVE`.
+   A raw radical-count mismatch is never used to reject carbene equivalence.
+   With active stereo records on exactly one side, the first topology mapping
+   satisfying component charges establishes missing information and returns
+   `INCONCLUSIVE` (`stereo_incomplete`). No symmetric mapping can supply the
+   missing records. This search can prune equivalent terminal H permutations
+   and never starts resonance; hard topology/charge checks and mapping budgets
+   still apply. If both sides have active records, the normal joint search
+   remains necessary, including when the record counts differ.
+6. **Mapped normalization and regional proof.** Normalize supported
+   carbene/zwitterion representations; identify potentially conjugated atoms
+   from both aligned states. Saturated barriers and fixed stereo centers split
+   the search. Frozen atoms and boundary bonds must agree. Regions are proved
+   separately; their state spaces are not multiplied.
+7. **Alternating cycles, then BFS.** Equal charge/radical arrays and balanced
+   single/double changes have a direct alternating-cycle witness, including
+   unmarked Kekule versus aromatic inputs. Other differing regions use a
+   bidirectional BFS. The smaller nonempty frontier is expanded; exhaustion of
+   one side does not discard the other side's possible witness.
+8. **Result.** A joint graph/stereo/electronic witness establishes `EQUIVALENT`.
+   Failed bounded search, unsupported transformations and validation errors
+   yield `INCONCLUSIVE`. Exhausted topology mappings prove a missing sigma
+   isomorphism; exhausted mappings with contradictory specified stereo prove
+   stereochemical inequivalence. Restricted resonance exhaustion is never a
+   proof of inequivalence. Component charge contradictions establish
+   `NOT_EQUIVALENT` because no allowed move transfers charge between covalent
+   components. Exhaustion after component-charge filtering is reported as a
+   joint constraint failure, without falsely declaring topology alone different.
 
-After the hard structural checks pass, the evaluator may return `EQUIVALENT` for:
+## Resonance rules and limits
 
-- normalized graph identity;
-- established carbene/zwitterion normalization;
-- successful resonance equivalence.
+The sigma skeleton and attached explicit hydrogen atoms are fixed. No hydrogen
+transfer, tautomer enumeration or sigma-bond rearrangement occurs. Each BFS
+state is a compact regional vector of formal charges, radical counts and integer
+bond orders. Hash-table equality compares complete vectors, so hash collisions
+cannot establish equivalence. No molecule objects are copied per state.
 
-For open-shell forms, a mapped elementary three-center radical/bond-order
-shift is explicit positive evidence. The mapping search is bounded and its
-attempted count and limit status remain diagnostic; reaching the bound returns
-`INCONCLUSIVE` unless an accepted structural path has already matched.
+Supported local moves are:
 
-The witness requires equal, positive total RDKit radical labels on its two
-normalized inputs. If this necessary condition fails, only this witness is
-skipped: its search metadata remains unattempted, and all existing comparison
-paths continue. Radical-label mismatch is not a top-level `NOT_EQUIVALENT` gate.
+| Move | Bond changes | Electron labels |
+| --- | --- | --- |
+| Pair polarization | `A=B → A–B` | `q(A)+1, q(B)−1` |
+| Pair donation | `A–B → A=B` | `q(A)+1, q(B)−1` with donor pair/acceptor vacancy |
+| Pair shift | `A–B=C → A=B–C` | `q(A)+1, q(C)−1` |
+| Cation shift | `A–B=C → A=B–C` | `q(A)−1, q(C)+1` |
+| Radical shift | `A–B=C → A=B–C` | `r(A)−1, r(C)+1` |
 
-InChIKey is diagnostic only. Agreement of either the prepared input key or the
-normalized organic key, even after all hard checks pass, remains `INCONCLUSIVE`
-without an accepted structural path. Disagreement is not a hard veto. The
-normalized organic key is computed after metal removal; it is not an identifier
-for the full original molecule. Standard InChI can normalize distinct proton
-and Lewis representations, so matching keys alone do not establish the
-evaluator's graph/electron equivalence.
-An `INCONCLUSIVE` result may retain `relation=identifier_equivalence` and
-`method=inchi_key` to identify this diagnostic signal; neither field implies a
-positive equivalence proof. See the [InChI Trust technical FAQ](https://www.inchi-trust.org/technical-faq/)
-for standard InChI normalization and InChIKey layer semantics.
+Candidates must satisfy local valence-electron parity, nonnegative nonbonding
+occupancy, shell-size bounds, bond-order bounds and a bounded charge separation.
+These conservative Lewis rules do not cover every chemically plausible form.
+Carbene normalization is a separate representation convention: supported
+`C−=X+` converts to neutral single-bonded low-valence carbon with two bookkeeping
+radicals. It is recorded separately and is not advertised as spin conservation.
 
-This policy changes at least the directed `WEXMIW_PATTERN` benchmark control
-from `EQUIVALENT` to `INCONCLUSIVE`: its keys agree, but bounded resonance search
-finds no structural witness. The previously reported 74,547-slot replay and
-source hash describe an earlier evaluator snapshot; a new full replay is needed
-before claiming aggregate decision compatibility for this revision.
+The admissible remaining-step bound is the maximum of half the L1 charge,
+radical and bond-order distances, rounded upward. Candidates are ordered by
+this bound within a BFS layer. A `2k`-bond carrier corridor is **not** used when
+local charge-pair creation is enabled, because its assumptions would not hold.
 
-With `use_chirality=False`, InChIKey generation removes stereochemistry and
-conformers only from its private molecule copy, preventing InChI from inferring
-stereochemistry from 3D coordinates. Input molecules remain unchanged.
-With `use_chirality=True`, coordinate-derived stereochemistry remains enabled.
+Defaults:
 
-## Diagnostic signals
+- `use_chirality=False`: compare without stereochemical constraints. Set it to
+  `True` explicitly to enable stereo comparison. This default is shared by the
+  Python evaluator, boolean wrapper, native binding and C++ options; public
+  MoleculeData conversion still preserves stereo by default.
+- `max_resonance=1000`: at most **2000 visited BFS states in total**, including
+  both roots, both directions, all regions and attempted mappings.
+- `max_resonance_steps=24`: maximum joined elementary path length per region.
+- `max_mappings=10000`: completed mappings in the joint topology/electronic search.
+- `max_mapping_nodes=100000`: mapping DFS node budget.
+- Input size limit: 4096 atoms including explicit H.
 
-The per-component electron signature remains computed and persisted in `invariants["component_electrons"]`, together with aggregate radical counts, raw diagnostics, normalization effects, and contradiction metadata. A mismatch is diagnostic by default. RDKit radical bookkeeping, metal–ligand Lewis representation, and component-local electron accounting do not independently establish `NOT_EQUIVALENT`.
+The defaults expand the original `max_resonance=50` / 12-step settings and the
+intermediate `250` and `500` / 24-step settings. Explicit caller limits, including zero,
+are still honored. The tmQMg replay comparison
+found most of the additional witnesses at `max_resonance=250`; 500 added none
+in that sample, and 1000 added two. The larger step bound permits longer paths,
+although 12 versus 24 steps did not change that sample's decisions.
 
-RDKit atom radical flags alone still do not establish a global electronic-state
-contradiction. Jointly known MolGR annotations additionally constrain positive
-structural evidence as described below.
+Direct identity, carbene normalization and alternating-cycle proofs do not
+consume the BFS state budget. Exhausted/truncated searches stay inconclusive.
+A found witness is sufficient even if some alternative branches were pruned.
+The native Python API and its `ResonanceDetail` output no longer expose
+`resonance_flags`: supplier flags have no meaning for this kernel. Remove that
+argument from callers; passing it raises `TypeError`, not a chemical
+`INCONCLUSIVE` result. Options after `max_resonance`, including
+`ignore_metal_coordination_bonds`, are keyword-only so a positional legacy flag
+cannot silently change coordination policy. The archived Python comparison
+engine retains its own supplier flags.
 
-An accepted structural result can intentionally contain both:
+### Reusing resonance work across mappings
 
-```text
-decision = equivalent
-relation = resonance_equivalence
-component_electrons.status = failed
+Within one evaluation, normalize the left representation once and skip carbene
+normalization scans when no first normalization step can apply. Check charge
+and radical conservation for **all** candidate regions before any regional BFS.
+
+Failed normalized targets are memoized by complete charge/radical/bond-order
+arrays in the left input's atom frame. Regional keys additionally include atom
+and edge membership, fixed boundary valences and both endpoint states. Stereo
+and annotation compatibility are checked under each mapping before memo lookup.
+A successful regional entry retains its concrete move sequence for witness
+replay. Failed searches remain `INCONCLUSIVE`; their reuse is scoped to the
+same fixed rules/step limit and monotonically decreasing shared state budget.
+No cache persists across inputs, calls or budget changes.
+
+Cache insertion is lazy: first-mapping successes need no entries. A later
+regional failure preserves any earlier regional proofs before discarding the
+partial whole-molecule witness. Entries are bounded to 1024 and 4 MiB of tracked
+key/proof payload per evaluation (plus container/allocator overhead); reaching
+that cap disables new insertions, not chemical search. Cache hits consume no
+additional BFS state budget. Native diagnostics expose `resonance_cache_hits`,
+`region_cache_hits` and `region_constraint_rejections`.
+
+## Coordination and stereochemistry
+
+`ignore_metal_coordination_bonds=True` remains the default: `N->[Cu]` and
+`N.[Cu]` may match. All metal-incident connectivity is omitted after established
+metal Lewis normalization, but metal identity/formal state and jointly known
+metal unpaired counts remain constraints. Stereo frames involving removed
+metal edges are excluded from comparison.
+
+The evaluator omits these frames during Python extraction, before enforcing
+their reference counts. In particular, an alkene endpoint with extra metal
+coordination need not fit a four-reference frame on the covalent projection.
+Public MoleculeData conversion continues to retain full stereo and rejects
+unsupported full frames. Native comparison applies the same active-record
+policy to relative groups, fixed resonance centers and mapping symmetry guards.
+A valid double-bond frame may share a reference atom between its two ends;
+references must be unique within each end and connected to that end. Malformed
+records are still rejected, including in direct MoleculeData input.
+
+With `False`, the same atom mapping must preserve which atoms attach to each
+metal, including metal–metal edges, and pass all other checks. Original metal
+bond orders/directions remain normalized by the established Lewis convention.
+Nonmetal dative edges retain direction and exclude incident atoms from resonance
+search. Converters to Open Babel still omit coordination edges; the kernel
+compares the original MoleculeData graph directly.
+
+Stereo comparison is disabled by default. When explicitly enabled with
+`use_chirality=True`, native comparison supports tetrahedral, double-bond,
+square-planar, trigonal-bipyramidal and octahedral records, adjusting reference
+permutations under atom mapping. AND/OR tetrahedral groups admit consistent
+whole-group inversion, not independent center flips. Group IDs are not chemical
+labels. Specified versus missing/unknown stereo is inconclusive. More general
+relative non-tetrahedral group differences are conservatively inconclusive.
+When disabled, isotopes remain mandatory labels.
+
+The non-tetrahedral permutation tables are redistributed under RDKit's BSD
+license; see `src/molgr/data/RDKIT_STEREO_LICENSE.txt`. The kernel does not link
+RDKit C++. Open Babel supplies the existing element information/conversion
+infrastructure; no OBMol conversion, cloning or perception runs inside BFS.
+
+## Electronic annotations and evidence
+
+Presence bits distinguish known zero/false from unknown. Compare jointly known
+metal unpaired counts under the accepted mapping. Active lone-pair counts are
+reconstruction annotations, not a complete Lewis-pair inventory: equal known
+counts are compatible; unequal counts require local balance of
+`2 × active_pairs + formal_charge + bond_order_sum + radical_count` alongside
+an actual structural witness. Known unresolved centers defer the pair check.
+Missing fields never manufacture zero or veto an otherwise valid proof.
+
+`atom_mapping` is zero-based, left explicit-H input → right explicit-H input.
+`resonance_witness` records paths from both roots to a meeting state; `side=1`
+indices are also expressed in the **left** frame. Moves from each side are in
+execution order. `carbene_normalization` is explicitly distinguished from BFS
+moves. `kekule_cycle` carries a closed alternating atom trail and the first
+bond delta in `atoms[2]`; apply the cycle simultaneously. Witnesses start after
+native metal/hypervalent preparation. Failed mappings never leak partial paths.
+
+`native_stats` reports mapping counts/nodes and native preparation, mapping and
+resonance milliseconds. Python input/binding/result overhead is outside these
+three stage timers. Old canonical/resonance SMILES and InChI diagnostics remain
+`None`; no positive decision relies on an identifier. `component_electrons`
+currently remains `not_evaluated`, and `bounded_search.exhaustive` is never true
+for the restricted resonance rules.
+
+The C++ API accepts `const MoleculeData&` and releases the GIL through its Python
+binding. Callers must keep those inputs unchanged until evaluation returns.
+The compatibility `check_equivalence` boolean is false for both NEQ and INC;
+scoring must inspect `decision` to preserve all three outcomes.
+
+## Verification and performance reproduction
+
+Native tests independently replay charge/radical/bond moves, exercise cation,
+anion and radical cases in both directions, verify region splitting/budgets,
+check stereo permutations, and prohibit calls to Python search or serializers.
+Historical implementation-specific tests explicitly import the archived engine.
+
+Run the sequential saved-pair benchmark with the rebuilt extension and matching
+Python/RDKit environment:
+
+```bash
+python scripts/benchmark_native_equivalence.py path/to/results.csv \
+  --limit 0 --repeat 2 --max-resonance 100 --out /tmp/native-comparison.json
 ```
 
-## Known electronic annotations (v2 integration)
+The report includes input and binary/source hashes, latency percentiles, native
+stage timings and every changed verdict. It measures evaluation including
+preprocessing, excluding CSV/SMILES parsing and XYZ reconstruction. Saved SMILES
+cannot reproduce electronic annotations absent from the CSV; this is not a
+full tmQMg reconstruction rerun or an accuracy claim.
 
-The evaluator reads `MOLGR_METAL_UNPAIRED_ELECTRONS`,
-`MOLGR_LONE_PAIR_COUNT`, and `MOLGR_UNRESOLVED_TWO_ELECTRON_CENTER` before
-normalization. Known zero/false is retained through Open Babel/RDKit conversion,
-coordination consumption, and explicit property-preserving serialization.
-Absent or malformed fields stay unknown; generic reference/baseline molecules
-do not acquire synthetic zero annotations.
-
-Every positive comparison path, including identical canonical SMILES, must
-admit a compatible atom mapping for jointly known occupancy information.
-Alternative symmetric mappings are considered. An atom-mapped instance of the
-existing graph, carbene/zwitterion, resonance, or elementary three-center proof
-must support that same mapping; an unrelated global match is insufficient.
-Metal annotations follow the existing metal-state multiset contract when metal
-coordination bonds are ignored. Strict mode also aligns them to the matched
-metal coordination connectivity.
-
-Lone-pair counts describe **reconstruction-active pairs**, not all Lewis lone
-pairs. Equal known counts are compatible. A changed count may be transported
-by a supported mapped representation change when the change in twice the
-active-pair count balances formal charge, bond-order sum, and RDKit radical
-bookkeeping locally. This balance is never independent positive EQ evidence.
-An unresolved-center marker means occupancy is deferred, not one/two radical
-electrons; its zero occupancy placeholders do not conflict with a resolved
-annotation. Different resolution flags alone are not different physical states.
-
-Unknown fields never veto otherwise sufficient structural evidence. The same
-known-information rule applies symmetrically to all methods and references.
-`invariants["electronic_properties"]` records known/unknown/comparable field
-counts, deferred centers, and mapping progress alongside the existing raw
-property values. It is not a confidence score or an additional scoring system.
-
-An incompatible mapping is not a negative verdict. Only exhaustive mapping
-failure with an irreconcilable localized conflict and no eligible electronic
-rearrangement establishes NEQ in this minimal integration. Other unresolved
-annotation conflicts, mapping/resonance limits, or search errors yield INC,
-not NEQ. A compatible mapped positive witness is sufficient even if further
-alternative mappings were not enumerated. Timeouts retain the existing caller
-contract. The mapping bound is 10,000 and the resonance bound is unchanged.
-
-This remains evaluator v2. It requires a new source hash and output snapshot;
-it must not overwrite or be mixed into the frozen `cace4ccc8` results.
-
-
-## Inconclusive results
-
-The evaluator returns `INCONCLUSIVE` when evidence is insufficient, including:
-
-- prepared-organic identifier-only agreement;
-- a bounded resonance search that reaches `max_resonance` without a match;
-- a bounded open-shell topology-mapping search that reaches its limit without a witness;
-- other comparison failures where no safe negative conclusion is available.
-
-The resonance bound remains configuration-controlled; this contract does not increase it.
-
-Ordinary resonance-search exceptions are not negative evidence. Failed or partial
-enumerations are not cached as completed results. The evaluator continues to the
-existing independent positive comparison paths; if none succeeds, it returns
-`INCONCLUSIVE`. Search failure sets `bounded_search.exhaustive = False`, and
-`reason` includes the exception type and message even when an independent path
-returns `EQUIVALENT`. A later evaluation after recovery needs no manual cache
-clear. `TimeoutError` still propagates to the caller; no retry or larger search
-bound is introduced.
-
-## Reproducibility
-
-Benchmark releases should pin the RDKit major/minor version and persist the evaluator source hash, runtime inventory, input manifest hash, `use_chirality`, and `max_resonance`. RDKit-dependent resonance and sanitization behavior must be reported as version-sensitive rather than treated as proof of physical electronic-state identity.
-
-Current authoritative validation uses RDKit `2026.03.6`. Resonance classification is not fully cross-version stable, so results involving resonance enumeration or normalization must be interpreted against the pinned runtime and revalidated when the RDKit version changes.
-
-When two generated resonance sets intersect, the recorded hit is their
-lexicographically smallest common SMILES, unless the existing direct-target
-match applies. This makes hit selection independent of Python's hash seed
-without changing which representations match.
-
-## Benchmark scoring and reference eligibility
-
-The three benchmark callers preserve `evaluator_decision`: EQ maps to
-`equivalent=True`, NEQ to `False`, and INC to `None`. CSV output keeps the
-decision even when the boolean cell is empty. tmQMg scores the original RDKit
-candidate graph; SMILES roundtrip results remain separate diagnostics.
-
-Reference eligibility is independent of evaluator and method outcomes:
-`reference_status` is `valid`, `excluded`, or `unresolved`, with the supporting
-`reference_reason`. Explicit confirmed-error metadata with a reason, or the
-existing independent reference/XYZ formula contradiction, permits exclusion.
-Missing/unparseable references and unresolved review records are not automatically
-confirmed errors. The historical manual whitelist is read-only reference-quality
-evidence, never an equivalence rule. `accepted_reference_issue` requires explicit
-`reference_answer_wrong=true` and a reason to establish exclusion;
-`accepted_ambiguous` and unconfirmed entries remain unresolved.
-
-`total_count` includes every input. `count` aliases `reference_valid_count`;
-confirmed exclusions and unresolved references have separate counts and do not
-enter that denominator. Within valid references, `success_count`, `fail_count`,
-`inconclusive_count`, and `runtime_failure_count` partition the denominator.
-INC and failed/skipped methods retain their valid-reference denominator slots.
-Runtime failures do not become NEQ or reference exclusions.
-
-`tmqmg_regression.py` preserves its raw `equivalence_decision` and no longer lets
-manual review or formula diagnostics overwrite `equivalent`, `strict_equivalent`,
-or `effective_equivalent`. The last field is compatibility data, not the formal
-score. Official `equivalent_fraction` is EQ divided by the valid-reference count.
-Freeze the same reference-status membership and graph inputs before comparing
-the original evaluator, merged v1, and v2; do not derive eligibility from their
-decisions. Review records and existing artifacts are not rewritten.
-
-An explicit frozen reference-status membership is reused rather than reopened
-by an unconfirmed legacy whitelist entry. Independent reference/XYZ composition
-contradictions are still recorded; evaluator outcomes never select membership.
-
-## Frozen three-version replay
-
-`scripts/evaluator_replay.py` consumes a fixed reference-validity manifest,
-candidate byte inventory, and three standalone evaluator snapshots. Frozen
-membership uses `valid`, `confirmed_excluded`, and `unresolved`; existing curated
-adjudications remain evidence without requiring newly introduced review fields.
-Original published references are not replaced with accepted candidate graphs.
-
-Every selected case gets raw per-version records before validity aggregation.
-INC, evaluator errors, timeouts, input errors, and unavailable candidates remain
-distinct. Empty reference SMILES are input errors, not empty-molecule NEQ.
-Lossless MolBlocks take precedence over V2000, with no SMILES fallback.
-Calls follow benchmark order, reference then candidate, retaining conformers.
-
-SQLite commits each `(case_id, version)` independently. Identical invocations
-resume missing rows; changed inputs, source, runtime binaries, or parameters
-require a new output directory. Use `--limit` for smoke only; the default exact
-RDKit requirement is `2026.03.6`. The full run requires separate authorization.
-
-The replay runner supports Linux and macOS environments with the multiprocessing
-`fork` start method. Windows is not supported; replay integration tests are skipped
-there. Summary/statistics imports do not require matplotlib; plotting loads the
-optional dependency only when requested.
+Replay checkpoints now fingerprint the compiled MolGR binary and Python package
+sources as well as the evaluator wrapper. A wrapper snapshot alone is no longer
+self-contained; replay requires the corresponding package/build. Never mix this
+implementation with frozen historical accuracy results or checkpoint identities.

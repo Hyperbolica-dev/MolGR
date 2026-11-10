@@ -1,5 +1,6 @@
 #include "molgr/utils/conversions.h"
 #include "molgr/utils/electrons.h"
+#include "molgr/utils/stereo.h"
 #include "molgr/vendor/openbabel_threading.h"
 
 #include <openbabel/atom.h>
@@ -32,6 +33,7 @@ namespace molgr
             {
                 OpenBabel::OBAtom *new_atom = clone.NewAtom();
                 new_atom->SetAtomicNum(atom->GetAtomicNum());
+                new_atom->SetIsotope(atom->GetIsotope());
                 new_atom->SetFormalCharge(atom->GetFormalCharge());
                 if (preserve_implicit_hydrogens)
                 {
@@ -83,6 +85,9 @@ namespace molgr
             clone.SetAromaticPerceived(source_has_aromaticity);
             clone.SetHybridizationPerceived(source_has_hybridization);
             clone.SetAtomTypesPerceived(mutable_source.HasAtomTypesPerceived());
+            // Internal topology/scoring clones also accept implicit hydrogens.
+            // Keep stereo transfer at the explicit-H MoleculeData boundary;
+            // topology scoring does not consume stereo annotations.
         }
 
         OpenBabel::OBMol CloneMolTopologyOnly(const OpenBabel::OBMol &mol)
@@ -116,6 +121,8 @@ namespace molgr
             {
                 OpenBabel::OBAtom *atom = mol.NewAtom();
                 atom->SetAtomicNum(atom_data.atomic_num);
+                atom->SetIsotope(atom_data.isotope);
+                atom->SetImplicitHCount(0);
                 atom->SetFormalCharge(atom_data.formal_charge);
                 // Reconstruction's sparse setters omit zero; serialization must
                 // retain a known zero as distinct from an absent annotation.
@@ -146,6 +153,10 @@ namespace molgr
 
             for (const BondData &bond_data : data.bonds)
             {
+                // OBMol is a covalent projection, not a lossless container for
+                // coordination. Keep the original MoleculeData for those edges.
+                if (bond_data.kind != BondKind::Covalent)
+                    continue;
                 mol.AddBond(bond_data.begin_atom_idx, bond_data.end_atom_idx, bond_data.order);
                 if (bond_data.aromatic || bond_data.order == 5)
                 {
@@ -160,6 +171,7 @@ namespace molgr
             }
 
             mol.EndModify();
+            ApplyStereoDataToOBMol(data, mol);
             return mol;
         }
 
@@ -172,6 +184,7 @@ namespace molgr
             MoleculeData data;
             data.total_charge = 0;
             data.total_radical_num = 0;
+            data.stereo = StereoDataFromOBMol(mol);
 
             OpenBabel::OBMol &mutable_mol = const_cast<OpenBabel::OBMol &>(mol);
             molgr::vendor::openbabel_threading::EnsureHybridizationPerceived(mutable_mol);
@@ -180,6 +193,7 @@ namespace molgr
             {
                 AtomData atom_data;
                 atom_data.atomic_num = atom->GetAtomicNum();
+                atom_data.isotope = atom->GetIsotope();
                 atom_data.formal_charge = atom->GetFormalCharge();
                 atom_data.radical_num = GetUnpairedElectronCount(*atom);
                 atom_data.lone_pair_count = GetLonePairCount(*atom);

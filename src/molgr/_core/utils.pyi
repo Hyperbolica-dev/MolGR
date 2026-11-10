@@ -10,7 +10,13 @@ import typing
 __all__: list[str] = [
     "AtomData",
     "BondData",
+    "BondKind",
     "MoleculeData",
+    "StereoData",
+    "StereoKind",
+    "StereoGroupData",
+    "StereoGroupKind",
+    "apply_molecule_data_stereo_to_obmol",
     "calculate_shape_quality",
     "calculate_tetrahedron_volume",
     "extract_molecule_data",
@@ -19,6 +25,8 @@ __all__: list[str] = [
 ]
 
 class AtomData:
+    isotope: int
+    def __init__(self) -> None: ...
     def __repr__(self) -> str:
         """
         Return a concise debug representation of AtomData.
@@ -67,8 +75,17 @@ class AtomData:
     @z.setter
     def z(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None: ...
 
+class BondKind:
+    """Dative endpoints are donor -> acceptor; covalent order is unused."""
+
+    Covalent: typing.ClassVar[BondKind]
+    Dative: typing.ClassVar[BondKind]
+    CoordinationUnspecified: typing.ClassVar[BondKind]
+
 class BondData:
     aromatic: bool
+    kind: BondKind
+    def __init__(self) -> None: ...
     def __repr__(self) -> str:
         """
         Return a concise debug representation of BondData.
@@ -86,7 +103,38 @@ class BondData:
     @order.setter
     def order(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
 
+class StereoKind:
+    Tetrahedral: typing.ClassVar[StereoKind]
+    DoubleBond: typing.ClassVar[StereoKind]
+    SquarePlanar: typing.ClassVar[StereoKind]
+    TrigonalBipyramidal: typing.ClassVar[StereoKind]
+    Octahedral: typing.ClassVar[StereoKind]
+
+class StereoData:
+    """One-based atom references; zero is a virtual non-hydrogen reference."""
+
+    kind: StereoKind
+    center: int
+    end: int
+    refs: list[int]
+    configuration: int
+    def __init__(self) -> None: ...
+
+class StereoGroupKind:
+    Absolute: typing.ClassVar[StereoGroupKind]
+    And: typing.ClassVar[StereoGroupKind]
+    Or: typing.ClassVar[StereoGroupKind]
+
+class StereoGroupData:
+    kind: StereoGroupKind
+    atoms: list[int]
+    read_id: int
+    def __init__(self) -> None: ...
+
 class MoleculeData:
+    stereo: list[StereoData]
+    stereo_groups: list[StereoGroupData]
+    def __init__(self) -> None: ...
     @property
     def atoms(self) -> list[AtomData]: ...
     @atoms.setter
@@ -103,6 +151,13 @@ class MoleculeData:
     def total_radical_num(self) -> int: ...
     @total_radical_num.setter
     def total_radical_num(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None: ...
+
+def _molecule_data_from_rows(
+    atoms: collections.abc.Sequence[tuple[int, int, int, int, int, bool, int]],
+    bonds: collections.abc.Sequence[tuple[int, int, int, bool, int]],
+    coordinates: typing.Any = None,
+) -> MoleculeData:
+    """Batch-build atom/bond vectors; optional coordinates have shape (N, 3)."""
 
 def calculate_shape_quality(
     p1: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex],
@@ -167,9 +222,14 @@ def get_possible_metal_radicals(
 
 def molecule_data_to_obmol_ptr(molecule_data: MoleculeData) -> int:
     """
-    Converts MoleculeData to a newly allocated OBMol pointer.
+    Converts MoleculeData to a newly allocated covalent OBMol projection.
+    Coordination edges are omitted; retain the source for coordination checks.
+    Hydrogens must be explicit atom nodes.
 
     Warning:
         The returned pointer has manual ownership, is not safe to share across
         threads, and must be freed exactly once with _core.free_obmol_ptr.
     """
+
+def apply_molecule_data_stereo_to_obmol(molecule_data: MoleculeData, mol_ptr: int) -> None:
+    """Replace stereo on a covalent projection; the caller owns the OBMol pointer."""

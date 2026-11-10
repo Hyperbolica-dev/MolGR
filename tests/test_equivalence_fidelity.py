@@ -187,7 +187,10 @@ def test_known_nonmetal_unpaired_count_survives_copy_and_evaluation_normalizatio
     boron.SetIntProp(UNPAIRED, count)
     before = _state(source)
 
-    copied = equivalence._safe_copy(source)
+    copied = Chem.Mol(source)
+    data, _ = equivalence._prepare_input(source, use_chirality=False)
+    assert data.atoms[1].radical_num == count
+    assert data.atoms[1].electron_property_presence & 1
 
     assert copied.GetAtomWithIdx(1).GetNumRadicalElectrons() == count
     assert copied.GetAtomWithIdx(1).GetIntProp(UNPAIRED) == count
